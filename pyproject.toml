@@ -1,0 +1,33 @@
+[project]
+name = "mosquito-cfd"
+version = "0.1.0"
+description = "CFD simulations of mosquito flight aerodynamics using IAMReX"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.2",
+    "pandas>=3.0.0",
+    "yt>=4.4.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.1",
+]
+
+[project.scripts]
+run-metadata = "mosquito_cfd.run_metadata:main"
+generate-markers = "mosquito_cfd.generate_wing_markers:main"
+
+[build-system]
+requires = ["uv_build>=0.10.3"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

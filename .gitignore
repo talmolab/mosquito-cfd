@@ -1,0 +1,50 @@
+# AMReX build artifacts
+*.o
+*.mod
+*.exe
+*.ex
+*.a
+tmp_build_dir/
+o/
+f/
+
+# AMReX output files (large)
+plt*/
+chk*/
+*.old
+
+# Plotfiles and checkpoints (track selectively if needed)
+plotfiles/
+checkpoints/
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large data files
+*.hdf5
+*.h5
+*.dat
+!inputs/*.dat
+
+# Logs
+*.log
+slurm-*.out
+
+# Local config (not for sharing)
+.env
+*.local.yaml
