@@ -63,8 +63,8 @@
   - [x] 7.1.5 Build Python image with cache
   - [x] 7.1.6 Push with tags: `latest-{fp32,fp64,python}`, git SHA
   - [x] 7.1.7 workflow_dispatch with inputs (images, push, tag_suffix, no_cache)
-- [ ] 7.2 Test workflow by pushing to main
-- [ ] 7.3 Verify images appear in GitHub Container Registry
+- [x] 7.2 Test workflow by pushing to main
+- [x] 7.3 Verify images appear in GitHub Container Registry
 - [ ] 7.4 Test pulling and running published images
 
 ## 8. Documentation
