@@ -29,7 +29,8 @@ LABEL com.mosquito-cfd.min-driver-version="550.54.14"
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies (no Python - uv will manage it)
+# Install system dependencies
+# Note: python3 is needed for AMReX build scripts; uv manages app Python separately
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Compilers
     g++ \
@@ -37,6 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Build tools
     make \
     cmake \
+    # Python for AMReX build scripts
+    python3 \
     # MPI for multi-GPU
     libopenmpi-dev \
     openmpi-bin \

@@ -46,8 +46,9 @@ slurm-*.out
 .env
 *.local.yaml
 
-# Documentation (not needed in image)
+# Documentation (not needed in image, except those required for build)
 *.md
+!README.md
 !docker/README.md
 
 # OpenSpec (development only)
