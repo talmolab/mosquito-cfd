@@ -7,7 +7,7 @@
 venv/
 __pycache__/
 *.py[cod]
-.python-version
+# Note: .python-version is NOT excluded - uv needs it to determine Python version
 
 # IDE
 .vscode/
