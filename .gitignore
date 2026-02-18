@@ -22,7 +22,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-.python-version
+# Note: .python-version is committed for reproducibility (uv best practice)
 
 # Jupyter
 .ipynb_checkpoints/
