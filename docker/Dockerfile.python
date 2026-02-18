@@ -1,0 +1,46 @@
+# =============================================================================
+# Mosquito CFD - Python Analysis Image
+# =============================================================================
+# Lightweight image for post-processing and analysis utilities
+# No CUDA or IAMReX - just Python tools for working with simulation output
+#
+# Build: docker build -f docker/Dockerfile.python -t mosquito-cfd:python .
+# Run:   docker run -it -v /path/to/data:/workspace mosquito-cfd:python
+# =============================================================================
+
+FROM debian:bookworm-slim
+
+# Metadata labels
+LABEL org.opencontainers.image.title="Mosquito CFD (Python)"
+LABEL org.opencontainers.image.description="Python utilities for CFD post-processing and analysis"
+LABEL org.opencontainers.image.source="https://github.com/talmo/mosquito-cfd"
+LABEL com.mosquito-cfd.type="python-only"
+
+# Install minimal system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Set up working directory
+WORKDIR /opt/mosquito-cfd
+
+# Copy Python project files (uv sync will auto-install Python)
+COPY pyproject.toml uv.lock .python-version ./
+COPY src/ ./src/
+
+# Install Python and dependencies using uv
+RUN uv sync --frozen
+
+# Create workspace directory
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# Set entrypoint to use uv run for all commands
+ENTRYPOINT ["uv", "run", "--project", "/opt/mosquito-cfd"]
+CMD ["python", "--version"]

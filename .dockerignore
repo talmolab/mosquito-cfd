@@ -1,0 +1,60 @@
+# Git
+.git/
+.gitignore
+
+# Python virtual environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.python-version
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AMReX build artifacts (if any local builds exist)
+*.o
+*.mod
+*.exe
+*.ex
+*.a
+tmp_build_dir/
+o/
+f/
+
+# AMReX output files (large)
+plt*/
+chk*/
+plotfiles/
+checkpoints/
+*.hdf5
+*.h5
+
+# Test data (regenerated in container)
+test_markers.dat
+
+# Logs
+*.log
+slurm-*.out
+
+# Local config
+.env
+*.local.yaml
+
+# Documentation (not needed in image)
+*.md
+!docker/README.md
+
+# OpenSpec (development only)
+openspec/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# uv cache (will be created fresh)
+.ruff_cache/

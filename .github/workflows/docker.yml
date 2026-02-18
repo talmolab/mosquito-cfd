@@ -1,0 +1,145 @@
+name: Docker Build & Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Images to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - fp32
+          - fp64
+          - python
+      push:
+        description: 'Push images to registry'
+        required: true
+        default: true
+        type: boolean
+      tag_suffix:
+        description: 'Optional tag suffix (e.g., "test" → fp32-test)'
+        required: false
+        type: string
+      no_cache:
+        description: 'Build without cache'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: talmolab/mosquito-cfd
+
+jobs:
+  build-fp32:
+    name: Build FP32 Image
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.images == 'all' || inputs.images == 'fp32' }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push FP32 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.fp32
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp32${{ inputs.tag_suffix && format('-{0}', inputs.tag_suffix) || '' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-fp32
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp32-${{ github.sha }}
+          cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=fp32' }}
+          cache-to: type=gha,mode=max,scope=fp32
+          no-cache: ${{ inputs.no_cache || false }}
+
+  build-fp64:
+    name: Build FP64 Image
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.images == 'all' || inputs.images == 'fp64' }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push FP64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.fp64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp64${{ inputs.tag_suffix && format('-{0}', inputs.tag_suffix) || '' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-fp64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp64-${{ github.sha }}
+          cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=fp64' }}
+          cache-to: type=gha,mode=max,scope=fp64
+          no-cache: ${{ inputs.no_cache || false }}
+
+  build-python:
+    name: Build Python Image
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.images == 'all' || inputs.images == 'python' }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Python image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.python
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python${{ inputs.tag_suffix && format('-{0}', inputs.tag_suffix) || '' }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-python
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:python-${{ github.sha }}
+          cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=python' }}
+          cache-to: type=gha,mode=max,scope=python
+          no-cache: ${{ inputs.no_cache || false }}

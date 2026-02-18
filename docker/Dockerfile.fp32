@@ -1,0 +1,125 @@
+# =============================================================================
+# Mosquito CFD - FP32 CUDA Build Image
+# =============================================================================
+# IAMReX (Immersed-boundary AMReX) with single precision for A40 GPU prototyping
+#
+# Build: docker build -f docker/Dockerfile.fp32 -t mosquito-cfd:fp32 .
+# Run:   docker run --gpus all -it mosquito-cfd:fp32
+# =============================================================================
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# Build arguments for pinned dependencies (override with --build-arg)
+ARG IAMREX_COMMIT=52ffb65b84e357ccf14709db93ef422ea5609bc4
+ARG AMREX_COMMIT=5261817c53116695be2a9d29ff95dce1a6a39f9d
+ARG AMREX_HYDRO_COMMIT=75da770ea36e4064b5947d7e56baa19f5bc92263
+ARG CUDA_ARCH=86
+
+# Metadata labels
+LABEL org.opencontainers.image.title="Mosquito CFD (FP32)"
+LABEL org.opencontainers.image.description="IAMReX CFD with single precision CUDA for A40 GPU prototyping"
+LABEL org.opencontainers.image.source="https://github.com/talmo/mosquito-cfd"
+LABEL com.mosquito-cfd.precision="FP32"
+LABEL com.mosquito-cfd.cuda-arch="${CUDA_ARCH}"
+LABEL com.mosquito-cfd.iamrex-commit="${IAMREX_COMMIT}"
+LABEL com.mosquito-cfd.amrex-commit="${AMREX_COMMIT}"
+LABEL com.mosquito-cfd.amrex-hydro-commit="${AMREX_HYDRO_COMMIT}"
+LABEL com.mosquito-cfd.min-driver-version="550.54.14"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies (no Python - uv will manage it)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Compilers
+    g++ \
+    gfortran \
+    # Build tools
+    make \
+    cmake \
+    # MPI for multi-GPU
+    libopenmpi-dev \
+    openmpi-bin \
+    # Version control
+    git \
+    # Utilities
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up working directory
+WORKDIR /opt/cfd
+
+# Clone AMReX (IAMReX's fork) at pinned commit
+RUN git clone https://github.com/ruohai0925/amrex.git && \
+    cd amrex && \
+    git checkout ${AMREX_COMMIT} && \
+    echo "AMReX checked out at ${AMREX_COMMIT}"
+
+# Clone AMReX-Hydro at pinned commit
+RUN git clone https://github.com/ruohai0925/AMReX-Hydro.git && \
+    cd AMReX-Hydro && \
+    git checkout ${AMREX_HYDRO_COMMIT} && \
+    echo "AMReX-Hydro checked out at ${AMREX_HYDRO_COMMIT}"
+
+# Clone IAMReX at pinned commit
+RUN git clone https://github.com/ruohai0925/IAMReX.git && \
+    cd IAMReX && \
+    git checkout ${IAMREX_COMMIT} && \
+    echo "IAMReX checked out at ${IAMREX_COMMIT}"
+
+# Set environment variables for AMReX
+ENV AMREX_HOME=/opt/cfd/amrex
+ENV AMREX_HYDRO_HOME=/opt/cfd/AMReX-Hydro
+
+# Build FlowPastSphere tutorial (validates the build works)
+WORKDIR /opt/cfd/IAMReX/Tutorials/FlowPastSphere
+
+# Create GNUmakefile.local with our build configuration
+RUN echo "# FP32 CUDA build for A40 GPU" > GNUmakefile.local && \
+    echo "COMP = gnu" >> GNUmakefile.local && \
+    echo "DIM = 3" >> GNUmakefile.local && \
+    echo "USE_MPI = TRUE" >> GNUmakefile.local && \
+    echo "USE_OMP = FALSE" >> GNUmakefile.local && \
+    echo "USE_CUDA = TRUE" >> GNUmakefile.local && \
+    echo "PRECISION = FLOAT" >> GNUmakefile.local && \
+    echo "USE_SINGLE_PRECISION_PARTICLES = TRUE" >> GNUmakefile.local && \
+    echo "DEBUG = FALSE" >> GNUmakefile.local && \
+    echo "USE_ASSERTION = FALSE" >> GNUmakefile.local && \
+    echo "CUDA_ARCH = ${CUDA_ARCH}" >> GNUmakefile.local && \
+    echo "AMREX_HOME = ${AMREX_HOME}" >> GNUmakefile.local && \
+    echo "AMREX_HYDRO_HOME = ${AMREX_HYDRO_HOME}" >> GNUmakefile.local
+
+# Build IAMReX (this takes a while)
+RUN make -j$(nproc) 2>&1 | tee /opt/cfd/build.log && \
+    ls -la *.ex && \
+    echo "IAMReX FP32 build complete"
+
+# Install uv for Python package management
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Set up Python environment for mosquito-cfd utilities
+WORKDIR /opt/cfd/mosquito-cfd
+
+# Copy Python project files (uv sync will auto-install Python)
+COPY pyproject.toml uv.lock .python-version ./
+COPY src/ ./src/
+
+# Install Python and dependencies using uv
+# uv automatically downloads the required Python version specified in .python-version
+RUN uv sync --frozen
+
+# Create workspace directory for simulations
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# Set PATH to include IAMReX executable
+ENV PATH="/opt/cfd/IAMReX/Tutorials/FlowPastSphere:${PATH}"
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /opt/cfd/entrypoint.sh
+RUN chmod +x /opt/cfd/entrypoint.sh
+
+# Default command shows build info
+CMD ["/opt/cfd/entrypoint.sh"]
