@@ -3,13 +3,13 @@
 - [x] 1.1 Create `docker/` directory in mosquito-cfd repo
 - [x] 1.2 Create `.github/workflows/` directory for GitHub Actions
 - [x] 1.3 Add `.dockerignore` to exclude unnecessary files from build context
-- [ ] 1.4 Update `.gitignore` for any Docker-related artifacts
+- [x] 1.4 Update `.gitignore` for any Docker-related artifacts (no artifacts needed)
 
 ## 2. Docker Base Configuration
 
 - [x] 2.1 Document current IAMReX dependency commits (amrex, AMReX-Hydro, IAMReX)
 - [x] 2.2 Create `docker/build-args.env` with pinned commit SHAs
-- [ ] 2.3 Test base image `nvidia/cuda:12.4.1-devel-ubuntu22.04` builds locally
+- [x] 2.3 Test base image `nvidia/cuda:12.4.1-devel-ubuntu22.04` builds locally (verified via CI)
 
 ## 3. FP32 Dockerfile (Primary Prototyping Image)
 
@@ -33,7 +33,7 @@
 - [x] 4.1 Create `docker/Dockerfile.fp64` (copy FP32, change PRECISION=DOUBLE)
 - [ ] 4.2 Build and test FP64 image locally
 - [ ] 4.3 Verify FP64 FlowPastSphere runs (expect ~10-20x slower than FP32 on A40)
-- [ ] 4.4 Compare timing between FP32 and FP64 containers
+- [ ] ~~4.4 Compare timing between FP32 and FP64 containers~~ BLOCKED: FP32 not available
 
 ## 5. Python-Only Dockerfile (Analysis Image)
 
