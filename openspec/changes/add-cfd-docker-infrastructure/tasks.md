@@ -40,8 +40,8 @@
   - [x] 5.1.2 uv installation
   - [x] 5.1.3 mosquito-cfd Python package installation
   - [x] 5.1.4 yt, matplotlib, numpy for post-processing
-- [ ] 5.2 Build and test Python image locally
-- [ ] 5.3 Verify `generate-markers` and `run-metadata` CLI commands work
+- [x] 5.2 Build and test Python image locally
+- [x] 5.3 Verify `generate-markers` and `run-metadata` CLI commands work
 
 ## 6. GitHub Actions CI Workflow
 
@@ -65,7 +65,7 @@
   - [x] 7.1.7 workflow_dispatch with inputs (images, push, tag_suffix, no_cache)
 - [x] 7.2 Test workflow by pushing to main
 - [x] 7.3 Verify images appear in GitHub Container Registry
-- [ ] 7.4 Test pulling and running published images
+- [x] 7.4 Test pulling and running published images
 
 ## 8. Documentation
 
