@@ -13,6 +13,8 @@
 
 ## 3. FP32 Dockerfile (Primary Prototyping Image)
 
+**STATUS: BLOCKED** - IAMReX has compilation bugs with FP32+CUDA. See design.md for details.
+
 - [x] 3.1 Create `docker/Dockerfile.fp32` with:
   - [x] 3.1.1 CUDA 12.4 base image
   - [x] 3.1.2 System dependencies (g++, gfortran, openmpi, cmake)
@@ -22,9 +24,9 @@
   - [x] 3.1.6 Clone and build IAMReX FlowPastSphere tutorial
   - [x] 3.1.7 Install uv and Python dependencies from pyproject.toml
   - [x] 3.1.8 Add labels (version, commit SHAs, precision, cuda_arch)
-- [ ] 3.2 Build and test FP32 image locally
-- [ ] 3.3 Verify FlowPastSphere runs on A40 GPU inside container
-- [ ] 3.4 Document image size and build time
+- [ ] ~~3.2 Build and test FP32 image locally~~ BLOCKED: FP32+CUDA compilation errors
+- [ ] ~~3.3 Verify FlowPastSphere runs on A40 GPU inside container~~ BLOCKED
+- [ ] ~~3.4 Document image size and build time~~ BLOCKED
 
 ## 4. FP64 Dockerfile (Validation Image)
 
@@ -90,7 +92,17 @@
 
 ## 10. Validation and Release
 
-- [ ] 10.1 Manual GPU test on Salk A40 cluster via RunAI
+- [ ] 10.1 Manual GPU test on Salk A40 cluster via RunAI (FP64 only until FP32 fixed)
 - [ ] 10.2 Compare container vs native build performance (should be equivalent)
 - [ ] 10.3 Tag v0.1.0 release to trigger initial image publication
 - [ ] 10.4 Verify reproducibility: rebuild from Dockerfile, compare checksums
+
+## 11. Upstream Issue: FP32+CUDA Support
+
+**Blocking**: Section 3 (FP32 Docker image)
+
+- [ ] 11.1 File issue on ruohai0925/IAMReX describing FP32+CUDA compilation errors
+- [ ] 11.2 Identify minimal reproducible example
+- [ ] 11.3 Investigate local patches to NavierStokesBase.cpp and Projection.cpp
+- [ ] 11.4 Test with newer IAMReX commits (if available)
+- [ ] 11.5 Once fixed: rebuild FP32 image and complete section 3

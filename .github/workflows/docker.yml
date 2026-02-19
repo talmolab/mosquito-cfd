@@ -37,8 +37,10 @@ env:
 
 jobs:
   build-fp32:
-    name: Build FP32 Image
+    name: Build FP32 Image (BLOCKED - upstream bug)
     runs-on: ubuntu-latest
+    # FP32+CUDA has compilation errors in IAMReX - allow failure until upstream fixes
+    continue-on-error: true
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.images == 'all' || inputs.images == 'fp32' }}
     permissions:
       contents: read

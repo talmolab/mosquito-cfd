@@ -137,10 +137,33 @@ Dockerfile.python → ghcr.io/*/mosquito-cfd:python  (~1-2 GB)
 
 **Why**: Separation allows fast PR feedback (lint/test) while limiting expensive Docker builds to merged code.
 
+## Known Limitations
+
+### FP32+CUDA Compilation Issues (BLOCKING)
+
+**Status**: IAMReX source code has bugs preventing FP32+CUDA builds.
+
+**Errors** (at pinned commit `52ffb65`):
+```
+NavierStokesBase.cpp(1591): error: no instance of overloaded function "std::min" matches the argument list
+NavierStokesBase.cpp(5424): error: no instance of overloaded function "std::min" matches the argument list
+Projection.cpp(46): error: floating-point value does not fit in required floating-point type
+```
+
+**Root Cause**: The IAMReX codebase has hardcoded `double` literals and type mismatches in CUDA code paths that break with `PRECISION=FLOAT`.
+
+**Current Workarounds**:
+1. **FP64+CUDA**: Works but ~64x slower on A40 (0.585 vs 37.4 TFLOPS)
+2. **FP32+CPU**: No GPU acceleration (not practical for CFD)
+3. **Upstream fix**: Requires patches to IAMReX source
+
+**Impact**: Original A40 FP32 prototyping strategy is blocked until upstream fixes are available or we patch locally.
+
 ## Risks / Trade-offs
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
+| **FP32+CUDA incompatibility** | **Realized** | **High** | Use FP64+CUDA; track upstream for fixes |
 | CUDA version mismatch with host driver | Low | High | Document minimum driver version; test on target systems |
 | IAMReX upstream changes break build | Medium | Medium | Pin commits; update deliberately with testing |
 | Large image size (~10GB) | Certain | Low | Acceptable for HPC; provide Python-only image for analysis |
