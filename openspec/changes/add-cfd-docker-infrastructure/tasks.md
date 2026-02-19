@@ -101,8 +101,8 @@
 
 **Blocking**: Section 3 (FP32 Docker image)
 
-- [ ] 11.1 File issue on ruohai0925/IAMReX describing FP32+CUDA compilation errors
-- [ ] 11.2 Identify minimal reproducible example
+- [x] 11.1 File issue on ruohai0925/IAMReX describing FP32+CUDA compilation errors ([#59](https://github.com/ruohai0925/IAMReX/issues/59))
+- [x] 11.2 Identify minimal reproducible example (included in issue #59)
 - [ ] 11.3 Investigate local patches to NavierStokesBase.cpp and Projection.cpp
 - [ ] 11.4 Test with newer IAMReX commits (if available)
 - [ ] 11.5 Once fixed: rebuild FP32 image and complete section 3
