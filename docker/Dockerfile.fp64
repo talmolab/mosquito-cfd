@@ -99,7 +99,14 @@ RUN echo "# FP64 CUDA build for validation" > GNUmakefile.local && \
     echo "AMREX_HYDRO_HOME = ${AMREX_HYDRO_HOME}" >> GNUmakefile.local
 
 # Build IAMReX (this takes a while)
-RUN make -j$(nproc) 2>&1 | tee /opt/cfd/build.log && \
+# Pass build options on command line to override GNUmakefile defaults
+RUN make -j$(nproc) \
+    COMP=gnu DIM=3 USE_MPI=TRUE USE_OMP=FALSE \
+    USE_CUDA=TRUE CUDA_ARCH=${CUDA_ARCH} \
+    PRECISION=DOUBLE USE_SINGLE_PRECISION_PARTICLES=FALSE \
+    DEBUG=FALSE USE_ASSERTION=FALSE \
+    AMREX_HOME=${AMREX_HOME} AMREX_HYDRO_HOME=${AMREX_HYDRO_HOME} \
+    2>&1 | tee /opt/cfd/build.log && \
     ls -la *.ex && \
     echo "IAMReX FP64 build complete"
 
