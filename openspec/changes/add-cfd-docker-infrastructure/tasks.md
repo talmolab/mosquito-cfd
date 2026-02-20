@@ -31,8 +31,8 @@
 ## 4. FP64 Dockerfile (Validation Image)
 
 - [x] 4.1 Create `docker/Dockerfile.fp64` (copy FP32, change PRECISION=DOUBLE)
-- [ ] 4.2 Build and test FP64 image locally
-- [ ] 4.3 Verify FP64 FlowPastSphere runs (expect ~10-20x slower than FP32 on A40)
+- [x] 4.2 Build and test FP64 image locally (via RunAI cluster)
+- [x] 4.3 Verify FP64 FlowPastSphere runs (5 steps in ~14s on A40)
 - [ ] ~~4.4 Compare timing between FP32 and FP64 containers~~ BLOCKED: FP32 not available
 
 ## 5. Python-Only Dockerfile (Analysis Image)
@@ -92,7 +92,7 @@
 
 ## 10. Validation and Release
 
-- [ ] 10.1 Manual GPU test on Salk A40 cluster via RunAI (FP64 only until FP32 fixed)
+- [x] 10.1 Manual GPU test on Salk A40 cluster via RunAI (FP64 validated)
 - [ ] 10.2 Compare container vs native build performance (should be equivalent)
 - [ ] 10.3 Tag v0.1.0 release to trigger initial image publication
 - [ ] 10.4 Verify reproducibility: rebuild from Dockerfile, compare checksums
