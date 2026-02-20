@@ -14,20 +14,20 @@ Prototype simulations for the APEX supercomputing proposal, validating against [
 ### Using Docker (Recommended)
 
 ```bash
-# Pull the pre-built FP32 image
-docker pull ghcr.io/talmolab/mosquito-cfd:fp32
+# Pull the pre-built FP64 image
+docker pull ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Run with GPU support
-docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp32
+docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Inside container: run FlowPastSphere example
 cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere
-mpirun -np 1 ./amr3d.gnu.CUDA.MPI.ex inputs.3d
+mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sphere max_step=10
 ```
 
 Available images:
-- `ghcr.io/talmolab/mosquito-cfd:fp32` - A40 prototyping (fast)
-- `ghcr.io/talmolab/mosquito-cfd:fp64` - Validation (accurate)
+- `ghcr.io/talmolab/mosquito-cfd:fp64` - Validation (accurate, currently recommended)
+- `ghcr.io/talmolab/mosquito-cfd:fp32` - A40 prototyping (blocked: [upstream bug](https://github.com/ruohai0925/IAMReX/issues/59))
 - `ghcr.io/talmolab/mosquito-cfd:python` - Post-processing only
 
 See [docker/README.md](docker/README.md) for full documentation.
@@ -67,7 +67,7 @@ make -j$(nproc)
 ### Run
 
 ```bash
-mpirun -np 1 ./amr3d.gnu.CUDA.MPI.ex inputs.3d
+mpirun -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sphere max_step=10
 ```
 
 ## Directory Structure
