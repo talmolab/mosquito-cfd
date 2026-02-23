@@ -1,0 +1,9 @@
+# Simulation outputs (large, generated)
+plt*/
+chk*/
+Backtrace.*
+
+# Keep README and scripts
+!README.md
+!*.sh
+!*.py
