@@ -27,12 +27,12 @@ Flow direction →
 ## Running on Salk Cluster
 
 ```bash
-# Submit interactive workspace with persistent storage
-runai workspace submit elizabeth-cfd \
+# Submit workspace with persistent storage (outputs saved to cluster filesystem)
+runai workspace submit <your-name>-cfd \
   --image ghcr.io/talmolab/mosquito-cfd:fp64 \
   --gpu-devices-request 1 \
   --preemptible \
-  --host-path /hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/flow_past_sphere:/workspace
+  --host-path path=/hpi/hpi_dev/users/<username>/mosquito-cfd/examples/flow_past_sphere,mount=/workspace,readwrite
 
 # Inside container:
 cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere
@@ -47,6 +47,14 @@ mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sph
 - `plt*` - Plot files (viewable with yt, VisIt, ParaView)
 - `chk*` - Checkpoint files (for restarting)
 - `Backtrace.*` - Debug info if simulation crashes
+
+Outputs are saved to the mounted directory on the cluster filesystem and persist after the workspace exits.
+
+## Performance
+
+Verified on A40 GPU (Salk cluster):
+- 100 timesteps: ~566 seconds (~9.4 minutes)
+- Output files: ~1.4 GB for plt00100, ~1.4 GB for chk00100
 
 ## Visualization
 

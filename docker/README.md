@@ -13,15 +13,17 @@ This directory contains Dockerfiles for building reproducible IAMReX CFD simulat
 ## Quick Start
 
 ```bash
-# Pull the FP32 image (recommended for development)
-docker pull ghcr.io/talmolab/mosquito-cfd:fp32
+# Pull the FP64 image (currently recommended - FP32 has upstream build issues)
+docker pull ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Run with GPU support
-docker run --gpus all -it ghcr.io/talmolab/mosquito-cfd:fp32
+docker run --gpus all -it ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Run with mounted workspace
-docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp32
+docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp64
 ```
+
+**Note**: FP32 image is currently blocked due to [upstream compilation bug](https://github.com/ruohai0925/IAMReX/issues/59). Use FP64 for now.
 
 ## FP32 vs FP64
 
@@ -69,14 +71,14 @@ docker build -f docker/Dockerfile.fp32 \
 
 ```bash
 # Interactive shell
-docker run --gpus all -it ghcr.io/talmolab/mosquito-cfd:fp32
+docker run --gpus all -it ghcr.io/talmolab/mosquito-cfd:fp64
 
-# Run FlowPastSphere example
-docker run --gpus all ghcr.io/talmolab/mosquito-cfd:fp32 \
-  bash -c "cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere && mpirun -np 1 ./amr3d.gnu.CUDA.MPI.ex inputs.3d"
+# Run FlowPastSphere example (10 timesteps)
+docker run --gpus all ghcr.io/talmolab/mosquito-cfd:fp64 \
+  bash -c "cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere && mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sphere max_step=10"
 
 # Generate wing markers
-docker run -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp32 \
+docker run -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp64 \
   bash -c "cd /opt/cfd/mosquito-cfd && uv run generate-markers --output /workspace/wing_markers.dat"
 ```
 
