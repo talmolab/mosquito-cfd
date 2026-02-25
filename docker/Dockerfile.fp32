@@ -11,7 +11,7 @@ FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 # Build arguments for pinned dependencies (override with --build-arg)
 ARG IAMREX_COMMIT=52ffb65b84e357ccf14709db93ef422ea5609bc4
-ARG AMREX_COMMIT=5261817c53116695be2a9d29ff95dce1a6a39f9d
+ARG AMREX_COMMIT=2e4b667c1bd9fb5cf42dff6a7a1af0dfc012a3d4
 ARG AMREX_HYDRO_COMMIT=75da770ea36e4064b5947d7e56baa19f5bc92263
 ARG CUDA_ARCH=86
 
@@ -54,10 +54,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/cfd
 
 # Clone AMReX (IAMReX's fork) at pinned commit
-# Note: commit is on development branch, so fetch it before checkout
 RUN git clone https://github.com/ruohai0925/amrex.git && \
     cd amrex && \
-    git fetch origin development && \
     git checkout ${AMREX_COMMIT} && \
     echo "AMReX checked out at ${AMREX_COMMIT}"
 
