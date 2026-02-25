@@ -59,7 +59,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/cfd
 
 # Clone AMReX (IAMReX's fork) at pinned commit
-RUN git clone https://github.com/ruohai0925/amrex.git && \
+# Note: commits are on development branch, not default
+RUN git clone --branch development https://github.com/ruohai0925/amrex.git && \
     cd amrex && \
     git checkout ${AMREX_COMMIT} && \
     echo "AMReX checked out at ${AMREX_COMMIT}"
