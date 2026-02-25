@@ -1,0 +1,50 @@
+# Heaving Ellipsoid Force Time Series
+# Generated: February 24, 2026
+# Case: Thin ellipsoid (a=0.5, b=0.02, c=1.5) heaving at Re=100
+# Data extracted from particle_real_comp3/4/5 in IAMReX plotfiles
+
+## Simulation Parameters
+Parameter,Value,Unit
+geometry_type,2 (ellipsoid),-
+semi_axis_a,0.5,dimensionless
+semi_axis_b,0.02,dimensionless
+semi_axis_c,1.5,dimensionless
+aspect_ratio,3:1,-
+freestream_velocity,1.0,dimensionless
+heave_velocity,0.5,dimensionless
+viscosity,0.01,dimensionless
+reynolds_number,100,-
+grid,256x128x128,-
+cells,4194304,-
+timestep,0.01,dimensionless
+time_per_step,1.89,seconds
+
+## Force Time Series
+# Fx_fluid, Fy_fluid, Fz_fluid: Force on fluid from IB markers
+# F_drag, F_lift: Force on body (= -force on fluid)
+Step,Time,Fx_fluid,Fy_fluid,Fz_fluid,F_drag,F_lift
+0,0.0,0.000,0.000,0.000,0.000,0.000
+100,1.0,-0.214,0.109,0.000,0.214,-0.109
+200,2.0,-0.204,0.106,0.000,0.204,-0.106
+300,3.0,-0.197,0.105,0.000,0.197,-0.105
+400,4.0,-0.194,0.103,0.000,0.194,-0.103
+500,5.0,-0.192,0.103,0.000,0.192,-0.103
+600,6.0,-0.190,0.102,0.000,0.190,-0.102
+700,7.0,-0.190,0.101,0.000,0.190,-0.101
+800,8.0,-0.188,0.101,0.000,0.188,-0.101
+900,9.0,-0.189,0.100,0.000,0.189,-0.100
+1000,10.0,-0.188,0.100,0.000,0.188,-0.100
+
+## Force Coefficients (Steady State, t=10)
+# Reference: planform area = pi * a * c = 2.356
+# Dynamic pressure q = 0.5 * rho * U^2 = 0.5
+Coefficient,Value,Reference_Area,Notes
+Cd,0.16,planform (2.356),drag coefficient
+CL,0.085,planform (2.356),lift coefficient (heaving-induced)
+L_over_D,0.53,-,lift-to-drag ratio
+
+## Convergence
+# Quasi-steady state reached by t=7.0 (forces change <1% thereafter)
+Time_range,Metric,Change
+7.0-10.0,F_drag,<1%
+7.0-10.0,F_lift,<1%

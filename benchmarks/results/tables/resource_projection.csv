@@ -1,0 +1,58 @@
+# A40 -> A100 Resource Projection for APEX Proposal
+# Generated: February 24, 2026
+# Based on measured A40 performance from FlowPastSphere and Heaving Ellipsoid benchmarks
+
+## Hardware Specifications
+Hardware,FP64_TFLOPS,Memory_BW_GBs,Memory_GB
+NVIDIA A40,0.585,696,48
+NVIDIA A100,9.7,2039,80
+
+## Speedup Ratios
+Metric,Ratio,Basis,Usage
+Compute,16.6,FP64 TFLOPS,Upper bound (compute-limited)
+Bandwidth,2.9,Memory bandwidth,Primary estimate (CFD is bandwidth-limited)
+
+## Measured A40 Performance
+Case,Cells,Time_per_Step_s,GPU_Memory_MB,Throughput_Mcells_per_s
+FlowPastSphere_coarse,524288,0.30,679,1.75
+FlowPastSphere_medium,4194304,1.76,3837,2.38
+Heaving_ellipsoid,4194304,1.89,3837,2.22
+
+## Scaling Analysis
+Metric,Value
+Cell_ratio_coarse_to_medium,8.0x
+Time_ratio_coarse_to_medium,5.87x
+Throughput_improvement,36%
+Scaling_type,Superlinear (typical for GPU)
+
+## Projected A100 Performance
+Case,A40_s,A100_2.9x_s,A100_4x_s
+FlowPastSphere_coarse,0.30,0.10,0.08
+FlowPastSphere_medium,1.76,0.61,0.44
+Heaving_ellipsoid,1.89,0.65,0.47
+Production_wing_10M,4.20,1.45,1.05
+
+## Production Wing Simulation Estimates
+Parameter,Value,Unit
+Grid_cells,10000000,cells
+Throughput_used,2.38,M cells/s
+A40_time_per_step,4.20,seconds
+A100_time_per_step_2.9x,1.45,seconds
+A100_time_per_step_4x,1.05,seconds
+Steps_per_wingbeat,5000,steps
+Wingbeats_for_statistics,100,wingbeats
+Total_timesteps,500000,steps
+A40_total_hours,584,GPU-hours
+A100_total_hours_2.9x,201,GPU-hours
+A100_total_hours_4x,146,GPU-hours
+
+## APEX Resource Request (using 2.9x bandwidth-limited estimate)
+Milestone,Simulations,Hours_per_sim,A100_GPU_hours
+Code_validation,10,5,50
+Single_wing_baseline,5,201,1006
+Kinematic_parameter_sweep,50,201,10061
+Re_sensitivity_study,50,201,10061
+Production_dataset,250,201,50307
+Subtotal,-,-,71487
+Contingency_20pct,-,-,14297
+Total_request,-,-,85784

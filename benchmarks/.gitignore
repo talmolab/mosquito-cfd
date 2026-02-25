@@ -1,0 +1,12 @@
+# Large output files (store metadata, not raw data)
+plt*/
+chk*/
+*.plt
+*.chk
+
+# Logs
+*.log
+Backtrace.*
+
+# Keep results (figures, tables, metadata)
+!results/

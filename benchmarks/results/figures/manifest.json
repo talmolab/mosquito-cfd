@@ -1,0 +1,68 @@
+{
+  "generated": "2026-02-24T14:44:21.845594",
+  "generator": "generate_figures.py",
+  "figures": [
+    {
+      "case": "flow_past_sphere",
+      "field": "x_velocity",
+      "source_plotfile": "plt10000",
+      "description": "Streamwise velocity slice at steady state (Re=100)",
+      "reynolds": 100,
+      "grid": "256x128x128"
+    },
+    {
+      "case": "flow_past_sphere",
+      "field": "y_velocity",
+      "source_plotfile": "plt10000",
+      "description": "Streamwise velocity slice at steady state (Re=100)",
+      "reynolds": 100,
+      "grid": "256x128x128"
+    },
+    {
+      "case": "flow_past_sphere",
+      "field": "z_velocity",
+      "source_plotfile": "plt10000",
+      "description": "Streamwise velocity slice at steady state (Re=100)",
+      "reynolds": 100,
+      "grid": "256x128x128"
+    },
+    {
+      "case": "heaving_ellipsoid",
+      "fields": [
+        "x_velocity",
+        "y_velocity",
+        "z_velocity"
+      ],
+      "source_plotfile": "plt_1k00500",
+      "description": "Velocity field of heaving thin ellipsoid (wing approximation)",
+      "reynolds": 100,
+      "heave_velocity": 0.5,
+      "semi_axes": "0.5x0.02x1.5",
+      "grid": "256x128x128",
+      "note": "t=5 used: wake developed, body still 2.5 units from periodic boundary"
+    },
+    {
+      "case": "heaving_ellipsoid",
+      "filename": "ellipsoid_heaving_Re100_force_history.png",
+      "description": "Force time history for heaving thin ellipsoid",
+      "reynolds": 100,
+      "heave_velocity": 0.5,
+      "semi_axes": "0.5x0.02x1.5",
+      "grid": "256x128x128",
+      "time_range": "0-10",
+      "source_plotfiles": [
+        "plt_1k00000",
+        "plt_1k00100",
+        "plt_1k00200",
+        "plt_1k00300",
+        "plt_1k00400",
+        "plt_1k00500",
+        "plt_1k00600",
+        "plt_1k00700",
+        "plt_1k00800",
+        "plt_1k00900",
+        "plt_1k01000"
+      ]
+    }
+  ]
+}

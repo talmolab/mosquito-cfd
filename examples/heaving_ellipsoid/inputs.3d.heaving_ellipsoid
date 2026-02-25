@@ -1,0 +1,162 @@
+#*******************************************************************************
+# INPUTS.3D.HEAVING_ELLIPSOID
+#
+# Thin ellipsoid heaving through fluid at Re=100
+# Approximates flat plate wing for APEX proposal benchmarking
+#
+# Based on FlowPastSphere with modifications for:
+#   - Ellipsoid geometry (geometry_type=2)
+#   - Heaving motion (constant velocity_y)
+#   - Thin aspect ratio matching mosquito wing AR=3
+#*******************************************************************************
+
+# Simulation control
+max_step        = 1000
+stop_time       = 100.0
+
+ns.fixed_dt     = 0.01
+ns.cfl          = 0.3
+ns.init_iter    = 0
+
+# Diffused IB input file
+particle.input  = particle_inputs
+
+# AMR settings
+amr.max_level       = 0
+amr.n_cell          = 256 128 128
+amr.max_grid_size   = 16
+amr.regrid_int      = 1
+amr.ref_ratio       = 2 2 2 2
+
+# Refinement (disabled for now)
+amr.refinement_indicators = tracer
+amr.tracer.field_name = tracer
+amr.tracer.in_box_lo = 4.0 4.5 4.5
+amr.tracer.in_box_hi = 6.0 5.5 5.5
+
+#*******************************************************************************
+# Verbosity
+#*******************************************************************************
+ns.v                    = 1
+nodal_proj.verbose      = 1
+mac_proj.verbose        = 1
+amr.v                   = 1
+
+#*******************************************************************************
+# I/O
+#*******************************************************************************
+amr.check_int       = 500
+amr.plot_int        = 100
+
+#*******************************************************************************
+# Physics
+#*******************************************************************************
+
+# Viscosity: nu = 0.01 gives Re = U*L/nu = 1.0*1.0/0.01 = 100
+ns.vel_visc_coef    = 0.01
+
+# No scalar diffusion
+ns.scal_diff_coefs  = 0.0
+
+# No gravity
+ns.gravity          = 0.0
+
+# Subcycling
+amr.subcycling_mode = None
+ns.skip_level_projector = 0
+
+#*******************************************************************************
+# Domain geometry
+#*******************************************************************************
+
+# Coordinate system (0 = Cartesian x-y-z)
+geometry.coord_sys  = 0
+
+# Domain: 20 x 10 x 10 (dimensionless, scaled to characteristic length)
+geometry.prob_lo    = 0. 0. 0.
+geometry.prob_hi    = 20. 10. 10.
+
+# Periodic in y and z
+geometry.is_periodic = 0 1 1
+
+# Boundary conditions
+# 0 = Interior/Periodic, 1 = Inflow, 2 = Outflow
+# 3 = Symmetry, 4 = SlipWall, 5 = NoSlipWall
+ns.lo_bc            = 1 0 0
+ns.hi_bc            = 2 0 0
+
+# Inflow velocity (freestream)
+xlo.velocity        = 1. 0. 0.
+
+#*******************************************************************************
+# Problem type
+#*******************************************************************************
+prob.probtype       = 1
+
+#*******************************************************************************
+# Immersed Boundary settings
+#*******************************************************************************
+ns.isolver          = 1
+ns.do_diffused_ib   = 1
+ns.fluid_rho        = 1.0
+
+particles.do_nspc_particles = 0
+
+# Projection solver tolerances
+nodal_proj.proj_tol     = 1.e-8
+nodal_proj.proj_abs_tol = 1.e-9
+nodal_proj.maxiter      = 200
+nodal_proj.bottom_maxiter = 200
+
+mac_proj.mac_tol        = 1.e-8
+mac_proj.mac_abs_tol    = 1.e-9
+
+############################
+#                          #
+#  Diffused IB cfg file    #
+#  THIN ELLIPSOID          #
+#                          #
+############################
+
+# Ellipsoid center position
+particle_inputs.x = 5.0
+particle_inputs.y = 5.0
+particle_inputs.z = 5.0
+
+# Ellipsoid density
+particle_inputs.rho = 1.0
+
+# Ellipsoid semi-axes (dimensionless, scaled to Re=100)
+# For wing approximation: chord=1.0, thickness=0.02, span=3.0
+# Semi-axes: a=chord/2=0.5, b=thickness/2=0.01, c=span/2=1.5
+# Scaled to match FlowPastSphere domain (sphere radius=0.5):
+particle_inputs.radius  = 0.5    # a: chord direction (x)
+particle_inputs.radius2 = 0.02   # b: thickness (y) - very thin
+particle_inputs.radius3 = 1.5    # c: span direction (z)
+
+# Geometry type: 2 = ellipsoid
+particle_inputs.geometry_type = 2
+
+# Heaving velocity (y-direction)
+# V_heave chosen to give Re = V_heave * chord / nu = 100
+# With chord=1.0, nu=0.01: V_heave = 1.0
+particle_inputs.velocity_x = 0.0
+particle_inputs.velocity_y = 0.5   # Heaving velocity (half freestream)
+particle_inputs.velocity_z = 0.0
+
+# No rotation (pure heaving)
+particle_inputs.omega_x = 0.0
+particle_inputs.omega_y = 0.0
+particle_inputs.omega_z = 0.0
+
+# 6-DOF constraints: 0 = free, 1 = locked
+# Lock all DOF (prescribed motion only)
+particle_inputs.TLX = 1
+particle_inputs.TLY = 1
+particle_inputs.TLZ = 1
+particle_inputs.RLX = 1
+particle_inputs.RLY = 1
+particle_inputs.RLZ = 1
+
+# Verbose output
+particle_inputs.verbose = 1
