@@ -302,9 +302,131 @@ if (m_do_prescribed_motion) {
 }
 ```
 
-## 4. Computational Domain Setup
+## 4. Non-Dimensionalization Schemes
 
-### 4.1 Domain Sizing (van Veen-style)
+### 4.1 Design Decision: Two Input File Regimes
+
+**Problem**: Non-dimensionalization affects runtime, Reynolds number, and CFL stability. A single configuration cannot optimize for both quick validation and physically accurate production runs.
+
+**Solution**: Provide two input file configurations:
+
+| File | Purpose | Runtime | Physics Accuracy |
+|------|---------|---------|------------------|
+| `inputs.3d.validation` | Debug, verify code correctness | ~10 min | Approximate |
+| `inputs.3d.production` | APEX figures, literature comparison | ~1.4 hr/wingbeat | Accurate |
+
+### 4.2 Non-Dimensionalization Theory
+
+**Reference quantities**:
+- L_ref = chord (characteristic length)
+- U_ref = characteristic velocity
+- T_ref = L_ref / U_ref (characteristic time)
+- ν_ref = U_ref × L_ref / Re (viscosity for target Re)
+
+**Dimensionless frequency**:
+```
+f* = f_physical × T_ref = f_physical × L_ref / U_ref
+```
+
+**Wing tip velocity** (from kinematics):
+```
+V_tip* = 2π × f* × φ_amp_rad × (span*/2)
+       ≈ 11.5 × f*  (for φ_amp = 70°, span* = 3)
+```
+
+**Effective Reynolds number**:
+```
+Re_eff = V_tip* × L* / ν*
+```
+
+### 4.3 Validation Regime (f* = 1.0)
+
+**Rationale**: Minimize steps per wingbeat for fast turnaround.
+
+| Parameter | Value | Derivation |
+|-----------|-------|------------|
+| f* | 1.0 | 1 wingbeat = 1 time unit |
+| V_tip* | ~11.5 | High tip velocity |
+| ν* | 0.115 | Re_eff = 11.5 / 0.115 = 100 |
+| dt | 0.0005 | CFL-safe for V_tip* = 11.5 |
+| Steps/wingbeat | 2,000 | 1.0 / 0.0005 |
+| Grid | 64×32×64 | Coarse for speed |
+
+**CFL check**:
+```
+dt_CFL = CFL × dx / V_max
+       = 0.3 × (8/64) / 11.5
+       = 0.3 × 0.125 / 11.5
+       ≈ 0.0033
+
+dt = 0.0005 < dt_CFL ✓
+```
+
+**Trade-offs**:
+- ✅ Fast (~10 min for 1 wingbeat)
+- ✅ Sufficient for code verification
+- ⚠️ Lower resolution, approximate forces
+- ⚠️ Not suitable for publication
+
+### 4.4 Production Regime (f* = 0.1)
+
+**Rationale**: Proper velocity scaling where V_tip* ~ 1, matching literature conventions.
+
+| Parameter | Value | Derivation |
+|-----------|-------|------------|
+| f* | 0.1 | Physically grounded scaling |
+| V_tip* | ~1.15 | Matches Re definition |
+| ν* | 0.01 | Standard Re = 1.15 / 0.01 ≈ 115 |
+| dt | 0.001 | CFL-safe for V_tip* ~ 1 |
+| Steps/wingbeat | 10,000 | 10 / 0.001 |
+| Grid | 128×64×128 | Medium resolution |
+
+**CFL check**:
+```
+dt_CFL = CFL × dx / V_max
+       = 0.3 × (8/128) / 1.15
+       = 0.3 × 0.0625 / 1.15
+       ≈ 0.016
+
+dt = 0.001 < dt_CFL ✓
+```
+
+**Trade-offs**:
+- ✅ Accurate Reynolds number scaling
+- ✅ Comparable to van Veen et al. (2022)
+- ✅ Publication quality
+- ⚠️ Slower (~1.4 hr/wingbeat)
+
+### 4.5 Mosquito-Specific Considerations (Future)
+
+**Key difference**: Mosquitoes have uniquely small stroke amplitude.
+
+| Species | Stroke Amp | Frequency | Re Range | Source |
+|---------|------------|-----------|----------|--------|
+| Fruit fly | ±80° | 200 Hz | 100-300 | van Veen 2022 |
+| **Mosquito** | **±20°** | 717 Hz | 50-300 | Bomphrey 2017 |
+
+For mosquito-specific simulations, update:
+- `kinematics_stroke_amp = 20.0` (not 70.0)
+- Adjust viscosity for target Re
+- Consider higher frequency effects on timestep
+
+### 4.6 Summary Decision Matrix
+
+```
+Use Case                    → Input File
+────────────────────────────────────────────
+Quick debug, code check     → inputs.3d.validation
+Publication figures         → inputs.3d.production
+Grid convergence study      → inputs.3d.production (vary grid)
+Mosquito-specific science   → (future: inputs.3d.mosquito)
+```
+
+---
+
+## 5. Computational Domain Setup
+
+### 5.1 Domain Sizing (van Veen-style)
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
@@ -312,7 +434,7 @@ if (m_do_prescribed_motion) {
 | Wing center | (5R, 5R, 5R) | Centered in domain |
 | Boundary conditions | Inflow (x-lo), outflow (x-hi), slip (y, z) | Far-field approximation |
 
-### 4.2 Grid Resolution
+### 5.2 Grid Resolution
 
 | Level | Δx | Cells (per dimension) | Active cells |
 |-------|----|-----------------------|--------------|
@@ -320,7 +442,7 @@ if (m_do_prescribed_motion) {
 | AMR L1 | 0.25 mm | +refinement near wing | ~500,000 |
 | AMR L2 | 0.125 mm | +refinement near wing | ~2,000,000 |
 
-### 4.3 Time Stepping
+### 5.3 Time Stepping
 
 | Parameter | Value | Derivation |
 |-----------|-------|------------|
@@ -329,9 +451,9 @@ if (m_do_prescribed_motion) {
 | Timestep | Δt ≈ 1×10⁻⁷ s | Set by CFL with fine grid |
 | Steps per wingbeat | ~16,700 | T / Δt |
 
-## 5. Validation Outputs
+## 6. Validation Outputs
 
-### 5.1 Force Extraction
+### 6.1 Force Extraction
 
 From IAMReX particle data:
 - `particle_real_comp3` → F_x (drag direction)
@@ -348,14 +470,14 @@ where:
   A_wing = span * chord    (planform area)
 ```
 
-### 5.2 Flow Visualization
+### 6.2 Flow Visualization
 
 Using yt library:
 - Velocity magnitude slices at z = wing_center
 - Vorticity magnitude (Q-criterion) isosurfaces
 - Streamlines showing LEV, TEV structures
 
-### 5.3 Visualization Code Architecture
+### 6.3 Visualization Code Architecture
 
 ```python
 # examples/flapping_wing/visualize.py
@@ -468,7 +590,7 @@ def plot_vorticity(plotfile: str, output_path: Path):
     slc.save(str(output_path))
 ```
 
-### 5.4 Metadata Tracking
+### 6.4 Metadata Tracking
 
 ```python
 # examples/flapping_wing/metadata.py
@@ -794,7 +916,7 @@ def load_metadata(metadata_path: Path) -> dict:
         return json.load(f)
 ```
 
-### 5.5 Figure Orchestration
+### 6.5 Figure Orchestration
 
 ```python
 # examples/flapping_wing/generate_all_figures.py
@@ -885,9 +1007,9 @@ if __name__ == "__main__":
     main()
 ```
 
-## 6. Future Extension Points
+## 7. Future Extension Points
 
-### 6.1 Input-File Parameters
+### 7.1 Input-File Parameters
 
 Replace hardcoded constants with `ParmParse` queries:
 
@@ -902,7 +1024,7 @@ phi_amp *= M_PI / 180.0;  // convert to radians
 alpha_0 *= M_PI / 180.0;
 ```
 
-### 6.2 Time Series File
+### 7.2 Time Series File
 
 Add interpolation from external file:
 
@@ -917,7 +1039,7 @@ amrex::Real alpha = LinearInterp(t_data, alpha_data, time);
 amrex::Real theta = LinearInterp(t_data, theta_data, time);
 ```
 
-### 6.3 Multi-Body
+### 7.3 Multi-Body
 
 Extend particle container to track multiple bodies:
 

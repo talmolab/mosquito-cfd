@@ -177,11 +177,17 @@ examples/                       # Case definitions and scripts
 │   ├── run.sh
 │   ├── visualize.py
 │   └── RESULTS.md
-└── heaving_ellipsoid/
-    ├── inputs.3d.heaving_ellipsoid
+├── heaving_ellipsoid/
+│   ├── inputs.3d.heaving_ellipsoid
+│   ├── run.sh
+│   ├── visualize.py
+│   └── RESULTS.md
+└── flapping_wing/              # External geometry demo (requires fork)
+    ├── inputs.3d.flapping_wing
+    ├── wing.vertex             # 908 markers, elliptic planform
     ├── run.sh
     ├── visualize.py
-    └── RESULTS.md
+    └── plot_config.py
 
 benchmarks/                     # Aggregated outputs for proposal
 ├── results/

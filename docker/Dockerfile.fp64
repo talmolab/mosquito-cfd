@@ -13,7 +13,8 @@
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 # Build arguments for pinned dependencies (override with --build-arg)
-ARG IAMREX_COMMIT=52ffb65b84e357ccf14709db93ef422ea5609bc4
+ARG IAMREX_REPO=https://github.com/talmolab/IAMReX.git
+ARG IAMREX_COMMIT=6d44f3552f3b29daa1028128126f213196b2d926
 ARG AMREX_COMMIT=5261817c53116695be2a9d29ff95dce1a6a39f9d
 ARG AMREX_HYDRO_COMMIT=75da770ea36e4064b5947d7e56baa19f5bc92263
 ARG CUDA_ARCH=86
@@ -69,8 +70,8 @@ RUN git clone https://github.com/ruohai0925/AMReX-Hydro.git && \
     git checkout ${AMREX_HYDRO_COMMIT} && \
     echo "AMReX-Hydro checked out at ${AMREX_HYDRO_COMMIT}"
 
-# Clone IAMReX at pinned commit
-RUN git clone https://github.com/ruohai0925/IAMReX.git && \
+# Clone IAMReX at pinned commit (talmolab fork with arbitrary geometry support)
+RUN git clone ${IAMREX_REPO} IAMReX && \
     cd IAMReX && \
     git checkout ${IAMREX_COMMIT} && \
     echo "IAMReX checked out at ${IAMREX_COMMIT}"

@@ -1,0 +1,147 @@
+#*******************************************************************************
+# INPUTS.3D.VALIDATION
+#
+# Quick validation run (~10 min) to verify code correctness
+# Uses f*=1.0 scaling for faster turnaround
+#
+# Checks:
+#   - Markers move according to prescribed kinematics
+#   - Forces develop with correct phase relationship
+#   - Wake shows vortex structures
+#
+# NOT for publication - use inputs.3d.production for that
+#*******************************************************************************
+
+# Simulation control
+# 1 wingbeat = 1 time unit, need ~2000 steps for CFL safety
+max_step        = 2000
+stop_time       = 1.0
+
+ns.fixed_dt     = 0.0005
+ns.cfl          = 0.3
+ns.init_iter    = 0
+
+# Diffused IB input file
+particle.input  = particle_inputs
+
+# AMR settings - COARSE for speed
+amr.max_level       = 0
+amr.n_cell          = 64 32 64
+amr.max_grid_size   = 32
+amr.regrid_int      = 1
+amr.ref_ratio       = 2 2 2 2
+
+#*******************************************************************************
+# Verbosity
+#*******************************************************************************
+ns.v                    = 1
+nodal_proj.verbose      = 0
+mac_proj.verbose        = 0
+amr.v                   = 1
+
+#*******************************************************************************
+# I/O - frequent output for validation
+#*******************************************************************************
+amr.check_int       = 1000
+amr.plot_int        = 100
+
+#*******************************************************************************
+# Physics
+#*******************************************************************************
+
+# Viscosity scaling for f*=1.0:
+#   V_tip* = 2π × 1.0 × 1.22 rad × 1.5 ≈ 11.5
+#   For Re_eff = 100: ν* = V_tip* / Re = 11.5 / 100 = 0.115
+ns.vel_visc_coef    = 0.115
+
+# No scalar diffusion
+ns.scal_diff_coefs  = 0.0
+
+# No gravity
+ns.gravity          = 0.0
+
+# Subcycling
+amr.subcycling_mode = None
+ns.skip_level_projector = 0
+
+#*******************************************************************************
+# Domain geometry
+#*******************************************************************************
+
+geometry.coord_sys  = 0
+
+# Domain: 8 x 4 x 8
+geometry.prob_lo    = 0. 0. 0.
+geometry.prob_hi    = 8. 4. 8.
+
+# Periodic in y
+geometry.is_periodic = 0 1 0
+
+# Boundary conditions
+ns.lo_bc            = 2 0 4
+ns.hi_bc            = 2 0 4
+
+#*******************************************************************************
+# Problem type
+#*******************************************************************************
+prob.probtype       = 1
+
+#*******************************************************************************
+# Immersed Boundary settings
+#*******************************************************************************
+ns.isolver          = 1
+ns.do_diffused_ib   = 1
+ns.fluid_rho        = 1.0
+
+particles.do_nspc_particles = 0
+
+# Projection solver tolerances
+nodal_proj.proj_tol     = 1.e-8
+nodal_proj.proj_abs_tol = 1.e-9
+nodal_proj.maxiter      = 200
+nodal_proj.bottom_maxiter = 200
+
+mac_proj.mac_tol        = 1.e-8
+mac_proj.mac_abs_tol    = 1.e-9
+
+#*******************************************************************************
+#  Particle inputs - VALIDATION
+#*******************************************************************************
+
+particle_inputs.x = 4.0
+particle_inputs.y = 2.0
+particle_inputs.z = 4.0
+
+particle_inputs.rho = 1.0
+
+particle_inputs.geometry_type = 4
+particle_inputs.geometry_file = wing.vertex
+
+particle_inputs.hinge_x = 4.0
+particle_inputs.hinge_y = 2.0
+particle_inputs.hinge_z = 2.5
+
+particle_inputs.do_prescribed_motion = 1
+
+# f* = 1.0: 1 wingbeat per time unit (fast validation)
+particle_inputs.kinematics_frequency = 1.0
+particle_inputs.kinematics_stroke_amp = 70.0
+particle_inputs.kinematics_pitch_amp = 45.0
+particle_inputs.kinematics_deviation_amp = 0.0
+
+particle_inputs.velocity_x = 0.0
+particle_inputs.velocity_y = 0.0
+particle_inputs.velocity_z = 0.0
+
+particle_inputs.omega_x = 0.0
+particle_inputs.omega_y = 0.0
+particle_inputs.omega_z = 0.0
+
+particle_inputs.TLX = 1
+particle_inputs.TLY = 1
+particle_inputs.TLZ = 1
+particle_inputs.RLX = 1
+particle_inputs.RLY = 1
+particle_inputs.RLZ = 1
+
+particle_inputs.verbose = 1

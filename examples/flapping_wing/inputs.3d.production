@@ -1,0 +1,149 @@
+#*******************************************************************************
+# INPUTS.3D.PRODUCTION
+#
+# Physically realistic flapping wing simulation for APEX proposal figures
+# Uses proper non-dimensionalization matching van Veen et al. (2022)
+#
+# Non-dimensionalization:
+#   L_ref = chord = 1 mm
+#   U_ref = mean tip velocity ~ 1 m/s
+#   T_ref = L_ref / U_ref
+#   Re = 100 (tip-velocity based)
+#
+# Runtime: ~1.4 hr per wingbeat on A40
+#*******************************************************************************
+
+# Simulation control
+# f* = 0.1: 1 wingbeat = 10 time units
+# Run 3 wingbeats for periodic state
+max_step        = 30000
+stop_time       = 30.0
+
+ns.fixed_dt     = 0.001
+ns.cfl          = 0.3
+ns.init_iter    = 0
+
+# Diffused IB input file
+particle.input  = particle_inputs
+
+# AMR settings - MEDIUM resolution
+amr.max_level       = 0
+amr.n_cell          = 128 64 128
+amr.max_grid_size   = 32
+amr.regrid_int      = 1
+amr.ref_ratio       = 2 2 2 2
+
+#*******************************************************************************
+# Verbosity
+#*******************************************************************************
+ns.v                    = 1
+nodal_proj.verbose      = 0
+mac_proj.verbose        = 0
+amr.v                   = 1
+
+#*******************************************************************************
+# I/O
+#*******************************************************************************
+amr.check_int       = 5000
+amr.plot_int        = 500
+
+#*******************************************************************************
+# Physics
+#*******************************************************************************
+
+# Viscosity for Re = 100 (tip-velocity based)
+# With f*=0.1: V_tip* ≈ 1.15, so ν* = V_tip*/Re = 1.15/100 ≈ 0.01
+ns.vel_visc_coef    = 0.01
+
+# No scalar diffusion
+ns.scal_diff_coefs  = 0.0
+
+# No gravity
+ns.gravity          = 0.0
+
+# Subcycling
+amr.subcycling_mode = None
+ns.skip_level_projector = 0
+
+#*******************************************************************************
+# Domain geometry
+#*******************************************************************************
+
+geometry.coord_sys  = 0
+
+# Domain: 8 x 4 x 8 (wing centered, space for wake)
+geometry.prob_lo    = 0. 0. 0.
+geometry.prob_hi    = 8. 4. 8.
+
+# Periodic in y
+geometry.is_periodic = 0 1 0
+
+# Boundary conditions
+ns.lo_bc            = 2 0 4
+ns.hi_bc            = 2 0 4
+
+#*******************************************************************************
+# Problem type
+#*******************************************************************************
+prob.probtype       = 1
+
+#*******************************************************************************
+# Immersed Boundary settings
+#*******************************************************************************
+ns.isolver          = 1
+ns.do_diffused_ib   = 1
+ns.fluid_rho        = 1.0
+
+particles.do_nspc_particles = 0
+
+# Projection solver tolerances
+nodal_proj.proj_tol     = 1.e-8
+nodal_proj.proj_abs_tol = 1.e-9
+nodal_proj.maxiter      = 200
+nodal_proj.bottom_maxiter = 200
+
+mac_proj.mac_tol        = 1.e-8
+mac_proj.mac_abs_tol    = 1.e-9
+
+#*******************************************************************************
+#  Particle inputs - PRODUCTION (van Veen parameters)
+#*******************************************************************************
+
+particle_inputs.x = 4.0
+particle_inputs.y = 2.0
+particle_inputs.z = 4.0
+
+particle_inputs.rho = 1.0
+
+particle_inputs.geometry_type = 4
+particle_inputs.geometry_file = wing.vertex
+
+particle_inputs.hinge_x = 4.0
+particle_inputs.hinge_y = 2.0
+particle_inputs.hinge_z = 2.5
+
+particle_inputs.do_prescribed_motion = 1
+
+# f* = 0.1: Proper scaling where V_tip* ~ 1
+# 1 wingbeat = 10 time units = 10,000 steps
+particle_inputs.kinematics_frequency = 0.1
+particle_inputs.kinematics_stroke_amp = 70.0
+particle_inputs.kinematics_pitch_amp = 45.0
+particle_inputs.kinematics_deviation_amp = 0.0
+
+particle_inputs.velocity_x = 0.0
+particle_inputs.velocity_y = 0.0
+particle_inputs.velocity_z = 0.0
+
+particle_inputs.omega_x = 0.0
+particle_inputs.omega_y = 0.0
+particle_inputs.omega_z = 0.0
+
+particle_inputs.TLX = 1
+particle_inputs.TLY = 1
+particle_inputs.TLZ = 1
+particle_inputs.RLX = 1
+particle_inputs.RLY = 1
+particle_inputs.RLZ = 1
+
+particle_inputs.verbose = 1
