@@ -48,3 +48,7 @@ slurm-*.out
 # Local config (not for sharing)
 .env
 *.local.yaml
+
+# AI assistant local state
+.claude/
+.serena/
