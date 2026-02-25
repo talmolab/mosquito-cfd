@@ -172,3 +172,36 @@ Check the build log at `/opt/cfd/build.log` inside the container. Common issues:
 - Missing CUDA toolkit (should not happen with our base image)
 - Incompatible compiler versions
 - Out of memory during parallel build (reduce `-j` flag)
+
+### "fatal: reference is not a tree" during Docker build
+
+**Symptom**: CI build fails with:
+```
+fatal: reference is not a tree: 5261817c53116695be2a9d29ff95dce1a6a39f9d
+```
+
+**Cause**: The `ruohai0925/amrex` fork periodically rebases against upstream AMReX, which rewrites git history and invalidates previously pinned commit SHAs. Docker layer caching may hide this issue until the cache is invalidated.
+
+**Solution**:
+1. Get the current HEAD of the development branch:
+   ```bash
+   git ls-remote https://github.com/ruohai0925/amrex.git refs/heads/development
+   ```
+
+2. Update `docker/build-args.env` with the new SHA:
+   ```bash
+   AMREX_COMMIT=<new-sha>
+   ```
+
+3. Update the `ARG AMREX_COMMIT` in both Dockerfiles
+
+4. Verify locally before pushing:
+   ```bash
+   git clone https://github.com/ruohai0925/amrex.git /tmp/amrex-test
+   cd /tmp/amrex-test && git checkout <new-sha>
+   ```
+
+**Prevention**: This will happen again whenever `ruohai0925/amrex` rebases. Consider:
+- Using official AMReX releases (`AMReX-Codes/amrex` tags like `26.02`) if IAMReX compatibility allows
+- Documenting the expected rebase frequency
+- Setting up alerts when CI fails with this specific error
