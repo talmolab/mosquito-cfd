@@ -28,6 +28,25 @@
        overwrites U_Marker with U_fluid, erasing the wing velocity we just set)
 6. [x] In `UpdateParticles`, pass `dt` to `UpdateExternalGeometryPositions`
 
+### Fix 2: Correct IB marker volume dv for surface geometry
+
+**Root cause**: `dv = h*h*h` assumes each marker represents a volume element. For surface
+markers with spacing d_nn < h, each Eulerian cell receives ~(h/d_nn)^2 markers → the IB
+force is over-applied by that factor → velocities blow up exponentially.
+
+**Fix**: Replace `dv = h*h*h` with `dv = h * d_nn^2` (area element × cell thickness).
+d_nn estimated via O(N_sample × N) nearest-neighbor search on up to 200 sampled markers.
+
+For the validation case: d_nn=0.0505, h=0.125 → old dv=0.00195, new dv=0.000319 (6.1x smaller).
+
+17. [x] Diagnose IB over-forcing: step 2 |u|=18.94 (vs expected ~11.5); exponential growth to 5e12
+18. [x] Implement dv fix in DiffusedIB.cpp (nearest-neighbor estimate, ~35 lines)
+19. [x] Test CPU binary (test3.log, 50 steps): |u| stabilizes at ~27, no blow-up ✓
+20. [x] Test GPU binary (test5.log, 200 steps): |u| stable at 10-28, all steps complete ✓
+21. [x] Commit fix: `talmolab/IAMReX@2e9a851c` (feature/arbitrary-geometry)
+22. [x] Update `docker/build-args.env` and `Dockerfile.fp64` with new SHA
+23. [x] Push `talmolab/mosquito-cfd@887c5f9` to trigger CI rebuild
+
 ### Test in running container (before CI rebuild)
 
 **Container access**:
@@ -40,16 +59,16 @@
 7. [x] `flapping-wing-val7` container alive (submitted with `sleep infinity`)
 8. [x] Stage source files to Z: workspace path; copy into container source dir
 9. [x] Rebuild CPU debug binary: `make -j$(nproc)` → SUCCESS (`amr3d.gnu.DEBUG.MPI.ex`)
-10. [ ] Run 5-step logic test with CPU binary, verify `max(abs(u/v/w)) > 0` at step 2+
-11. [ ] Rebuild CUDA binary: `make -j$(nproc) USE_CUDA=TRUE` → `amr3d.gnu.MPI.CUDA.ex`
+10. [x] Run 50-step CPU test (test3.log): step1 |u|=12.66, step2 |u|=10.17 (braking ✓)
+11. [x] Rebuild CUDA debug binary (test5): `make -j$(nproc) USE_CUDA=TRUE` → `amr3d.gnu.DEBUG.MPI.CUDA.ex`
 
 ### Commit and rebuild Docker image
 
-12. [ ] Commit fixes to `talmolab/IAMReX` `feature/arbitrary-geometry`
-13. [ ] Update `docker/build-args.env` with new SHA
-14. [ ] Update hardcoded `ARG IAMREX_COMMIT` in `Dockerfile.fp64`
-15. [ ] Push to trigger CI rebuild (~13 min with GHA cache for early layers)
-16. [ ] Resubmit validation job, confirm non-zero velocities in cluster run
+12. [x] Commit surface velocity fix to `talmolab/IAMReX` `feature/arbitrary-geometry`
+13. [x] Update `docker/build-args.env` with new SHA (2e9a851c)
+14. [x] Update hardcoded `ARG IAMREX_COMMIT` in `Dockerfile.fp64`
+15. [x] Push to trigger CI rebuild (~13 min with GHA cache for early layers)
+16. [ ] Resubmit validation job with rebuilt Docker image, confirm stable run
 
 ### Lessons learned
 
@@ -60,3 +79,10 @@
   `Z:\users\eberrigan\mosquito-cfd\examples\flapping_wing\` (mapped NFS), then copy inside.
 - **Two make targets**: CPU debug (`make`) ≠ GPU/CUDA (`make USE_CUDA=TRUE`). The validation
   run uses the CUDA binary; the CPU binary is useful for logic testing only.
+- **CUDA build can silently use stale object files**: Always verify binary timestamp is AFTER
+  source edit. Running `touch file.cpp` before `make USE_CUDA=TRUE` forces recompilation.
+- **Surface IB dv formula**: `dv = h^3` is correct only for volume markers (d_nn ≈ h).
+  For finer surface markers, `dv = h * d_nn^2` prevents (h/d_nn)^2 overcorrection.
+- **"pure virtual method called" at shutdown**: Debug builds may abort during global destructor
+  cleanup after AMReX finalizes. This does NOT indicate simulation failure — check that
+  all requested steps completed and output files were written before the abort.
