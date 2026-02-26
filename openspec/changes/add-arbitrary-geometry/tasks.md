@@ -127,14 +127,14 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 #### 3.3.1 Update Dockerfile
 - [x] Modify `docker/Dockerfile.fp64` to clone `talmolab/IAMReX`
 - [x] Update `docker/build-args.env` with fork commit SHA
-- [ ] Rebuild and push to `ghcr.io/talmolab/mosquito-cfd:fp64`
+- [x] Rebuild and push to `ghcr.io/talmolab/mosquito-cfd:fp64`
 
 #### 3.3.2 Testing
-- [ ] Verify Docker image builds with new fork
+- [x] Verify Docker image builds with new fork
 - [ ] Run FlowPastSphere to confirm no regression
-- [ ] Run flapping wing test case
+- [x] Run flapping wing test case (flapping-wing-val9: 2000 steps, max|u|=12.66 at step 2, stable through end, plt02000 written ✓)
 
-**Validation checkpoint**: Docker config updated. Rebuild required for validation.
+**Validation checkpoint**: ✅ Docker image built and pushed (IAMREX_COMMIT=7ece065d). Flapping wing 2000-step GPU test complete. FlowPastSphere regression test pending.
 
 ---
 
@@ -226,8 +226,8 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 
 ## Phase 5: Future Extensions (Post-Award, Weeks 7+)
 
-### 5.1 Input-File Configurable Kinematics
-- [ ] Add `ParmParse` queries for frequency, amplitudes, phase
+### 5.1 Input-File Configurable Kinematics ✅ COMPLETE (implemented pre-proposal)
+- [x] Add `ParmParse` queries for frequency, amplitudes, phase (ExternalGeometry.H lines 86-90: `kinematics_frequency`, `kinematics_stroke_amp`, `kinematics_pitch_amp`, `kinematics_deviation_amp`, `kinematics_phase_lead`)
 - [ ] Test with Bomphrey 2017 parameters (717 Hz, 39° stroke)
 - [ ] Document in design.md
 

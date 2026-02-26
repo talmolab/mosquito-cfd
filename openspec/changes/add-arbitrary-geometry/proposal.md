@@ -24,6 +24,18 @@ To include flapping wing validation results in the APEX proposal, we must implem
 | **Bodies** | Single wing | Multi-wing, full body |
 | **Validation** | Force coefficients + LEV visualization | Quantitative comparison with literature |
 
+### Connection to ML Surrogate and RL Pipeline
+
+The RL team (MJX/MJX-Warp) uses **torque actuators at wing joints**, so wing kinematics emerge from the rigid body physics simulation — they are not prescribed. This means:
+
+1. **Surrogate input = instantaneous wing pose + velocity**: The CFD prescribes kinematics for data generation, but the trained surrogate must map `(wing_position_t, wing_velocity_t) → aerodynamic_forces_t` at each MJX physics timestep — not kinematic parameters to cycle-averaged forces.
+
+2. **MJCF geometry must match CFD geometry** (Extension 3): The RL team's wing mesh comes from a MJCF model. If CFD uses a different planform, the surrogate trains on a different wing than it is deployed on.
+
+3. **Time series kinematics enable validation** (Extension 2): MJX-generated wing trajectories can be replayed in CFD to validate surrogate accuracy on RL-generated motions, not just prescribed sinusoidal kinematics.
+
+4. **Kinematic parameter sweep ≠ pose space coverage**: The 50-simulation parameter sweep (WP2) sweeps (φ₀, f, α₀) to generate training data. Post-award, Extension 1 (configurable kinematics) makes this feasible without recompilation.
+
 ## What Changes (APEX Scope)
 
 ### Component 1: Parametric Wing Planform Generator (Python)
@@ -153,14 +165,15 @@ Real theta = 0.0;  // Simplified: planar stroke
 **Modified files**:
 | File | Changes |
 |------|---------|
-| `Source/particles/ParticleInit.cpp` | Add `.vertex` file reader for `geometry_type=4` |
-| `Source/particles/ParticleUpdate.cpp` | Add `update_wing_kinematics()` with hardcoded van Veen params |
+| `Source/DiffusedIB.cpp` | Add `geometry_type=4` case in `InitParticles`/`UpdateParticles`; implement `SetExternalGeometryMarkerVelocities`; correct marker volume (`dv = h × d_nn²`); register `ExecOnFinalize` cleanup |
+| `Source/DiffusedIB.H` | Declare `SetExternalGeometryMarkerVelocities(const kernel&)` |
 
 **New files**:
 | File | Purpose |
 |------|---------|
-| `Source/particles/VertexFileReader.cpp` | Parse `.vertex` format, translate/scale markers |
-| `Source/particles/WingKinematics.cpp` | 3-angle Euler rotation logic |
+| `Source/ExternalGeometry.H` | GPU-safe marker storage (`ExternalGeometryData` with `Gpu::PinnedVector`); `ReadExternalGeometryParams`, `InitializeExternalGeometry`, `UpdateExternalGeometryPositions`, `GetExternalMarkerPositions`; global `g_external_geometries` |
+| `Source/VertexFileReader.H` | Parse `.vertex` format, translate/scale markers; `ReadVertexFile()` |
+| `Source/WingKinematics.H` | 3-angle Euler rotation; `UpdateWingPositions`, `ComputeMarkerVelocities`, `WingKinematicsParams` |
 
 ### This Repository (mosquito-cfd)
 
@@ -419,6 +432,8 @@ LABELS = {
 
 ### Extension 1: Input-File Configurable Kinematics
 
+**Priority: Early post-award (required for kinematic parameter sweep)**
+
 Replace hardcoded parameters with input file:
 ```
 particle_inputs.kinematics_type = 1        # Sinusoidal
@@ -428,9 +443,11 @@ particle_inputs.pitch_amplitude = 45.0     # degrees
 particle_inputs.pitch_phase = 90.0         # degrees
 ```
 
-**Benefit**: Parameter sweeps without recompilation.
+**Benefit**: Parameter sweeps without recompilation. Required for generating the training dataset (WP2) that covers the kinematic pose space the RL agent will explore — the APEX production dataset (250 simulations) requires sweeping frequency, stroke amplitude, and pitch angle.
 
 ### Extension 2: Time Series Kinematics File
+
+**Priority: Post-award (enables MJX kinematics replay in CFD)**
 
 Read arbitrary φ(t), α(t), θ(t) from external file:
 ```
@@ -446,16 +463,18 @@ particle_inputs.kinematics_file = measured_kinematics.csv
 ...
 ```
 
-**Benefit**: Use real measured kinematics (e.g., from Bomphrey's Dryad dataset).
+**Benefit**: Use real measured kinematics (e.g., from Bomphrey's Dryad dataset), or replay wing trajectories produced by the RL agent in MJX directly in CFD for validation. Since the RL team uses torque actuators (emergent kinematics), this path allows high-fidelity CFD evaluation of specific RL policy trajectories — closing the CFD↔RL validation loop.
 
 ### Extension 3: MJCF Geometry Extraction
+
+**Priority: Early post-award (required for CFD/RL geometry consistency)**
 
 Extract mesh from MuJoCo XML for RL pipeline consistency:
 ```bash
 uv run mjcf-to-vertex --mjcf mosquito.xml --body left_wing --output wing.vertex
 ```
 
-**Benefit**: Same geometry in CFD and MJX inference.
+**Benefit**: Same wing geometry in both CFD training simulations and MJX/MJX-Warp RL environment. The RL team uses a MJCF mosquito body model — if the CFD uses a different planform, the surrogate will have a geometry mismatch with the deployment environment. This is a prerequisite for reliable sim-to-real transfer of the aerodynamic surrogate.
 
 ### Extension 4: Multi-Body Support
 
