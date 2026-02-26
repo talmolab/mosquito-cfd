@@ -14,7 +14,7 @@ FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 # Build arguments for pinned dependencies (override with --build-arg)
 ARG IAMREX_REPO=https://github.com/talmolab/IAMReX.git
-ARG IAMREX_COMMIT=2e9a851cdeea25e7a74ff2c246d0121ec7b3821e
+ARG IAMREX_COMMIT=7ece065df70192dfbe2d4e9ccfaba40762c28171
 ARG AMREX_COMMIT=2e4b667c1bd9fb5cf42dff6a7a1af0dfc012a3d4
 ARG AMREX_HYDRO_COMMIT=75da770ea36e4064b5947d7e56baa19f5bc92263
 ARG CUDA_ARCH=86
