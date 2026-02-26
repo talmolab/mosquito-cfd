@@ -21,8 +21,8 @@ GPU-accelerated CFD simulations of mosquito flight aerodynamics using IAMReX (Im
 ```
 mosquito-cfd/
 ├── src/mosquito_cfd/         # Python utilities
-│   ├── generate_wing_markers.py  # Lagrangian marker generation
-│   └── run_metadata.py           # Simulation provenance tracking
+│   ├── geometry/             # Wing planform generation (parametric + vertex I/O)
+│   └── benchmarks/           # Benchmark runner and metadata capture
 ├── docker/                   # Container infrastructure
 │   ├── Dockerfile.fp64       # Primary simulation image
 │   ├── Dockerfile.fp32       # Deprecated (upstream unsupported)
@@ -39,8 +39,8 @@ mosquito-cfd/
 ### Core Components
 
 - **IAMReX Integration**: External CFD solver using immersed-boundary methods with adaptive mesh refinement
-- **Wing Marker Generation**: Python tooling to generate Lagrangian markers for mosquito wing geometry (flat plate approximation)
-- **Run Metadata Capture**: Utilities for recording simulation provenance (git commit, hardware, timing, input hashes)
+- **Wing Geometry**: Parametric planform generation for Aedes aegypti wings via `geometry/` package (`generate-wing-planform` CLI)
+- **Benchmarks & Metadata**: Benchmark runner and reproducibility metadata capture via `benchmarks/` package (git, docker image, hardware, timing, outputs)
 - **Docker Infrastructure**: Reproducible build environments with pinned dependency versions
 
 ## Technology Stack
@@ -104,8 +104,8 @@ mosquito-cfd/
 ## Current State
 
 ### Implemented
-- [x] Wing marker generation for flat plate approximation
-- [x] Run metadata capture (git, GPU, timing, input hashes)
+- [x] Parametric wing planform generation (`geometry/` package)
+- [x] Run metadata capture with docker/git/hardware tracking (`benchmarks/metadata`)
 - [x] Docker infrastructure with FP64 working builds
 - [x] GitHub Actions CI/CD for lint/test/publish
 - [x] Flow past sphere validation example (100 timesteps verified on A40)
@@ -139,11 +139,8 @@ mosquito-cfd/
 
 ### CLI Tools
 ```bash
-# Generate wing markers
-uv run generate-markers --span 3.0 --chord 1.0 --spacing 0.05 --output wing_markers.dat
-
-# Capture run metadata
-uv run run-metadata --input inputs.3d --output run_metadata.json
+# Generate wing vertex file from parametric planform
+uv run generate-wing-planform --output wing.vertex
 ```
 
 ### Running Simulations
