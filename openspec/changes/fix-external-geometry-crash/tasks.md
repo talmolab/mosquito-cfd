@@ -15,7 +15,8 @@ at ExternalGeometry.H:115 in AMReX 2e4b667c — the function fails when called w
 
 Implemented in IAMReX commit `656602b`.
 
-**Verification**: Simulation initializes without "Segfault" after "Read N markers" on new AMReX (gpu-node14).
+**Verification**: `flapping-wing-val7` prints "Initialized external geometry with 908 markers"
+without segfault on gpu-node3 with AMReX 20.06-2965-g2e4b667c1bd9. ✓
 
 ---
 
@@ -41,7 +42,8 @@ Implemented in IAMReX commit `656602b`.
    }
    ```
 
-**Verification**: Simulation runs past step 1 `UpdateParticles` without aborting.
+**Verification**: `flapping-wing-val7` passes step 1 `UpdateParticles` without
+"Unsupported geometry_type" abort. Sim reached step 700+ with no crash. ✓
 
 ---
 
@@ -50,26 +52,44 @@ Implemented in IAMReX commit `656602b`.
 4. [x] Commit both fixes to `talmolab/IAMReX` on `feature/arbitrary-geometry` (commit `656602b`)
 5. [x] Update `docker/build-args.env` with new IAMReX commit SHA
 6. [x] Trigger Docker CI build for `fp64` image (mosquito-cfd commit `d37d2a4`)
-7. [ ] Verify CI passes (`ghcr.io/talmolab/mosquito-cfd:fp64` published)
+7. [x] Verify CI passes (`ghcr.io/talmolab/mosquito-cfd:fp64` published)
+
+**CI bug discovered and fixed (mosquito-cfd commit `c72022b`)**: `docker.yml` had no
+`build-args:` field, so all previous Docker CI runs used the hardcoded default
+`ARG IAMREX_COMMIT=6d44f355...` in `Dockerfile.fp64`. Every build was a GHA cache
+hit (~3-4 min) serving the original unfixed binary. Three consecutive validation jobs
+(val4, val5, val6) all crashed with the same binary despite build-args.env being updated.
+
+**Fix**: Added "Read build args" step to `build-fp64` job that `source`s `build-args.env`
+and passes all 5 variables as `build-args:` to the Docker build. Also updated hardcoded
+`ARG IAMREX_COMMIT` default in `Dockerfile.fp64` to `656602b`. The corrected build ran
+805 seconds (nvcc CUDA compilation) and published the fixed image.
 
 ---
 
 ### Fix 4: End-to-end validation
 
-8. [ ] Submit new validation job with updated `fp64` image (once CI passes)
-10. [ ] Monitor: simulation runs past step 1 (no crash)
-11. [ ] Monitor: simulation completes 100 steps (first plotfile written)
+8. [x] Submit new validation job with updated `fp64` image (`flapping-wing-val7`)
+10. [x] Monitor: simulation runs past step 1 (no crash) — reached step 700+ ✓
+11. [ ] Monitor: simulation completes 100 steps with first plotfile written
 12. [ ] Check `plt00100` exists in `/workspace/` on cluster
 13. [ ] Verify forces are non-zero: check `sim.log` for non-zero `max(abs(u/v/w))`
+
+**Open issue**: `max(abs(u/v/w)) = 0 0 0` post-advance at step 700+. Wing is initialized
+with prescribed motion (`do_prescribed_motion=1`, `f*=1.0`, `phi_amp=70°`) but IB forces
+are not appearing in the velocity field. Possible causes:
+- `UpdateExternalGeometryPositions()` not being called each timestep in IAMReX
+- Kinematics formula producing zero displacement (check `WingKinematics.H`)
+- IB force spreading bug (markers stationary → zero penalty force)
 
 ---
 
 ## Verification Matrix
 
-| Test | Pass Condition | Location |
-|------|---------------|----------|
-| No segfault on init | "Initialized external geometry" printed | `sim.log` |
-| No abort at step 1 | No "Unsupported geometry_type" error | `sim.log` |
-| Wing moves | `max(abs(u/v/w)) > 0` at step 1 | `sim.log` |
-| Plotfile written | `plt00100` directory exists | cluster workspace |
-| Forces non-zero | `particle_real_comp3/4/5` non-zero in plotfile | visualize.py |
+| Test | Pass Condition | Status | Location |
+|------|---------------|--------|----------|
+| No segfault on init | "Initialized external geometry" printed | ✓ PASS | `sim.log` |
+| No abort at step 1 | No "Unsupported geometry_type" error | ✓ PASS | `sim.log` |
+| Wing moves | `max(abs(u/v/w)) > 0` post-advance | ✗ OPEN | `sim.log` |
+| Plotfile written | `plt00100` directory exists | pending | cluster workspace |
+| Forces non-zero | `particle_real_comp3/4/5` non-zero in plotfile | pending | visualize.py |
