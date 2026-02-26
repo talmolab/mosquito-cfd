@@ -11,6 +11,22 @@ overcorrection. Both are fixed in `talmolab/IAMReX` `feature/arbitrary-geometry`
 - Fix 2 committed: `2e9a851c` (marker volume dv)
 - Validated: 200-step GPU simulation stable, plotfiles written ✓
 
+## Why
+
+The flapping wing simulation was non-functional due to two bugs in IAMReX's diffused IB
+implementation: the wing had zero effect on the fluid (zero IB force), and after fixing that,
+the simulation crashed with exponential velocity blow-up at step ~157. These bugs blocked all
+flapping-wing CFD validation work.
+
+## What Changes
+
+- **`ExternalGeometry.H`**: Added `vel_x/y/z` PinnedVectors to `ExternalGeometryData`; added
+  `dt` parameter to `UpdateExternalGeometryPositions` to enable velocity computation.
+- **`DiffusedIB.H`**: Declared `SetExternalGeometryMarkerVelocities(const kernel&)`.
+- **`DiffusedIB.cpp`**: Implemented `SetExternalGeometryMarkerVelocities` (subtracts wing
+  velocity from `U_Marker` after `VelocityInterpolation`); replaced `dv = h³` with
+  `dv = h × d_nn²` for surface geometry (geometry_type == 4).
+
 ## Root Cause 1: Zero IB Force (Marker Velocity Never Set)
 
 `InteractWithEuler` calls these in order:
