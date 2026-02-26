@@ -99,11 +99,13 @@ def get_hardware_info() -> dict[str, Any]:
         for line in lines:
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 3:
-                gpus.append({
-                    "model": parts[0],
-                    "memory_mb": int(parts[1]),
-                    "driver_version": parts[2],
-                })
+                gpus.append(
+                    {
+                        "model": parts[0],
+                        "memory_mb": int(parts[1]),
+                        "driver_version": parts[2],
+                    }
+                )
         result["gpus"] = gpus
         result["gpu_count"] = len(gpus)
     except (subprocess.CalledProcessError, FileNotFoundError):

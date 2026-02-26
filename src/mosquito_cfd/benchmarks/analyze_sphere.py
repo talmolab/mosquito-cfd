@@ -323,8 +323,7 @@ def generate_convergence_report(
         "validation": {
             "error_pct": abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD * 100,
             "passed": (
-                abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD
-                <= ACCEPTANCE_TOLERANCE
+                abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD <= ACCEPTANCE_TOLERANCE
             ),
             "gci_acceptable": gci_results["gci_fine"] < 0.02,  # 2% threshold
         },
