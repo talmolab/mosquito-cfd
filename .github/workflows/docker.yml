@@ -96,6 +96,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read build args
+        id: build-args
+        run: |
+          source docker/build-args.env
+          echo "IAMREX_REPO=$IAMREX_REPO" >> $GITHUB_OUTPUT
+          echo "IAMREX_COMMIT=$IAMREX_COMMIT" >> $GITHUB_OUTPUT
+          echo "AMREX_COMMIT=$AMREX_COMMIT" >> $GITHUB_OUTPUT
+          echo "AMREX_HYDRO_COMMIT=$AMREX_HYDRO_COMMIT" >> $GITHUB_OUTPUT
+          echo "CUDA_ARCH=$CUDA_ARCH" >> $GITHUB_OUTPUT
+
       - name: Build and push FP64 image
         uses: docker/build-push-action@v6
         with:
@@ -106,6 +116,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp64${{ inputs.tag_suffix && format('-{0}', inputs.tag_suffix) || '' }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-fp64
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fp64-${{ github.sha }}
+          build-args: |
+            IAMREX_REPO=${{ steps.build-args.outputs.IAMREX_REPO }}
+            IAMREX_COMMIT=${{ steps.build-args.outputs.IAMREX_COMMIT }}
+            AMREX_COMMIT=${{ steps.build-args.outputs.AMREX_COMMIT }}
+            AMREX_HYDRO_COMMIT=${{ steps.build-args.outputs.AMREX_HYDRO_COMMIT }}
+            CUDA_ARCH=${{ steps.build-args.outputs.CUDA_ARCH }}
           cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=fp64' }}
           cache-to: type=gha,mode=max,scope=fp64
           no-cache: ${{ inputs.no_cache || false }}
