@@ -5,7 +5,7 @@ import json
 import socket
 import subprocess
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -165,7 +165,7 @@ def capture_run_metadata(
     """
     metadata = {
         "run_id": str(uuid.uuid4()),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "git": get_git_info(),
         "hardware": get_hardware_info(),
     }

@@ -9,7 +9,6 @@ from typing import Any
 
 import numpy as np
 
-
 # Physical parameters for standard FlowPastSphere case
 SPHERE_DIAMETER = 1.0  # dimensionless
 FREESTREAM_VELOCITY = 1.0  # dimensionless
@@ -323,7 +322,10 @@ def generate_convergence_report(
         },
         "validation": {
             "error_pct": abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD * 100,
-            "passed": abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD <= ACCEPTANCE_TOLERANCE,
+            "passed": (
+                abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD
+                <= ACCEPTANCE_TOLERANCE
+            ),
             "gci_acceptable": gci_results["gci_fine"] < 0.02,  # 2% threshold
         },
     }
