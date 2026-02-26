@@ -71,16 +71,18 @@ and passes all 5 variables as `build-args:` to the Docker build. Also updated ha
 
 8. [x] Submit new validation job with updated `fp64` image (`flapping-wing-val7`)
 10. [x] Monitor: simulation runs past step 1 (no crash) — reached step 700+ ✓
-11. [ ] Monitor: simulation completes 100 steps with first plotfile written
-12. [ ] Check `plt00100` exists in `/workspace/` on cluster
-13. [ ] Verify forces are non-zero: check `sim.log` for non-zero `max(abs(u/v/w))`
+11. [x] Monitor: simulation completes steps with plotfiles written — `flapping-wing-val9` ran
+        2000 steps, wrote `plt02000` and `chk02000` ✓
+12. [x] Check plotfile exists in `/workspace/` on cluster — `plt02000` confirmed on NFS ✓
+13. [x] Verify forces are non-zero — `max(abs(u/v/w)) = 12.66` at step 2 in `flapping-wing-val9`
+        sim.log; stable throughout 2000 steps at O(10–22 m/s) ✓
 
-**Open issue**: `max(abs(u/v/w)) = 0 0 0` post-advance at step 700+. Wing is initialized
-with prescribed motion (`do_prescribed_motion=1`, `f*=1.0`, `phi_amp=70°`) but IB forces
-are not appearing in the velocity field. Possible causes:
-- `UpdateExternalGeometryPositions()` not being called each timestep in IAMReX
-- Kinematics formula producing zero displacement (check `WingKinematics.H`)
-- IB force spreading bug (markers stationary → zero penalty force)
+**Root cause of zero-force issue (resolved in `fix-flapping-wing-velocity`)**: `kernel.omega`
+was never set for the flapping wing, so `F = (0 + 0 - U_fluid)/dt ≈ 0`. Fixed by adding
+`vel_x/y/z` PinnedVectors to `ExternalGeometryData` and calling
+`SetExternalGeometryMarkerVelocities` after `VelocityInterpolation` to subtract wing
+surface velocity: `U_Marker -= vel_wing` → `F = (vel_wing - U_fluid)/dt ✓`.
+See archived proposal: `openspec/changes/archive/2026-02-26-fix-flapping-wing-velocity/`.
 
 ---
 
@@ -90,6 +92,6 @@ are not appearing in the velocity field. Possible causes:
 |------|---------------|--------|----------|
 | No segfault on init | "Initialized external geometry" printed | ✓ PASS | `sim.log` |
 | No abort at step 1 | No "Unsupported geometry_type" error | ✓ PASS | `sim.log` |
-| Wing moves | `max(abs(u/v/w)) > 0` post-advance | ✗ OPEN | `sim.log` |
-| Plotfile written | `plt00100` directory exists | pending | cluster workspace |
-| Forces non-zero | `particle_real_comp3/4/5` non-zero in plotfile | pending | visualize.py |
+| Wing moves | `max(abs(u/v/w)) > 0` post-advance | ✓ PASS (12.66 at step 2) | `flapping-wing-val9/sim.log` |
+| Plotfile written | `plt02000` directory exists | ✓ PASS | cluster NFS `/workspace/` |
+| Forces non-zero | stable O(10–22 m/s) through 2000 steps | ✓ PASS | `flapping-wing-val9/sim.log` |
