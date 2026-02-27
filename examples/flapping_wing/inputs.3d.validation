@@ -114,6 +114,9 @@ particle_inputs.z = 4.0
 
 particle_inputs.rho = 1.0
 
+# Characteristic length for diffused IB regularization kernel
+particle_inputs.radius = 1.5
+
 particle_inputs.geometry_type = 4
 particle_inputs.geometry_file = wing.vertex
 
