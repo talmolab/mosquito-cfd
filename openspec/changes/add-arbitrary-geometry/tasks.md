@@ -131,10 +131,10 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 
 #### 3.3.2 Testing
 - [x] Verify Docker image builds with new fork
-- [ ] Run FlowPastSphere to confirm no regression
+- [x] Run FlowPastSphere to confirm no regression (elizabeth-cfd-sphere: 500 steps, Cd=0.459 vs prior 0.448–0.503 ✓; 515 markers, clean exit)
 - [x] Run flapping wing test case (flapping-wing-val9: 2000 steps, max|u|=12.66 at step 2, stable through end, plt02000 written ✓)
 
-**Validation checkpoint**: ✅ Docker image built and pushed (IAMREX_COMMIT=7ece065d). Flapping wing 2000-step GPU test complete. FlowPastSphere regression test pending.
+**Validation checkpoint**: ✅ Docker image built and pushed (IAMREX_COMMIT=7ece065d). Flapping wing 2000-step GPU test complete. FlowPastSphere regression test complete (Cd=0.459, consistent with prior runs).
 
 ---
 
