@@ -148,13 +148,16 @@ See **fig_forces.pdf** for the full force time series.
 | GPU | NVIDIA A40 |
 | Grid cells | 131,072 (64×32×64) |
 | Timesteps | 2000 |
-| Wall time | 295 seconds (4.9 min) |
-| Time per step | 0.147 s |
-| Throughput | 891K cells/step |
-| GPU memory | ~500 MB (estimated) |
+| Wall time | 146 seconds (2.4 min) | Second run via `run.sh` with readwrite NFS mount |
+| Time per step | 0.073 s | |
+| Throughput | 1.8M cells/step | |
+| GPU memory | ~500 MB (estimated) | |
+
+*First run (February 26): 295 s (4.9 min) — /tmp workaround, different node.*
+*Second run (February 27): 146 s (2.4 min) — via run.sh with readwrite NFS mount on gpu-node14.*
 
 **Scaling to A100** (projected from sphere benchmarks):
-- Memory bandwidth: 2.9× speedup → ~1.7 min for this run on A100
+- Memory bandwidth: 2.9× speedup → ~50 s for this run on A100
 - Enables rapid parameter sweeps across wingbeat kinematics
 
 ---
@@ -165,10 +168,10 @@ See **fig_forces.pdf** for the full force time series.
 |------|-------------|
 | `forces.csv` | Full force time series (2000 steps, all columns) |
 | `wing.vertex` | Wing planform in dimensionless coordinates (908 markers) |
-| `figures/fig_planform.pdf` | G1: Wing marker scatter |
-| `figures/fig_kinematics.pdf` | K1: Euler angle time series |
-| `figures/fig_wing_phases.pdf` | K2: Wing at 4 key phases |
-| `figures/fig_forces.pdf` | F1: Force coefficient time series |
+| [figures/fig_planform.pdf](figures/fig_planform.pdf) / [.png](figures/fig_planform.png) | G1: Wing marker scatter |
+| [figures/fig_kinematics.pdf](figures/fig_kinematics.pdf) / [.png](figures/fig_kinematics.png) | K1: Euler angle time series |
+| [figures/fig_wing_phases.pdf](figures/fig_wing_phases.pdf) / [.png](figures/fig_wing_phases.png) | K2: Wing at 4 key phases |
+| [figures/fig_forces.pdf](figures/fig_forces.pdf) / [.png](figures/fig_forces.png) | F1: Force coefficient time series |
 
 ---
 
@@ -217,10 +220,11 @@ mpirun --allow-run-as-root -np 1 \
   amr.plot_int=-1 amr.check_int=-1
 ```
 
-**Figures** (from repo root):
+**Figures** (from repo root, produces both PDF and PNG):
 ```bash
 uv run python examples/flapping_wing/generate_all_figures.py
 ```
+Requires only `forces.csv` and `wing.vertex` — no cluster access needed.
 
 ---
 

@@ -108,8 +108,9 @@ def plot_g1_planform(figures_dir: Path, vertex_file: Path | None = None):
     fig.tight_layout()
     out = figures_dir / "fig_planform.pdf"
     fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
-    print(f"G1: {out}")
+    print(f"G1: {out} + .png")
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +150,9 @@ def plot_k1_kinematics(figures_dir: Path):
     fig.tight_layout()
     out = figures_dir / "fig_kinematics.pdf"
     fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
-    print(f"K1: {out}")
+    print(f"K1: {out} + .png")
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +202,9 @@ def plot_k2_wing_phases(figures_dir: Path, vertex_file: Path | None = None):
     fig.tight_layout()
     out = figures_dir / "fig_wing_phases.pdf"
     fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
-    print(f"K2: {out}")
+    print(f"K2: {out} + .png")
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +292,9 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
     out = figures_dir / "fig_forces.pdf"
     fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
-    print(f"F1: {out}")
+    print(f"F1: {out} + .png")
 
     # Print summary stats
     print(f"  CF_z range (t>0.1): [{CF_z.min():.3f}, {CF_z.max():.3f}]")
@@ -307,7 +311,7 @@ def main():
     parser.add_argument(
         "--forces-csv",
         type=Path,
-        default=Path("Z:/users/eberrigan/mosquito-cfd-outputs/flapping_wing_val/IB_Particle_1.csv"),
+        default=Path(__file__).parent / "forces.csv",
         help="Path to IB_Particle_1.csv force output",
     )
     parser.add_argument(

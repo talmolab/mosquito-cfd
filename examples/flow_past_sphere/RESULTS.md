@@ -113,6 +113,23 @@ comp6-8: all ~0
 **Optimistic estimate** (compute-bound): 16.6× speedup
 - Medium grid on A100: ~18 min
 
+## Figures
+
+| Figure | File | Description |
+|--------|------|-------------|
+| Grid convergence | [figures/fig_forces_convergence.png](figures/fig_forces_convergence.png) | Cd vs time, coarse + medium vs Johnson & Patel (1999) Cd=1.087 |
+
+Generated with:
+```bash
+uv run python examples/flow_past_sphere/generate_figures.py
+```
+
+Inputs:
+- `forces_coarse.csv` — 10-point time series extracted from flow_past_sphere_coarse/ (128×64×64)
+- `forces_medium.csv` — 10-point time series extracted from flow_past_sphere_10k/ (256×128×128)
+
+No cluster access required after initial CSV extraction.
+
 ## Output Files
 
 ### Cluster Storage
@@ -131,6 +148,18 @@ comp6-8: all ~0
 - `density`, `tracer`
 - `gradpx`, `gradpy`, `gradpz`
 - `particles/` — IB marker data
+
+### Local Repository
+```
+examples/flow_past_sphere/
+├── visualize.py
+├── generate_figures.py
+├── forces_coarse.csv
+├── forces_medium.csv
+├── figures/
+│   └── fig_forces_convergence.{pdf,png}
+└── RESULTS.md
+```
 
 ## Visualization
 

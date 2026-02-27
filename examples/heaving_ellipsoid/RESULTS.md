@@ -104,6 +104,21 @@ Reference areas for thin ellipsoid (a=0.5, b=0.02, c=1.5):
 4. **Compare with theory**: Quasi-steady added mass predictions
 5. **Calibration study**: Compare sphere and ellipsoid discrepancies
 
+## Figures
+
+| Figure | File | Description |
+|--------|------|-------------|
+| Geometry | [figures/fig_geometry.png](figures/fig_geometry.png) | Elliptic cross-sections (xz and xy planes) with annotated semi-axes |
+| Force history | [figures/fig_forces.png](figures/fig_forces.png) | Cd and CL vs time (planform-referenced) |
+
+Generated with:
+```bash
+uv run python examples/heaving_ellipsoid/generate_figures.py
+```
+
+Inputs: `forces.csv` — 11-point time series (t=0–10) extracted from plt_1k* plotfiles.
+No cluster access required after initial CSV extraction.
+
 ## Output Files
 
 ### Cluster Storage
@@ -125,6 +140,11 @@ examples/heaving_ellipsoid/
 ├── inputs.3d.heaving_ellipsoid
 ├── run.sh
 ├── visualize.py
+├── generate_figures.py
+├── forces.csv
+├── figures/
+│   ├── fig_geometry.{pdf,png}
+│   └── fig_forces.{pdf,png}
 ├── README.md
 └── RESULTS.md
 ```
