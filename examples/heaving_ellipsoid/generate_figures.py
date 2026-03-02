@@ -3,11 +3,14 @@
 
 Usage:
     uv run python examples/heaving_ellipsoid/generate_figures.py
+    uv run python examples/heaving_ellipsoid/generate_figures.py \\
+        --plotfile Z:/users/eberrigan/mosquito-cfd/examples/heaving_ellipsoid/plt_1k00500
 
 Produces:
     examples/heaving_ellipsoid/figures/
         fig_geometry.pdf/png    G1: Elliptic cross-sections with semi-axes
         fig_forces.pdf/png      F1: Cd and CL vs time
+        fig_validation.pdf/png  V1: x-velocity field (t=5.0) + force history [requires --plotfile]
 """
 
 import argparse
@@ -16,6 +19,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from matplotlib.patches import Ellipse
 
 # ---------------------------------------------------------------------------
@@ -179,6 +183,131 @@ def plot_forces(figures_dir: Path, forces_csv: Path):
 
 
 # ---------------------------------------------------------------------------
+# V1: Validation composite — x-velocity field + force history (requires plotfile)
+# ---------------------------------------------------------------------------
+
+def plot_validation(figures_dir: Path, plotfile: Path, forces_csv: Path):
+    """V1: 2-panel composite matching proposal Figure 2.
+
+    Panel (a): x-velocity z-slice from plotfile via matplotlib FRB (t=5.0).
+    Panel (b): Drag and y-force time history from forces.csv.
+
+    Technique adapted from:
+        C:\\vaults\\physics surrogate models\\ellipsoid-validation-figure\\
+        generate_ellipsoid_figure.py
+    """
+    import yt
+    import pandas as pd
+    yt.set_log_level("error")
+
+    print(f"  Loading plotfile: {plotfile}")
+    ds = yt.load(str(plotfile))
+    time = float(ds.current_time)
+    print(f"  Time: {time:.2f}")
+
+    xl = float(ds.domain_left_edge[0])
+    xr = float(ds.domain_right_edge[0])
+    yl = float(ds.domain_left_edge[1])
+    yr = float(ds.domain_right_edge[1])
+    nx = int(ds.domain_dimensions[0])
+    ny = int(ds.domain_dimensions[1])
+    cx = float(ds.domain_center[0])
+    cy = float(ds.domain_center[1])
+
+    # Fixed-resolution buffer: full x-y plane at z = domain center
+    slc = ds.slice('z', ds.domain_center[2])
+    frb = slc.to_frb(
+        ds.domain_width[0],
+        (nx, ny),
+        height=ds.domain_width[1],
+    )
+    u = np.array(frb['x_velocity'])
+    # FRB shape: either (nx, ny) or (ny, nx) — imshow wants (ny, nx): rows=y, cols=x
+    if u.shape == (nx, ny):
+        u = u.T
+    print(f"  Velocity range: [{u.min():.3f}, {u.max():.3f}]")
+    if abs(u.max()) > 50:
+        raise ValueError(
+            f"Velocity values outside expected dimensionless range: [{u.min():.1f}, {u.max():.1f}]\n"
+            "yt may have applied a CGS unit conversion."
+        )
+
+    # Body centroid from IB particle positions
+    ad = ds.all_data()
+    x_body = float(np.mean(np.array(ad['all', 'particle_position_x'])))
+    y_body = float(np.mean(np.array(ad['all', 'particle_position_y'])))
+    print(f"  Body center (domain): ({x_body:.2f}, {y_body:.2f})"
+          f"  -> display: ({x_body - cx:.2f}, {y_body - cy:.2f})")
+
+    # Load force history
+    df = pd.read_csv(forces_csv)
+    t_f = df["time"].values
+    F_drag = -df["Fx"].values   # drag on body > 0
+    F_lift = -df["Fy"].values   # y-force on body (resists heave)
+    QUASI_STEADY_TIME = 7.0
+
+    # --- Layout ---
+    fig = plt.figure(figsize=(14, 5))
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig,
+        width_ratios=[1.7, 1.0],
+        height_ratios=[1, 1],
+        left=0.06, right=0.97,
+        top=0.91, bottom=0.10,
+        wspace=0.42, hspace=0.08,
+    )
+    ax_vel  = fig.add_subplot(gs[:, 0])
+    ax_drag = fig.add_subplot(gs[0, 1])
+    ax_lift = fig.add_subplot(gs[1, 1], sharex=ax_drag)
+
+    # --- Panel (a): velocity field ---
+    extent = [xl - cx, xr - cx, yl - cy, yr - cy]
+    im = ax_vel.imshow(
+        u,
+        origin='lower',
+        extent=extent,
+        cmap='RdYlBu_r',
+        aspect='equal',
+        interpolation='bilinear',
+    )
+    cbar = plt.colorbar(im, ax=ax_vel, label='$u$ (dimensionless)', fraction=0.03, pad=0.04)
+    cbar.ax.tick_params(labelsize=9)
+    ax_vel.set_xlabel('$x$ (dimensionless)', fontsize=11)
+    ax_vel.set_ylabel('$y$ (dimensionless)', fontsize=11)
+    ax_vel.plot(x_body - cx, y_body - cy,
+                'w+', markersize=14, markeredgewidth=2,
+                label=f'body ({x_body:.1f}, {y_body:.1f})')
+    ax_vel.legend(fontsize=8, loc='lower right', framealpha=0.7)
+    ax_vel.set_title(f'(a) x-velocity field  ($t = {time:.1f}$)', fontsize=11, pad=6)
+
+    # --- Panel (b): force history ---
+    kw = dict(linewidth=2, markersize=5)
+    qs_kw = dict(color='gray', linestyle='--', linewidth=1, alpha=0.7)
+    ax_drag.plot(t_f, F_drag, color=BLUE, marker='o', label='Drag $-F_x$', **kw)
+    ax_drag.axvline(QUASI_STEADY_TIME, **qs_kw)
+    ax_drag.set_ylabel('Drag force (dimensionless)', fontsize=10)
+    ax_drag.legend(fontsize=9, loc='lower right')
+    ax_drag.grid(True, alpha=0.3)
+    ax_drag.set_ylim(bottom=0)
+    ax_drag.tick_params(labelbottom=False)
+    ax_drag.set_title('(b) Force time history  ($t = 0$–$10$)', fontsize=11, pad=6)
+
+    ax_lift.plot(t_f, F_lift, color=RED, marker='s', label='y-force $-F_y$', **kw)
+    ax_lift.axvline(QUASI_STEADY_TIME,
+                    label=f'quasi-steady ($t = {QUASI_STEADY_TIME:.0f}$)', **qs_kw)
+    ax_lift.set_xlabel('Time (dimensionless)', fontsize=11)
+    ax_lift.set_ylabel('y-force (dimensionless)', fontsize=10)
+    ax_lift.legend(fontsize=9, loc='upper right')
+    ax_lift.grid(True, alpha=0.3)
+
+    out = figures_dir / "fig_validation.pdf"
+    fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    print(f"V1: {out} + .png")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -197,6 +326,15 @@ def main():
         default=script_dir / "figures",
         help="Output directory for figures",
     )
+    parser.add_argument(
+        "--plotfile",
+        type=Path,
+        default=None,
+        help=(
+            "Path to AMReX plotfile for velocity field visualization (V1). "
+            "Example: Z:/users/eberrigan/mosquito-cfd/examples/heaving_ellipsoid/plt_1k00500"
+        ),
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +342,11 @@ def main():
 
     plot_geometry(args.output_dir)
     plot_forces(args.output_dir, args.forces_csv)
+
+    if args.plotfile is not None:
+        plot_validation(args.output_dir, args.plotfile, args.forces_csv)
+    else:
+        print("V1: skipped (pass --plotfile to generate velocity field figure)")
 
     print("\nAll figures generated.")
 

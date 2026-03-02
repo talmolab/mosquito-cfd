@@ -110,14 +110,20 @@ Reference areas for thin ellipsoid (a=0.5, b=0.02, c=1.5):
 |--------|------|-------------|
 | Geometry | [figures/fig_geometry.png](figures/fig_geometry.png) | Elliptic cross-sections (xz and xy planes) with annotated semi-axes |
 | Force history | [figures/fig_forces.png](figures/fig_forces.png) | Cd and CL vs time (planform-referenced) |
+| Validation | [figures/fig_validation.png](figures/fig_validation.png) | x-velocity field (t=5.0, body at y=7.5) + force history composite (matches proposal Figure 2) |
 
 Generated with:
 ```bash
+# CSV-based figures (no cluster access required):
 uv run python examples/heaving_ellipsoid/generate_figures.py
+
+# Velocity figure (requires plotfile on Z: drive):
+uv run python examples/heaving_ellipsoid/generate_figures.py \
+    --plotfile Z:/users/eberrigan/mosquito-cfd/examples/heaving_ellipsoid/plt_1k00500
 ```
 
 Inputs: `forces.csv` — 11-point time series (t=0–10) extracted from plt_1k* plotfiles.
-No cluster access required after initial CSV extraction.
+Velocity figure uses `plt_1k00500` (t=5.0) — body at y=7.5, safely within y-periodic domain [0,10].
 
 ## Output Files
 

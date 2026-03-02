@@ -172,6 +172,7 @@ See **fig_forces.pdf** for the full force time series.
 | [figures/fig_kinematics.pdf](figures/fig_kinematics.pdf) / [.png](figures/fig_kinematics.png) | K1: Euler angle time series |
 | [figures/fig_wing_phases.pdf](figures/fig_wing_phases.pdf) / [.png](figures/fig_wing_phases.png) | K2: Wing at 4 key phases |
 | [figures/fig_forces.pdf](figures/fig_forces.pdf) / [.png](figures/fig_forces.png) | F1: Force coefficient time series |
+| [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: Wing tracer field z-slice at mid-stroke (t=0.25, phi=70°); velocity field zero in available plotfiles (see note) |
 
 ---
 
@@ -184,7 +185,7 @@ See **fig_forces.pdf** for the full force time series.
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak force at mid-stroke | PASS | |CF_x| max at phi~64 deg |
 | Force coefficient range | MARGINAL | Raw CF_z max = 0.22; corrected ~0.52 |
-| LEV structure | NOT CHECKED | Requires plotfiles (re-run needed) |
+| LEV structure | NOT CHECKED | Velocity field zero in available plotfiles; re-run needed |
 
 ---
 
@@ -222,9 +223,21 @@ mpirun --allow-run-as-root -np 1 \
 
 **Figures** (from repo root, produces both PDF and PNG):
 ```bash
+# CSV-based figures (no cluster access required):
 uv run python examples/flapping_wing/generate_all_figures.py
+
+# Velocity/tracer figure (requires plotfile on Z: drive):
+uv run python examples/flapping_wing/generate_all_figures.py \
+    --plotfile Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/plt00500
 ```
-Requires only `forces.csv` and `wing.vertex` — no cluster access needed.
+Requires only `forces.csv` and `wing.vertex` — no cluster access needed for CSV figures.
+
+**Note on velocity field**: All plotfiles from the validation run (plt00000–plt02000) have
+`x_velocity = 0` everywhere. The tracer field (wing material indicator) is correctly non-zero.
+This indicates the Navier-Stokes velocity update did not persist to the plotfiles — likely a
+solver configuration issue (`ns.init_iter = 0` with diffused IB). A re-run with corrected
+settings (or `ns.init_iter = 2`) is needed to capture the induced velocity field. The V1 figure
+shows the tracer field as a placeholder showing the wing position at mid-stroke.
 
 ---
 

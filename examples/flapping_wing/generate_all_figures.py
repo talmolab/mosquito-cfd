@@ -3,13 +3,16 @@
 
 Usage:
     uv run python examples/flapping_wing/generate_all_figures.py [--forces-csv PATH]
+    uv run python examples/flapping_wing/generate_all_figures.py \\
+        --plotfile Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/plt00500
 
 Produces:
     examples/flapping_wing/figures/
-        fig_planform.pdf       G1: Wing planform marker scatter
-        fig_kinematics.pdf     K1: Euler angles vs phase
-        fig_wing_phases.pdf    K2: Wing positions at key phases
-        fig_forces.pdf         F1: Force time series with kinematics
+        fig_planform.pdf/png       G1: Wing planform marker scatter
+        fig_kinematics.pdf/png     K1: Euler angles vs phase
+        fig_wing_phases.pdf/png    K2: Wing positions at key phases
+        fig_forces.pdf/png         F1: Force time series with kinematics
+        fig_velocity.pdf/png       V1: x-velocity field at mid-stroke [requires --plotfile]
 """
 
 import argparse
@@ -303,6 +306,112 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
 
 # ---------------------------------------------------------------------------
+# V1: x-velocity field at mid-stroke (requires --plotfile)
+# ---------------------------------------------------------------------------
+
+def plot_velocity_field(figures_dir: Path, plotfile: Path):
+    """V1: x-velocity field z-slice at mid-stroke (t=0.25, phi=70°).
+
+    Technique adapted from:
+        C:\\vaults\\physics surrogate models\\ellipsoid-validation-figure\\
+        generate_ellipsoid_figure.py
+    """
+    import yt
+    yt.set_log_level("error")
+
+    print(f"  Loading plotfile: {plotfile}")
+    ds = yt.load(str(plotfile))
+    time = float(ds.current_time)
+    phi_deg, alpha_deg = euler_angles(time)
+    print(f"  Time: {time:.3f}, phi={phi_deg:.1f}deg, alpha={alpha_deg:.1f}deg")
+
+    xl = float(ds.domain_left_edge[0])
+    xr = float(ds.domain_right_edge[0])
+    yl = float(ds.domain_left_edge[1])
+    yr = float(ds.domain_right_edge[1])
+    nx = int(ds.domain_dimensions[0])
+    ny = int(ds.domain_dimensions[1])
+    cx = float(ds.domain_center[0])
+    cy = float(ds.domain_center[1])
+
+    # Fixed-resolution buffer: full x-y plane at z = domain center (mid-span)
+    # Upsample 4x for smooth visualization of coarse grid
+    frb_nx = nx * 4
+    frb_ny = ny * 4
+    slc = ds.slice('z', ds.domain_center[2])
+    frb = slc.to_frb(
+        ds.domain_width[0],
+        (frb_nx, frb_ny),
+        height=ds.domain_width[1],
+    )
+    u = np.array(frb['x_velocity'])
+    # FRB shape: either (frb_nx, frb_ny) or (frb_ny, frb_nx) — imshow wants rows=y, cols=x
+    if u.shape == (frb_nx, frb_ny):
+        u = u.T
+    print(f"  Velocity range: [{u.min():.3f}, {u.max():.3f}]")
+    if abs(u.max()) > 50:
+        raise ValueError(
+            f"Velocity values outside expected dimensionless range: [{u.min():.1f}, {u.max():.1f}]\n"
+            "yt may have applied a CGS unit conversion."
+        )
+    velocity_available = abs(u).max() > 1e-6
+
+    # Wing centroid from IB particle positions
+    ad = ds.all_data()
+    x_wing = float(np.mean(np.array(ad['all', 'particle_position_x'])))
+    y_wing = float(np.mean(np.array(ad['all', 'particle_position_y'])))
+    print(f"  Wing centroid (domain): ({x_wing:.2f}, {y_wing:.2f})"
+          f"  -> display: ({x_wing - cx:.2f}, {y_wing - cy:.2f})")
+
+    if not velocity_available:
+        print("  WARNING: x_velocity is all zeros -- falling back to tracer field (wing position).")
+        tracer = np.array(frb['tracer'])
+        if tracer.shape == (frb_nx, frb_ny):
+            tracer = tracer.T
+        field_data = tracer
+        cmap = 'Blues'
+        cbar_label = 'tracer (wing material indicator)'
+        title_note = 'tracer field (velocity not in plotfile)'
+    else:
+        field_data = u
+        cmap = 'RdYlBu_r'
+        cbar_label = '$u$ (dimensionless)'
+        title_note = f'x-velocity field ($t = {time:.3f}$, $\\phi = {phi_deg:.0f}°$)'
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    extent = [xl - cx, xr - cx, yl - cy, yr - cy]
+    im = ax.imshow(
+        field_data,
+        origin='lower',
+        extent=extent,
+        cmap=cmap,
+        aspect='equal',
+        interpolation='bilinear',
+    )
+    cbar = plt.colorbar(im, ax=ax, label=cbar_label, fraction=0.04, pad=0.04)
+    cbar.ax.tick_params(labelsize=9)
+
+    ax.plot(x_wing - cx, y_wing - cy,
+            'r+', markersize=14, markeredgewidth=2,
+            label=f'wing centroid ({x_wing:.1f}, {y_wing:.1f})')
+    ax.legend(fontsize=8, loc='lower right', framealpha=0.7)
+
+    ax.set_xlabel('$x$ (dimensionless)', fontsize=11)
+    ax.set_ylabel('$y$ (dimensionless)', fontsize=11)
+    ax.set_title(
+        f'Flapping Wing — {title_note}\n'
+        f'z-slice at z={float(ds.domain_center[2]):.1f} (mid-span)',
+        fontsize=11,
+    )
+
+    out = figures_dir / "fig_velocity.pdf"
+    fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    print(f"V1: {out} + .png")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -325,6 +434,15 @@ def main():
         type=Path,
         default=Path("examples/flapping_wing/figures"),
     )
+    parser.add_argument(
+        "--plotfile",
+        type=Path,
+        default=None,
+        help=(
+            "Path to AMReX plotfile for velocity field visualization (V1). "
+            "Example: Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/plt00500"
+        ),
+    )
     args = parser.parse_args()
 
     figures_dir = args.output_dir
@@ -335,6 +453,11 @@ def main():
     plot_k1_kinematics(figures_dir)
     plot_k2_wing_phases(figures_dir, args.vertex_file)
     plot_f1_forces(figures_dir, args.forces_csv)
+
+    if args.plotfile is not None:
+        plot_velocity_field(figures_dir, args.plotfile)
+    else:
+        print("V1: skipped (pass --plotfile to generate velocity field figure)")
 
     print("\nAll figures generated.")
 

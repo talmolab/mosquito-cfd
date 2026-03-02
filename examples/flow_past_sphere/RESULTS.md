@@ -118,17 +118,22 @@ comp6-8: all ~0
 | Figure | File | Description |
 |--------|------|-------------|
 | Grid convergence | [figures/fig_forces_convergence.png](figures/fig_forces_convergence.png) | Cd vs time, coarse + medium vs Johnson & Patel (1999) Cd=1.087 |
+| Velocity field | [figures/fig_velocity.png](figures/fig_velocity.png) | x-velocity field z-slice at steady state (t=100); white circle = sphere |
 
 Generated with:
 ```bash
+# CSV-based figures (no cluster access required):
 uv run python examples/flow_past_sphere/generate_figures.py
+
+# Velocity figure (requires plotfile on Z: drive):
+uv run python examples/flow_past_sphere/generate_figures.py \
+    --plotfile Z:/users/eberrigan/mosquito-cfd-benchmarks/flow_past_sphere_10k/plt10000
 ```
 
 Inputs:
 - `forces_coarse.csv` — 10-point time series extracted from flow_past_sphere_coarse/ (128×64×64)
 - `forces_medium.csv` — 10-point time series extracted from flow_past_sphere_10k/ (256×128×128)
-
-No cluster access required after initial CSV extraction.
+- Velocity figure uses `plt10000` (t=100.0) — confirmed steady state (256×128×128 medium grid)
 
 ## Output Files
 
