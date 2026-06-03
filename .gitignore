@@ -13,6 +13,11 @@ plt*/
 chk*/
 *.old
 
+# IAMReX immersed-boundary scratch output
+# (force CSVs are copied to forces.csv when a run is kept; raw particle dumps are binary)
+IB_Particle_*.csv
+particle[0-9]*
+
 # Plotfiles and checkpoints (track selectively if needed)
 plotfiles/
 checkpoints/
