@@ -1,6 +1,6 @@
 # Flapping Wing Validation Results
 
-**Date**: February 26–27, 2026
+**Date**: February 26–27, 2026 (velocity-field re-run: April 27, 2026)
 **Platform**: NVIDIA A40 (Salk RunAI cluster, gpu-node14)
 **Docker Image**: `ghcr.io/talmolab/mosquito-cfd:fp64`
 **IAMReX Fork**: `talmolab/IAMReX @ 7ece065d` (feature/arbitrary-geometry)
@@ -172,7 +172,7 @@ See **fig_forces.pdf** for the full force time series.
 | [figures/fig_kinematics.pdf](figures/fig_kinematics.pdf) / [.png](figures/fig_kinematics.png) | K1: Euler angle time series |
 | [figures/fig_wing_phases.pdf](figures/fig_wing_phases.pdf) / [.png](figures/fig_wing_phases.png) | K2: Wing at 4 key phases |
 | [figures/fig_forces.pdf](figures/fig_forces.pdf) / [.png](figures/fig_forces.png) | F1: Force coefficient time series |
-| [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: Wing tracer field z-slice at mid-stroke (t=0.25, phi=70°); velocity field zero in available plotfiles (see note) |
+| [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: x-velocity field z-slice at mid-span (t=0.25, phi=70°), from the v2 re-run (ns.init_iter=2); u ∈ [−8.9, +5.5] |
 
 ---
 
@@ -185,7 +185,8 @@ See **fig_forces.pdf** for the full force time series.
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak force at mid-stroke | PASS | |CF_x| max at phi~64 deg |
 | Force coefficient range | MARGINAL | Raw CF_z max = 0.22; corrected ~0.52 |
-| LEV structure | NOT CHECKED | Velocity field zero in available plotfiles; re-run needed |
+| Induced velocity field | PASS | Non-zero, physical dipole at mid-stroke (v2 re-run, ns.init_iter=2) |
+| LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run still planned |
 
 ---
 
@@ -226,18 +227,20 @@ mpirun --allow-run-as-root -np 1 \
 # CSV-based figures (no cluster access required):
 uv run python examples/flapping_wing/generate_all_figures.py
 
-# Velocity/tracer figure (requires plotfile on Z: drive):
+# Velocity field figure (requires a v2 plotfile, ns.init_iter=2):
 uv run python examples/flapping_wing/generate_all_figures.py \
-    --plotfile Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/plt00500
+    --plotfile examples/flapping_wing/plt_v2_00500
 ```
 Requires only `forces.csv` and `wing.vertex` — no cluster access needed for CSV figures.
 
-**Note on velocity field**: All plotfiles from the validation run (plt00000–plt02000) have
-`x_velocity = 0` everywhere. The tracer field (wing material indicator) is correctly non-zero.
-This indicates the Navier-Stokes velocity update did not persist to the plotfiles — likely a
-solver configuration issue (`ns.init_iter = 0` with diffused IB). A re-run with corrected
-settings (or `ns.init_iter = 2`) is needed to capture the induced velocity field. The V1 figure
-shows the tracer field as a placeholder showing the wing position at mid-stroke.
+**Note on velocity field (resolved)**: The original validation run (`ns.init_iter = 0`) wrote
+`x_velocity = 0` to every plotfile (plt00000–plt02000), even though the solver computed the
+field internally — the forces, which depend on the interpolated marker velocity, were correct.
+A re-run with `ns.init_iter = 2` (the *only* input change; see `inputs.3d.validation_v2`) now
+persists the induced velocity field to the plotfiles (`plt_v2_00000`–`plt_v2_02000`). The v2
+forces are identical to the original run (Fz at mid-stroke −78.86 vs −78.85; full ranges match
+to <0.1), so the force validation above is unaffected. The V1 figure is generated from
+`plt_v2_00500` (t=0.25, φ=70°) and shows a physical wing-induced velocity dipole, u ∈ [−8.9, +5.5].
 
 ---
 
