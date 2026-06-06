@@ -55,5 +55,6 @@ slurm-*.out
 *.local.yaml
 
 # AI assistant local state
-.claude/
+# Claude Code: version-control shared dev commands; keep only personal settings out
+.claude/settings.local.json
 .serena/

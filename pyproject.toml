@@ -15,7 +15,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "black>=24.0.0",
     "build>=1.2.0",
     "pytest>=9.0.2",
     "pytest-cov>=5.0.0",
@@ -29,9 +28,6 @@ generate-wing-planform = "mosquito_cfd.geometry.cli:main"
 requires = ["uv_build>=0.10.3"]
 build-backend = "uv_build"
 
-[tool.black]
-line-length = 88
-
 [tool.ruff]
 line-length = 88
 target-version = "py311"
@@ -44,7 +40,7 @@ select = [
     "UP", # pyupgrade
     "D",  # pydocstyle
 ]
-# Black owns line length; don't double-enforce E501 on comments/docstrings it won't wrap.
+# ruff format owns line length; don't double-enforce E501 on comments/docstrings it won't wrap.
 ignore = ["E501"]
 
 [tool.ruff.lint.pydocstyle]
