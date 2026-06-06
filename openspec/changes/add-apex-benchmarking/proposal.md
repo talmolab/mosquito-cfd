@@ -9,11 +9,30 @@ The ALCF APEX proposal deadline is **February 27, 2026**. To submit a competitiv
 
 This proposal implements Stages 0-3 from the [IAMReX A40 Prototyping Guide](C:\vaults\physics surrogate models\references\iamrex-a40-prototyping-guide.md) with a focus on generating the quantitative data needed for APEX submission. The broader project context is developing physics-informed neural network surrogates for insect flight aerodynamics ([physics surrogate models](C:\vaults\physics surrogate models)).
 
+### Surrogate Training Data Requirements
+
+Each CFD simulation produces two output streams relevant to the ML surrogate (WP4a):
+
+| Data | Format | Use | Storage/sim |
+|------|--------|-----|-------------|
+| Integrated forces (Fx, Fy, Fz, moments) | CSV per timestep | Surrogate labels; RL reward | ~25 MB |
+| Wing surface pressure at Lagrangian markers | AMReX particle files | Future acoustic surrogate | ~350 MB |
+| Near-field velocity at antenna-range probe points | AMReX plotfile slices | Future acoustic surrogate | ~few GB |
+| Full 3D flow field snapshots (subsampled) | AMReX HDF5 plotfiles | Encoder training (WP4a) | ~200 GB |
+
+**Surrogate input/output structure**: The RL team uses MJX/MJX-Warp with torque actuators at wing joints, meaning wing kinematics emerge from the physics simulation rather than being prescribed. The surrogate therefore maps **instantaneous wing pose and velocity → aerodynamic forces**, called at each MJX physics timestep. This is distinct from mapping prescribed kinematic parameters to cycle-averaged forces. The kinematic parameter sweep (WP2) must cover the space of instantaneous poses the RL agent will visit during training.
+
+**Deployment target**: PhysicsNeMo (training) → ONNX / DLPack → MJX (JAX/XLA) or MJX-Warp. No end-to-end differentiability required (PPO-style RL).
+
+**Recommended additions to CFD output** (negligible compute cost, enables future work):
+- Surface pressure at all Lagrangian markers (particle_real_comp output)
+- Near-field velocity at 3–5 probe points at antenna-range distances (~2–5 mm from wing root)
+
 ### Future Extensions (Out of Scope for APEX)
 - **Realistic wing geometry**: Replace flat plate with digitized mosquito wing shapes
 - **Fluid-structure interaction**: Flexible wing deformation
 - **Swarm dynamics**: Multi-mosquito interactions with full body models
-- **AI surrogates**: Train neural networks on CFD data for real-time prediction
+- **AI surrogates**: Train PhysicsNeMo neural operators on CFD data for real-time MJX/MJX-Warp deployment
 
 ## What Changes
 
@@ -166,7 +185,7 @@ Based on measured A40 data. CFD is typically **memory-bandwidth limited**, so we
 | **Subtotal** | - | **71,500** |
 | **Total (with 20% contingency)** | **-** | **~86,000** |
 
-**Methodology**: Each production simulation = 10M cells × 500k timesteps (100 wingbeats at 5000 steps/wingbeat). Per-simulation cost: 201 A100 GPU-hours (using 2.9× bandwidth-limited speedup). Timing extrapolated from measured 2.38 M cells/s throughput on A40.
+**Methodology**: Each production simulation = 10M cells × ~257,000 timesteps (100 wingbeats × ~2,570 steps/wingbeat). Steps/wingbeat derived from CFL stability condition: Δt = 0.5 × Δx_min / U_tip_max = 0.5 × 0.01 mm / 9.20 m/s = 0.54 μs, giving T_wingbeat / Δt = 1.395 ms / 0.54 μs ≈ 2,570 steps (see `timestep_cfl_analysis.md`). Per-simulation cost at A100: ~110 A100 GPU-hours (CFL-derived) to 201 A100 GPU-hours (conservative, using assumed 5,000 steps/wingbeat). Resource request uses the conservative estimate; actual cost requires a short flapping wing test run to confirm AMReX-selected Δt. Timing extrapolated from measured 2.22 M cells/s throughput (heaving ellipsoid, A40).
 
 ### Reproducibility Infrastructure
 
@@ -284,7 +303,7 @@ Per [ALCF APEX requirements](https://www.alcf.anl.gov/science/apex-proposal-requ
 | Requirement | How Addressed |
 |-------------|---------------|
 | Scientific Impact | Validated CFD for insect flight → foundation for swarm dynamics |
-| AI Innovation | CFD data generation for physics-informed neural network surrogates |
+| AI Innovation | CFD data generation for physics-informed neural operator surrogates (PhysicsNeMo), deployed in MJX/MJX-Warp RL pipeline |
 | Goals & Resources | Quantitative GPU-hour estimates from measured benchmarks |
 | Methodology | Documented, reproducible simulation workflow with metadata |
 | Collaboration | Open-source code, published Docker images, full provenance |
