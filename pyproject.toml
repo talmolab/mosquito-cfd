@@ -3,6 +3,8 @@ name = "mosquito-cfd"
 version = "0.1.0"
 description = "CFD simulations of mosquito flight aerodynamics using IAMReX"
 readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "matplotlib>=3.10.8",
@@ -13,7 +15,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "black>=24.0.0",
+    "build>=1.2.0",
     "pytest>=9.0.2",
+    "pytest-cov>=5.0.0",
     "ruff>=0.15.1",
 ]
 
@@ -24,9 +29,29 @@ generate-wing-planform = "mosquito_cfd.geometry.cli:main"
 requires = ["uv_build>=0.10.3"]
 build-backend = "uv_build"
 
+[tool.black]
+line-length = 88
+
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "D",  # pydocstyle
+]
+# Black owns line length; don't double-enforce E501 on comments/docstrings it won't wrap.
+ignore = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

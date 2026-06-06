@@ -36,7 +36,7 @@ def read_vertex_file(filepath: str) -> np.ndarray:
     filepath : str
         Input file path
 
-    Returns
+    Returns:
     -------
     markers : np.ndarray
         Array of marker positions with shape (N, 3)

@@ -254,7 +254,9 @@ def grid_convergence_analysis(
     # Grid Convergence Index
     # GCI = Fs * |epsilon| / (r^p - 1)
     epsilon_fine = (cd_fine - cd_medium) / cd_fine if abs(cd_fine) > 1e-12 else 0
-    epsilon_medium = (cd_medium - cd_coarse) / cd_medium if abs(cd_medium) > 1e-12 else 0
+    epsilon_medium = (
+        (cd_medium - cd_coarse) / cd_medium if abs(cd_medium) > 1e-12 else 0
+    )
 
     if np.isfinite(observed_p) and observed_p > 0:
         gci_fine = safety_factor * abs(epsilon_fine) / (r**observed_p - 1)
@@ -321,9 +323,12 @@ def generate_convergence_report(
             "source": "Johnson & Patel (1999)",
         },
         "validation": {
-            "error_pct": abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD * 100,
+            "error_pct": abs(gci_results["cd_exact"] - LITERATURE_CD)
+            / LITERATURE_CD
+            * 100,
             "passed": (
-                abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD <= ACCEPTANCE_TOLERANCE
+                abs(gci_results["cd_exact"] - LITERATURE_CD) / LITERATURE_CD
+                <= ACCEPTANCE_TOLERANCE
             ),
             "gci_acceptable": gci_results["gci_fine"] < 0.02,  # 2% threshold
         },

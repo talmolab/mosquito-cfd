@@ -39,7 +39,7 @@ def generate_planform(
     center : tuple
         Center position (x, y, z) in meters. Default is origin.
 
-    Returns
+    Returns:
     -------
     markers : np.ndarray
         Array of marker positions with shape (N, 3)

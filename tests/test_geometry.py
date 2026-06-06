@@ -20,12 +20,16 @@ from mosquito_cfd.geometry.parametric_planform import estimate_marker_count
 # Used to validate the kinematics math independently of the C++ code.
 # ---------------------------------------------------------------------------
 
-def _euler_angles(time, freq=600.0, phi_amp=70.0, alpha_amp=45.0,
-                  theta_amp=0.0, phase_lead=90.0):
+
+def _euler_angles(
+    time, freq=600.0, phi_amp=70.0, alpha_amp=45.0, theta_amp=0.0, phase_lead=90.0
+):
     """Compute (phi, alpha, theta) in radians at given time."""
     omega = 2.0 * math.pi * freq
-    phi   = math.radians(phi_amp)   * math.sin(omega * time)
-    alpha = math.radians(alpha_amp) * math.cos(omega * time + math.radians(phase_lead) - math.pi / 2)
+    phi = math.radians(phi_amp) * math.sin(omega * time)
+    alpha = math.radians(alpha_amp) * math.cos(
+        omega * time + math.radians(phase_lead) - math.pi / 2
+    )
     # van Veen: phi = phi_amp*sin(wt), alpha = alpha_amp*cos(wt)
     # pitch_phase_lead=90° means alpha = alpha_amp * cos(wt) (cos leads sin by 90°)
     alpha = math.radians(alpha_amp) * math.cos(omega * time)
@@ -35,14 +39,16 @@ def _euler_angles(time, freq=600.0, phi_amp=70.0, alpha_amp=45.0,
 
 def _rotation_matrix(phi, alpha, theta):
     """R = Rz(phi) * Ry(theta) * Rx(alpha)  [ZYX convention, matches WingKinematics.H]."""
-    cp, sp = math.cos(phi),   math.sin(phi)
+    cp, sp = math.cos(phi), math.sin(phi)
     ca, sa = math.cos(alpha), math.sin(alpha)
     ct, st = math.cos(theta), math.sin(theta)
-    return np.array([
-        [cp*ct,  cp*st*sa - sp*ca,  cp*st*ca + sp*sa],
-        [sp*ct,  sp*st*sa + cp*ca,  sp*st*ca - cp*sa],
-        [-st,    ct*sa,             ct*ca           ],
-    ])
+    return np.array(
+        [
+            [cp * ct, cp * st * sa - sp * ca, cp * st * ca + sp * sa],
+            [sp * ct, sp * st * sa + cp * ca, sp * st * ca - cp * sa],
+            [-st, ct * sa, ct * ca],
+        ]
+    )
 
 
 class TestGeneratePlanform:
@@ -296,9 +302,9 @@ class TestWingKinematics:
         T = 1.0 / freq
         n = 1000
         times = np.linspace(0, T, n, endpoint=False)
-        phis   = [_euler_angles(t, freq=freq)[0] for t in times]
+        phis = [_euler_angles(t, freq=freq)[0] for t in times]
         alphas = [_euler_angles(t, freq=freq)[1] for t in times]
-        phi_peak_idx   = int(np.argmax(np.abs(phis)))
+        phi_peak_idx = int(np.argmax(np.abs(phis)))
         alpha_peak_idx = int(np.argmax(np.abs(alphas)))
         # α peaks near t=0, φ peaks near t=T/4 → phase difference ≈ n/4
         phase_diff = abs(phi_peak_idx - alpha_peak_idx)
@@ -329,4 +335,4 @@ class TestWingKinematics:
         rotated = R @ pt
         np.testing.assert_allclose(rotated[0], 0.0, atol=1e-12)
         np.testing.assert_allclose(rotated[1], -r * math.sin(alpha), atol=1e-12)
-        np.testing.assert_allclose(rotated[2],  r * math.cos(alpha), atol=1e-12)
+        np.testing.assert_allclose(rotated[2], r * math.cos(alpha), atol=1e-12)

@@ -40,7 +40,9 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             text=True,
             cwd=cwd,
         )
-        result["branch"] = branch.stdout.strip() if branch.returncode == 0 else "detached"
+        result["branch"] = (
+            branch.stdout.strip() if branch.returncode == 0 else "detached"
+        )
 
         # Check if dirty
         diff = subprocess.run(
