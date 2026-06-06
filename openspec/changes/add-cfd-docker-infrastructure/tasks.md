@@ -13,7 +13,11 @@
 
 ## 3. FP32 Dockerfile (Primary Prototyping Image)
 
-**STATUS: BLOCKED** - IAMReX has compilation bugs with FP32+CUDA. See design.md for details.
+**STATUS: OBSOLETE (descoped).** Blocked by unresolved upstream bug (IAMReX#59), and the
+"fast A40 prototyping" motivation no longer holds — all validated/Track B work is FP64 and
+coarse FP64 wingbeats already run in ~2.4 min on an A40. Supported images are FP64 + Python.
+See proposal.md "Descoped: FP32 image (obsolete)" for full rationale. Tasks below kept for
+history; not to be completed under this change.
 
 - [x] 3.1 Create `docker/Dockerfile.fp32` with:
   - [x] 3.1.1 CUDA 12.4 base image
@@ -24,16 +28,17 @@
   - [x] 3.1.6 Clone and build IAMReX FlowPastSphere tutorial
   - [x] 3.1.7 Install uv and Python dependencies from pyproject.toml
   - [x] 3.1.8 Add labels (version, commit SHAs, precision, cuda_arch)
-- [ ] ~~3.2 Build and test FP32 image locally~~ BLOCKED: FP32+CUDA compilation errors
-- [ ] ~~3.3 Verify FlowPastSphere runs on A40 GPU inside container~~ BLOCKED
-- [ ] ~~3.4 Document image size and build time~~ BLOCKED
+- [ ] ~~3.2 Build and test FP32 image locally~~ OBSOLETE (descoped — see status note)
+- [ ] ~~3.3 Verify FlowPastSphere runs on A40 GPU inside container~~ OBSOLETE (descoped)
+- [ ] ~~3.4 Document image size and build time~~ OBSOLETE (descoped)
+- [ ] 3.5 Remove FP32 from `docker.yml` default build matrix + drop the `:fp32` tag from the spec/README (descope follow-up)
 
 ## 4. FP64 Dockerfile (Validation Image)
 
 - [x] 4.1 Create `docker/Dockerfile.fp64` (copy FP32, change PRECISION=DOUBLE)
 - [x] 4.2 Build and test FP64 image locally (via RunAI cluster)
 - [x] 4.3 Verify FP64 FlowPastSphere runs (5 steps in ~14s on A40)
-- [ ] ~~4.4 Compare timing between FP32 and FP64 containers~~ BLOCKED: FP32 not available
+- [ ] ~~4.4 Compare timing between FP32 and FP64 containers~~ OBSOLETE (FP32 descoped)
 
 ## 5. Python-Only Dockerfile (Analysis Image)
 
@@ -99,10 +104,12 @@
 
 ## 11. Upstream Issue: FP32+CUDA Support
 
-**Blocking**: Section 3 (FP32 Docker image)
+**STATUS: OBSOLETE (descoped).** Issue filed and documented (11.1–11.2, done); pursuing a fix
+is no longer in scope since FP32 is descoped (see Section 3 / proposal.md). Issue #59 remains
+open upstream as a record. Tasks 11.3–11.5 are not to be completed under this change.
 
 - [x] 11.1 File issue on ruohai0925/IAMReX describing FP32+CUDA compilation errors ([#59](https://github.com/ruohai0925/IAMReX/issues/59))
 - [x] 11.2 Identify minimal reproducible example (included in issue #59)
-- [ ] 11.3 Investigate local patches to NavierStokesBase.cpp and Projection.cpp
-- [ ] 11.4 Test with newer IAMReX commits (if available)
-- [ ] 11.5 Once fixed: rebuild FP32 image and complete section 3
+- [ ] ~~11.3 Investigate local patches to NavierStokesBase.cpp and Projection.cpp~~ OBSOLETE (FP32 descoped)
+- [ ] ~~11.4 Test with newer IAMReX commits (if available)~~ OBSOLETE (FP32 descoped)
+- [ ] ~~11.5 Once fixed: rebuild FP32 image and complete section 3~~ OBSOLETE (FP32 descoped)

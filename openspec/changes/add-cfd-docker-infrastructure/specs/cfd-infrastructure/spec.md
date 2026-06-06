@@ -4,9 +4,10 @@
 
 The cfd-infrastructure SHALL provide Docker images with all dependencies required to build and run IAMReX CFD simulations.
 
-#### Scenario: FP32 image availability
-- **WHEN** a user pulls `ghcr.io/<owner>/mosquito-cfd:fp32`
-- **THEN** the image contains a working IAMReX build compiled with PRECISION=FLOAT, USE_CUDA=TRUE, and CUDA_ARCH=86
+#### Scenario: FP32 image not provided (descoped)
+- **WHEN** a user looks for an FP32 CUDA image
+- **THEN** none is published — FP32 is out of scope (blocked upstream by [IAMReX#59](https://github.com/ruohai0925/IAMReX/issues/59); FP64 is the supported precision for all CFD)
+- **AND** the rationale is recorded in proposal.md "Descoped: FP32 image (obsolete)"
 
 #### Scenario: FP64 image availability
 - **WHEN** a user pulls `ghcr.io/<owner>/mosquito-cfd:fp64`

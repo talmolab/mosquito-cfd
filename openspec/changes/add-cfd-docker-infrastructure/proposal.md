@@ -37,6 +37,17 @@ Docker and CI/CD infrastructure for reproducible IAMReX builds:
 | `.github/workflows/ci.yml` | Lint + test on PR |
 | `.github/workflows/docker.yml` | Build + push images on main/tag |
 
+### Descoped: FP32 image (obsolete)
+
+The FP32 image is **descoped** — not merely blocked. Rationale:
+
+1. **Upstream blocker, unresolved:** IAMReX fails to compile with `PRECISION=FLOAT` + `USE_CUDA=TRUE` (filed as [ruohai0925/IAMReX#59](https://github.com/ruohai0925/IAMReX/issues/59)); no upstream fix.
+2. **Motivation no longer holds:** FP32 was intended for *fast A40 prototyping*, but every validated benchmark (sphere, ellipsoid, flapping wing) and the Track B force corpus run in **FP64**, and a coarse-grid FP64 wingbeat already completes in ~2.4 min on an A40 — the prototyping speedup is not needed.
+3. **Accuracy:** FP32 raises pressure-projection accuracy concerns for CFD that produces *training data*; FP64 is the defensible choice end-to-end.
+4. **Forward target:** the production/grant target (H100) has strong native FP64.
+
+**Supported image set is therefore FP64 (CFD) + Python (analysis).** FP32 work (Dockerfile, CI build, upstream-fix investigation) is retained in history but marked obsolete in `tasks.md`; the `cfd-infrastructure` spec no longer promises an FP32 image. If FP32 is ever revived, it should be a new, scoped change.
+
 ## Impact
 
 - New spec: `cfd-infrastructure` (containerization, CI/CD, image registry)
