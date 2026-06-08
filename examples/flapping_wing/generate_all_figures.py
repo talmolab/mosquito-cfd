@@ -22,6 +22,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from mosquito_cfd.force_surrogate import compute_force_reference
 from mosquito_cfd.geometry import generate_planform, read_vertex_file
 
 # ---------------------------------------------------------------------------
@@ -232,12 +233,9 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     t_s, Fx_s, Fy_s, Fz_s = t[mask], Fx[mask], Fy[mask], Fz[mask]
     phi_s, alpha_s = phi[mask], alpha[mask]
 
-    # Reference: tip dynamic pressure
-    omega = 2 * np.pi * F_STAR
-    U_tip_max = omega * np.radians(PHI_AMP_DEG) * R_TIP
-    q_tip = 0.5 * 1.0 * U_tip_max**2
-    S = np.pi / 4 * SPAN * CHORD
-    F_ref = q_tip * S
+    # Reference: tip dynamic pressure (single source — mosquito_cfd.force_surrogate)
+    ref = compute_force_reference(F_STAR, PHI_AMP_DEG, R_TIP, SPAN, CHORD, rho=1.0)
+    U_tip_max, q_tip, S, F_ref = ref.u_tip_max, ref.q_tip, ref.area, ref.f_ref
     print(f"  U_tip_max = {U_tip_max:.2f}, q_tip = {q_tip:.2f}, S = {S:.4f}, F_ref = {F_ref:.2f}")
 
     CF_x = Fx_s / F_ref
