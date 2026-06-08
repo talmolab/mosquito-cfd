@@ -70,6 +70,17 @@ The runai-cluster-skill SHALL provide templates for all workspace lifecycle oper
 - **WHEN** a user needs to clean up a job
 - **THEN** the skill provides: `runai workspace delete <name> -p talmo-lab`
 
+#### Scenario: Execute command in running workspace
+
+- **WHEN** a user needs to run a command inside a running workspace
+- **THEN** the skill uses: `runai workspace exec <name> -p talmo-lab -- <command>`
+- **NOTE**: Do NOT use `kubectl exec` — RunAI manages its own auth layer
+- **Examples**:
+  - List files: `runai workspace exec <name> -p talmo-lab -- ls /workspace/`
+  - Run simulation: `runai workspace exec <name> -p talmo-lab -- bash -c 'cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere && mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex /workspace/inputs.3d.validation > /workspace/sim.log 2>&1'`
+  - Read a file: `runai workspace exec <name> -p talmo-lab -- bash -c 'cat /workspace/sim.log'`
+  - Interactive shell: `runai workspace exec <name> -p talmo-lab --stdin --tty -- /bin/bash`
+
 ### Requirement: GPU Resource Configuration
 
 The runai-cluster-skill SHALL document correct resource request flags for RunAI CLI v2.
