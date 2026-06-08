@@ -62,6 +62,10 @@ training) emits a `run_metadata.json`: container digest, IAMReX commit, inputs h
 host, and a caller-supplied timestamp (never wall-clock-at-runtime baked into logic). Reruns
 reproduce bit-for-bit given the same seed.
 
+**Follow-up (PR3 consumer, not PR1):** `docker.yml` publishes images by tag only and does not
+surface a `sha256:` digest. Add a step emitting `build.outputs.digest` to the CI job summary so
+operators can pin surrogate runs by digest (the foundation wrapper already *requires* a digest).
+
 ### CC-2. Cluster-free reusable fixtures.
 PR1 commits, under `tests/fixtures/`, a tiny **synthetic IB-particle CSV** (a few timesteps with
 analytically known forces) and a **2-config micro-sweep**. Every test in PR2/PR4/PR6 runs against
@@ -70,8 +74,9 @@ these — **no RunAI, no GPU, no real plotfiles**. This is the fixture base the 
 ### CC-3. Single-source force normalization.
 The `F_ref = q_tip · S` math (U_tip_max = 2π·f\*·φ_amp·r_tip; q_tip = ½ρU²; S = π/4·span·chord)
 lives in **one tested helper** in PR1 and is reused by the extractor (PR4) and figure (PR6) —
-never re-derived inline. Regression-tested to reproduce the committed `forces.csv` / RESULTS.md
-values **exactly** (F_ref = 624.8 at the validated 70° point).
+never re-derived inline (PR1 refactors the existing inline copy in `generate_all_figures.py` to
+use the helper). Regression-locked to the formula values at the validated 70° point
+(F_ref ≈ 624.79; RESULTS.md shows the rounded F_ref = 624.8), at `rtol=1e-3`.
 
 ### CC-4. Scientific honesty.
 Evaluate on **held-out configurations**, not just held-out timesteps within a run (so we measure
@@ -127,7 +132,7 @@ predicted-vs-CFD figure. Phase lead fixed at 90°, deviation 0° (validated valu
 | Aedes stroke amplitude | 39° ± 4° | Bomphrey 2017 | repo `timestep_cfl_analysis.md:24` |
 | Aedes wing length R | 3.0 mm | Bomphrey 2017 | repo `timestep_cfl_analysis.md:23` |
 | Validated baseline kinematics | φ 70°, α 45°, f\* 1.0, dev 0°, phase-lead 90° | this repo | `inputs.3d.validation` (`kinematics_*`), `RESULTS.md:44–48` |
-| Force reference | F_ref = 624.8 (q_tip 265.2 × S 2.356; U_tip 23.0) | this repo | `RESULTS.md:100–103`, `generate_all_figures.py:237–241` |
+| Force reference | F_ref = 624.8 (q_tip 265.2 × S 2.356; U_tip 23.0) | this repo | `RESULTS.md:100–103`, `generate_all_figures.py:236–241` |
 | Grid / dt / steps / ν\* | 64×32×64 / 5e-4 / 2000 / 0.115 | this repo | `inputs.3d.validation`, `RESULTS.md:70–76` |
 | Diffused-IB force underestimate | ~2.4× (Cd 0.45 vs 1.09, Re=100 sphere) | this repo | `RESULTS.md:118` |
 
@@ -143,7 +148,7 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 
 | # | OpenSpec change-id | Scope | Env | Status |
 |---|---|---|---|---|
-| 1 | `add-force-surrogate-foundation` | `mosquito_cfd` surrogate-prep module skeleton; force-coefficient/normalization helpers (CC-3); **reusable cluster-free fixtures** (CC-2); module constants; `run_metadata` + `units.json` sidecar conventions (CC-1, CC-5). Local, TDD. | local | ⬜ |
+| 1 | `add-force-surrogate-foundation` | `mosquito_cfd` surrogate-prep module skeleton; force-coefficient/normalization helpers (CC-3) **+ refactor the inline `F_ref` in `examples/flapping_wing/generate_all_figures.py` to source from the helper (closes CC-3 DRY)**; **reusable cluster-free fixtures** (CC-2); module constants; `run_metadata` + `units.json` sidecar conventions (CC-1, CC-5). Local, TDD. | local | ⬜ |
 | 2 | `add-force-surrogate-sweep-config` | Sweep generator → 27 input files over the φ×f\*×α grid; `amr.plot_int=-1`; **document the Re policy (CC-7)**; tested against fixtures. | local | ⬜ |
 | 3 | `add-force-surrogate-sweep-runner` | RunAI A40 batch runner looping the sweep through the pinned `:fp64` container; per-config output dir; `run_metadata` per run; dry-run/mocked test path. | cluster | ⬜ |
 | 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. | local | ⬜ |
