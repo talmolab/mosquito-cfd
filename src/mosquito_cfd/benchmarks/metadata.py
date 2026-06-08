@@ -28,6 +28,8 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
             check=True,
         )
@@ -38,6 +40,8 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             ["git", "symbolic-ref", "--short", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
         )
         result["branch"] = (
@@ -49,6 +53,8 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             ["git", "diff", "HEAD"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
             check=True,
         )
@@ -63,6 +69,8 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             ["git", "remote", "get-url", "origin"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=cwd,
         )
         if remote.returncode == 0:
@@ -94,6 +102,8 @@ def get_hardware_info() -> dict[str, Any]:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
         )
         lines = nvidia_smi.stdout.strip().split("\n")
@@ -120,6 +130,8 @@ def get_hardware_info() -> dict[str, Any]:
             ["nvcc", "--version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
         )
         for line in nvcc.stdout.split("\n"):
