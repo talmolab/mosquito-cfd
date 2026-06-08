@@ -169,13 +169,18 @@ parallel once PR1+PR2 land. PR5 needs PR4's dataset; PR6 needs PR5's predictions
 
 ## How to execute (per-PR loop)
 
+**`/new-feature` is the orchestrator for each PR.** It drives the full inner workflow —
+feature branch (named `<change-id>`) → codebase exploration → clarifying questions →
+`/openspec:proposal` scaffold (validated `--strict`) → `/review-openspec` → user approval →
+`/openspec:apply` (TDD) → `/pre-merge-check`. The Claude dev commands `tdd`,
+`lint`/`fix-formatting`, `coverage`, and `review-pr` are invoked *within* that flow, not run
+standalone. The steps below wrap `/new-feature` with the issue-drafting and archive bookkeeping.
+
 1. Pick the next ⬜ row.
-2. Draft the GitHub issue body to `c:\vaults\physics surrogate models\nvidia-proposal\github_issues\issue_<change-id>.md` (reference this roadmap row, the CCs it touches, the sourced numbers).
-3. Open the GitHub issue (Elizabeth posts).
-4. Scaffold the OpenSpec change at `openspec/changes/<change-id>/` (`proposal.md`, optional `design.md` → `docs/superpowers/specs/`, `tasks.md`, `specs/<capability>/spec.md`). `openspec validate <change-id> --strict`.
-5. TDD-implement per `tasks.md` using the Claude dev commands (`new-feature` → `tdd` → `lint`/`fix-formatting` → `coverage` → `pre-merge-check` → `review-pr`). Open the PR linking issue + change-id.
-6. After merge, `openspec archive <change-id> --yes`.
-7. Tick the status checkbox in this roadmap.
+2. Draft the GitHub issue body to `c:\vaults\physics surrogate models\nvidia-proposal\github_issues\issue_<change-id>.md` (reference this roadmap row, the CCs it touches, the sourced numbers) and open it.
+3. Run **`/new-feature`** with the PR scope + issue reference. It creates the `<change-id>` branch, authors the OpenSpec change just-in-time (`proposal.md`, optional `design.md` → `docs/superpowers/specs/`, `tasks.md`, `specs/<capability>/spec.md`), runs `/review-openspec`, gets your approval, TDD-implements via `/openspec:apply`, and runs `/pre-merge-check` to open the PR linking issue + change-id.
+4. After merge, `/openspec:archive <change-id>`.
+5. Tick the status checkbox in this roadmap.
 
 ## Out of scope (funded work — not this program)
 
