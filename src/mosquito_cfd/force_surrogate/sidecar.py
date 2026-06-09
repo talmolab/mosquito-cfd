@@ -31,6 +31,16 @@ def _validate_units(units: object) -> None:
     if not isinstance(units, dict):
         raise ValueError(f"units must be a mapping, got {type(units).__name__}")
     for column, unit in units.items():
+        if not isinstance(column, str):
+            raise ValueError(
+                f"column name must be a string, got {column!r} "
+                f"({type(column).__name__}); non-string keys do not round-trip through JSON"
+            )
+        if not isinstance(unit, str):
+            raise ValueError(
+                f"unit for column {column!r} must be a string, got "
+                f"{unit!r} ({type(unit).__name__})"
+            )
         if unit not in UNITS_VOCABULARY:
             raise ValueError(
                 f"column {column!r} has unit {unit!r} not in UNITS_VOCABULARY "

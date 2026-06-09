@@ -65,6 +65,12 @@ concern).
 - **When** `write_units_sidecar` is called
 - **Then** it raises `ValueError` naming the offending column and unit
 
+#### Scenario: Non-string column or unit rejected
+
+- **Given** a units mapping whose column key or unit value is not a string (e.g. `{1: "dimensionless"}` or `{"cf_x": 2.0}`)
+- **When** `write_units_sidecar` is called
+- **Then** it raises `ValueError` (non-string keys would be silently coerced by JSON and not round-trip)
+
 #### Scenario: Invalid sidecar rejected on read
 
 - **Given** a `units.json` on disk that is malformed (not a JSON object) or carries a unit outside the vocabulary

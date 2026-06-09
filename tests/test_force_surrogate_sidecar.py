@@ -34,6 +34,14 @@ def test_write_units_sidecar_rejects_unknown_unit(tmp_path):
     assert "force" in msg and "newtons" in msg
 
 
+def test_write_units_sidecar_rejects_non_string_key_or_unit(tmp_path):
+    """Non-string column keys/units are rejected (they don't round-trip through JSON)."""
+    with pytest.raises(ValueError):
+        write_units_sidecar(tmp_path / "k.json", {1: "dimensionless"})  # type: ignore[dict-item]
+    with pytest.raises(ValueError):
+        write_units_sidecar(tmp_path / "v.json", {"cf_x": 2.0})  # type: ignore[dict-item]
+
+
 def test_read_units_sidecar_rejects_invalid(tmp_path):
     """Malformed JSON, non-object JSON, and illegal on-disk units all raise."""
     bad = tmp_path / "bad.json"
