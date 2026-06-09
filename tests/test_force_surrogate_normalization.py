@@ -7,6 +7,28 @@ from mosquito_cfd.force_surrogate import (
     compute_force_coefficients,
     compute_force_reference,
 )
+from mosquito_cfd.force_surrogate.constants import (
+    CHORD,
+    R_TIP,
+    RHO,
+    SPAN,
+    VALIDATED_F_STAR,
+    VALIDATED_PHI_AMP_DEG,
+    VALIDATED_PITCH_AMP_DEG,
+)
+
+
+def test_validated_constants_reproduce_reference_point():
+    """The committed baseline constants reproduce the documented validated F_ref."""
+    assert (VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, VALIDATED_PITCH_AMP_DEG) == (
+        1.0,
+        70.0,
+        45.0,
+    )
+    ref = compute_force_reference(
+        VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, R_TIP, SPAN, CHORD, rho=RHO
+    )
+    assert ref.f_ref == pytest.approx(624.79, rel=1e-3)
 
 
 def test_compute_force_reference_matches_validated():
