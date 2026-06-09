@@ -79,8 +79,19 @@ def test_capture_surrogate_run_metadata(tmp_path):
 
 
 def test_capture_surrogate_run_metadata_requires_digest():
-    """A blank/missing digest is rejected (no mutable-tag provenance)."""
+    """Blank, missing, or mutable-tag references are rejected; only a sha256 digest passes."""
     with pytest.raises(ValueError):
         capture_surrogate_run_metadata(docker_image_digest="")
     with pytest.raises(ValueError):
         capture_surrogate_run_metadata(docker_image_digest="   ")
+    # a mutable tag is not content-addressable -> rejected
+    with pytest.raises(ValueError):
+        capture_surrogate_run_metadata(
+            docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest"
+        )
+
+
+def test_capture_surrogate_run_metadata_strips_digest_whitespace():
+    """Surrounding whitespace is stripped before the digest is recorded."""
+    meta = capture_surrogate_run_metadata(docker_image_digest=f"  {DIGEST}  ")
+    assert meta["docker_image"] == DIGEST

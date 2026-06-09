@@ -106,8 +106,9 @@ def capture_surrogate_run_metadata(
     dict's ``timestamp``.
 
     Args:
-        docker_image_digest: Pinned image reference (e.g.
-            ``ghcr.io/talmolab/mosquito-cfd@sha256:...``). Required and non-empty.
+        docker_image_digest: Content-addressable pinned image reference; must contain
+            ``sha256:`` (e.g. ``ghcr.io/talmolab/mosquito-cfd@sha256:...``). Surrounding
+            whitespace is stripped. A mutable tag (``:latest``) is rejected.
         inputs_file: Optional inputs file; its SHA256 is recorded under ``inputs.hash``
             when the file exists.
         timestamp: Optional caller-supplied ISO-8601 timestamp; overrides the wall-clock
@@ -120,13 +121,19 @@ def capture_surrogate_run_metadata(
         (when ``inputs_file`` exists) ``inputs.hash``.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is empty or blank.
+        ValueError: If ``docker_image_digest`` is empty, blank, or not a content-
+            addressable digest (does not contain ``sha256:``).
     """
-    if not docker_image_digest or not docker_image_digest.strip():
-        raise ValueError("docker_image_digest is required and must be non-empty")
+    digest = (docker_image_digest or "").strip()
+    if "sha256:" not in digest:
+        raise ValueError(
+            "docker_image_digest must be a content-addressable image digest containing "
+            "'sha256:' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a mutable tag "
+            f"like ':latest' is not reproducible. Got {docker_image_digest!r}"
+        )
     metadata = capture_run_metadata(
         inputs_file=inputs_file,
-        docker_image=docker_image_digest,
+        docker_image=digest,
         timing=timing,
         extra=extra,
     )

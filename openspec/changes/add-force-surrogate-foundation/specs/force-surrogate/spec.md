@@ -102,6 +102,12 @@ time at runtime (CC-1).
 - **When** `capture_surrogate_run_metadata` is called
 - **Then** it raises `ValueError` rather than recording provenance without a pinned image
 
+#### Scenario: Mutable tag rejected
+
+- **Given** a mutable image tag (e.g. `ghcr.io/talmolab/mosquito-cfd:latest`) with no `sha256:` digest
+- **When** `capture_surrogate_run_metadata` is called
+- **Then** it raises `ValueError` — only a content-addressable digest (containing `sha256:`) is accepted, and surrounding whitespace is stripped before recording
+
 ### Requirement: Cluster-free test fixtures
 
 The repository SHALL provide committed synthetic fixtures that allow force-surrogate tests to run

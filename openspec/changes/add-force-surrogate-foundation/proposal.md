@@ -17,7 +17,7 @@ PR1 establishes a single source of truth for the normalization math, a dimension
   - **Constants** (`constants.py`): validated baseline geometry/physical values (`SPAN=3.0`, `CHORD=1.0`, `R_TIP=3.0`, `RHO=1.0`) and the validated reference point (φ=70°, pitch=45°, f\*=1.0), each with a unit comment. (Sweep-grid levels are deferred to PR2.)
   - **Sidecar + provenance** (`sidecar.py`): **reuse** `mosquito_cfd.benchmarks.metadata.capture_run_metadata` (import in place; no change to that module) via a thin wrapper that ensures the **docker image digest** is recorded (CC-1); plus new `write_units_sidecar` / `read_units_sidecar` emitting/parsing a `units.json` against a documented **dimensionless units vocabulary** (CC-5).
   - `__init__.py` re-exports + `__all__`.
-- **Committed cluster-free test fixtures** under `tests/fixtures/` (CC-2): a tiny synthetic IB-particle force CSV with analytically known forces (columns `iStep,time,Fx,Fy,Fz,Mx,My,Mz,X,Y,Z`) + a 2-config micro-sweep descriptor — so every downstream PR's force tests run with **no RunAI / GPU / plotfiles**.
+- **Committed cluster-free test fixtures** under `tests/fixtures/` (CC-2): a tiny synthetic IB-particle force CSV that **mirrors the real 29-column IAMReX IB-particle schema in exact order** (`iStep,time,X,Y,Z,Vx,Vy,Vz,Rx,Ry,Rz,Fx,Fy,Fz,Mx,My,Mz,Fcp{x,y,z},Tcp{x,y,z},SumU{x,y,z},SumT{x,y,z}`; `Fx,Fy,Fz` at columns 12–14, others zero, forces as exact multiples of a round `F_ref=100.0`) + a 2-config micro-sweep descriptor — so every downstream PR's force tests run with **no RunAI / GPU / plotfiles**.
 
 ### Units convention (dimensionless)
 
