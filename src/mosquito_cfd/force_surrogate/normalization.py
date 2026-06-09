@@ -35,8 +35,10 @@ class ForceReference:
 class ForceCoefficients:
     """Aerodynamic force coefficients (force / ``F_ref``), dimensionless.
 
-    ``eq`` is disabled so instances are never compared with ``==`` (which would do an
-    ambiguous element-wise array comparison). Assert on individual fields instead.
+    ``eq`` is disabled so the dataclass never does an ambiguous element-wise array
+    comparison; equality and hashing therefore fall back to **object identity** by
+    design. Compare individual fields (e.g. ``np.testing.assert_allclose``), not whole
+    instances. Each field is a numpy array, or a 0-d numpy scalar for scalar inputs.
 
     Attributes:
         cf_x: Stroke-axis force coefficient.
@@ -44,9 +46,9 @@ class ForceCoefficients:
         cf_z: Lift / span-normal force coefficient.
     """
 
-    cf_x: NDArray[np.floating]
-    cf_y: NDArray[np.floating]
-    cf_z: NDArray[np.floating]
+    cf_x: np.floating | NDArray[np.floating]
+    cf_y: np.floating | NDArray[np.floating]
+    cf_z: np.floating | NDArray[np.floating]
 
 
 def compute_force_reference(
@@ -109,15 +111,21 @@ def compute_force_coefficients(
         empty output.
 
     Raises:
-        ValueError: If ``f_ref == 0`` (degenerate kinematics), to avoid inf/NaN output.
+        ValueError: If ``f_ref <= 0`` (degenerate/non-physical reference), or if
+            ``fx``, ``fy``, ``fz`` do not share the same shape (which would silently
+            misalign the coefficient vectors).
     """
-    if f_ref == 0:
+    if f_ref <= 0:
         raise ValueError(
-            "f_ref must be nonzero to form force coefficients (got 0 — check "
-            "f_star / phi_amp_deg for degenerate kinematics)."
+            f"f_ref must be positive to form force coefficients (got {f_ref}); check "
+            "f_star / phi_amp_deg / rho for degenerate or non-physical inputs."
         )
-    return ForceCoefficients(
-        cf_x=np.asarray(fx, dtype=float) / f_ref,
-        cf_y=np.asarray(fy, dtype=float) / f_ref,
-        cf_z=np.asarray(fz, dtype=float) / f_ref,
-    )
+    fx_a = np.asarray(fx, dtype=float)
+    fy_a = np.asarray(fy, dtype=float)
+    fz_a = np.asarray(fz, dtype=float)
+    if not (fx_a.shape == fy_a.shape == fz_a.shape):
+        raise ValueError(
+            "fx, fy, fz must share the same shape; got "
+            f"{fx_a.shape}, {fy_a.shape}, {fz_a.shape}"
+        )
+    return ForceCoefficients(cf_x=fx_a / f_ref, cf_y=fy_a / f_ref, cf_z=fz_a / f_ref)

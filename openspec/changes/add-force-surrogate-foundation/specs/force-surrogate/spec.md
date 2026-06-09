@@ -26,11 +26,17 @@ SHALL reproduce the validated reference values. No other module SHALL re-derive 
 - **When** `compute_force_coefficients` is called
 - **Then** it returns `cf_x = Fx / F_ref`, `cf_y = Fy / F_ref`, `cf_z = Fz / F_ref` element-wise, preserving input shape (scalar input → scalar output)
 
-#### Scenario: Zero reference rejected
+#### Scenario: Non-positive reference rejected
 
-- **Given** `F_ref = 0.0` (reachable when `f_star = 0` or `phi_amp_deg = 0`)
+- **Given** `F_ref <= 0` (zero — reachable when `f_star = 0` or `phi_amp_deg = 0`; or negative — e.g. a non-physical `rho < 0`)
 - **When** `compute_force_coefficients` is called
-- **Then** it raises `ValueError` rather than returning inf/NaN coefficients
+- **Then** it raises `ValueError` rather than returning inf/NaN or sign-flipped coefficients
+
+#### Scenario: Mismatched force shapes rejected
+
+- **Given** `fx`, `fy`, `fz` that do not all share the same shape (e.g. a truncated column)
+- **When** `compute_force_coefficients` is called
+- **Then** it raises `ValueError` rather than silently returning misaligned coefficient vectors
 
 #### Scenario: Empty and NaN forces
 

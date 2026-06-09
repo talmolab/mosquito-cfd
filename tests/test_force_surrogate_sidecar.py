@@ -24,6 +24,8 @@ def test_units_sidecar_roundtrip(tmp_path):
     path = tmp_path / "dataset.units.json"
     write_units_sidecar(path, units)
     assert read_units_sidecar(path) == units
+    # the on-disk file is valid UTF-8 JSON (guards the ensure_ascii=False / JSON writer)
+    assert json.loads(path.read_text(encoding="utf-8")) == units
 
 
 def test_write_units_sidecar_rejects_unknown_unit(tmp_path):
@@ -88,6 +90,13 @@ def test_capture_surrogate_run_metadata_requires_digest():
     with pytest.raises(ValueError):
         capture_surrogate_run_metadata(
             docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest"
+        )
+    # strings that merely contain "sha256:" but aren't a 64-hex digest -> rejected
+    with pytest.raises(ValueError):
+        capture_surrogate_run_metadata(docker_image_digest="repo@sha256:deadbeef")
+    with pytest.raises(ValueError):
+        capture_surrogate_run_metadata(
+            docker_image_digest="ghcr.io/x:tag-sha256:nothex"
         )
 
 

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from mosquito_cfd.force_surrogate import compute_force_coefficients
@@ -50,9 +51,10 @@ def test_synthetic_fixture_loads():
     cc = compute_force_coefficients(
         df["Fx"].to_numpy(), df["Fy"].to_numpy(), df["Fz"].to_numpy(), 100.0
     )
-    # row 1: Fx=50 -> 0.5 ; row 2: Fz=-40 -> -0.4
-    assert cc.cf_x[1] == 0.5
-    assert cc.cf_z[2] == -0.4
+    # full columns normalized by the round F_ref=100.0 -> exact decimals
+    np.testing.assert_allclose(cc.cf_x, [0.0, 0.5, -0.3, 0.75, -1.0])
+    np.testing.assert_allclose(cc.cf_y, [0.0, -0.25, 0.2, 0.0, 0.5])
+    np.testing.assert_allclose(cc.cf_z, [0.0, 0.1, -0.4, -0.15, 0.25])
 
 
 def test_micro_sweep_fixture_parses():

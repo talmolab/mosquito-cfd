@@ -10,6 +10,7 @@ rather than wall-clock-stamped (CC-1).
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ UNITS_VOCABULARY: frozenset[str] = frozenset(
         "dimensionless (f*)",
     }
 )
+
+# A content-addressable image digest: `sha256:` + 64 lowercase hex chars, optionally
+# prefixed by a registry/repo (e.g. `ghcr.io/org/img@sha256:<64hex>`).
+_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def _validate_units(units: object) -> None:
@@ -125,11 +130,11 @@ def capture_surrogate_run_metadata(
             addressable digest (does not contain ``sha256:``).
     """
     digest = (docker_image_digest or "").strip()
-    if "sha256:" not in digest:
+    if not _DIGEST_RE.search(digest):
         raise ValueError(
-            "docker_image_digest must be a content-addressable image digest containing "
-            "'sha256:' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a mutable tag "
-            f"like ':latest' is not reproducible. Got {docker_image_digest!r}"
+            "docker_image_digest must be a content-addressable image digest of the form "
+            "'sha256:<64 hex chars>' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a "
+            f"mutable tag like ':latest' is not reproducible. Got {docker_image_digest!r}"
         )
     metadata = capture_run_metadata(
         inputs_file=inputs_file,

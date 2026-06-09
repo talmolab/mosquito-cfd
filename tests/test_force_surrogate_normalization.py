@@ -66,10 +66,18 @@ def test_compute_force_coefficients_array_and_scalar():
     assert float(scalar.cf_x) == pytest.approx(0.5)
 
 
-def test_compute_force_coefficients_zero_reference_raises():
-    """A zero reference (degenerate kinematics) raises rather than div-by-zero."""
+def test_compute_force_coefficients_nonpositive_reference_raises():
+    """A zero or negative reference is rejected (avoids div-by-zero / sign flip)."""
     with pytest.raises(ValueError):
         compute_force_coefficients(1.0, 2.0, 3.0, 0.0)
+    with pytest.raises(ValueError):
+        compute_force_coefficients(1.0, 2.0, 3.0, -100.0)
+
+
+def test_compute_force_coefficients_mismatched_shapes_raise():
+    """fx/fy/fz of differing shape raise rather than silently misalign."""
+    with pytest.raises(ValueError):
+        compute_force_coefficients([1.0, 2.0, 3.0], [1.0, 2.0], [1.0], 100.0)
 
 
 def test_compute_force_coefficients_empty_and_nan():
