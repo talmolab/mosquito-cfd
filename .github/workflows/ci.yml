@@ -17,10 +17,10 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Lint with ruff
-        run: uv run ruff check src/
+        run: uv run ruff check src/ tests/ examples/prelim_sweep/
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check src/
+        run: uv run ruff format --check src/ tests/ examples/prelim_sweep/
 
   test:
     name: Test

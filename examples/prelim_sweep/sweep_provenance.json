@@ -1,0 +1,9 @@
+{
+  "base_inputs": {
+    "path": "examples/flapping_wing/inputs.3d.validation",
+    "sha256": "dfb1e24b15ce0ab5307414743d2455d8c399d004d2face7146aa45c1a107aa0d"
+  },
+  "generated_at": "2026-06-09T00:00:00+00:00",
+  "git_commit": "f6bc1b7c45aaee12bb56137ca5c6ac7bdb7e0531",
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
+}

@@ -18,6 +18,10 @@
 # Jupyter notebooks
 *.ipynb text eol=lf
 
+# IAMReX input decks (extension-less) — pin LF so the committed sweep corpus is
+# byte-reproducible on Windows and Linux (force-surrogate sweep generator).
+examples/**/inputs.3d.* text eol=lf
+
 # Documentation
 *.rst text eol=lf
 LICENSE text eol=lf

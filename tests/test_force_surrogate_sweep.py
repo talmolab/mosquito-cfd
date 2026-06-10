@@ -412,3 +412,66 @@ def test_regeneration_byte_identical(tmp_path):
         assert fa.read_bytes() == (run_b / "inputs" / fa.name).read_bytes()
     for name in ("sweep_manifest.json", "sweep_manifest.units.json"):
         assert (run_a / name).read_bytes() == (run_b / name).read_bytes()
+
+
+# --- 4. Artifact tests (depend on the committed examples/prelim_sweep/ corpus) ---------
+
+PRELIM_SWEEP = REPO_ROOT / "examples" / "prelim_sweep"
+
+
+def test_committed_sweep_matches_regeneration(tmp_path):
+    """The committed corpus is byte-identical to a fresh regen with its recorded seed/ts."""
+    manifest = json.loads(
+        (PRELIM_SWEEP / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    provenance = json.loads(
+        (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        seed=manifest["holdout"]["seed"],
+        n_holdout=manifest["holdout"]["n_holdout"],
+        timestamp=provenance["generated_at"],
+    )
+    committed = sorted((PRELIM_SWEEP / "inputs").glob("inputs.3d.*"))
+    assert len(committed) == 27
+    for deck in committed:
+        assert deck.read_bytes() == (tmp_path / "inputs" / deck.name).read_bytes()
+    for name in ("sweep_manifest.json", "sweep_manifest.units.json"):
+        assert (PRELIM_SWEEP / name).read_bytes() == (tmp_path / name).read_bytes()
+
+
+def test_committed_manifest_shape():
+    """The committed manifest has 27 configs, 6 holdout / 21 train, nu* fixed; units valid."""
+    manifest = json.loads(
+        (PRELIM_SWEEP / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    assert len(manifest["configs"]) == 27
+    assert manifest["reynolds_policy"] == "nu_star_fixed"
+    splits = [c["split"] for c in manifest["configs"]]
+    assert splits.count("holdout") == 6
+    assert splits.count("train") == 21
+    units = read_units_sidecar(PRELIM_SWEEP / "sweep_manifest.units.json")
+    assert units["reynolds"] == "dimensionless"
+
+
+def test_driver_smoke(tmp_path):
+    """The driver's main() runs end-to-end into tmp_path: exit 0, 27 decks + sidecars."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    rc = driver.main(["--output", str(tmp_path), "--timestamp", TS])
+    assert rc == 0
+    assert len(list((tmp_path / "inputs").glob("inputs.3d.*"))) == 27
+    for name in (
+        "sweep_manifest.json",
+        "sweep_manifest.units.json",
+        "sweep_provenance.json",
+    ):
+        assert (tmp_path / name).exists()
