@@ -50,6 +50,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # BASE_INPUTS is repo-root-relative (kept relative so the committed provenance path is
+    # portable); fail with guidance rather than a bare FileNotFoundError if run elsewhere.
+    if not BASE_INPUTS.exists():
+        parser.error(
+            f"base inputs {BASE_INPUTS} not found relative to cwd {Path.cwd()}; "
+            "run this driver from the repository root"
+        )
+
     manifest = generate_sweep(BASE_INPUTS, args.output, timestamp=args.timestamp)
     n_configs = len(manifest["configs"])
     holdout = [c["name"] for c in manifest["configs"] if c["split"] == "holdout"]

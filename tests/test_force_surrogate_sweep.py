@@ -282,6 +282,36 @@ def test_render_inputs_no_prefix_collision():
     assert "particle_inputs.kinematics_deviation_amp = 0.0" in out
 
 
+def test_render_inputs_preserves_inline_comment():
+    """A trailing inline comment on a rewritten key keeps its spacing + text (D6)."""
+    base = (
+        "max_step        = 2000  # the step cap\n"
+        "stop_time = 1.0\n"
+        "amr.plot_int = 100\n"
+        "particle_inputs.kinematics_stroke_amp = 70.0\n"
+        "particle_inputs.kinematics_frequency = 1.0\n"
+        "particle_inputs.kinematics_pitch_amp = 45.0\n"
+    )
+    out = _render_default(base)
+    assert "max_step        = 4706  # the step cap\n" in out
+
+
+def test_render_inputs_rejects_duplicate_key():
+    """A targeted key appearing twice in the base raises rather than silently rewriting both."""
+    base = "max_step = 2000\nstop_time = 1.0\namr.plot_int = 100\nmax_step = 3000\n"
+    with pytest.raises(ValueError) as exc:
+        render_inputs(
+            base,
+            stroke_amp_deg=35.0,
+            frequency_fstar=0.85,
+            pitch_amp_deg=30.0,
+            max_step=4706,
+            stop_time=2.35,
+            plot_int=-1,
+        )
+    assert "duplicate" in str(exc.value) and "max_step" in str(exc.value)
+
+
 def test_render_inputs_forces_plot_int_minus_one():
     """plot_int is forced to -1 even though the base has 100 (force-only)."""
     out = _render_default(BASE_INPUTS.read_text(encoding="utf-8"))
@@ -354,7 +384,8 @@ def test_generate_sweep_nu_fixed_and_reynolds_recorded(tmp_path):
             c["stroke_amp_deg"], c["frequency_fstar"], 0.115
         )
     text = (tmp_path / "sweep_manifest.json").read_text(encoding="utf-8")
-    assert '"reynolds": 42.5537291206389' in text
+    assert '"reynolds": 42.5537291206389' in text  # s35_f085 config
+    assert '"reynolds": 90.47137367665243' in text  # s55_f115 config (distinct value)
     assert '"nu_star": 0.115' in text
 
 

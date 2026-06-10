@@ -244,15 +244,27 @@ def render_inputs(
     remaining = set(replacements)
     out_lines: list[str] = []
     for line in base_text.splitlines():
-        hash_idx = line.find("#")
-        code = line if hash_idx < 0 else line[:hash_idx]
-        comment = "" if hash_idx < 0 else line[hash_idx:]
-        if "=" in code:
-            before, after = code.split("=", 1)
+        # Match the full key left of '='. Only the value token is rewritten; the leading
+        # whitespace and everything after the value (trailing spaces + any inline comment)
+        # are preserved exactly, so alignment and comments survive byte-for-byte. A comment
+        # line like "# nu = 0.1" has a non-key before '=' and is passed through unchanged.
+        if "=" in line:
+            before, after = line.split("=", 1)
             key = before.strip()
             if key in replacements:
+                if key not in remaining:
+                    raise ValueError(
+                        f"base inputs has a duplicate targeted key: {key!r}"
+                    )
                 leading_ws = after[: len(after) - len(after.lstrip())]
-                out_lines.append(f"{before}={leading_ws}{replacements[key]}{comment}")
+                tail = after[len(leading_ws) :]
+                token_end = 0
+                while token_end < len(tail) and not tail[token_end].isspace():
+                    token_end += 1
+                rest = tail[
+                    token_end:
+                ]  # trailing whitespace + inline comment, verbatim
+                out_lines.append(f"{before}={leading_ws}{replacements[key]}{rest}")
                 remaining.discard(key)
                 continue
         out_lines.append(line)
