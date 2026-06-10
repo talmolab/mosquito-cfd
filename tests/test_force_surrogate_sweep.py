@@ -1,9 +1,10 @@
-"""Tests for force_surrogate.sweep (TDD red phase).
+"""Tests for force_surrogate.sweep.
 
 Cluster-free (roadmap CC-2): every test runs against the committed validated base inputs
-(``examples/flapping_wing/inputs.3d.validation``) and ``tests/fixtures/micro_sweep.json`` —
-no RunAI, GPU, or plotfiles. These tests do NOT reference ``examples/prelim_sweep/`` (that
-committed corpus is exercised by the separate artifact tests in this file's commit-2 section).
+(``examples/flapping_wing/inputs.3d.validation``), ``tests/fixtures/micro_sweep.json``, and the
+committed ``examples/prelim_sweep/`` corpus — no RunAI, GPU, or plotfiles. The unit tests use the
+base inputs + micro-sweep fixture; the artifact tests at the end of this module additionally read
+the committed ``examples/prelim_sweep/`` sweep corpus.
 """
 
 import itertools
@@ -250,6 +251,26 @@ def test_select_holdout_rejects_too_many():
         select_holdout(micro, n_holdout=6)
     with pytest.raises(ValueError):
         select_holdout(build_kinematic_grid(), n_holdout=20)
+
+
+def test_select_holdout_empty_configs():
+    """Empty configs: n_holdout=0 -> []; n_holdout>0 -> clean ValueError (not a min() error)."""
+    assert select_holdout([], n_holdout=0) == []
+    with pytest.raises(ValueError):
+        select_holdout([], n_holdout=1)
+
+
+def test_generate_sweep_rejects_name_collision(tmp_path):
+    """Distinct configs that round to the same file name raise before any file is written."""
+    colliding = [
+        {"stroke_amp_deg": 35.2, "frequency_fstar": 1.0, "pitch_amp_deg": 45.0},
+        {"stroke_amp_deg": 35.8, "frequency_fstar": 1.0, "pitch_amp_deg": 45.0},
+    ]
+    out = tmp_path / "collide"
+    with pytest.raises(ValueError) as exc:
+        generate_sweep(BASE_INPUTS, out, configs=colliding, n_holdout=0, timestamp=TS)
+    assert "s35_f100_p45" in str(exc.value)
+    assert not out.exists()
 
 
 # --- 1.11 / 1.12 / 1.13 / 1.14 / 1.15 / 1.15b: render_inputs ---------------------------

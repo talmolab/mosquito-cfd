@@ -182,6 +182,8 @@ def select_holdout(
     """
     if n_holdout == 0:
         return []
+    if not configs:
+        raise ValueError("cannot select a holdout from an empty config list")
     extremes = {
         key: {min(values), max(values)}
         for key in _CONFIG_KEYS
@@ -351,7 +353,9 @@ def generate_sweep(
         The manifest dict (also written to ``sweep_manifest.json``).
 
     Raises:
-        ValueError: If ``configs`` is empty or malformed (raised before any file is written).
+        ValueError: If ``configs`` is empty/malformed, or if two configs map to the same
+            file name (``_config_name`` is lossy — integer degrees, 0.01 frequency steps).
+            All validation runs before any file is written.
     """
     base_path = Path(base_inputs_path)
     base_text = base_path.read_text(encoding="utf-8")
@@ -359,6 +363,17 @@ def generate_sweep(
         configs = build_kinematic_grid()
     _validate_configs(configs)
     holdout_idx = set(select_holdout(configs, n_holdout, seed))
+
+    # Reject lossy-name collisions before writing anything: distinct configs that round to
+    # the same file name would silently overwrite each other's deck.
+    names = [_config_name(config) for config in configs]
+    collisions = sorted({name for name in names if names.count(name) > 1})
+    if collisions:
+        raise ValueError(
+            f"distinct configs map to the same input-file name {collisions}; "
+            "_config_name uses integer degrees and 0.01 frequency steps, so non-whole-degree "
+            "or finer-than-0.01 frequency values can collide and silently overwrite decks"
+        )
 
     output_dir = Path(output_dir)
     inputs_dir = output_dir / "inputs"
@@ -372,7 +387,7 @@ def generate_sweep(
         reynolds = compute_reynolds(
             config["stroke_amp_deg"], config["frequency_fstar"], nu_star, r_mid
         )
-        name = _config_name(config)
+        name = names[index]
         rel_path = f"inputs/inputs.3d.{name}"
         deck = render_inputs(
             base_text,
