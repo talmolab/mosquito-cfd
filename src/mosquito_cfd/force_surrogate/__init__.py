@@ -17,6 +17,14 @@ from mosquito_cfd.force_surrogate.sidecar import (
     read_units_sidecar,
     write_units_sidecar,
 )
+from mosquito_cfd.force_surrogate.sweep import (
+    build_kinematic_grid,
+    compute_reynolds,
+    derive_run_duration,
+    generate_sweep,
+    render_inputs,
+    select_holdout,
+)
 
 __all__ = [
     "ForceCoefficients",
@@ -27,4 +35,10 @@ __all__ = [
     "capture_surrogate_run_metadata",
     "read_units_sidecar",
     "write_units_sidecar",
+    "build_kinematic_grid",
+    "compute_reynolds",
+    "derive_run_duration",
+    "generate_sweep",
+    "render_inputs",
+    "select_holdout",
 ]
