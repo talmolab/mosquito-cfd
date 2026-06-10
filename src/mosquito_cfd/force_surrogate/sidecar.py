@@ -66,7 +66,9 @@ def write_units_sidecar(path: Path, units: dict[str, str]) -> None:
     _validate_units(units)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    # newline="" disables platform line-ending translation so the sidecar is LF on every
+    # OS (Windows included) and therefore byte-reproducible for committed artifacts.
+    with open(path, "w", encoding="utf-8", newline="") as f:
         json.dump(units, f, indent=2, ensure_ascii=False)
 
 

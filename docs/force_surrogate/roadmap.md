@@ -95,12 +95,18 @@ convention). No silent unit mixing.
 integration, **no** DoMINO/latent-dynamics. `amr.plot_int = -1` throughout. These are the funded
 deliverables and are explicitly out of scope here.
 
-### CC-7. Reynolds handling in the sweep (decide in PR2).
+### CC-7. Reynolds handling in the sweep (RESOLVED in PR2: hold ν\* fixed).
 The validated ν\* = 0.115 sets Re≈100 at the 70° point. Changing stroke amplitude / frequency
 changes U_tip and therefore Re unless ν\* is rescaled per config. PR2 (sweep-config) must choose
 and document one policy: **(a) hold ν\* fixed** (Re varies across the sweep — simpler, surrogate
 sees a Re range) or **(b) hold Re fixed** (rescale ν\* per config — cleaner kinematics isolation).
 Record the choice in the dataset metadata either way.
+
+> **Resolved (PR2, `add-force-surrogate-sweep-config`):** policy **(a) — ν\* held at 0.115**; Re ≈ 43–90
+> varies deterministically with φ, f\*; per-config Re recorded in `examples/prelim_sweep/sweep_manifest.json`.
+> Rationale: the (φ, f\*, α)→force map stays well-posed (Re is a function of the inputs, no hidden
+> confounder), biological fidelity (Re co-varies with kinematics), and every deck differs from the
+> validated base in only the swept/derived keys. See the change `design.md` D1.
 
 ---
 
@@ -112,7 +118,7 @@ documented pre-APEX ranges (`cfd-approach.md`):
 | Parameter | Levels | Grounding |
 |---|---|---|
 | Stroke amplitude φ | **{35, 45, 55}°** | brackets Bomphrey 39°±4°; within pre-APEX 35–50° |
-| Dimensionless frequency f\* | **{0.85, 1.0, 1.15}** | ≡ ~610 / 717 / 824 Hz (f\*=1.0 ≡ Bomphrey 717 Hz); within pre-APEX 600–800 Hz |
+| Dimensionless frequency f\* | **{0.85, 1.0, 1.15}** | ≡ ~609 / 717 / 825 Hz (f\*=1.0 ≡ Bomphrey 717 Hz); within pre-APEX 600–800 Hz |
 | Pitch amplitude α | **{30, 45, 60}°** | within pre-APEX 30–60°; centred on validated 45° |
 
 = **27 configs** (~65 min total A40 wall-clock at ~2.4 min each). **Hold out ~6 configs** for the
@@ -149,7 +155,7 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 | # | OpenSpec change-id | Scope | Env | Status |
 |---|---|---|---|---|
 | 1 | `add-force-surrogate-foundation` | `mosquito_cfd` surrogate-prep module skeleton; force-coefficient/normalization helpers (CC-3) **+ refactor the inline `F_ref` in `examples/flapping_wing/generate_all_figures.py` to source from the helper (closes CC-3 DRY)**; **reusable cluster-free fixtures** (CC-2); module constants; `run_metadata` + `units.json` sidecar conventions (CC-1, CC-5). Local, TDD. [PR #2](https://github.com/talmolab/mosquito-cfd/pull/2) | local | ✅ |
-| 2 | `add-force-surrogate-sweep-config` | Sweep generator → 27 input files over the φ×f\*×α grid; `amr.plot_int=-1`; **document the Re policy (CC-7)**; tested against fixtures. | local | ⬜ |
+| 2 | `add-force-surrogate-sweep-config` | Sweep generator → 27 input files over the φ×f\*×α grid; `amr.plot_int=-1`; **resolve + document the Re policy (CC-7 → ν\* fixed)**; tested against fixtures. | local | ⬜ |
 | 3 | `add-force-surrogate-sweep-runner` | RunAI A40 batch runner looping the sweep through the pinned `:fp64` container; per-config output dir; `run_metadata` per run; dry-run/mocked test path. | cluster | ⬜ |
 | 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. | local | ⬜ |
 | 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-primary, PyTorch DeepONet/MLP fallback** (de-risk PhysicsNeMo early; hard fallback checkpoint ~Jun 18); held-out-**config** split (CC-4); seeded; `metrics.json`; wandb. | A5000 | ⬜ |
