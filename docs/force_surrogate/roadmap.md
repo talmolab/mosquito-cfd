@@ -118,7 +118,7 @@ documented pre-APEX ranges (`cfd-approach.md`):
 | Parameter | Levels | Grounding |
 |---|---|---|
 | Stroke amplitude φ | **{35, 45, 55}°** | brackets Bomphrey 39°±4°; within pre-APEX 35–50° |
-| Dimensionless frequency f\* | **{0.85, 1.0, 1.15}** | ≡ ~610 / 717 / 824 Hz (f\*=1.0 ≡ Bomphrey 717 Hz); within pre-APEX 600–800 Hz |
+| Dimensionless frequency f\* | **{0.85, 1.0, 1.15}** | ≡ ~609 / 717 / 825 Hz (f\*=1.0 ≡ Bomphrey 717 Hz); within pre-APEX 600–800 Hz |
 | Pitch amplitude α | **{30, 45, 60}°** | within pre-APEX 30–60°; centred on validated 45° |
 
 = **27 configs** (~65 min total A40 wall-clock at ~2.4 min each). **Hold out ~6 configs** for the

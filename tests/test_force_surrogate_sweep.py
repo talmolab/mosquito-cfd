@@ -273,6 +273,15 @@ def test_generate_sweep_rejects_name_collision(tmp_path):
     assert not out.exists()
 
 
+def test_generate_sweep_prunes_stale_decks(tmp_path):
+    """Regenerating a smaller config set leaves no orphan decks from the larger run."""
+    generate_sweep(BASE_INPUTS, tmp_path, timestamp=TS)  # 27 decks
+    assert len(list((tmp_path / "inputs").glob("inputs.3d.*"))) == 27
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))  # 2 configs
+    generate_sweep(BASE_INPUTS, tmp_path, configs=micro, n_holdout=0, timestamp=TS)
+    assert len(list((tmp_path / "inputs").glob("inputs.3d.*"))) == 2
+
+
 # --- 1.11 / 1.12 / 1.13 / 1.14 / 1.15 / 1.15b: render_inputs ---------------------------
 
 

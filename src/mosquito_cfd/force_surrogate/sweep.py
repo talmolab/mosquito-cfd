@@ -25,6 +25,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -367,7 +368,7 @@ def generate_sweep(
     # Reject lossy-name collisions before writing anything: distinct configs that round to
     # the same file name would silently overwrite each other's deck.
     names = [_config_name(config) for config in configs]
-    collisions = sorted({name for name in names if names.count(name) > 1})
+    collisions = sorted(name for name, count in Counter(names).items() if count > 1)
     if collisions:
         raise ValueError(
             f"distinct configs map to the same input-file name {collisions}; "
@@ -378,6 +379,10 @@ def generate_sweep(
     output_dir = Path(output_dir)
     inputs_dir = output_dir / "inputs"
     inputs_dir.mkdir(parents=True, exist_ok=True)
+    # Prune any decks from a previous (larger) run so a shrunk config set leaves no orphans
+    # that the manifest doesn't list (the manifest is rewritten fully below).
+    for stale_deck in inputs_dir.glob("inputs.3d.*"):
+        stale_deck.unlink()
 
     config_records: list[dict[str, Any]] = []
     for index, config in enumerate(configs):

@@ -26,7 +26,7 @@ source-attributed `AEDES_*` constants in
 [`force_surrogate/constants.py`](../../src/mosquito_cfd/force_surrogate/constants.py); per-config
 Reynolds numbers are in `sweep_manifest.json` — they are not re-tabulated here to avoid drift.
 Summary: stroke amplitude φ ∈ {35, 45, 55}°, dimensionless frequency f\* ∈ {0.85, 1.0, 1.15}
-(≈ 610/717/824 Hz), pitch amplitude α ∈ {30, 45, 60}° → 27 configs.
+(≈ 609/717/825 Hz), pitch amplitude α ∈ {30, 45, 60}° → 27 configs.
 
 > **Note on the kinematics.** The validated demo (`examples/flapping_wing/`) uses a **70°** stroke —
 > a generic large-amplitude case, *not* the mosquito value. This sweep deliberately re-anchors on the
@@ -59,4 +59,11 @@ uv run python examples/prelim_sweep/generate_sweep.py   # run from the repo root
 ```
 
 Regeneration is **byte-identical** (fixed seed + fixed caller timestamp); the test
-`test_committed_sweep_matches_regeneration` enforces this.
+`test_committed_sweep_matches_regeneration` enforces this. Re-running into an existing directory
+prunes any stale decks first, so a shrunk config set never leaves orphans.
+
+> **Naming resolution.** Deck file names (`inputs.3d.s{φ}_f{f*×100}_p{α}`) encode **whole-degree**
+> stroke/pitch and **0.01-resolution** f\*. Configs finer than that (e.g. φ=42.5° or f\*=1.005) would
+> collide on the same name; the generator detects this and raises before writing, rather than
+> silently overwriting a deck. Widening the grid to sub-degree resolution requires changing the
+> naming scheme.

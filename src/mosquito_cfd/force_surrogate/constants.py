@@ -33,7 +33,7 @@ N_WINGBEATS = 2  # whole wingbeats each sweep config must cover (run-duration sc
 
 # Aedes aegypti-anchored kinematic sweep grid (Bomphrey et al. 2017, Nature 544:92-95,
 # DOI 10.1038/nature21727; see docs/force_surrogate/roadmap.md "Verified source numbers").
-# Stroke brackets the Aedes 39 deg; f* = 1.0 ~ 717 Hz (0.85/1.15 ~ 610/824 Hz); pitch
+# Stroke brackets the Aedes 39 deg; f* = 1.0 ~ 717 Hz (0.85/1.15 ~ 609/825 Hz); pitch
 # centred on the validated 45 deg.
 AEDES_STROKE_AMP_DEG = (35.0, 45.0, 55.0)  # stroke amplitude levels [deg]
 AEDES_FREQUENCY_FSTAR = (0.85, 1.0, 1.15)  # dimensionless frequency levels (f*)
