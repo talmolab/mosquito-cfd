@@ -22,6 +22,15 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_moment_coefficient,
     compute_moment_reference,
 )
+from mosquito_cfd.force_surrogate.runner import (
+    Completion,
+    ExecResult,
+    RunOutcome,
+    build_run_command,
+    build_wsl_command,
+    check_completion,
+    run_sweep,
+)
 from mosquito_cfd.force_surrogate.sidecar import (
     UNITS_VOCABULARY,
     capture_surrogate_run_metadata,
@@ -60,4 +69,11 @@ __all__ = [
     "generate_sweep",
     "render_inputs",
     "select_holdout",
+    "Completion",
+    "ExecResult",
+    "RunOutcome",
+    "build_run_command",
+    "build_wsl_command",
+    "check_completion",
+    "run_sweep",
 ]
