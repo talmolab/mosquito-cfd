@@ -142,6 +142,10 @@ workflow and `runai` CLI details. A re-run resumes (skips already-complete confi
 exits non-zero if any config failed. When the corpus is done, free the GPU with
 `runai workspace delete force-sweep`.
 
+Each launched config writes the solver's captured stdout/stderr to `runs/<name>/run.log` (referenced
+from `run_metadata.json`), so a failed or anomalous config is debuggable from its own output — `tail`
+it between configs to watch progress or diagnose a failure.
+
 > **Force-CSV name (verify on the first run).** `IB_Particle_1.csv` is **assumed** from PR4's
 > contract and **not yet verified against a real IAMReX run** — the repo `.gitignore` hints forces
 > may instead land in `forces.csv`. If your first single-config run shows the forces under a

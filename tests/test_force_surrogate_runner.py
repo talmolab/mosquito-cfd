@@ -23,6 +23,7 @@ from mosquito_cfd.force_surrogate.dataset import IB_PARTICLE_COLUMNS
 from mosquito_cfd.force_surrogate.runner import (
     DEFAULT_IAMREX_BINARY,
     IB_PARTICLE_CSV,
+    RUN_LOG,
     STATUS_FAILED,
     Completion,
     ExecResult,
@@ -102,6 +103,8 @@ class FakeExecutor:
         raise_names=(),
         raise_exc=OSError,
         csv_name=IB_PARTICLE_CSV,
+        stdout="",
+        stderr="",
         write=True,
     ):
         self.calls: list[tuple[list[str], Path]] = []
@@ -111,6 +114,8 @@ class FakeExecutor:
         self.raise_names = set(raise_names)
         self.raise_exc = raise_exc
         self.csv_name = csv_name
+        self.stdout = stdout
+        self.stderr = stderr
         self.write = write
 
     def __call__(self, command, *, cwd) -> ExecResult:
@@ -121,7 +126,9 @@ class FakeExecutor:
             raise self.raise_exc(f"simulated error for {name}")
         if self.write:
             _write_csv(cwd / self.csv_name, self.rows_by_name.get(name, self.rows))
-        return ExecResult(self.returncode_by_name.get(name, 0))
+        return ExecResult(
+            self.returncode_by_name.get(name, 0), self.stdout, self.stderr
+        )
 
     @property
     def commands(self):
@@ -577,6 +584,68 @@ def test_run_sweep_non_integer_max_step_rejected(tmp_path):
             workspace="ws",
         )
     assert fake.calls == []
+
+
+# ---------------------------------------------------------------------------
+# run_sweep — per-run solver log (spec: Per-run solver output is captured)
+# ---------------------------------------------------------------------------
+
+
+def test_run_sweep_completed_run_writes_log(tmp_path):
+    """Spec: Completed run writes the solver output to run.log + metadata references it."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    fake = FakeExecutor(rows=5, stdout="... max.abs.u 11.5 ...", stderr="a warning")
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    log = (out / "a" / RUN_LOG).read_text(encoding="utf-8")
+    assert "max.abs.u 11.5" in log  # captured stdout
+    assert "a warning" in log  # captured stderr
+    meta = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["log"] == f"a/{RUN_LOG}"
+
+
+def test_run_sweep_failed_run_log_has_stderr_diagnostics(tmp_path):
+    """Spec: A failed run's diagnostics (nonzero + stderr) are captured to run.log."""
+    manifest = _make_manifest(tmp_path, [_cfg("a"), _cfg("b")])
+    out = tmp_path / "runs"
+    fake = FakeExecutor(
+        rows=5, returncode_by_name={"a": 1}, stderr="IAMReX: assertion failed at step 3"
+    )
+    outcomes = run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    by = {o.name: o for o in outcomes}
+    assert by["a"].status == "failed"
+    assert by["b"].status == "completed"  # corpus continued
+    assert "IAMReX: assertion failed at step 3" in (out / "a" / RUN_LOG).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_run_sweep_raised_executor_log_has_exception(tmp_path):
+    """Spec: A raised executor's exception is recorded in run.log (debuggable)."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    fake = FakeExecutor(raise_names=["a"], raise_exc=OSError)
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    assert "simulated error for a" in (out / "a" / RUN_LOG).read_text(encoding="utf-8")
+
+
+def test_run_sweep_skipped_config_writes_no_log(tmp_path):
+    """Spec: A skipped run does not overwrite/create a log."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    _write_csv(out / "a" / IB_PARTICLE_CSV, 5)  # already complete → resume skips
+    fake = FakeExecutor(rows=5)
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    assert fake.names == []  # skipped
+    assert not (out / "a" / RUN_LOG).exists()  # no log written for a skipped config
 
 
 def test_run_sweep_nonpositive_max_step_rejected(tmp_path):

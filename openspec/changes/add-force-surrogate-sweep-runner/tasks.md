@@ -140,3 +140,20 @@ A second `/review-pr` (no BLOCKING; 8–9/10) surfaced one IMPORTANT operability
   clear, config-named `ValueError` on a malformed manifest (parity with the module's other guards) + test.
 - **Tightened tests.** Failed-run metadata asserts `status == "failed"`; a `KeyboardInterrupt`-raising
   executor is asserted to propagate (pins the `except Exception` — not `BaseException` — contract).
+
+### Post-PR `/review-pr` round 2 — per-run solver log (TDD)
+
+Folds in the remaining substantive SUGGESTION (the cosmetic `Completion.reason` enum is deliberately
+skipped). New requirement *Per-run solver output is captured to a log*:
+
+20. [x] **Tests first** (`test_force_surrogate_runner.py`): a fake executor returning stdout/stderr →
+    `run_sweep` writes `<output-root>/<name>/run.log` containing both, and `run_metadata.json["log"] ==
+    "<name>/run.log"` (scenario *Completed run writes the solver output*); a failed config (nonzero +
+    stderr, **and** the raised-executor case) → its `run.log` carries the diagnostics (stderr / the
+    exception repr) while the corpus continues (scenario *A failed run's diagnostics are captured*); a
+    resume-skipped config writes **no** new `run.log` (scenario *A skipped run does not overwrite its log*).
+21. [x] Implement: a `RUN_LOG = "run.log"` constant + `_format_run_log(result)` helper; `run_sweep` writes
+    the log for every launched (non-skipped) config right after the executor call (so a raised
+    executor's `ExecResult(returncode=1, stderr=repr(exc))` is captured too), and `_write_run_metadata`
+    records `"log": "<name>/run.log"`. The `runs/` tree is already gitignored. Run green; `runner.py`
+    stays 100%; `openspec validate --strict` passes; README notes `runs/<name>/run.log`.

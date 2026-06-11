@@ -50,6 +50,9 @@ DEFAULT_WING_VERTEX = "/workspace/wing.vertex"
 # ``csv_name`` / ``--csv-name`` override, mirroring extract_forces.py, so a wrong guess costs a flag
 # rather than a wasted A40 corpus.
 IB_PARTICLE_CSV = "IB_Particle_1.csv"
+# Per-run solver-output log (stdout+stderr) written next to the CSV, so a failed/anomalous run on
+# an unattended corpus is diagnosable from the solver's own output (the runs/ tree is gitignored).
+RUN_LOG = "run.log"
 DEFAULT_COMPLETION_THRESHOLD = 0.99
 
 # Closed status vocabulary for RunOutcome.status (shared with the driver's summary, so neither
@@ -242,6 +245,19 @@ def build_wsl_command(
     return ["wsl", "-e", "bash", "-c", payload]
 
 
+def _format_run_log(result: ExecResult) -> str:
+    """Render an executor result's stdout/stderr as the per-run ``run.log`` body."""
+    parts = []
+    if result.stdout:
+        parts.append(result.stdout)
+    if result.stderr:
+        parts.append("--- stderr ---\n" + result.stderr)
+    text = "\n".join(parts)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
 def _write_run_metadata(
     *,
     run_dir: Path,
@@ -272,6 +288,7 @@ def _write_run_metadata(
         "deck_sha256": hash_file(deck_host) if deck_host.exists() else None,
         "command": command,
         "ib_particle_csv": f"{name}/{csv_name}",
+        "log": f"{name}/{RUN_LOG}",
         "rows": rows,
         "max_step": int(config["max_step"]),  # type: ignore[arg-type]
         "threshold": threshold,
@@ -410,6 +427,11 @@ def run_sweep(
                 exc,
             )
             result = ExecResult(returncode=1, stderr=repr(exc))
+        # Capture the solver's own output per config so a failed/anomalous run is debuggable from
+        # its log rather than from status alone (the raised-executor exc is in result.stderr).
+        (run_dir / RUN_LOG).write_text(
+            _format_run_log(result), encoding="utf-8", newline=""
+        )
         post = check_completion(csv_path, max_step, threshold=threshold)
         if result.returncode != 0 or not post.complete:
             status = STATUS_FAILED

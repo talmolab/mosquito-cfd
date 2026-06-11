@@ -241,3 +241,30 @@ configuration's outcome is `failed`.
 - **Given** a run in which at least one configuration's outcome is `failed`
 - **When** the thin driver `scripts/run_sweep.py` `main()` returns
 - **Then** its exit code is non-zero, so an operator's unattended corpus run surfaces the incomplete corpus rather than reporting success
+
+### Requirement: Per-run solver output is captured to a log
+
+Each configuration whose run is launched (i.e. not skipped by resume) SHALL have the executor's
+captured stdout and stderr written to a per-run log file `<output-root>/<name>/run.log`, so a
+failed or anomalous run on an unattended corpus is diagnosable from the solver's own output rather
+than from `status` alone. The log SHALL be written for both completed and failed runs — including a
+run whose executor **raised**, whose exception is recorded in the log — and the per-run
+`run_metadata.json` SHALL reference the log by its relative path.
+
+#### Scenario: Completed run writes the solver output to run.log
+
+- **Given** a fake executor that returns stdout `"…max.abs.u …"` (and possibly stderr)
+- **When** `run_sweep` completes a configuration
+- **Then** `<output-root>/<name>/run.log` exists and contains the captured stdout (and stderr), and the run metadata's `log` field is `<name>/run.log`
+
+#### Scenario: A failed run's diagnostics are captured
+
+- **Given** a configuration whose executor fails — a nonzero return carrying stderr (e.g. `"IAMReX error: …"`), or an executor that raises (whose exception is recorded as the run's stderr)
+- **When** `run_sweep` is called
+- **Then** that configuration's `run.log` contains the failure diagnostics (the stderr text, or the raised exception's representation), so the failure is debuggable without re-running — while the corpus still continues
+
+#### Scenario: A skipped run does not overwrite its log
+
+- **Given** a configuration already complete (resume skips it)
+- **When** `run_sweep` is called with `resume=True`
+- **Then** no executor runs for it and no new `run.log` is written for it (its prior run artifacts are untouched, parity with its metadata)
