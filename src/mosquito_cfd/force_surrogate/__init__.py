@@ -8,8 +8,12 @@ sidecar convention, and a provenance wrapper that pins the Docker image digest.
 from mosquito_cfd.force_surrogate.normalization import (
     ForceCoefficients,
     ForceReference,
+    MomentCoefficients,
+    MomentReference,
     compute_force_coefficients,
     compute_force_reference,
+    compute_moment_coefficient,
+    compute_moment_reference,
 )
 from mosquito_cfd.force_surrogate.sidecar import (
     UNITS_VOCABULARY,
@@ -29,8 +33,12 @@ from mosquito_cfd.force_surrogate.sweep import (
 __all__ = [
     "ForceCoefficients",
     "ForceReference",
+    "MomentCoefficients",
+    "MomentReference",
     "compute_force_coefficients",
     "compute_force_reference",
+    "compute_moment_coefficient",
+    "compute_moment_reference",
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",
     "read_units_sidecar",
