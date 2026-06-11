@@ -39,7 +39,10 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_moment_coefficient,
     compute_moment_reference,
 )
-from mosquito_cfd.force_surrogate.sidecar import write_units_sidecar
+from mosquito_cfd.force_surrogate.sidecar import (
+    capture_surrogate_run_metadata,
+    write_units_sidecar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -240,3 +243,36 @@ def write_dataset(
     parquet_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(parquet_path, index=False)
     write_units_sidecar(Path(units_path), _DATASET_UNITS)
+
+
+def build_run_metadata(
+    *,
+    docker_image_digest: str,
+    timestamp: str,
+    dropped_configs: list[str],
+    inputs_file: Path | str | None = None,
+) -> dict:
+    """Capture provenance for a dataset build (CC-1), recording any dropped configs.
+
+    Wraps :func:`capture_surrogate_run_metadata` (which requires a pinned ``sha256:``
+    container digest — the dataset is downstream of the PR3 container run — and accepts a
+    caller-supplied timestamp). The dropped-config names are passed via ``extra``; because
+    the base capture merges ``extra`` with ``dict.update``, they land at the **top level**
+    of the returned metadata under ``dropped_configs`` (not nested under ``extra``), so a
+    truncated corpus is auditable.
+
+    Args:
+        docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
+        timestamp: Caller-supplied ISO-8601 timestamp.
+        dropped_configs: Config names skipped under ``allow_missing`` (``[]`` if none).
+        inputs_file: Optional inputs file whose SHA256 is recorded.
+
+    Returns:
+        The provenance metadata dict, with ``dropped_configs`` at the top level.
+    """
+    return capture_surrogate_run_metadata(
+        docker_image_digest=docker_image_digest,
+        inputs_file=Path(inputs_file) if inputs_file is not None else None,
+        timestamp=timestamp,
+        extra={"dropped_configs": list(dropped_configs)},
+    )

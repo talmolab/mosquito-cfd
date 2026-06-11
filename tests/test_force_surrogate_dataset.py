@@ -16,6 +16,7 @@ import pytest
 
 from mosquito_cfd.force_surrogate import (
     build_dataset,
+    build_run_metadata,
     compute_force_reference,
     compute_moment_reference,
     read_units_sidecar,
@@ -318,3 +319,48 @@ def test_parquet_round_trip_preserves_values_and_dtypes(tmp_path):
     pd.testing.assert_frame_equal(
         rt.reset_index(drop=True), df.reset_index(drop=True), check_dtype=False
     )
+
+
+# ---------------------------------------------------------------------------
+# Dataset-build provenance (CC-1)
+# ---------------------------------------------------------------------------
+
+_DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "a" * 64
+_TS = "2026-06-10T12:00:00+00:00"
+
+
+def test_provenance_records_digest_timestamp_and_dropped_top_level():
+    """run_metadata records digest + caller timestamp + TOP-LEVEL dropped_configs.
+
+    Spec: Provenance records digest and caller timestamp; Dropped configurations recorded
+    under allow_missing. dropped_configs lands at the top level because capture_run_metadata
+    merges extra via dict.update (metadata.py).
+    """
+    meta = build_run_metadata(
+        docker_image_digest=_DIGEST,
+        timestamp=_TS,
+        dropped_configs=["s55_f100_p45"],
+    )
+    assert meta["timestamp"] == _TS
+    assert "sha256:" in meta["docker_image"]
+    # Top-level key, NOT nested under "extra".
+    assert meta["dropped_configs"] == ["s55_f100_p45"]
+    assert "extra" not in meta or "dropped_configs" not in meta.get("extra", {})
+
+
+def test_provenance_complete_build_has_empty_dropped():
+    """A complete build records dropped_configs == []."""
+    meta = build_run_metadata(
+        docker_image_digest=_DIGEST, timestamp=_TS, dropped_configs=[]
+    )
+    assert meta["dropped_configs"] == []
+
+
+def test_provenance_mutable_tag_rejected():
+    """A mutable tag (no sha256 digest) raises. Spec: Mutable tag rejected."""
+    with pytest.raises(ValueError):
+        build_run_metadata(
+            docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest",
+            timestamp=_TS,
+            dropped_configs=[],
+        )
