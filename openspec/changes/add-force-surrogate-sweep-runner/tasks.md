@@ -122,3 +122,21 @@ The pre-merge subagent code review (no BLOCKING) surfaced fixes folded in before
 - **Driver typing + dead `# noqa`.** Annotated the driver's executor factory/`main` and removed a
   `# noqa: S603` for a rule (`S`) not in the ruff select set.
 - **Coverage.** Added a truly-0-byte-CSV test → `runner.py` 100%.
+
+### Post-PR `/review-pr` round 2 (on PR #9)
+
+A second `/review-pr` (no BLOCKING; 8–9/10) surfaced one IMPORTANT operability fix, applied:
+
+- **`--csv-name` override (IMPORTANT).** `IB_Particle_1.csv` is inherited from PR4's contract but
+  **not verified against a real IAMReX run** — and the repo `.gitignore` hints forces may land in
+  `forces.csv`. The runner hardcoded the name in both `build_run_command`'s cwd target and
+  `check_completion`, so a wrong guess would hard-fail the completion check on a corpus that ran
+  fine. Threaded a `csv_name` param through `run_sweep` + exposed `--csv-name` (mirroring PR4), and
+  reworded the constant/README/spec to flag the name as *assumed, overridable*. The output-layout
+  requirement gains a *CSV name is operator-overridable* scenario + test.
+- **Status vocabulary constants.** `STATUS_COMPLETED/SKIPPED/FAILED` module constants, used by both
+  `runner.py` and the driver's summary (kills the cross-module string-literal drift the review flagged).
+- **Non-integer `max_step` guard.** The up-front `int(config["max_step"])` is now wrapped to raise a
+  clear, config-named `ValueError` on a malformed manifest (parity with the module's other guards) + test.
+- **Tightened tests.** Failed-run metadata asserts `status == "failed"`; a `KeyboardInterrupt`-raising
+  executor is asserted to propagate (pins the `except Exception` — not `BaseException` — contract).

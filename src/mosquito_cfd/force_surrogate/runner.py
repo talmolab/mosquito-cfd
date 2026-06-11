@@ -44,9 +44,19 @@ DEFAULT_CONTAINER_WORKSPACE = "/workspace"
 DEFAULT_RUNS_SUBDIR = "runs"
 DEFAULT_IAMREX_BINARY = "/opt/cfd/IAMReX/Tutorials/FlowPastSphere/amr3d.gnu.MPI.CUDA.ex"
 DEFAULT_WING_VERTEX = "/workspace/wing.vertex"
-# IAMReX's actual per-run IB-particle CSV name (PR4's extract_forces.py driver contract).
+# Default per-run IB-particle CSV name — PR4's extract_forces.py driver contract. This is the
+# **assumed** force-CSV name and is **not yet verified against a real IAMReX run** (the repo
+# .gitignore hints forces may instead land in forces.csv); both run_sweep and the driver expose a
+# ``csv_name`` / ``--csv-name`` override, mirroring extract_forces.py, so a wrong guess costs a flag
+# rather than a wasted A40 corpus.
 IB_PARTICLE_CSV = "IB_Particle_1.csv"
 DEFAULT_COMPLETION_THRESHOLD = 0.99
+
+# Closed status vocabulary for RunOutcome.status (shared with the driver's summary, so neither
+# side drifts) and the Completion.reason vocabulary produced by check_completion.
+STATUS_COMPLETED = "completed"
+STATUS_SKIPPED = "skipped"
+STATUS_FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -243,6 +253,7 @@ def _write_run_metadata(
     rows: int,
     status: str,
     threshold: float,
+    csv_name: str,
 ) -> Path:
     """Write a per-run ``run_metadata.json`` with portable provenance (CC-1).
 
@@ -260,7 +271,7 @@ def _write_run_metadata(
         "deck": input_file,
         "deck_sha256": hash_file(deck_host) if deck_host.exists() else None,
         "command": command,
-        "ib_particle_csv": f"{name}/{IB_PARTICLE_CSV}",
+        "ib_particle_csv": f"{name}/{csv_name}",
         "rows": rows,
         "max_step": int(config["max_step"]),  # type: ignore[arg-type]
         "threshold": threshold,
@@ -288,6 +299,7 @@ def run_sweep(
     workspace: str,
     resume: bool = True,
     threshold: float = DEFAULT_COMPLETION_THRESHOLD,
+    csv_name: str = IB_PARTICLE_CSV,
     container_workspace: str = DEFAULT_CONTAINER_WORKSPACE,
     runs_subdir: str = DEFAULT_RUNS_SUBDIR,
     wing_vertex: str = DEFAULT_WING_VERTEX,
@@ -312,6 +324,8 @@ def run_sweep(
         workspace: RunAI workspace name to exec into.
         resume: If True (default), skip configs whose CSV already passes the completion check.
         threshold: Completion row-count fraction (default 0.99).
+        csv_name: Per-run IB-particle CSV filename to verify/record (default
+            :data:`IB_PARTICLE_CSV`; override if the solver writes a different name).
         container_workspace: Container path of the mounted workspace.
         runs_subdir: Per-config output subdir name under the workspace.
         wing_vertex: Container path of the staged ``wing.vertex``.
@@ -341,7 +355,13 @@ def run_sweep(
                     "validator does not require it, but the runner needs it to launch/verify "
                     "the run"
                 )
-        if int(config["max_step"]) <= 0:
+        try:
+            max_step = int(config["max_step"])  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"config {name!r} has non-integer max_step={config['max_step']!r}"
+            ) from exc
+        if max_step <= 0:
             raise ValueError(
                 f"config {name!r} has max_step={config['max_step']!r}; must be a positive "
                 "integer (a non-positive max_step can never satisfy the completion check)"
@@ -353,7 +373,7 @@ def run_sweep(
         name = str(config["name"])
         max_step = int(config["max_step"])
         run_dir = output_root / name
-        csv_path = run_dir / IB_PARTICLE_CSV
+        csv_path = run_dir / csv_name
 
         if resume:
             pre = check_completion(csv_path, max_step, threshold=threshold)
@@ -363,7 +383,9 @@ def run_sweep(
                     name,
                     pre.rows,
                 )
-                outcomes.append(RunOutcome(name, "skipped", csv_path, pre.rows, None))
+                outcomes.append(
+                    RunOutcome(name, STATUS_SKIPPED, csv_path, pre.rows, None)
+                )
                 continue
 
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -390,7 +412,7 @@ def run_sweep(
             result = ExecResult(returncode=1, stderr=repr(exc))
         post = check_completion(csv_path, max_step, threshold=threshold)
         if result.returncode != 0 or not post.complete:
-            status = "failed"
+            status = STATUS_FAILED
             logger.warning(
                 "config %r FAILED (returncode=%s, completion=%s rows=%d/%d); continuing to "
                 "the next config",
@@ -401,7 +423,7 @@ def run_sweep(
                 max_step,
             )
         else:
-            status = "completed"
+            status = STATUS_COMPLETED
 
         metadata_path = _write_run_metadata(
             run_dir=run_dir,
@@ -413,6 +435,7 @@ def run_sweep(
             rows=post.rows,
             status=status,
             threshold=threshold,
+            csv_name=csv_name,
         )
         outcomes.append(RunOutcome(name, status, csv_path, post.rows, metadata_path))
 

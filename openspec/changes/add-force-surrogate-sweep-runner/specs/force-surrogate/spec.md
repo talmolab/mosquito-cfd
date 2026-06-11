@@ -34,10 +34,12 @@ Command construction SHALL perform no I/O and SHALL NOT import `subprocess` or a
 ### Requirement: Per-configuration output layout matches the dataset driver contract
 
 The runner SHALL write each configuration's IB-particle force CSV to
-`<output-root>/<name>/IB_Particle_1.csv` — the **exact** path that the merged dataset driver
+`<output-root>/<name>/<csv-name>` — the **exact** path that the merged dataset driver
 (`scripts/extract_forces.py`) resolves from its `--input-dir <output-root>`. This guarantees the
-PR4 extractor consumes the runner's output with no glue. The CSV filename SHALL be the IAMReX
-per-run name `IB_Particle_1.csv`.
+PR4 extractor consumes the runner's output with no glue. The CSV filename SHALL default to the
+assumed IAMReX per-run name `IB_Particle_1.csv` and SHALL be **operator-overridable** (a `csv_name`
+parameter / `--csv-name` flag, mirroring `extract_forces.py`), because that name is inherited from
+PR4's contract and is not yet verified against a real IAMReX run.
 
 #### Scenario: Runner output is the path the extractor reads
 
@@ -45,6 +47,12 @@ per-run name `IB_Particle_1.csv`.
 - **When** the runner completes that config
 - **Then** its CSV is at `<output-root>/s45_f100_p45/IB_Particle_1.csv`
 - **And** this equals the path `scripts/extract_forces.py` resolves for that config from `--input-dir <output-root>` (`<input-dir>/<name>/IB_Particle_1.csv`)
+
+#### Scenario: The CSV name is operator-overridable
+
+- **Given** a `csv_name` of `forces.csv` (the solver wrote forces under a different name than the default)
+- **When** the runner completes a config named `a`
+- **Then** it verifies and records `<output-root>/a/forces.csv` (not the default `IB_Particle_1.csv`), and the run metadata's `ib_particle_csv` is `a/forces.csv` — so a wrong default costs a flag, not a re-run of the corpus
 
 ### Requirement: Per-run cluster provenance with pinned digest
 

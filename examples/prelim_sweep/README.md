@@ -105,6 +105,12 @@ The driver wraps each launch with the RunAI/WSL/`KUBECONFIG` invocation; see
 mount mapping, and keeping the workspace alive (`; sleep infinity`). A re-run resumes; the driver
 exits non-zero if any config failed.
 
+> **Force-CSV name (verify on the first run).** `IB_Particle_1.csv` is **assumed** from PR4's
+> contract and **not yet verified against a real IAMReX run** — the repo `.gitignore` hints forces
+> may instead land in `forces.csv`. If your first single-config run shows the forces under a
+> different name, pass `--csv-name forces.csv` (mirrors `extract_forces.py --csv-name`) rather than
+> editing source. **Smoke-test one config before the full 27.**
+
 ## Dataset (`dataset.parquet`)
 
 PR4's extractor (`scripts/extract_forces.py`, library `mosquito_cfd.force_surrogate.dataset`)

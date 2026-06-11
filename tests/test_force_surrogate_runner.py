@@ -23,6 +23,7 @@ from mosquito_cfd.force_surrogate.dataset import IB_PARTICLE_COLUMNS
 from mosquito_cfd.force_surrogate.runner import (
     DEFAULT_IAMREX_BINARY,
     IB_PARTICLE_CSV,
+    STATUS_FAILED,
     Completion,
     ExecResult,
     build_run_command,
@@ -99,6 +100,8 @@ class FakeExecutor:
         rows_by_name=None,
         returncode_by_name=None,
         raise_names=(),
+        raise_exc=OSError,
+        csv_name=IB_PARTICLE_CSV,
         write=True,
     ):
         self.calls: list[tuple[list[str], Path]] = []
@@ -106,6 +109,8 @@ class FakeExecutor:
         self.rows_by_name = dict(rows_by_name or {})
         self.returncode_by_name = dict(returncode_by_name or {})
         self.raise_names = set(raise_names)
+        self.raise_exc = raise_exc
+        self.csv_name = csv_name
         self.write = write
 
     def __call__(self, command, *, cwd) -> ExecResult:
@@ -113,9 +118,9 @@ class FakeExecutor:
         self.calls.append((list(command), cwd))
         name = cwd.name
         if name in self.raise_names:
-            raise OSError(f"simulated cluster error for {name}")
+            raise self.raise_exc(f"simulated error for {name}")
         if self.write:
-            _write_csv(cwd / IB_PARTICLE_CSV, self.rows_by_name.get(name, self.rows))
+            _write_csv(cwd / self.csv_name, self.rows_by_name.get(name, self.rows))
         return ExecResult(self.returncode_by_name.get(name, 0))
 
     @property
@@ -515,6 +520,63 @@ def test_run_sweep_executor_exception_is_failed_and_continues(tmp_path):
     assert by["b"].status == "completed"  # the rest still ran
     assert by["a"].metadata_path is not None  # failed run still recorded
     assert fake.names == ["a", "b"]
+    # the failed run's metadata records status="failed" (auditable, not silent)
+    meta = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["status"] == STATUS_FAILED
+
+
+def test_run_sweep_keyboard_interrupt_propagates(tmp_path):
+    """A KeyboardInterrupt (BaseException) is NOT swallowed — the operator can abort the run."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    fake = FakeExecutor(raise_names=["a"], raise_exc=KeyboardInterrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run_sweep(
+            manifest,
+            tmp_path / "runs",
+            docker_digest=DIGEST,
+            timestamp=TS,
+            executor=fake,
+            workspace="ws",
+        )
+
+
+def test_run_sweep_csv_name_override(tmp_path):
+    """The IB-particle CSV name is overridable (mirrors PR4's --csv-name) end to end."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    fake = FakeExecutor(
+        rows=5, csv_name="forces.csv"
+    )  # solver writes forces.csv, not the default
+    outcomes = run_sweep(
+        manifest,
+        out,
+        docker_digest=DIGEST,
+        timestamp=TS,
+        executor=fake,
+        workspace="ws",
+        csv_name="forces.csv",
+    )
+    assert outcomes[0].status == "completed"
+    assert (out / "a" / "forces.csv").exists()
+    assert not (out / "a" / IB_PARTICLE_CSV).exists()
+    meta = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["ib_particle_csv"] == "a/forces.csv"
+
+
+def test_run_sweep_non_integer_max_step_rejected(tmp_path):
+    """A non-integer max_step in a malformed manifest raises a clear, config-named error."""
+    manifest = _make_manifest(tmp_path, [_cfg("a", max_step="five")])
+    fake = FakeExecutor()
+    with pytest.raises(ValueError, match="non-integer max_step"):
+        run_sweep(
+            manifest,
+            tmp_path / "runs",
+            docker_digest=DIGEST,
+            timestamp=TS,
+            executor=fake,
+            workspace="ws",
+        )
+    assert fake.calls == []
 
 
 def test_run_sweep_nonpositive_max_step_rejected(tmp_path):

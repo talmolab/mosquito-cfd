@@ -33,6 +33,10 @@ from mosquito_cfd.force_surrogate.runner import (
     DEFAULT_IAMREX_BINARY,
     DEFAULT_RUNS_SUBDIR,
     DEFAULT_WING_VERTEX,
+    IB_PARTICLE_CSV,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_SKIPPED,
     ExecResult,
     Executor,
     build_wsl_command,
@@ -98,6 +102,14 @@ def main(argv: Sequence[str] | None = None, *, executor: Executor | None = None)
         help="Re-run every config even if its CSV already passes the completion check.",
     )
     parser.add_argument("--threshold", type=float, default=DEFAULT_COMPLETION_THRESHOLD)
+    parser.add_argument(
+        "--csv-name",
+        default=IB_PARTICLE_CSV,
+        help=(
+            "Per-run IB-particle force CSV filename to verify (default IB_Particle_1.csv; "
+            "override if the solver writes a different name, e.g. forces.csv)."
+        ),
+    )
     parser.add_argument("--container-workspace", default=DEFAULT_CONTAINER_WORKSPACE)
     parser.add_argument("--runs-subdir", default=DEFAULT_RUNS_SUBDIR)
     parser.add_argument("--wing-vertex", default=DEFAULT_WING_VERTEX)
@@ -119,6 +131,7 @@ def main(argv: Sequence[str] | None = None, *, executor: Executor | None = None)
         workspace=args.workspace,
         resume=not args.no_resume,
         threshold=args.threshold,
+        csv_name=args.csv_name,
         container_workspace=args.container_workspace,
         runs_subdir=args.runs_subdir,
         wing_vertex=args.wing_vertex,
@@ -127,9 +140,9 @@ def main(argv: Sequence[str] | None = None, *, executor: Executor | None = None)
 
     for outcome in outcomes:
         print(f"{outcome.name}: {outcome.status} ({outcome.rows} rows)")
-    failed = [o for o in outcomes if o.status == "failed"]
-    completed = sum(o.status == "completed" for o in outcomes)
-    skipped = sum(o.status == "skipped" for o in outcomes)
+    failed = [o for o in outcomes if o.status == STATUS_FAILED]
+    completed = sum(o.status == STATUS_COMPLETED for o in outcomes)
+    skipped = sum(o.status == STATUS_SKIPPED for o in outcomes)
     print(
         f"{len(outcomes)} configs: {completed} completed, {skipped} skipped, "
         f"{len(failed)} failed"
