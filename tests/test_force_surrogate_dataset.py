@@ -24,6 +24,7 @@ from mosquito_cfd.force_surrogate import (
 )
 from mosquito_cfd.force_surrogate.constants import CHORD, R_TIP, RHO, SPAN
 from mosquito_cfd.force_surrogate.dataset import (
+    _DATASET_UNITS,
     DATASET_COLUMNS,
     IB_PARTICLE_COLUMNS,
 )
@@ -35,6 +36,7 @@ _MEASURED = [c for c in DATASET_COLUMNS if c not in _NON_MEASURED]
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "synthetic_ib_particle.csv"
 COMMITTED_MANIFEST = REPO / "examples" / "prelim_sweep" / "sweep_manifest.json"
+COMMITTED_UNITS = REPO / "examples" / "prelim_sweep" / "dataset.units.json"
 
 # Fixture raw forces/moments (for ratio assertions).
 FIXTURE_FX = np.array([0.0, 50.0, -30.0, 75.0, -100.0])
@@ -364,3 +366,15 @@ def test_provenance_mutable_tag_rejected():
             timestamp=_TS,
             dropped_configs=[],
         )
+
+
+# ---------------------------------------------------------------------------
+# Committed units contract (D10/option b — the only committed dataset artifact)
+# ---------------------------------------------------------------------------
+
+
+def test_committed_units_contract_matches_module():
+    """The committed dataset.units.json equals the module contract and validates."""
+    mapping = read_units_sidecar(COMMITTED_UNITS)
+    assert mapping == _DATASET_UNITS
+    assert set(mapping) == set(_MEASURED)

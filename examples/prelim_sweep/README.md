@@ -67,3 +67,43 @@ prunes any stale decks first, so a shrunk config set never leaves orphans.
 > collide on the same name; the generator detects this and raises before writing, rather than
 > silently overwriting a deck. Widening the grid to sub-degree resolution requires changing the
 > naming scheme.
+
+## Dataset (`dataset.parquet`)
+
+PR4's extractor (`scripts/extract_forces.py`, library `mosquito_cfd.force_surrogate.dataset`)
+turns each config's IB-particle force CSV into a tidy table — **one row per (config, timestep)** —
+of kinematics + phase + normalized force/moment coefficients + raw forces/moments, joined to this
+sweep's `reynolds` and train/holdout `split`. Forces come from the IB-particle CSV **only**
+(`amr.plot_int = -1`, CC-6); no plotfiles.
+
+| File | Status | Contents |
+|---|---|---|
+| `dataset.units.json` | **committed** | The column→unit contract (the schema sidecar). Pure metadata — no force values — so a consumer (PR5) has a `read_units_sidecar`-validatable contract to develop against. |
+| `dataset.parquet` | **committed when PR3's corpus lands** | The data. PR4 deliberately does **not** commit a fixture-derived parquet: the only data available pre-PR3 is the synthetic test fixture, and committing it (with a required `sha256:` digest in `run_metadata.json`) would misrepresent synthetic numbers as real CFD output with false provenance. |
+| `run_metadata.json` | **committed when PR3's corpus lands** | Provenance (pinned container digest, caller timestamp, any `dropped_configs`). |
+
+The **normative column schema** is the `force-surrogate` spec's *"Columns are the documented
+schema"* scenario; the units are in the committed `dataset.units.json` — neither is re-listed here
+to avoid drift.
+
+**Phase and cycle selection (read before training).** Every timestep is kept and tagged:
+
+- `phase = (time · f*) mod 1 ∈ [0, 1)` — fraction through the current wingbeat.
+- `wingbeat = floor(time · f*)` — integer cycle index; **`0` is the startup transient**.
+
+The extractor does **not** drop the startup beat. **Filter to the converged last beat yourself**
+— with the current 2-wingbeat corpus that is `wingbeat ≥ 1`. (Keeping all rows avoids the silent
+masking trap; the consumer decides the window explicitly.)
+
+### Regenerating (once PR3's corpus exists)
+
+```bash
+uv run python scripts/extract_forces.py \
+    --manifest examples/prelim_sweep/sweep_manifest.json \
+    --input-dir <runs-dir> \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp <iso-8601> \
+    --out examples/prelim_sweep/dataset.parquet \
+    --units examples/prelim_sweep/dataset.units.json \
+    --metadata examples/prelim_sweep/run_metadata.json
+```

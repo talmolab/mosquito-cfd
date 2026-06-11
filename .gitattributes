@@ -36,6 +36,9 @@ README text eol=lf
 *.pdf binary
 *.xlsx binary
 *.xls binary
+# Parquet datasets are binary — never normalize line endings or diff as text. The real
+# dataset.parquet is committed when PR3's corpus lands (force-surrogate dataset extractor).
+*.parquet binary
 *.csv text eol=lf
 
 # Windows specific files can use CRLF
