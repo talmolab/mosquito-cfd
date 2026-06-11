@@ -18,6 +18,11 @@ chk*/
 IB_Particle_*.csv
 particle[0-9]*
 
+# Force-surrogate sweep runner output (PR3): per-config IB CSVs + run_metadata are the
+# intermediate corpus produced on the cluster, not committed (provenance lands via PR4's
+# dataset.parquet). IB_Particle_*.csv is already ignored above; this covers run_metadata too.
+examples/prelim_sweep/runs/
+
 # Plotfiles and checkpoints (track selectively if needed)
 plotfiles/
 checkpoints/
