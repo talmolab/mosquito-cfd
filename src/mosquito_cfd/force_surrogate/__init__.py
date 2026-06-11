@@ -9,6 +9,7 @@ Aedes-anchored kinematic sweep generator (PR2), and the forces-to-tidy-dataset e
 from mosquito_cfd.force_surrogate.dataset import (
     build_dataset,
     build_run_metadata,
+    load_manifest_configs,
     write_dataset,
 )
 from mosquito_cfd.force_surrogate.normalization import (
@@ -47,6 +48,7 @@ __all__ = [
     "compute_moment_reference",
     "build_dataset",
     "build_run_metadata",
+    "load_manifest_configs",
     "write_dataset",
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",

@@ -46,7 +46,9 @@ from mosquito_cfd.force_surrogate.sidecar import (
 
 logger = logging.getLogger(__name__)
 
-# The real IAMReX IB-particle CSV schema (29 columns, exact order). Read name-based.
+# The real IAMReX IB-particle CSV schema (29 columns, exact order). The extractor reads
+# name-based (so it does not depend on this list), but it is exported as the single source of
+# truth for consumers/tests (e.g. building header-only fixtures, asserting the schema).
 IB_PARTICLE_COLUMNS = [
     "iStep", "time", "X", "Y", "Z", "Vx", "Vy", "Vz", "Rx", "Ry", "Rz",
     "Fx", "Fy", "Fz", "Mx", "My", "Mz",
@@ -227,6 +229,35 @@ def _validate_configs(configs: object) -> None:
         seen.add(name)
 
 
+def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
+    """Read a sweep manifest and return its validated ``configs`` list.
+
+    Validation (clear ``ValueError`` on a missing ``configs`` key, a non-list ``configs``, a
+    non-mapping/missing-key config, or duplicate config names) happens here so **both** the
+    driver (which resolves CSV paths from the config names) and :func:`build_dataset` go
+    through the same guarded reader — a malformed manifest never surfaces as a bare
+    ``KeyError``/``TypeError`` on either path.
+
+    Args:
+        manifest_path: Path to the sweep manifest JSON.
+
+    Returns:
+        The validated ``configs`` list.
+
+    Raises:
+        ValueError: If the manifest has no ``configs`` key, ``configs`` is not a list, or a
+            config is malformed / has a duplicate name.
+    """
+    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    if "configs" not in manifest:
+        raise ValueError(
+            f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"
+        )
+    configs = manifest["configs"]
+    _validate_configs(configs)
+    return configs
+
+
 def build_dataset(
     manifest_path: Path | str,
     csv_paths: Mapping[str, Path | str],
@@ -257,13 +288,7 @@ def build_dataset(
     Raises:
         ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``.
     """
-    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
-    if "configs" not in manifest:
-        raise ValueError(
-            f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"
-        )
-    configs = manifest["configs"]
-    _validate_configs(configs)
+    configs = load_manifest_configs(manifest_path)
 
     frames: list[pd.DataFrame] = []
     dropped: list[str] = []

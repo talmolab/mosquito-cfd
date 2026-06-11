@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 DRIVER = REPO / "scripts" / "extract_forces.py"
@@ -103,3 +104,21 @@ def test_driver_allow_missing_records_dropped_top_level(tmp_path):
     meta = json.loads(metadata.read_text(encoding="utf-8"))
     assert meta["dropped_configs"] == ["b"]  # top-level, not nested under "extra"
     assert pd.read_parquet(out)["config_name"].unique().tolist() == ["a"]
+
+
+def test_driver_malformed_manifest_raises_clear_error(tmp_path):
+    """A manifest with no 'configs' surfaces a clear ValueError on the CLI path."""
+    bad_manifest = tmp_path / "sweep_manifest.json"
+    bad_manifest.write_text(json.dumps({"grid": {}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="configs"):
+        _load_driver().main(
+            [
+                "--manifest", str(bad_manifest),
+                "--input-dir", str(tmp_path / "runs"),
+                "--out", str(tmp_path / "d.parquet"),
+                "--units", str(tmp_path / "d.units.json"),
+                "--metadata", str(tmp_path / "m.json"),
+                "--docker-digest", SENTINEL_DIGEST,
+                "--timestamp", TS,
+            ]
+        )  # fmt: skip

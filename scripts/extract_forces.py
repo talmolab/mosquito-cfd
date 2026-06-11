@@ -29,6 +29,7 @@ from pathlib import Path
 from mosquito_cfd.force_surrogate import (
     build_dataset,
     build_run_metadata,
+    load_manifest_configs,
     write_dataset,
 )
 
@@ -75,10 +76,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    # Validated read (clear ValueError on a malformed manifest, not a bare KeyError) so the
+    # CLI path benefits from the same guards as build_dataset.
+    configs = load_manifest_configs(args.manifest)
     csv_paths = {
         config["name"]: args.input_dir / config["name"] / args.csv_name
-        for config in manifest["configs"]
+        for config in configs
     }
 
     df, dropped = build_dataset(

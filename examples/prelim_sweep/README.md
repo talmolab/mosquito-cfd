@@ -95,6 +95,12 @@ The extractor does **not** drop the startup beat. **Filter to the converged last
 — with the current 2-wingbeat corpus that is `wingbeat ≥ 1`. (Keeping all rows avoids the silent
 masking trap; the consumer decides the window explicitly.)
 
+`phase`/`wingbeat` are deterministic functions of the `time` value **as written in the CSV**. A
+single timestep that lands exactly on a beat boundary (`time · f* = k`) can fall on either side by
+one step depending on how the solver records `time` (e.g. accumulated solver time may sit one ULP
+below `k`). This affects at most one boundary row and is immaterial to converged-beat filtering, but
+do not assume beat boundaries align to an exact `phase = 0.0` row.
+
 ### Regenerating (once PR3's corpus exists)
 
 ```bash
