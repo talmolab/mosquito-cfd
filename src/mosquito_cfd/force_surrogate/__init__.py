@@ -5,6 +5,9 @@ Provides the single source of force-coefficient normalization, a dimensionless u
 sidecar convention, and a provenance wrapper that pins the Docker image digest.
 """
 
+from mosquito_cfd.force_surrogate.dataset import (
+    build_dataset,
+)
 from mosquito_cfd.force_surrogate.normalization import (
     ForceCoefficients,
     ForceReference,
@@ -39,6 +42,7 @@ __all__ = [
     "compute_force_reference",
     "compute_moment_coefficient",
     "compute_moment_reference",
+    "build_dataset",
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",
     "read_units_sidecar",
