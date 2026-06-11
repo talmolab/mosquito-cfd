@@ -42,8 +42,11 @@ CC-4 figure caption must keep it honest — readiness evidence, not the funded s
   from the IB-particle CSV output — this sidesteps the velocity-field-in-plotfiles bug entirely).
 - **Intermediate:** one IB-particle force CSV per sweep config (A40 runs).
 - **Output:** `examples/prelim_sweep/dataset.parquet` (one row per (kinematics vector, time) →
-  CF_x, CF_z, CF_m + raw Fx/Fy/Fz), a trained surrogate + `metrics.json`, and
-  `examples/prelim_sweep/figures/evidence_figure.png`.
+  CF_x/CF_z + all three CF_m components + raw Fx/Fy/Fz/Mx/My/Mz), a trained surrogate +
+  `metrics.json`, and `examples/prelim_sweep/figures/evidence_figure.png`. **The `dataset.parquet`
+  + its `run_metadata.json` are committed when PR3's real corpus lands** (PR4 commits the tested
+  extractor/driver + the `dataset.units.json` schema contract, not a fixture-derived artifact —
+  see PR4 below).
 
 ## Hardware
 
@@ -157,7 +160,7 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 | 1 | `add-force-surrogate-foundation` | `mosquito_cfd` surrogate-prep module skeleton; force-coefficient/normalization helpers (CC-3) **+ refactor the inline `F_ref` in `examples/flapping_wing/generate_all_figures.py` to source from the helper (closes CC-3 DRY)**; **reusable cluster-free fixtures** (CC-2); module constants; `run_metadata` + `units.json` sidecar conventions (CC-1, CC-5). Local, TDD. [PR #2](https://github.com/talmolab/mosquito-cfd/pull/2) | local | ✅ |
 | 2 | `add-force-surrogate-sweep-config` | Sweep generator → 27 input files over the φ×f\*×α grid; `amr.plot_int=-1`; **resolve + document the Re policy (CC-7 → ν\* fixed)**; tested against fixtures. [PR #5](https://github.com/talmolab/mosquito-cfd/pull/5) | local | ✅ |
 | 3 | `add-force-surrogate-sweep-runner` | RunAI A40 batch runner looping the sweep through the pinned `:fp64` container; per-config output dir; `run_metadata` per run; dry-run/mocked test path. | cluster | ⬜ |
-| 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. | local | ⬜ |
+| 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. **Data + provenance committed when PR3's corpus lands**; PR4 commits the tested extractor/driver + the `dataset.units.json` contract (no fixture-derived data — scientific honesty, change `design.md` D10). | local | ⬜ |
 | 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-primary, PyTorch DeepONet/MLP fallback** (de-risk PhysicsNeMo early; hard fallback checkpoint ~Jun 18); held-out-**config** split (CC-4); seeded; `metrics.json`; wandb. | A5000 | ⬜ |
 | 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m) + **Sane–Dickinson baseline overlay** + speedup/RMSE annotation; ≥200 dpi; honest caption (CC-4). | local | ⬜ |
 

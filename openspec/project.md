@@ -22,13 +22,17 @@ GPU-accelerated CFD simulations of mosquito flight aerodynamics using IAMReX (Im
 mosquito-cfd/
 ├── src/mosquito_cfd/         # Python utilities
 │   ├── geometry/             # Wing planform generation (parametric + vertex I/O)
-│   └── benchmarks/           # Benchmark runner and metadata capture
+│   ├── benchmarks/           # Benchmark runner and metadata capture
+│   └── force_surrogate/      # Track B force-surrogate prep (normalization, sweep, dataset)
+├── scripts/                  # Thin CLI drivers over the tested library (e.g. extract_forces.py)
 ├── docker/                   # Container infrastructure
 │   ├── Dockerfile.fp64       # Primary simulation image
 │   ├── Dockerfile.fp32       # Deprecated (upstream unsupported)
 │   └── Dockerfile.python     # Post-processing only
 ├── examples/                 # Validation cases
-│   └── flow_past_sphere/     # Classic CFD validation case
+│   ├── flow_past_sphere/     # Classic CFD validation case
+│   ├── flapping_wing/        # Validated flapping-wing demo (van Veen kinematics)
+│   └── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
 ├── .github/workflows/        # CI/CD pipelines
 │   ├── ci.yml                # Lint, test, Dockerfile lint
 │   └── docker.yml            # Build & publish to ghcr.io
