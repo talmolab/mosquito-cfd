@@ -39,6 +39,7 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_moment_coefficient,
     compute_moment_reference,
 )
+from mosquito_cfd.force_surrogate.sidecar import write_units_sidecar
 
 logger = logging.getLogger(__name__)
 
@@ -215,3 +216,27 @@ def build_dataset(
     else:
         df = pd.DataFrame({col: [] for col in DATASET_COLUMNS})
     return df, dropped
+
+
+def write_dataset(
+    df: pd.DataFrame,
+    parquet_path: Path | str,
+    units_path: Path | str,
+) -> None:
+    """Write the dataset to parquet and emit its ``dataset.units.json`` sidecar.
+
+    The units sidecar (CC-5) declares the unit of every *measured* column from the static
+    :data:`_DATASET_UNITS` map via :func:`write_units_sidecar`; string/bookkeeping columns
+    are omitted. The parquet is written with the default engine (pyarrow); it is **not**
+    byte-reproducible (pyarrow embeds writer metadata), so reproducibility is asserted at the
+    schema+value level, not bytewise.
+
+    Args:
+        df: The tidy dataset from :func:`build_dataset`.
+        parquet_path: Output path for the parquet file.
+        units_path: Output path for the ``dataset.units.json`` sidecar.
+    """
+    parquet_path = Path(parquet_path)
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(parquet_path, index=False)
+    write_units_sidecar(Path(units_path), _DATASET_UNITS)

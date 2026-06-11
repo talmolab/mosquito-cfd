@@ -18,12 +18,18 @@ from mosquito_cfd.force_surrogate import (
     build_dataset,
     compute_force_reference,
     compute_moment_reference,
+    read_units_sidecar,
+    write_dataset,
 )
 from mosquito_cfd.force_surrogate.constants import CHORD, R_TIP, RHO, SPAN
 from mosquito_cfd.force_surrogate.dataset import (
     DATASET_COLUMNS,
     IB_PARTICLE_COLUMNS,
 )
+
+# Measured columns get a units entry; string/bookkeeping columns are omitted.
+_NON_MEASURED = {"config_name", "split", "index", "wingbeat"}
+_MEASURED = [c for c in DATASET_COLUMNS if c not in _NON_MEASURED]
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "synthetic_ib_particle.csv"
@@ -252,3 +258,63 @@ def test_force_only_no_plotfile_parameter(tmp_path):
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
     df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     assert len(df) == len(FIXTURE_TIME)
+
+
+# ---------------------------------------------------------------------------
+# write_dataset: units sidecar + parquet round-trip
+# ---------------------------------------------------------------------------
+
+
+def _build_demo(tmp_path):
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    return df
+
+
+def test_units_sidecar_validates_and_covers_measured_columns(tmp_path):
+    """dataset.units.json round-trips and maps every measured column.
+
+    Spec: Units sidecar validates against the dimensionless vocabulary; Non-measured
+    columns are omitted.
+    """
+    df = _build_demo(tmp_path)
+    parquet = tmp_path / "dataset.parquet"
+    units = tmp_path / "dataset.units.json"
+    write_dataset(df, parquet, units)
+
+    mapping = read_units_sidecar(units)
+    # All measured columns present; non-measured absent (inverse check).
+    assert set(mapping) == set(_MEASURED)
+    assert _NON_MEASURED.isdisjoint(mapping)
+    # Spot-check the unit assignments.
+    assert mapping["CF_x"] == "dimensionless"
+    assert mapping["CF_mz"] == "dimensionless"
+    assert mapping["phase"] == "dimensionless"
+    assert mapping["time"] == "dimensionless"
+    assert mapping["reynolds"] == "dimensionless"
+    assert mapping["stroke_amp_deg"] == "deg"
+    assert mapping["pitch_amp_deg"] == "deg"
+    assert mapping["frequency_fstar"] == "dimensionless (f*)"
+
+
+def test_parquet_round_trip_preserves_values_and_dtypes(tmp_path):
+    """write_dataset then read_parquet returns an equal frame (value/schema, not bytes).
+
+    Spec test-strategy #4: float64 coeffs, int64 wingbeat, string cols via check_dtype=False.
+    """
+    df = _build_demo(tmp_path)
+    parquet = tmp_path / "dataset.parquet"
+    units = tmp_path / "dataset.units.json"
+    write_dataset(df, parquet, units)
+
+    rt = pd.read_parquet(parquet)
+    assert list(rt.columns) == DATASET_COLUMNS
+    # Coefficient/raw columns are float64; wingbeat is int64.
+    for col in ("CF_x", "CF_mz", "Fx", "Mz", "time", "phase"):
+        assert rt[col].dtype == np.float64
+    assert rt["wingbeat"].dtype == np.int64
+    # Value equality, ignoring string-column dtype drift (object<->string[pyarrow]).
+    pd.testing.assert_frame_equal(
+        rt.reset_index(drop=True), df.reset_index(drop=True), check_dtype=False
+    )

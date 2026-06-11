@@ -7,6 +7,7 @@ sidecar convention, and a provenance wrapper that pins the Docker image digest.
 
 from mosquito_cfd.force_surrogate.dataset import (
     build_dataset,
+    write_dataset,
 )
 from mosquito_cfd.force_surrogate.normalization import (
     ForceCoefficients,
@@ -43,6 +44,7 @@ __all__ = [
     "compute_moment_coefficient",
     "compute_moment_reference",
     "build_dataset",
+    "write_dataset",
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",
     "read_units_sidecar",
