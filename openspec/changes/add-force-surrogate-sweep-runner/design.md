@@ -63,15 +63,19 @@ def run_sweep(manifest_path, output_root, *, docker_digest, timestamp, executor,
 ```
 
 `run_sweep` validates the corpus **fail-fast** before launching anything: the pinned digest (via
-`capture_surrogate_run_metadata`), each config's `input_file`/`max_step` presence (the published
-`load_manifest_configs` validator does **not** require these — a bare `KeyError` deep in the loop
-would otherwise waste A40 time), and duplicate names (which would collide on `<output-root>/<name>/`).
-It returns one `RunOutcome` per config, `status ∈ {"completed","skipped","failed"}`. A run is
-**`failed`** when the executor returns nonzero **or** the post-run `check_completion` still reports
-incomplete (the completion re-check is **authoritative** over the return code); a failed run is
-logged and recorded but does **not** abort the corpus, and `run_metadata.json` is written for every
-config whose executor was invoked (`completed` and `failed`) with its `status` — a `skipped` config
-keeps its prior metadata. The driver exits non-zero if any outcome is `failed`.
+the lightweight `validate_image_digest` regex guard — no git/hardware probe), each config's
+`input_file`/`max_step` presence **and a positive `max_step`** (the published
+`load_manifest_configs` validator does **not** require these — a bare `KeyError` deep in the loop,
+or a never-completable `max_step ≤ 0`, would otherwise waste A40 time), and duplicate names (which
+would collide on `<output-root>/<name>/`). It returns one `RunOutcome` per config,
+`status ∈ {"completed","skipped","failed"}`. A run is **`failed`** when the executor returns nonzero,
+**the executor raises** (caught per-config so a transient cluster/WSL error does not abort the
+65-minute corpus), **or** the post-run `check_completion` still reports incomplete (the completion
+re-check is **authoritative** over the return code); a failed run is logged and recorded but does
+**not** abort the corpus, and `run_metadata.json` is written for every config whose executor was
+invoked (`completed` and `failed`) with its `status` (plus the `rows`/`max_step`/`threshold` that
+decided the verdict) — a `skipped` config keeps its prior metadata. The driver exits non-zero if any
+outcome is `failed`.
 
 The library is **pure**: `build_run_command` and `check_completion` do focused work; `run_sweep` does filesystem reads/writes on the **host mount** (the per-config dir, the CSV, the metadata JSON) but delegates the actual container launch to the injected `executor`. The library imports **no** `subprocess`, no RunAI client, and nothing host-specific — so every test runs cluster-free against `tmp_path` + the committed fixtures (CC-2).
 
@@ -97,7 +101,7 @@ The per-config dirs live under the **cluster mount** (`--output-root`, default `
 
 **Raw IB CSVs are not git-committed** (intermediate, large; `.gitignore` already ignores `IB_Particle_*.csv` globally). This PR also ignores `examples/prelim_sweep/runs/` so the run tree + per-run `run_metadata.json` stay untracked. The committed corpus + provenance land via **PR4's `dataset.parquet` + its `run_metadata.json`** when the real A40 run happens — so this *tested-code* PR plants **no fabricated cluster artifacts** (scientific-honesty parity with PR4's D10: a fixture-derived CSV with a sentinel digest must never masquerade as real CFD output).
 
-Per-run `run_metadata.json` records **portable** fields only — the config name, the pinned digest (`docker_image`), the caller timestamp, the deck's **manifest-relative** path (its `input_file`, the same portable id PR4 uses) + its SHA256 (`hash_file`), and the **exact logical command** (which uses portable `/workspace` container paths). It deliberately does **not** pass `inputs_file=`/`output_dir=` to `capture_run_metadata` (those would record absolute host paths); instead the portable deck id + hash + command go through `extra=`. `git`/`hardware` (commit, hostname) come from the base capture and carry no mount paths.
+Per-run `run_metadata.json` records **portable** fields only — the config name, the pinned digest (`docker_image`), the caller timestamp, the deck's **manifest-relative** path (its `input_file`, the same portable id PR4 uses) + its SHA256 (`hash_file`), and the **exact logical command** (which uses portable `/workspace` container paths). It deliberately does **not** pass `inputs_file=`/`output_dir=` to `capture_run_metadata` (those would record absolute host paths); instead the portable deck id + hash + command go through `extra=`. `git`/`hardware` (commit, hostname) come from the base capture and carry no mount paths. The recorded `git.commit` is the **host/driver** repo commit, not the solver's: the **IAMReX/AMReX commit is pinned content-addressably by the `docker_image` digest** and is recoverable by introspecting that exact image — deliberately *not* re-recorded from the host's `docker/build-args.env`, which could drift from (and so misrepresent) the pinned image's actual build args. `run_metadata.json` is **per-run cluster output, not a committed artifact**, so it is intentionally **not** byte-reproducible (it carries a fresh `run_id` UUID, host commit, and hostname).
 
 ### D5. Injected `executor` seam — the honest mock boundary
 The one impure action — launching the container — is the injected `executor(command, *, cwd) -> ExecResult`. The **real** executor (in `scripts/run_sweep.py`) wraps the library command with WSL + `export KUBECONFIG=...` + the operator's absolute `runai` binary path **via the pure, unit-tested `build_wsl_command` helper** (which lives in the **library** so the wrapping is covered + linted), then hands the result to `subprocess.run`. This shrinks the genuinely-untested surface to the single irreducible `subprocess.run(...)` shell-out line; the WSL/`KUBECONFIG` string construction is tested exactly as `build_run_command` is. The **fake** executor (in tests) records the command it was handed and, to simulate a successful IAMReX run, writes a synthetic `IB_Particle_1.csv` of `max_step` rows into `cwd` (the host per-config dir). Tests therefore assert **both** sides honestly: the *command* (the science — `mpirun`, the deck, the staged `wing.vertex`, the run cwd) **and** the *side-effect layout* (`<output-root>/<name>/IB_Particle_1.csv` + `run_metadata.json`). No test touches RunAI/GPU. The subprocess-free guarantee is asserted on the **library module only** (`"subprocess" not in inspect.getsource(mosquito_cfd.force_surrogate.runner)`) — **not** on `scripts/run_sweep.py`, which legitimately imports `subprocess` for its real executor; the driver smoke test instead asserts it ran *without invoking* WSL/RunAI (via the injected fake). `cwd` is the **host** per-config dir (where the mount maps the container run cwd); the library locates the CSV at `output_root/<name>/IB_Particle_1.csv` directly (it does not rely on `cwd` to find outputs — `cwd` is purely the executor's working directory + the fake's write target).

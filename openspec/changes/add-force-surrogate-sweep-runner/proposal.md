@@ -33,7 +33,7 @@ This is the **force-only** path (design §9, CC-6): every deck already sets `amr
 ## Impact
 
 - **Spec:** `force-surrogate` capability gains 8 requirements (command construction; output-layout-matches-driver-contract; per-run provenance; completion verification; idempotent resume; cluster-free injected-executor seam / force-only guard; fail-fast sweep input validation; failed-run isolation).
-- **New code:** `src/mosquito_cfd/force_surrogate/runner.py`, `scripts/run_sweep.py`, `tests/test_force_surrogate_runner.py`, `tests/test_force_surrogate_run_sweep_driver.py`; `__init__.py` re-exports.
+- **New code:** `src/mosquito_cfd/force_surrogate/runner.py`, `scripts/run_sweep.py`, `tests/test_force_surrogate_runner.py`, `tests/test_force_surrogate_run_sweep_driver.py`; `__init__.py` re-exports. **`sidecar.py`** gains a small pure `validate_image_digest` helper (extracted from `capture_surrogate_run_metadata`'s guard) so the runner can fail-fast on a bad digest **without** the git/hardware probe; `capture_surrogate_run_metadata` reuses it (behaviour unchanged).
 - **CI (`docker.yml`):** add an `id:` to the fp64 build step + a guarded step emitting the full `@<digest>` pin to the job summary (D2). No solver/Dockerfile/dependency changes; no `uv.lock` change (the runner adds no third-party dependency — stdlib only). Runs only on push-to-main/tags, never on PRs.
 - **CI (`ci.yml`):** no change — `src/`, `tests/`, and `scripts/` are already linted (PR4 widened to `scripts/`); the new files land in already-linted paths.
 - **`.gitignore`:** add `examples/prelim_sweep/runs/` (the run tree + per-run `run_metadata.json` stay untracked; `IB_Particle_*.csv` is already ignored).

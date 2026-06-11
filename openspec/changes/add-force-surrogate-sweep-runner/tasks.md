@@ -99,3 +99,26 @@ container, or plotfiles. The runner is **stdlib-only**: no new dependency, no `u
 - **subprocess-free assertion.** Implemented via AST of `runner.py`'s imports (not a raw `"subprocess"`
   substring), because the module **docstring legitimately mentions** subprocess (explaining it does
   not import it) — a substring check would false-positive. The assertion is strictly stronger.
+
+### Pre-PR self-review hardening (`/review-pr` findings)
+
+The pre-merge subagent code review (no BLOCKING) surfaced fixes folded in before opening the PR
+(spec updated to match):
+
+- **Executor-raises resilience.** The real WSL/`subprocess` executor can *raise* (e.g. `wsl` not
+  found, transient cluster `OSError`), not just return nonzero — which would abort the unattended
+  65-minute corpus. `run_sweep` now catches the exception per-config, records `status="failed"`, and
+  continues. New requirement scenario *An executor that raises is isolated as failed* + test.
+- **`validate_image_digest` extraction.** The up-front digest fail-fast previously ran a full
+  `capture_surrogate_run_metadata` (git + `nvidia-smi` + `nvcc` subprocesses) just to validate a
+  regex, discarding the result. Extracted a pure `validate_image_digest` in `sidecar.py` (reused by
+  the capture; behaviour unchanged) and call it for the fail-fast.
+- **`max_step > 0` fail-fast.** A non-positive `max_step` can never satisfy the completion check;
+  rejected up front rather than burning an A40 slot. New scenario + test.
+- **Provenance completeness.** `run_metadata.json` now records the `threshold` that decided the
+  `completed`/`failed` verdict (so the verdict is self-describing).
+- **Header strictness documented.** `check_completion`'s exact-order 29-col header gate is the
+  *producer*-side strict check (PR4 reads name-based downstream); commented in-code as intentional.
+- **Driver typing + dead `# noqa`.** Annotated the driver's executor factory/`main` and removed a
+  `# noqa: S603` for a rule (`S`) not in the ruff select set.
+- **Coverage.** Added a truly-0-byte-CSV test → `runner.py` 100%.

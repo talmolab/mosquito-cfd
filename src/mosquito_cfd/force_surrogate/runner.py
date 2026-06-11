@@ -31,7 +31,10 @@ from mosquito_cfd.force_surrogate.dataset import (
     IB_PARTICLE_COLUMNS,
     load_manifest_configs,
 )
-from mosquito_cfd.force_surrogate.sidecar import capture_surrogate_run_metadata
+from mosquito_cfd.force_surrogate.sidecar import (
+    capture_surrogate_run_metadata,
+    validate_image_digest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +187,10 @@ def check_completion(
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines:
         return Completion(False, 0, "empty")
+    # Strict, order-sensitive schema gate: the runner is the *producer* and verifies IAMReX
+    # wrote the exact 29-column canonical header. (PR4's extractor reads name-based / order-
+    # insensitive downstream; the runner deliberately enforces the canonical order here so a
+    # solver-side schema change is caught at the source rather than silently consumed.)
     if lines[0].split(",") != IB_PARTICLE_COLUMNS:
         return Completion(False, max(len(lines) - 1, 0), "bad_header")
     rows = len(lines) - 1
@@ -235,13 +242,15 @@ def _write_run_metadata(
     command: list[str],
     rows: int,
     status: str,
+    threshold: float,
 ) -> Path:
     """Write a per-run ``run_metadata.json`` with portable provenance (CC-1).
 
     Records the pinned digest, caller timestamp, config name, the deck's manifest-relative path
-    and SHA256, and the exact logical command (portable container paths). It deliberately does
-    NOT pass ``inputs_file=``/``output_dir=`` to the base capture (which would record absolute
-    host paths); the portable deck id + hash + command go through ``extra=``.
+    and SHA256, the exact logical command (portable container paths), and the ``rows``/``max_step``/
+    ``threshold`` that decided the completion verdict (so a ``completed``/``failed`` ``status`` is
+    self-describing). It deliberately does NOT pass ``inputs_file=``/``output_dir=`` to the base
+    capture (which would record absolute host paths); the portable fields go through ``extra=``.
     """
     name = str(config["name"])
     input_file = str(config["input_file"])
@@ -254,6 +263,7 @@ def _write_run_metadata(
         "ib_particle_csv": f"{name}/{IB_PARTICLE_CSV}",
         "rows": rows,
         "max_step": int(config["max_step"]),  # type: ignore[arg-type]
+        "threshold": threshold,
         "status": status,
     }
     metadata = capture_surrogate_run_metadata(
@@ -317,10 +327,8 @@ def run_sweep(
     output_root = Path(output_root)
     manifest_path = Path(manifest_path)
 
-    # 1. Digest (and timestamp) fail-fast: raises on a mutable/missing digest before any run.
-    capture_surrogate_run_metadata(
-        docker_image_digest=docker_digest, timestamp=timestamp
-    )
+    # 1. Digest fail-fast: a pure regex guard (no git/hardware probe) before any run.
+    validate_image_digest(docker_digest)
     # 2. Manifest fail-fast: duplicate names + base keys (load_manifest_configs); then the
     #    runner-required keys the published validator does not check.
     configs = load_manifest_configs(manifest_path)
@@ -333,6 +341,11 @@ def run_sweep(
                     "validator does not require it, but the runner needs it to launch/verify "
                     "the run"
                 )
+        if int(config["max_step"]) <= 0:
+            raise ValueError(
+                f"config {name!r} has max_step={config['max_step']!r}; must be a positive "
+                "integer (a non-positive max_step can never satisfy the completion check)"
+            )
 
     manifest_dir = manifest_path.parent
     outcomes: list[RunOutcome] = []
@@ -362,7 +375,19 @@ def run_sweep(
             wing_vertex=wing_vertex,
             iamrex_binary=iamrex_binary,
         )
-        result = executor(command, cwd=run_dir)
+        # Resilience: an executor that *raises* (e.g. the real WSL/subprocess executor hitting a
+        # transient cluster error, or `wsl` not found) must not abort the unattended corpus — it
+        # is recorded as a failed run (returncode 1) and the loop continues, exactly like a
+        # nonzero return. Exception (not BaseException) so KeyboardInterrupt still propagates.
+        try:
+            result = executor(command, cwd=run_dir)
+        except Exception as exc:
+            logger.warning(
+                "config %r executor raised %r; recording failed and continuing",
+                name,
+                exc,
+            )
+            result = ExecResult(returncode=1, stderr=repr(exc))
         post = check_completion(csv_path, max_step, threshold=threshold)
         if result.returncode != 0 or not post.complete:
             status = "failed"
@@ -387,6 +412,7 @@ def run_sweep(
             command=command,
             rows=post.rows,
             status=status,
+            threshold=threshold,
         )
         outcomes.append(RunOutcome(name, status, csv_path, post.rows, metadata_path))
 

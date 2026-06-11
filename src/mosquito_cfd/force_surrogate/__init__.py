@@ -35,6 +35,7 @@ from mosquito_cfd.force_surrogate.sidecar import (
     UNITS_VOCABULARY,
     capture_surrogate_run_metadata,
     read_units_sidecar,
+    validate_image_digest,
     write_units_sidecar,
 )
 from mosquito_cfd.force_surrogate.sweep import (
@@ -62,6 +63,7 @@ __all__ = [
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",
     "read_units_sidecar",
+    "validate_image_digest",
     "write_units_sidecar",
     "build_kinematic_grid",
     "compute_reynolds",

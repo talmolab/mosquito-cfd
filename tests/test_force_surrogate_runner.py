@@ -93,18 +93,27 @@ class FakeExecutor:
     """Records each (command, cwd) and simulates a run by writing a CSV into the cwd it is handed."""
 
     def __init__(
-        self, *, rows=5, rows_by_name=None, returncode_by_name=None, write=True
+        self,
+        *,
+        rows=5,
+        rows_by_name=None,
+        returncode_by_name=None,
+        raise_names=(),
+        write=True,
     ):
         self.calls: list[tuple[list[str], Path]] = []
         self.rows = rows
         self.rows_by_name = dict(rows_by_name or {})
         self.returncode_by_name = dict(returncode_by_name or {})
+        self.raise_names = set(raise_names)
         self.write = write
 
     def __call__(self, command, *, cwd) -> ExecResult:
         cwd = Path(cwd)
         self.calls.append((list(command), cwd))
         name = cwd.name
+        if name in self.raise_names:
+            raise OSError(f"simulated cluster error for {name}")
         if self.write:
             _write_csv(cwd / IB_PARTICLE_CSV, self.rows_by_name.get(name, self.rows))
         return ExecResult(self.returncode_by_name.get(name, 0))
@@ -207,6 +216,11 @@ def test_check_completion_empty_and_short(tmp_path):
     empty = tmp_path / "empty.csv"
     _write_csv(empty, 0)
     assert check_completion(empty, 5) == Completion(False, 0, "empty")
+
+    # A truly 0-byte file (preemption before the header is written) is also "empty".
+    zero_byte = tmp_path / "zero.csv"
+    zero_byte.write_bytes(b"")
+    assert check_completion(zero_byte, 5) == Completion(False, 0, "empty")
 
     short = tmp_path / "short.csv"
     _write_csv(short, 2)
@@ -486,6 +500,54 @@ def test_run_sweep_zero_return_short_csv_is_failed(tmp_path):
         manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
     )
     assert outcomes[0].status == "failed"  # NOT completed
+
+
+def test_run_sweep_executor_exception_is_failed_and_continues(tmp_path):
+    """Spec: a *raised* executor error is isolated as failed, the corpus is not aborted."""
+    manifest = _make_manifest(tmp_path, [_cfg("a"), _cfg("b")])
+    out = tmp_path / "runs"
+    fake = FakeExecutor(rows=5, raise_names=["a"])  # 'a' raises OSError mid-run
+    outcomes = run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    by = {o.name: o for o in outcomes}
+    assert by["a"].status == "failed"  # the raise did not abort the sweep
+    assert by["b"].status == "completed"  # the rest still ran
+    assert by["a"].metadata_path is not None  # failed run still recorded
+    assert fake.names == ["a", "b"]
+
+
+def test_run_sweep_nonpositive_max_step_rejected(tmp_path):
+    """Fail-fast: a non-positive max_step (never completable) is rejected before any run."""
+    manifest = _make_manifest(tmp_path, [_cfg("a", max_step=0)])
+    fake = FakeExecutor()
+    with pytest.raises(ValueError, match="max_step"):
+        run_sweep(
+            manifest,
+            tmp_path / "runs",
+            docker_digest=DIGEST,
+            timestamp=TS,
+            executor=fake,
+            workspace="ws",
+        )
+    assert fake.calls == []
+
+
+def test_run_sweep_records_threshold_in_metadata(tmp_path):
+    """Provenance: the completion threshold that decided the verdict is recorded."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    run_sweep(
+        manifest,
+        out,
+        docker_digest=DIGEST,
+        timestamp=TS,
+        executor=FakeExecutor(rows=5),
+        workspace="ws",
+        threshold=0.95,
+    )
+    meta = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["threshold"] == 0.95
 
 
 # ---------------------------------------------------------------------------

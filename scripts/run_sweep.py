@@ -34,6 +34,7 @@ from mosquito_cfd.force_surrogate.runner import (
     DEFAULT_RUNS_SUBDIR,
     DEFAULT_WING_VERTEX,
     ExecResult,
+    Executor,
     build_wsl_command,
     run_sweep,
 )
@@ -44,22 +45,21 @@ DEFAULT_KUBECONFIG = "~/.kube/kubeconfig-runai-talmo-lab.yaml"
 DEFAULT_RUNAI_BINARY = "/home/elizabeth/.runai/bin/runai"
 
 
-def _make_wsl_executor(kubeconfig: str, runai_binary: str):
+def _make_wsl_executor(kubeconfig: str, runai_binary: str) -> Executor:
     """Build the real WSL executor (the only ``subprocess.run`` shell-out in this program)."""
 
-    def _executor(command, *, cwd) -> ExecResult:
+    def _executor(command: Sequence[str], *, cwd: Path | str) -> ExecResult:
         wsl_command = build_wsl_command(
             command, kubeconfig=kubeconfig, runai_binary=runai_binary
         )
-        proc = subprocess.run(  # noqa: S603 - operator-invoked, fixed argv (no shell)
-            wsl_command, capture_output=True, text=True, cwd=str(cwd)
-        )
+        # Fixed argv, no shell=True; operator-invoked against a trusted cluster.
+        proc = subprocess.run(wsl_command, capture_output=True, text=True, cwd=str(cwd))
         return ExecResult(proc.returncode, proc.stdout, proc.stderr)
 
     return _executor
 
 
-def main(argv: Sequence[str] | None = None, *, executor=None) -> int:
+def main(argv: Sequence[str] | None = None, *, executor: Executor | None = None) -> int:
     """Run the sweep and report per-config outcomes.
 
     Args:

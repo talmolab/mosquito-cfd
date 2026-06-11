@@ -163,7 +163,8 @@ The runner SHALL validate the sweep before launching any container run, so a mal
 never wastes A40 time or surfaces a bare `KeyError` deep in the loop. `run_sweep` SHALL return one
 `RunOutcome` per configuration, SHALL reject a configuration missing the keys it consumes
 (`input_file`, `max_step`) with a clear `ValueError` naming the configuration and the missing key
-(the published manifest validator does not require these keys), SHALL reject duplicate configuration
+(the published manifest validator does not require these keys), SHALL reject a **non-positive
+`max_step`** (which could never satisfy the completion check), SHALL reject duplicate configuration
 names (which would collide on the same `<output-root>/<name>/` directory), and SHALL handle an empty
 manifest without error. All such validation SHALL occur **before** any run command is issued to the
 executor.
@@ -180,6 +181,12 @@ executor.
 - **When** `run_sweep` is called
 - **Then** it raises `ValueError` naming the configuration and the missing key, and **no** run command is issued to the executor (a bare `KeyError` is never surfaced, because the published `load_manifest_configs` validator does not require `input_file`/`max_step`)
 
+#### Scenario: Non-positive max_step is rejected before any run
+
+- **Given** a manifest configuration with `max_step <= 0`
+- **When** `run_sweep` is called
+- **Then** it raises `ValueError` naming the configuration before any run command is issued (a non-positive `max_step` can never satisfy `rows >= ceil(max_step · threshold)` and would burn an A40 slot that can never be marked complete)
+
 #### Scenario: Duplicate configuration names are rejected before any run
 
 - **Given** a manifest with two configurations sharing a `name`
@@ -195,10 +202,11 @@ executor.
 ### Requirement: Failed runs are isolated and surfaced
 
 The runner SHALL record a configuration whose run does not produce a complete CSV — the executor
-returns a nonzero `returncode`, or the executor returns zero but the post-run completion check still
-reports incomplete (short/empty CSV) — with `status == "failed"`. It SHALL log every failure (never
-silent) and SHALL NOT abort the remaining configurations (so one bad config does not lose the
-65-minute corpus; resume retries it on a later run). The post-run completion check SHALL be
+returns a nonzero `returncode`, **the executor raises an exception**, or the executor returns zero
+but the post-run completion check still reports incomplete (short/empty CSV) — with
+`status == "failed"`. It SHALL log every failure (never silent) and SHALL NOT abort the remaining
+configurations (so one bad config — including a transient cluster/WSL error that raises — does not
+lose the 65-minute corpus; resume retries it on a later run). The post-run completion check SHALL be
 authoritative over the executor return code. The thin driver SHALL exit non-zero if any
 configuration's outcome is `failed`.
 
@@ -213,6 +221,12 @@ configuration's outcome is `failed`.
 - **Given** a fake executor that returns `ExecResult(returncode=0)` but writes a header-only (or short) `IB_Particle_1.csv`
 - **When** `run_sweep` is called
 - **Then** that configuration's outcome is `status == "failed"` — the post-run completion re-check is authoritative, not the return code — and its failure is logged
+
+#### Scenario: An executor that raises is isolated as failed
+
+- **Given** a fake executor that **raises** an exception (e.g. an `OSError`, as the real WSL/`subprocess` executor would on a transient cluster error or missing `wsl`) for one configuration and succeeds for the rest
+- **When** `run_sweep` is called
+- **Then** that configuration's outcome is `status == "failed"` (the exception is caught, logged, and recorded), every other configuration still runs, and the corpus is not aborted
 
 #### Scenario: Driver exits non-zero when any configuration failed
 
