@@ -81,6 +81,27 @@ DATASET_COLUMNS = [
     "CF_mz",
 ]
 
+# Manifest config keys build_dataset reads, and the CSV columns _extract_config reads.
+_REQUIRED_CONFIG_KEYS = frozenset(
+    {
+        "name",
+        "index",
+        "stroke_amp_deg",
+        "frequency_fstar",
+        "pitch_amp_deg",
+        "reynolds",
+        "split",
+    }
+)
+_REQUIRED_CSV_COLUMNS = ("time", "Fx", "Fy", "Fz", "Mx", "My", "Mz")
+
+# String / integer-count output columns; everything else in DATASET_COLUMNS is float64.
+# Used to give the empty (all-dropped) frame the SAME dtypes as a populated frame so the
+# parquet schema is stable across builds. ``"str"`` is the pandas-3.0 default string dtype
+# (StringDtype), which is what a populated frame's string columns resolve to.
+_STR_COLUMNS = frozenset({"config_name", "split"})
+_INT_COLUMNS = frozenset({"index", "wingbeat"})
+
 # Units of the *measured* dataset columns (CC-5; validated against UNITS_VOCABULARY).
 # String columns (config_name, split) and bookkeeping counts (index, wingbeat) are omitted,
 # mirroring the sweep-manifest units convention. No new vocabulary entry is needed.
@@ -106,9 +127,30 @@ _DATASET_UNITS = {
 }
 
 
+def _empty_dataset() -> pd.DataFrame:
+    """An empty dataset frame with the populated-frame dtypes (stable parquet schema)."""
+    columns = {}
+    for col in DATASET_COLUMNS:
+        if col in _STR_COLUMNS:
+            dtype = "str"
+        elif col in _INT_COLUMNS:
+            dtype = "int64"
+        else:
+            dtype = "float64"
+        columns[col] = pd.Series([], dtype=dtype)
+    return pd.DataFrame(columns)
+
+
 def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
     """Build the per-config rows from one IB-particle CSV (name-based, normalized)."""
+    name = str(config["name"])
     raw = pd.read_csv(csv_path)
+    missing = [c for c in _REQUIRED_CSV_COLUMNS if c not in raw.columns]
+    if missing:
+        raise ValueError(
+            f"IB-particle CSV for config {name!r} at {csv_path} is missing required "
+            f"column(s) {missing}; expected the IAMReX schema {list(_REQUIRED_CSV_COLUMNS)}"
+        )
     f_star = float(config["frequency_fstar"])
     stroke = float(config["stroke_amp_deg"])
 
@@ -132,7 +174,9 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
     n = time.shape[0]
     return pd.DataFrame(
         {
-            "config_name": [str(config["name"])] * n,
+            # Explicit "str" dtype so a 0-row CSV yields StringDtype (not float64) — matches
+            # the populated and empty-build schemas for a stable parquet across builds.
+            "config_name": pd.array([str(config["name"])] * n, dtype="str"),
             "index": np.full(n, int(config["index"]), dtype=np.int64),
             "time": time,
             "phase": phase,
@@ -141,7 +185,7 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
             "frequency_fstar": np.full(n, f_star, dtype=float),
             "pitch_amp_deg": np.full(n, float(config["pitch_amp_deg"]), dtype=float),
             "reynolds": np.full(n, float(config["reynolds"]), dtype=float),
-            "split": [str(config["split"])] * n,
+            "split": pd.array([str(config["split"])] * n, dtype="str"),
             "Fx": fx,
             "Fy": fy,
             "Fz": fz,
@@ -156,6 +200,31 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
             "CF_mz": np.asarray(mc.cf_mz, dtype=float),
         }
     )
+
+
+def _validate_configs(configs: object) -> None:
+    """Validate the manifest config list before any extraction (clear errors, no KeyError)."""
+    if not isinstance(configs, list):
+        raise ValueError(
+            f"manifest 'configs' must be a list, got {type(configs).__name__}"
+        )
+    seen: set[str] = set()
+    for i, config in enumerate(configs):
+        if not isinstance(config, Mapping):
+            raise ValueError(f"manifest config {i} is not a mapping: {config!r}")
+        missing = sorted(_REQUIRED_CONFIG_KEYS - set(config))
+        if missing:
+            raise ValueError(
+                f"manifest config {i} is missing required key(s) {missing}; "
+                f"expected at least {sorted(_REQUIRED_CONFIG_KEYS)}"
+            )
+        name = str(config["name"])
+        if name in seen:
+            raise ValueError(
+                f"duplicate config name {name!r} in manifest (config {i}); names must be "
+                "unique so each maps to one CSV and one split"
+            )
+        seen.add(name)
 
 
 def build_dataset(
@@ -189,7 +258,12 @@ def build_dataset(
         ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``.
     """
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    if "configs" not in manifest:
+        raise ValueError(
+            f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"
+        )
     configs = manifest["configs"]
+    _validate_configs(configs)
 
     frames: list[pd.DataFrame] = []
     dropped: list[str] = []
@@ -217,7 +291,7 @@ def build_dataset(
         df = pd.concat(frames, ignore_index=True)
         df = df[DATASET_COLUMNS]
     else:
-        df = pd.DataFrame({col: [] for col in DATASET_COLUMNS})
+        df = _empty_dataset()
     return df, dropped
 
 

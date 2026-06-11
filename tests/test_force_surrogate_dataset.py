@@ -390,3 +390,122 @@ def test_committed_units_contract_matches_module():
     mapping = read_units_sidecar(COMMITTED_UNITS)
     assert mapping == _DATASET_UNITS
     assert set(mapping) == set(_MEASURED)
+
+
+# ---------------------------------------------------------------------------
+# Robustness: NaN, degenerate kinematics, malformed inputs, real-frequency phase
+# ---------------------------------------------------------------------------
+
+
+def test_nan_force_row_propagates_to_nan_coefficient(tmp_path):
+    """A NaN force in a CSV row becomes a NaN coefficient (row kept, not dropped)."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    raw = pd.read_csv(FIXTURE)
+    raw.loc[0, "Fx"] = np.nan
+    nan_csv = tmp_path / "nan.csv"
+    raw.to_csv(nan_csv, index=False)
+    df, dropped = build_dataset(manifest, {cfg["name"]: nan_csv})
+    assert dropped == []
+    assert len(df) == len(FIXTURE_TIME)
+    assert np.isnan(df["CF_x"].iloc[0])
+
+
+def test_degenerate_frequency_raises(tmp_path):
+    """A config with frequency_fstar=0 makes f_ref=0 -> ValueError mid-build."""
+    cfg = {**_validated_point_config(), "frequency_fstar": 0.0}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    with pytest.raises(ValueError):
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+
+
+def test_missing_csv_column_raises_naming_config(tmp_path):
+    """A CSV missing a required column raises ValueError naming the config + column."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    raw = pd.read_csv(FIXTURE).drop(columns=["Mx"])
+    bad = tmp_path / "bad.csv"
+    raw.to_csv(bad, index=False)
+    with pytest.raises(ValueError, match="Mx"):
+        build_dataset(manifest, {cfg["name"]: bad})
+
+
+def test_manifest_without_configs_key_raises(tmp_path):
+    """A manifest with no 'configs' key raises a clear ValueError (not bare KeyError)."""
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps({"grid": {}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="configs"):
+        build_dataset(path, {})
+
+
+def test_configs_not_a_list_raises(tmp_path):
+    """A 'configs' that is not a list raises a clear ValueError."""
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps({"configs": {"name": "x"}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="must be a list"):
+        build_dataset(path, {})
+
+
+def test_config_not_a_mapping_raises(tmp_path):
+    """A config entry that is not a mapping raises a clear ValueError naming its index."""
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps({"configs": ["not-a-dict"]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="config 0 is not a mapping"):
+        build_dataset(path, {})
+
+
+def test_config_missing_required_key_raises_naming_index(tmp_path):
+    """A config missing a required key raises ValueError naming the config index."""
+    cfg = _validated_point_config()
+    del cfg["reynolds"]
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    with pytest.raises(ValueError, match="reynolds"):
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+
+
+def test_duplicate_config_names_rejected(tmp_path):
+    """Two configs with the same name raise (would corrupt the per-name join)."""
+    a = _validated_point_config()
+    b = {**_validated_point_config(), "index": 1, "split": "holdout"}
+    manifest = _write_manifest(tmp_path / "m.json", [a, b])
+    with pytest.raises(ValueError, match="duplicate"):
+        build_dataset(manifest, {a["name"]: FIXTURE})
+
+
+def test_per_config_normalization_varies_with_stroke(tmp_path):
+    """Same raw Fx but different stroke -> different CF_x (per-config F_ref, not global)."""
+    lo = {**_validated_point_config(), "index": 0, "name": "lo", "stroke_amp_deg": 35.0}
+    hi = {**_validated_point_config(), "index": 1, "name": "hi", "stroke_amp_deg": 55.0}
+    manifest = _write_manifest(tmp_path / "m.json", [lo, hi])
+    df, _ = build_dataset(manifest, {"lo": FIXTURE, "hi": FIXTURE})
+    cf_lo = df[df["config_name"] == "lo"]["CF_x"].to_numpy()
+    cf_hi = df[df["config_name"] == "hi"]["CF_x"].to_numpy()
+    # Larger stroke -> larger F_ref -> smaller |CF_x| for the same raw force.
+    assert np.abs(cf_hi[1]) < np.abs(cf_lo[1])
+
+
+def test_phase_wingbeat_at_non_unity_frequency(tmp_path):
+    """At f*=0.85 (a real sweep value), wingbeat=floor(time*f*) is assigned correctly.
+
+    The fixture time (0..1.0) never crosses a beat boundary at f*=0.85 (boundary at
+    time=1/0.85=1.176), so all rows are wingbeat 0 with phase = time*0.85 -- confirming
+    the tag is computed from the recorded time, no spurious boundary snapping.
+    """
+    cfg = {**_validated_point_config(), "frequency_fstar": 0.85}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    np.testing.assert_array_equal(df["wingbeat"].to_numpy(), [0, 0, 0, 0, 0])
+    np.testing.assert_allclose(df["phase"].to_numpy(), FIXTURE_TIME * 0.85)
+
+
+def test_empty_build_has_stable_dtypes(tmp_path):
+    """The all-dropped empty frame has the SAME dtypes as a populated frame (schema stable)."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    populated, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    empty, dropped = build_dataset(
+        manifest, {cfg["name"]: tmp_path / "absent.csv"}, allow_missing=True
+    )
+    assert dropped == [cfg["name"]]
+    assert len(empty) == 0
+    assert empty.dtypes.to_dict() == populated.dtypes.to_dict()

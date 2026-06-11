@@ -1,8 +1,9 @@
-"""Force-surrogate foundation: normalization, units sidecar, and run provenance.
+"""Force-surrogate prep for the Track B program (see ``docs/force_surrogate/roadmap.md``).
 
-PR1 of the Track B force-surrogate program (see ``docs/force_surrogate/roadmap.md``).
-Provides the single source of force-coefficient normalization, a dimensionless units
-sidecar convention, and a provenance wrapper that pins the Docker image digest.
+Provides the single source of force/moment-coefficient normalization, a dimensionless
+units-sidecar convention, a provenance wrapper that pins the Docker image digest, the
+Aedes-anchored kinematic sweep generator (PR2), and the forces-to-tidy-dataset extractor
+(PR4: ``build_dataset``/``write_dataset``/``build_run_metadata``).
 """
 
 from mosquito_cfd.force_surrogate.dataset import (

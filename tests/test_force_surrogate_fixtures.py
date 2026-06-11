@@ -7,41 +7,13 @@ import numpy as np
 import pandas as pd
 
 from mosquito_cfd.force_surrogate import compute_force_coefficients
+from mosquito_cfd.force_surrogate.dataset import IB_PARTICLE_COLUMNS
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-# The real IAMReX IB-particle CSV schema (29 columns, exact order).
-REAL_SCHEMA = [
-    "iStep",
-    "time",
-    "X",
-    "Y",
-    "Z",
-    "Vx",
-    "Vy",
-    "Vz",
-    "Rx",
-    "Ry",
-    "Rz",
-    "Fx",
-    "Fy",
-    "Fz",
-    "Mx",
-    "My",
-    "Mz",
-    "Fcpx",
-    "Fcpy",
-    "Fcpz",
-    "Tcpx",
-    "Tcpy",
-    "Tcpz",
-    "SumUx",
-    "SumUy",
-    "SumUz",
-    "SumTx",
-    "SumTy",
-    "SumTz",
-]
+# The real IAMReX IB-particle CSV schema (29 columns, exact order) — single source of
+# truth is the dataset module's exported constant (consumed by the extractor too).
+REAL_SCHEMA = IB_PARTICLE_COLUMNS
 
 
 def test_synthetic_fixture_loads():
