@@ -245,6 +245,18 @@ def test_allow_missing_skips_and_returns_dropped(tmp_path):
     assert len(df) == len(FIXTURE_TIME)
 
 
+def test_allow_missing_all_dropped_yields_empty_framed_dataset(tmp_path):
+    """If every config is dropped, the frame is empty but keeps the full schema."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, dropped = build_dataset(
+        manifest, {cfg["name"]: tmp_path / "absent.csv"}, allow_missing=True
+    )
+    assert dropped == [cfg["name"]]
+    assert len(df) == 0
+    assert list(df.columns) == DATASET_COLUMNS
+
+
 # ---------------------------------------------------------------------------
 # Force-only scope guard (CC-6)
 # ---------------------------------------------------------------------------
