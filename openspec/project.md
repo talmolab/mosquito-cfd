@@ -24,7 +24,7 @@ mosquito-cfd/
 │   ├── geometry/             # Wing planform generation (parametric + vertex I/O)
 │   ├── benchmarks/           # Benchmark runner and metadata capture
 │   └── force_surrogate/      # Track B force-surrogate prep (normalization, sweep, dataset)
-├── scripts/                  # Thin CLI drivers over the tested library (e.g. extract_forces.py)
+├── scripts/                  # Thin CLI drivers over the tested library (e.g. run_sweep.py, extract_forces.py)
 ├── docker/                   # Container infrastructure
 │   ├── Dockerfile.fp64       # Primary simulation image
 │   ├── Dockerfile.fp32       # Deprecated (upstream unsupported)

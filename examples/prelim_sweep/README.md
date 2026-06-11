@@ -68,6 +68,43 @@ prunes any stale decks first, so a shrunk config set never leaves orphans.
 > silently overwriting a deck. Widening the grid to sub-degree resolution requires changing the
 > naming scheme.
 
+## Running the sweep on the cluster (PR3)
+
+`scripts/run_sweep.py` (library `mosquito_cfd.force_surrogate.runner`) loops this corpus through
+the pinned `:fp64` container on **one** RunAI A40 workspace, writing each run's IB-particle force
+CSV to `runs/<name>/IB_Particle_1.csv` — exactly the per-config layout
+`scripts/extract_forces.py --input-dir runs/` consumes (no glue). It resumes a partial corpus
+(skips configs whose CSV already passes the completion check) and writes a portable per-run
+`run_metadata.json` pinned to the container **digest**. The raw `runs/` tree is **not** committed
+(`.gitignore`d) — the committed corpus + provenance land via `dataset.parquet` (below).
+
+**Before launching, stage `wing.vertex` at the mount root** — `prelim_sweep` ships none, and the
+decks reference it relatively (`particle_inputs.geometry_file = wing.vertex`; `radius = 1.5` is
+already in every deck). Use the validated **dimensionless** wing:
+
+```bash
+# either reuse the validated file …
+cp examples/flapping_wing/wing.vertex <mount-root>/wing.vertex
+# … or regenerate it (must be dimensionless: span 3, chord 1)
+uv run generate-wing-planform --span 3.0 --chord 1.0 --spacing 0.05 --output <mount-root>/wing.vertex
+```
+
+Get the pinned digest from the `docker.yml` build run's job summary ("FP64 image digest"), then:
+
+```bash
+uv run python scripts/run_sweep.py \
+    --manifest examples/prelim_sweep/sweep_manifest.json \
+    --output-root <mount-root>/runs \
+    --workspace <runai-workspace-name> \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp <iso-8601>
+```
+
+The driver wraps each launch with the RunAI/WSL/`KUBECONFIG` invocation; see
+[`openspec/runai-dev-workflow.md`](../../openspec/runai-dev-workflow.md) for the cluster workflow,
+mount mapping, and keeping the workspace alive (`; sleep infinity`). A re-run resumes; the driver
+exits non-zero if any config failed.
+
 ## Dataset (`dataset.parquet`)
 
 PR4's extractor (`scripts/extract_forces.py`, library `mosquito_cfd.force_surrogate.dataset`)

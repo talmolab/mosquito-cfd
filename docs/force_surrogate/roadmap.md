@@ -40,7 +40,9 @@ CC-4 figure caption must keep it honest — readiness evidence, not the funded s
   `wing.vertex`, container `ghcr.io/talmolab/mosquito-cfd:fp64` (IAMReX `7ece065d`) — plus a
   reduced kinematic sweep. **Force-only: `amr.plot_int = -1`** (no field plotfiles; forces come
   from the IB-particle CSV output — this sidesteps the velocity-field-in-plotfiles bug entirely).
-- **Intermediate:** one IB-particle force CSV per sweep config (A40 runs).
+- **Intermediate:** one IB-particle force CSV per sweep config (A40 runs) — produced by
+  `scripts/run_sweep.py` (PR3) into `examples/prelim_sweep/runs/<name>/IB_Particle_1.csv`, the
+  per-config layout `scripts/extract_forces.py --input-dir` consumes (raw CSVs not committed).
 - **Output:** `examples/prelim_sweep/dataset.parquet` (one row per (kinematics vector, time) →
   CF_x/CF_z + all three CF_m components + raw Fx/Fy/Fz/Mx/My/Mz), a trained surrogate +
   `metrics.json`, and `examples/prelim_sweep/figures/evidence_figure.png`. **The `dataset.parquet`
