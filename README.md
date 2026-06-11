@@ -74,7 +74,9 @@ mpirun -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sphere max_step=10
 
 ```
 mosquito-cfd/
-├── src/mosquito_cfd/ # Python utilities (marker generation, metadata)
+├── src/mosquito_cfd/ # Python utilities (marker generation, metadata, force surrogate)
+├── scripts/          # Thin CLI drivers over the library (e.g. extract_forces.py)
+├── examples/         # Validation cases + force-surrogate sweep corpus
 ├── docker/           # Dockerfiles and build documentation
 ├── .github/workflows/# CI/CD pipelines
 ├── openspec/         # Specification-driven development

@@ -1,0 +1,20 @@
+{
+  "time": "dimensionless",
+  "phase": "dimensionless",
+  "stroke_amp_deg": "deg",
+  "frequency_fstar": "dimensionless (f*)",
+  "pitch_amp_deg": "deg",
+  "reynolds": "dimensionless",
+  "Fx": "dimensionless",
+  "Fy": "dimensionless",
+  "Fz": "dimensionless",
+  "Mx": "dimensionless",
+  "My": "dimensionless",
+  "Mz": "dimensionless",
+  "CF_x": "dimensionless",
+  "CF_y": "dimensionless",
+  "CF_z": "dimensionless",
+  "CF_mx": "dimensionless",
+  "CF_my": "dimensionless",
+  "CF_mz": "dimensionless"
+}
