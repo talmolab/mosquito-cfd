@@ -68,6 +68,90 @@ prunes any stale decks first, so a shrunk config set never leaves orphans.
 > silently overwriting a deck. Widening the grid to sub-degree resolution requires changing the
 > naming scheme.
 
+## Running the sweep on the cluster (PR3)
+
+`scripts/run_sweep.py` (library `mosquito_cfd.force_surrogate.runner`) loops this corpus through
+the pinned `:fp64` container on **one** RunAI A40 workspace, writing each run's IB-particle force
+CSV to `runs/<name>/IB_Particle_1.csv` — exactly the per-config layout
+`scripts/extract_forces.py --input-dir runs/` consumes (no glue). It resumes a partial corpus
+(skips configs whose CSV already passes the completion check) and writes a portable per-run
+`run_metadata.json` pinned to the container **digest**. The raw `runs/` tree is **not** committed
+(`.gitignore`d) — the committed corpus + provenance land via `dataset.parquet` (below).
+
+The sweep runs in **two phases**: you submit **one** long-lived A40 workspace, then the driver
+`runai workspace exec`s each config into it (the driver does **not** submit the workspace).
+
+### 1. Stage `wing.vertex` at the mount root
+
+`prelim_sweep` ships none, and the decks reference it relatively
+(`particle_inputs.geometry_file = wing.vertex`; `radius = 1.5` is already in every deck). Use the
+validated **dimensionless** wing:
+
+```bash
+# either reuse the validated file …
+cp examples/flapping_wing/wing.vertex Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep/wing.vertex
+# … or regenerate it (must be dimensionless: span 3, chord 1)
+uv run generate-wing-planform --span 3.0 --chord 1.0 --spacing 0.05 \
+    --output Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep/wing.vertex
+```
+
+### 2. Submit one long-lived A40 workspace
+
+Mount the **`prelim_sweep`** dir at `/workspace` (`,readwrite` is mandatory) and keep the container
+alive with `sleep infinity` so the driver can exec into it 27 times:
+
+```bash
+wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml && \
+  /home/elizabeth/.runai/bin/runai workspace submit force-sweep \
+    -p talmo-lab \
+    --image ghcr.io/talmolab/mosquito-cfd:fp64 \
+    --image-pull-policy Always \
+    --gpu-devices-request 1 \
+    --preemptible \
+    --host-path path=/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep,mount=/workspace,readwrite \
+    -- bash -c 'sleep infinity'"
+```
+
+The mount maps the **same** directory three ways — keep them consistent with step 3:
+
+| View | Path |
+|---|---|
+| Windows host (`--output-root`/`wing.vertex` staging) | `Z:\users\eberrigan\mosquito-cfd\examples\prelim_sweep\` |
+| Cluster NFS (`--host-path path=`) | `/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep/` |
+| Inside container (`--container-workspace`, default) | `/workspace/` |
+
+### 3. Run the driver (loops `runai workspace exec`)
+
+Get the pinned digest from the `docker.yml` build run's job summary ("FP64 image digest"), then run
+the driver with `--workspace` = the name you submitted and `--output-root` = the **host** view of
+`runs/` (same dir the container sees as `/workspace/runs`):
+
+```bash
+uv run python scripts/run_sweep.py \
+    --manifest examples/prelim_sweep/sweep_manifest.json \
+    --output-root Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep/runs \
+    --workspace force-sweep \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp <iso-8601>
+```
+
+The driver wraps each launch with the RunAI/WSL/`KUBECONFIG` invocation (overridable via
+`--kubeconfig`/`--runai-binary`); see
+[`openspec/runai-dev-workflow.md`](../../openspec/runai-dev-workflow.md) for the underlying cluster
+workflow and `runai` CLI details. A re-run resumes (skips already-complete configs); the driver
+exits non-zero if any config failed. When the corpus is done, free the GPU with
+`runai workspace delete force-sweep`.
+
+Each launched config writes the solver's captured stdout/stderr to `runs/<name>/run.log` (referenced
+from `run_metadata.json`), so a failed or anomalous config is debuggable from its own output — `tail`
+it between configs to watch progress or diagnose a failure.
+
+> **Force-CSV name (verify on the first run).** `IB_Particle_1.csv` is **assumed** from PR4's
+> contract and **not yet verified against a real IAMReX run** — the repo `.gitignore` hints forces
+> may instead land in `forces.csv`. If your first single-config run shows the forces under a
+> different name, pass `--csv-name forces.csv` (mirrors `extract_forces.py --csv-name`) rather than
+> editing source. **Smoke-test one config before the full 27.**
+
 ## Dataset (`dataset.parquet`)
 
 PR4's extractor (`scripts/extract_forces.py`, library `mosquito_cfd.force_surrogate.dataset`)

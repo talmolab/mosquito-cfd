@@ -8,10 +8,28 @@ from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate import (
     capture_surrogate_run_metadata,
     read_units_sidecar,
+    validate_image_digest,
     write_units_sidecar,
 )
 
 DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "a" * 64
+
+
+def test_validate_image_digest_accepts_and_strips():
+    """A pinned sha256 digest passes and is returned stripped of surrounding whitespace."""
+    assert validate_image_digest(f"  {DIGEST}  ") == DIGEST
+
+
+def test_validate_image_digest_rejects_mutable_or_empty():
+    """An empty/blank/mutable-tag reference is rejected (no I/O, parity with the capture guard)."""
+    for bad in (
+        "",
+        "   ",
+        "ghcr.io/talmolab/mosquito-cfd:latest",
+        "repo@sha256:deadbeef",
+    ):
+        with pytest.raises(ValueError, match="content-addressable"):
+            validate_image_digest(bad)
 
 
 def test_units_sidecar_roundtrip(tmp_path):

@@ -107,6 +107,7 @@ jobs:
           echo "CUDA_ARCH=$CUDA_ARCH" >> $GITHUB_OUTPUT
 
       - name: Build and push FP64 image
+        id: build_fp64
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -125,6 +126,20 @@ jobs:
           cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=fp64' }}
           cache-to: type=gha,mode=max,scope=fp64
           no-cache: ${{ inputs.no_cache || false }}
+
+      # CC-1 (force-surrogate PR3): surface the pinned digest so operators can pin sweep runs
+      # via `scripts/run_sweep.py --docker-digest`. Guarded: outputs.digest is empty when the
+      # image is not pushed (workflow_dispatch with push=false), so the step is skipped rather
+      # than emitting a blank line. Emits the full content-addressable pin (registry@sha256:...),
+      # not a bare digest, so the value is directly pullable.
+      - name: Emit FP64 image digest to job summary
+        if: ${{ steps.build_fp64.outputs.digest != '' }}
+        run: |
+          echo "## FP64 image digest" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pinned reference for \`scripts/run_sweep.py --docker-digest\`:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${REGISTRY}/${IMAGE_NAME}@${{ steps.build_fp64.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   build-python:
     name: Build Python Image

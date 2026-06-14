@@ -95,6 +95,33 @@ def read_units_sidecar(path: Path) -> dict[str, str]:
     return data
 
 
+def validate_image_digest(docker_image_digest: str) -> str:
+    """Validate (no I/O) that a string is a content-addressable image digest, and return it.
+
+    Pure regex guard, separable from :func:`capture_surrogate_run_metadata` so a caller can
+    fail-fast on a mutable/missing digest **without** paying the git/hardware probe that the
+    full capture performs (CC-1).
+
+    Args:
+        docker_image_digest: Candidate image reference; must contain ``sha256:``. Surrounding
+            whitespace is stripped.
+
+    Returns:
+        The stripped digest.
+
+    Raises:
+        ValueError: If the value is empty, blank, or not a content-addressable digest.
+    """
+    digest = (docker_image_digest or "").strip()
+    if not _DIGEST_RE.search(digest):
+        raise ValueError(
+            "docker_image_digest must be a content-addressable image digest of the form "
+            "'sha256:<64 hex chars>' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a "
+            f"mutable tag like ':latest' is not reproducible. Got {docker_image_digest!r}"
+        )
+    return digest
+
+
 def capture_surrogate_run_metadata(
     *,
     docker_image_digest: str,
@@ -131,13 +158,7 @@ def capture_surrogate_run_metadata(
         ValueError: If ``docker_image_digest`` is empty, blank, or not a content-
             addressable digest (does not contain ``sha256:``).
     """
-    digest = (docker_image_digest or "").strip()
-    if not _DIGEST_RE.search(digest):
-        raise ValueError(
-            "docker_image_digest must be a content-addressable image digest of the form "
-            "'sha256:<64 hex chars>' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a "
-            f"mutable tag like ':latest' is not reproducible. Got {docker_image_digest!r}"
-        )
+    digest = validate_image_digest(docker_image_digest)
     metadata = capture_run_metadata(
         inputs_file=inputs_file,
         docker_image=digest,
