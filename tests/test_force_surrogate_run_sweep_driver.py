@@ -44,6 +44,9 @@ class FakeExecutor:
         self.fail_names = set(fail_names)
 
     def __call__(self, command, *, cwd) -> ExecResult:
+        # Answer the in-container GPU probe with a canned A40 CSV; don't count it as a run.
+        if "nvidia-smi" in list(command):
+            return ExecResult(0, "NVIDIA A40, 49140, 550.54.14")
         cwd = Path(cwd)
         self.calls.append(cwd)
         _write_csv(

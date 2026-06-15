@@ -245,6 +245,98 @@ def build_wsl_command(
     return ["wsl", "-e", "bash", "-c", payload]
 
 
+# nvidia-smi query yielding a `name, memory.total, driver_version` CSV (no header/units), used to
+# capture the COMPUTE node's GPU (in the container), not the driver host's.
+_NVIDIA_SMI_QUERY = (
+    "nvidia-smi",
+    "--query-gpu=name,memory.total,driver_version",
+    "--format=csv,noheader,nounits",
+)
+
+
+def build_probe_command(workspace: str) -> list[str]:
+    """Build the RunAI command that queries the in-container GPU (pure, no I/O).
+
+    Args:
+        workspace: The RunAI workspace name to exec into.
+
+    Returns:
+        ``["runai", "workspace", "exec", <workspace>, "--", "nvidia-smi", …]`` — a read-only GPU
+        metadata query, no simulation side effect.
+    """
+    return ["runai", "workspace", "exec", workspace, "--", *_NVIDIA_SMI_QUERY]
+
+
+def _parse_gpu_csv(stdout: str) -> list[dict]:
+    """Parse ``nvidia-smi --query-gpu=name,memory.total,driver_version`` CSV output."""
+    gpus: list[dict] = []
+    for line in stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            memory_mb = int(parts[1])
+        except ValueError:
+            continue
+        gpus.append(
+            {"model": parts[0], "memory_mb": memory_mb, "driver_version": parts[2]}
+        )
+    return gpus
+
+
+def capture_compute_hardware(
+    executor: Executor,
+    workspace: str,
+    *,
+    output_root: Path | str,
+) -> dict:
+    """Capture the **compute node's** GPU via the executor (the in-container ``nvidia-smi``).
+
+    The runner orchestrates locally and runs the CFD remotely, so the base metadata capture's
+    *local* hardware probe is misleading — it would record the driver host, not the cluster GPU.
+
+    Args:
+        executor: The injected cluster-launch seam.
+        workspace: The RunAI workspace name.
+        output_root: Host output root (used as the executor ``cwd``; irrelevant to ``nvidia-smi``).
+
+    Returns:
+        ``{"source": "container", "workspace": …, "gpus": [...], "gpu_count": N}`` on success, or
+        an explicit ``{"source": "unavailable", "workspace": …, "note": …}`` marker on a nonzero
+        return, a raised executor error, or unparseable output — **never** the driver host's
+        hardware. The probe never aborts the sweep.
+    """
+    command = build_probe_command(workspace)
+    try:
+        result = executor(command, cwd=Path(output_root))
+    except Exception as exc:
+        logger.warning("compute hardware probe raised %r; recording 'unavailable'", exc)
+        return {"source": "unavailable", "workspace": workspace, "note": repr(exc)}
+    if result.returncode != 0:
+        logger.warning(
+            "compute hardware probe returned %s; recording 'unavailable'",
+            result.returncode,
+        )
+        return {
+            "source": "unavailable",
+            "workspace": workspace,
+            "note": f"nvidia-smi returned {result.returncode}",
+        }
+    gpus = _parse_gpu_csv(result.stdout)
+    if not gpus:
+        return {
+            "source": "unavailable",
+            "workspace": workspace,
+            "note": "nvidia-smi produced no parseable GPU rows",
+        }
+    return {
+        "source": "container",
+        "workspace": workspace,
+        "gpus": gpus,
+        "gpu_count": len(gpus),
+    }
+
+
 def _format_run_log(result: ExecResult) -> str:
     """Render an executor result's stdout/stderr as the per-run ``run.log`` body."""
     parts = []
@@ -270,6 +362,7 @@ def _write_run_metadata(
     status: str,
     threshold: float,
     csv_name: str,
+    compute_hardware: dict,
 ) -> Path:
     """Write a per-run ``run_metadata.json`` with portable provenance (CC-1).
 
@@ -293,6 +386,9 @@ def _write_run_metadata(
         "max_step": int(config["max_step"]),  # type: ignore[arg-type]
         "threshold": threshold,
         "status": status,
+        # Override the base capture's LOCAL hardware (the driver host) with the COMPUTE node's
+        # GPU — capture_run_metadata merges `extra` via dict.update, so this top-level key wins.
+        "hardware": compute_hardware,
     }
     metadata = capture_surrogate_run_metadata(
         docker_image_digest=docker_digest,
@@ -386,6 +482,9 @@ def run_sweep(
 
     manifest_dir = manifest_path.parent
     outcomes: list[RunOutcome] = []
+    # Captured lazily on the first config that actually runs (so a fully-resumed corpus issues no
+    # probe and needs no workspace). The COMPUTE node is the same A40 for the whole workspace.
+    compute_hardware: dict | None = None
     for config in configs:
         name = str(config["name"])
         max_step = int(config["max_step"])
@@ -406,6 +505,10 @@ def run_sweep(
                 continue
 
         run_dir.mkdir(parents=True, exist_ok=True)
+        if compute_hardware is None:
+            compute_hardware = capture_compute_hardware(
+                executor, workspace, output_root=output_root
+            )
         command = build_run_command(
             config,
             workspace=workspace,
@@ -458,6 +561,7 @@ def run_sweep(
             status=status,
             threshold=threshold,
             csv_name=csv_name,
+            compute_hardware=compute_hardware,
         )
         outcomes.append(RunOutcome(name, status, csv_path, post.rows, metadata_path))
 

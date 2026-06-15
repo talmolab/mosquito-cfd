@@ -27,8 +27,10 @@ from mosquito_cfd.force_surrogate.runner import (
     STATUS_FAILED,
     Completion,
     ExecResult,
+    build_probe_command,
     build_run_command,
     build_wsl_command,
+    capture_compute_hardware,
     check_completion,
     run_sweep,
 )
@@ -105,9 +107,13 @@ class FakeExecutor:
         csv_name=IB_PARTICLE_CSV,
         stdout="",
         stderr="",
+        gpu_csv="NVIDIA A40, 49140, 550.54.14",
+        probe_fail=False,
+        probe_raise=False,
         write=True,
     ):
-        self.calls: list[tuple[list[str], Path]] = []
+        self.calls: list[tuple[list[str], Path]] = []  # run commands only
+        self.probe_calls: list[tuple[list[str], Path]] = []  # nvidia-smi probes
         self.rows = rows
         self.rows_by_name = dict(rows_by_name or {})
         self.returncode_by_name = dict(returncode_by_name or {})
@@ -116,11 +122,24 @@ class FakeExecutor:
         self.csv_name = csv_name
         self.stdout = stdout
         self.stderr = stderr
+        self.gpu_csv = gpu_csv
+        self.probe_fail = probe_fail
+        self.probe_raise = probe_raise
         self.write = write
 
     def __call__(self, command, *, cwd) -> ExecResult:
+        command = list(command)
+        # The in-container GPU probe is a distinct command — record it separately so run-call
+        # assertions (names/cwds/calls) stay valid.
+        if "nvidia-smi" in command:
+            self.probe_calls.append((command, Path(cwd)))
+            if self.probe_raise:
+                raise OSError("simulated probe error")
+            return ExecResult(
+                1 if self.probe_fail else 0, "" if self.probe_fail else self.gpu_csv
+            )
         cwd = Path(cwd)
-        self.calls.append((list(command), cwd))
+        self.calls.append((command, cwd))
         name = cwd.name
         if name in self.raise_names:
             raise self.raise_exc(f"simulated error for {name}")
@@ -716,6 +735,110 @@ def test_run_sweep_is_force_only(tmp_path):
         assert "plot" not in inner.lower()  # no plotfile output in the command
     params = inspect.signature(run_sweep).parameters
     assert not any("plot" in name for name in params)  # no plotfile argument
+
+
+# ---------------------------------------------------------------------------
+# Compute-node hardware provenance (spec: Per-run provenance records the compute node's hardware)
+# ---------------------------------------------------------------------------
+
+
+def test_build_probe_command_is_pure():
+    """Spec: The probe command is pure and force-only."""
+    cmd = build_probe_command("ws")
+    assert cmd == [
+        "runai", "workspace", "exec", "ws", "--",
+        "nvidia-smi", "--query-gpu=name,memory.total,driver_version",
+        "--format=csv,noheader,nounits",
+    ]  # fmt: skip
+    inner = " ".join(cmd)
+    assert (
+        "plot" not in inner and "mpirun" not in inner
+    )  # GPU metadata only, no simulation
+
+
+def test_capture_compute_hardware_success(tmp_path):
+    """Spec: capture parses the in-container nvidia-smi into the compute GPU."""
+    fake = FakeExecutor(gpu_csv="NVIDIA A40, 49140, 550.54.14")
+    hw = capture_compute_hardware(fake, "ws", output_root=tmp_path)
+    assert hw["source"] == "container"
+    assert hw["workspace"] == "ws"
+    assert hw["gpu_count"] == 1
+    assert hw["gpus"][0] == {
+        "model": "NVIDIA A40",
+        "memory_mb": 49140,
+        "driver_version": "550.54.14",
+    }
+
+
+def test_capture_compute_hardware_failure_is_unavailable(tmp_path):
+    """Spec: a failed probe (nonzero or raise) is 'unavailable', never the driver host."""
+    for fake in (
+        FakeExecutor(probe_fail=True),  # nonzero return
+        FakeExecutor(probe_raise=True),  # raised error
+    ):
+        hw = capture_compute_hardware(fake, "ws", output_root=tmp_path)
+        assert hw["source"] == "unavailable"
+        assert hw["workspace"] == "ws"
+        assert "gpus" not in hw  # the local/driver-host GPU is never recorded
+
+
+def test_capture_compute_hardware_skips_malformed_rows(tmp_path):
+    """Malformed nvidia-smi rows are skipped; all-unparseable output → unavailable."""
+    # a trailing malformed (short) line is skipped; the valid GPU row is kept
+    fake = FakeExecutor(gpu_csv="NVIDIA A40, 49140, 550.54.14\nshort-line")
+    hw = capture_compute_hardware(fake, "ws", output_root=tmp_path)
+    assert hw["source"] == "container" and hw["gpu_count"] == 1
+    # a non-integer memory drops the row → no parseable GPUs → unavailable (probe returned 0)
+    fake2 = FakeExecutor(gpu_csv="NVIDIA A40, not-a-number, 550.54.14")
+    hw2 = capture_compute_hardware(fake2, "ws", output_root=tmp_path)
+    assert hw2["source"] == "unavailable" and "gpus" not in hw2
+
+
+def test_run_sweep_records_compute_hardware_not_driver_host(tmp_path):
+    """Spec: Recorded hardware is the compute node, not the driver host."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS,
+        executor=FakeExecutor(rows=5, gpu_csv="NVIDIA A40, 49140, 550.54.14"),
+        workspace="ws",
+    )  # fmt: skip
+    hw = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))[
+        "hardware"
+    ]
+    assert (
+        hw["source"] == "container"
+    )  # the in-container probe, NOT the local driver host
+    assert hw["gpus"][0]["model"] == "NVIDIA A40"
+
+
+def test_run_sweep_hardware_probe_failure_recorded_and_nonfatal(tmp_path):
+    """Spec: A failed hardware probe is recorded honestly and the config still completes."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    outcomes = run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS,
+        executor=FakeExecutor(rows=5, probe_fail=True), workspace="ws",
+    )  # fmt: skip
+    assert outcomes[0].status == "completed"  # probe failure is non-fatal
+    hw = json.loads((out / "a" / "run_metadata.json").read_text(encoding="utf-8"))[
+        "hardware"
+    ]
+    assert hw["source"] == "unavailable"
+    assert "gpus" not in hw  # driver host never recorded
+
+
+def test_run_sweep_hardware_probe_is_lazy(tmp_path):
+    """Spec: The hardware probe is lazy — a fully-resumed corpus issues no probe (or any command)."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    out = tmp_path / "runs"
+    _write_csv(out / "a" / IB_PARTICLE_CSV, 5)  # already complete → resume skips
+    fake = FakeExecutor(rows=5)
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    assert fake.calls == []  # no run command
+    assert fake.probe_calls == []  # and no hardware probe (nothing to run)
 
 
 # ---------------------------------------------------------------------------
