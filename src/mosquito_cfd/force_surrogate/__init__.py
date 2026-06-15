@@ -26,8 +26,10 @@ from mosquito_cfd.force_surrogate.runner import (
     Completion,
     ExecResult,
     RunOutcome,
+    build_probe_command,
     build_run_command,
     build_wsl_command,
+    capture_compute_hardware,
     check_completion,
     run_sweep,
 )
@@ -74,8 +76,10 @@ __all__ = [
     "Completion",
     "ExecResult",
     "RunOutcome",
+    "build_probe_command",
     "build_run_command",
     "build_wsl_command",
+    "capture_compute_hardware",
     "check_completion",
     "run_sweep",
 ]
