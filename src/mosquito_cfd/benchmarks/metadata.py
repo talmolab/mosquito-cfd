@@ -208,6 +208,11 @@ def capture_run_metadata(
             "checkpoint_files": chk_files,
         }
 
+    # `extra` is applied LAST so callers can deliberately override built-in top-level keys — e.g.
+    # the force-surrogate runner overrides `hardware` with the compute node's GPU instead of this
+    # local (driver-host) probe. Do NOT reorder this before the built-ins are set, or switch to
+    # `{**extra, **metadata}`: that would silently let the local hardware win and reintroduce the
+    # provenance bug fixed in `fix-force-surrogate-compute-hardware`.
     if extra:
         metadata.update(extra)
 

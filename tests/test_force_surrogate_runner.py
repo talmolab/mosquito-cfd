@@ -841,6 +841,25 @@ def test_run_sweep_hardware_probe_is_lazy(tmp_path):
     assert fake.probe_calls == []  # and no hardware probe (nothing to run)
 
 
+def test_run_sweep_probe_fires_on_first_non_skipped_config(tmp_path):
+    """The lazy probe fires on the first NON-skipped config, not the first config."""
+    manifest = _make_manifest(tmp_path, [_cfg("a"), _cfg("b")])
+    out = tmp_path / "runs"
+    _write_csv(out / "a" / IB_PARTICLE_CSV, 5)  # 'a' already complete -> skipped
+    fake = FakeExecutor(rows=5)
+    run_sweep(
+        manifest, out, docker_digest=DIGEST, timestamp=TS, executor=fake, workspace="ws"
+    )
+    assert fake.names == ["b"]  # only 'b' actually ran
+    assert (
+        len(fake.probe_calls) == 1
+    )  # probed exactly once — on 'b', the first non-skipped
+    hw = json.loads((out / "b" / "run_metadata.json").read_text(encoding="utf-8"))[
+        "hardware"
+    ]
+    assert hw["source"] == "container"  # the probe ran before 'b' and was recorded
+
+
 # ---------------------------------------------------------------------------
 # build_wsl_command (spec: Cluster-free injected executor seam — WSL wrapping)
 # ---------------------------------------------------------------------------
