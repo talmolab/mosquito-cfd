@@ -26,7 +26,9 @@ dev = [
 generate-wing-planform = "mosquito_cfd.geometry.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.10.3"]
+# Upper bound per uv_build's own warning: an unbounded backend pulled a newer uv_build that
+# hard-errors on the license-files glob, silently breaking the image builds.
+requires = ["uv_build>=0.10.3,<0.12"]
 build-backend = "uv_build"
 
 [tool.ruff]

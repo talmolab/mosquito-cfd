@@ -119,7 +119,9 @@ ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /opt/cfd/mosquito-cfd
 
 # Copy Python project files (uv sync will auto-install Python)
-COPY pyproject.toml uv.lock .python-version README.md ./
+# LICENSE is required: pyproject's license-files = ["LICENSE"] makes uv_build error if it is
+# absent from the build context (the project wheel is built here during uv sync).
+COPY pyproject.toml uv.lock .python-version README.md LICENSE ./
 COPY src/ ./src/
 
 # Install Python and dependencies using uv
