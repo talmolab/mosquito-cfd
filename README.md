@@ -77,6 +77,7 @@ mosquito-cfd/
 ├── src/mosquito_cfd/ # Python utilities (marker generation, metadata, force surrogate)
 ├── scripts/          # Thin CLI drivers over the library (e.g. run_sweep.py, extract_forces.py)
 ├── examples/         # Validation cases + force-surrogate sweep corpus
+├── cluster/argo/     # Argo Workflows for cluster-side sweep orchestration
 ├── docker/           # Dockerfiles and build documentation
 ├── .github/workflows/# CI/CD pipelines
 ├── openspec/         # Specification-driven development
