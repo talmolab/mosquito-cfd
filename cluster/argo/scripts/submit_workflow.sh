@@ -20,6 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml"
+SMOKE_WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-smoke.yaml"
 TEMPLATE="$(cd "$SCRIPT_DIR/../workflow-templates" && pwd)/force-surrogate-single-config.yaml"
 
 NAMESPACE="${ARGO_NAMESPACE:-runai-talmo-lab}"
@@ -27,6 +28,8 @@ IMAGE="${FP64_IMAGE:-}"            # ghcr.io/talmolab/mosquito-cfd@sha256:<diges
 WORKSPACE_HOSTPATH="${WORKSPACE_HOSTPATH:-/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep}"
 # A reproducible caller timestamp recorded in every run_metadata.json (override with TIMESTAMP=...).
 TIMESTAMP="${TIMESTAMP:-$(date -u +%Y-%m-%dT%H:%M:%S%z)}"
+# The force-CSV name (escape hatch; verify on the smoke run). Threaded to pods + verify-complete.
+CSV_NAME="${CSV_NAME:-IB_Particle_1.csv}"
 # For `smoke`: which single config to run as the pre-flight (defaults to the first sweep config).
 SMOKE_CONFIG_NAME="${SMOKE_CONFIG_NAME:-s35_f085_p30}"
 SMOKE_INPUT_FILE="${SMOKE_INPUT_FILE:-inputs/inputs.3d.s35_f085_p30}"
@@ -46,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --image) IMAGE="$2"; shift 2;;
     --workspace-hostpath) WORKSPACE_HOSTPATH="$2"; shift 2;;
     --timestamp) TIMESTAMP="$2"; shift 2;;
+    --csv-name) CSV_NAME="$2"; shift 2;;
     --namespace) NAMESPACE="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
@@ -65,13 +69,17 @@ case "$COMMAND" in
   smoke)
     require_image
     echo "1-config smoke pre-flight ($SMOKE_CONFIG_NAME) — confirms scheduling + GPU before the fan-out ..."
-    argo submit --from "workflowtemplate/force-surrogate-single-config" -n "$NAMESPACE" --watch \
-      -p image="$IMAGE" \
-      -p config-name="$SMOKE_CONFIG_NAME" \
-      -p input-file="$SMOKE_INPUT_FILE" \
-      -p max-step="$SMOKE_MAX_STEP" \
-      -p docker-digest="$IMAGE" \
-      -p timestamp="$TIMESTAMP"
+    # Submitted as a wrapper Workflow (not --from workflowtemplate) so the nfs-workspace volume the
+    # template mounts is actually defined — a bare --from would reference an undefined volume.
+    argo submit "$SMOKE_WORKFLOW" -n "$NAMESPACE" --watch \
+      --parameter image="$IMAGE" \
+      --parameter docker-digest="$IMAGE" \
+      --parameter timestamp="$TIMESTAMP" \
+      --parameter workspace-hostpath="$WORKSPACE_HOSTPATH" \
+      --parameter config-name="$SMOKE_CONFIG_NAME" \
+      --parameter input-file="$SMOKE_INPUT_FILE" \
+      --parameter max-step="$SMOKE_MAX_STEP" \
+      --parameter csv-name="$CSV_NAME"
     ;;
   full)
     require_image
@@ -80,7 +88,8 @@ case "$COMMAND" in
       --parameter image="$IMAGE" \
       --parameter docker-digest="$IMAGE" \
       --parameter timestamp="$TIMESTAMP" \
-      --parameter workspace-hostpath="$WORKSPACE_HOSTPATH"
+      --parameter workspace-hostpath="$WORKSPACE_HOSTPATH" \
+      --parameter csv-name="$CSV_NAME"
     ;;
   help|--help|-h)
     sed -n '2,22p' "${BASH_SOURCE[0]}"

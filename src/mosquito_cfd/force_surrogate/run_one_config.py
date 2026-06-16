@@ -200,6 +200,14 @@ def run_config(
     """
     if not str(name).strip():
         raise ValueError("config name is empty; a configuration must be named")
+    # The name is a single path segment (the run-dir name). Reject separators / `..` / absolute
+    # forms so a hand-edited manifest can never write artifacts outside <output_root> (a config
+    # name like `../x` or `/abs` would otherwise escape the runs/ tree via `output_root / name`).
+    if name != Path(name).name:
+        raise ValueError(
+            f"config name {name!r} must be a single path segment "
+            "(no '/', '\\', '..', or absolute path — it names the per-config run directory)"
+        )
     if not str(input_file).strip():
         raise ValueError(
             f"config {name!r} has an empty input_file; cannot locate the deck"
@@ -222,6 +230,10 @@ def run_config(
     run_dir = output_root / name
     run_dir.mkdir(parents=True, exist_ok=True)
     csv_path = run_dir / csv_name
+    # On an Argo retry the run dir persists on the shared mount; drop any prior attempt's CSV so the
+    # completion verdict reflects THIS attempt (a retry that crashes before writing can't be judged
+    # complete off a stale CSV).
+    csv_path.unlink(missing_ok=True)
     if deck_path is None:
         deck_path = Path(container_workspace) / input_file
     deck_path = Path(deck_path)

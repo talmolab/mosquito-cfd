@@ -205,6 +205,16 @@ the change deviates from the approved spec in these documented ways:
   first Argo draft dropped it. Re-added on the entrypoint + threaded as a workflow→template param →
   `verify-complete`, so a wrong guess (caught by the 1-config smoke) costs a flag, not the corpus.
 
+A second `/review-pr` round (on the post-hardening diff) added:
+- **A dedicated `force-surrogate-smoke.yaml`** — the single-config template declares `volumeMounts:
+  nfs-workspace` but defines no `volumes:` (the calling workflow must), so the original `smoke` command's
+  `argo submit --from workflowtemplate/…` would reference an undefined volume and never schedule. `smoke`
+  now submits a thin wrapper Workflow that defines `nfs-workspace` + a one-config `templateRef`.
+- **A path-traversal guard on `name`**: `run_config` rejects a config `name` that is not a single path
+  segment (`../x`, `a/b`, `/abs`), so a hand-edited manifest cannot write artifacts outside `<output_root>`.
+- **Stale-CSV defense on retry**: `run_config` `unlink(missing_ok=True)`s the per-config CSV before the
+  runner, so a retry that crashes before writing cannot be judged complete off a prior attempt's CSV.
+
 ## Argo artifacts (mirroring gapit + sleap)
 
 - **`force-surrogate-single-config` WorkflowTemplate** (namespace `runai-talmo-lab`,

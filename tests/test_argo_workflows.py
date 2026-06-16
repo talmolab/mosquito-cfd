@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 ARGO = REPO / "cluster" / "argo"
 TEMPLATE = ARGO / "workflow-templates" / "force-surrogate-single-config.yaml"
 WORKFLOW = ARGO / "workflows" / "force-surrogate-sweep.yaml"
+SMOKE = ARGO / "workflows" / "force-surrogate-smoke.yaml"
 
 
 def _read(path: Path) -> str:
@@ -144,8 +145,24 @@ def test_workflow_validate_hardens_digest_and_preflights_inputs():
     assert (
         "wing.vertex" in text
     )  # geometry preflight (decks resolve geometry_file relative to run dir)
-    # the per-config keys load_manifest_configs does NOT require are checked before fan-out
-    assert "input_file" in text and "max_step" in text
+    # the per-config keys load_manifest_configs does NOT require are checked before fan-out —
+    # anchored to the validate-step preflight loop (a bare "input_file"/"max_step" token also appears
+    # in the fan-out args, so a loose substring would survive deleting this guard)
+    assert re.search(r'for k in \("input_file", "max_step"\)', text)
+
+
+def test_smoke_workflow_defines_the_nfs_volume():
+    """The smoke wrapper defines the nfs-workspace volume the template mounts (the --from bug)."""
+    text = _read(SMOKE)
+    assert (
+        "force-surrogate-single-config" in text
+    )  # templateRefs the single-config template
+    # block-anchored: a `volumes:` block declaring `- name: nfs-workspace` with a hostPath
+    assert re.search(
+        r"volumes:\s*\n(?:\s+\S.*\n)*?\s+-\s*name:\s*nfs-workspace", text
+    ), "smoke workflow must DEFINE the nfs-workspace volume (not just mount it)"
+    assert "hostPath:" in text
+    assert "serviceAccountName: default" in text
 
 
 def test_workflow_threads_csv_name_to_pods_and_verify():

@@ -472,6 +472,17 @@ def test_retry_overwrites_in_place(tmp_path):
     assert sorted(p.name for p in run_dir.glob("run.log*")) == ["run.log"]
 
 
+def test_name_with_path_separator_is_rejected(tmp_path):
+    """A config name that is not a single path segment is rejected (can't escape output_root)."""
+    for bad in ("../evil", "a/b", "sub/../../x"):
+        kw = _setup(tmp_path, name="cfg_a")
+        kw["name"] = bad
+        fake = FakeRunner(rows=5)
+        with pytest.raises(ValueError, match="single path segment"):
+            run_config(**kw, mpi_runner=fake)
+        assert fake.calls == []  # rejected before any runner invocation
+
+
 def test_missing_wing_vertex_is_clean_failure(tmp_path):
     """A missing wing.vertex source is a clean failed run (metadata written), not an uncaught crash."""
     kw = _setup(tmp_path, name="cfg_a")
