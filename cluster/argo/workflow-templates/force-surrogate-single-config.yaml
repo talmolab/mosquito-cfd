@@ -30,6 +30,8 @@ spec:
     - name: timestamp        # caller-supplied ISO-8601, recorded for reproducibility
     - name: threshold
       value: "0.99"
+    - name: csv-name         # force-CSV name escape hatch (assumed; verify on the first/smoke run)
+      value: "IB_Particle_1.csv"
 
   templates:
   - name: run-config
@@ -42,6 +44,7 @@ spec:
       - name: docker-digest
       - name: timestamp
       - name: threshold
+      - name: csv-name
 
     metadata:
       labels:
@@ -74,15 +77,20 @@ spec:
         - "{{inputs.parameters.timestamp}}"
         - "--threshold"
         - "{{inputs.parameters.threshold}}"
+        - "--csv-name"
+        - "{{inputs.parameters.csv-name}}"
         - "--container-workspace"
         - "/workspace"
         # Orchestrator provenance (recorded under run_metadata "orchestration"). workflow.uid /
-        # pod.name / retries are Argo template vars usable in args; the node name is downward-API
-        # only (fieldRef) and is exposed below as the NODE_NAME pod env for operator visibility.
+        # pod.name / retries are Argo template vars; the node name is downward-API only (fieldRef),
+        # so it is passed via the k8s env-var substitution `$(NODE_NAME)` (NODE_NAME is the env
+        # declared below) — kubelet expands it from the env at container start.
         - "--workflow-uid"
         - "{{workflow.uid}}"
         - "--pod"
         - "{{pod.name}}"
+        - "--node"
+        - "$(NODE_NAME)"
         - "--retry"
         - "{{retries}}"
 

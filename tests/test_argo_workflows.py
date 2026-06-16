@@ -78,11 +78,22 @@ def test_single_config_template_runs_as_root_not_privileged():
 
 
 def test_single_config_template_records_provenance():
-    """The template threads orchestrator provenance (workflow uid / pod / retry) as CLI args."""
+    """The template threads orchestrator provenance (workflow uid / pod / node / retry) as CLI args."""
     text = _read(TEMPLATE)
     assert "--workflow-uid" in text and "{{workflow.uid}}" in text
-    assert "--pod" in text
+    assert "--pod" in text and "{{pod.name}}" in text
     assert "--retry" in text and "{{retries}}" in text
+    # node name is downward-API only → passed via k8s env substitution $(NODE_NAME), declared as env
+    assert "--node" in text and "$(NODE_NAME)" in text
+    assert (
+        "fieldPath: spec.nodeName" in text
+    )  # the NODE_NAME env is the node, not the pod
+
+
+def test_single_config_template_threads_csv_name():
+    """The force-CSV name escape hatch is a template parameter passed to the entrypoint."""
+    text = _read(TEMPLATE)
+    assert "--csv-name" in text and "{{inputs.parameters.csv-name}}" in text
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +134,28 @@ def test_workflow_validate_and_verify_steps_present():
     # a distinct verify-complete step gates on check_completion over every config
     assert "verify-complete" in text
     assert "check_completion" in text
+
+
+def test_workflow_validate_hardens_digest_and_preflights_inputs():
+    """The validate step fails fast (before any GPU pod) on a mutable/mismatched digest or missing inputs."""
+    text = _read(WORKFLOW)
+    assert "validate_image_digest" in text  # rejects a mutable docker-digest in seconds
+    assert "image == digest" in text  # the pinned image and recorded digest must match
+    assert (
+        "wing.vertex" in text
+    )  # geometry preflight (decks resolve geometry_file relative to run dir)
+    # the per-config keys load_manifest_configs does NOT require are checked before fan-out
+    assert "input_file" in text and "max_step" in text
+
+
+def test_workflow_threads_csv_name_to_pods_and_verify():
+    """The csv-name escape hatch is a workflow parameter threaded to pods and verify-complete."""
+    text = _read(WORKFLOW)
+    assert re.search(r"-\s*name:\s*csv-name", text)  # declared workflow parameter
+    assert "{{workflow.parameters.csv-name}}" in text  # used (pods + verify-complete)
+    # verify-complete builds the per-config CSV path from the param variable, not a hardcoded name
+    assert "{c['name']}/{csv_name}" in text
+    assert "{c['name']}/IB_Particle_1.csv" not in text  # the old hardcoded form is gone
 
 
 def test_workflow_is_force_only():

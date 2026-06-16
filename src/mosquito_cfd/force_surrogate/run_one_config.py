@@ -28,6 +28,7 @@ import json
 import logging
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,10 @@ from mosquito_cfd.force_surrogate.sidecar import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The injected runner seam: mpi_runner(argv, *, cwd) -> ExecResult. The real implementation runs
+# mpirun via subprocess; tests inject a fake. Mirrors PR3's runner.Executor alias.
+MpiRunner = Callable[..., ExecResult]
 
 
 def _subprocess_mpi_runner(argv: list[str], *, cwd: Path) -> ExecResult:
@@ -141,7 +146,7 @@ def run_config(
     output_root: Path | str,
     docker_digest: str,
     timestamp: str,
-    mpi_runner,
+    mpi_runner: MpiRunner,
     container_workspace: str = DEFAULT_CONTAINER_WORKSPACE,
     wing_vertex: Path | str = DEFAULT_WING_VERTEX,
     deck_path: Path | str | None = None,
@@ -193,9 +198,9 @@ def run_config(
         ValueError: On an empty ``name``/``input_file``, a non-positive/non-integer ``max_step``,
             or a missing/mutable ``docker_digest`` — all before any runner invocation.
     """
-    if not name:
+    if not str(name).strip():
         raise ValueError("config name is empty; a configuration must be named")
-    if not str(input_file):
+    if not str(input_file).strip():
         raise ValueError(
             f"config {name!r} has an empty input_file; cannot locate the deck"
         )
@@ -221,9 +226,6 @@ def run_config(
         deck_path = Path(container_workspace) / input_file
     deck_path = Path(deck_path)
 
-    # Stage wing.vertex into the run dir (the deck resolves geometry_file relative to cwd).
-    shutil.copyfile(wing_vertex, run_dir / "wing.vertex")
-
     deck_container = f"{container_workspace}/{input_file}"
     argv = [
         "mpirun",
@@ -234,13 +236,21 @@ def run_config(
         deck_container,
     ]
 
-    # An injected runner that *raises* (the real subprocess hitting a missing binary or a transient
-    # OSError) becomes a clean failed run, not an uncaught traceback — Argo retries it on a fresh
-    # pod. Exception (not BaseException) so KeyboardInterrupt still propagates.
+    # Staging the geometry and the run are guarded together: a missing `wing.vertex` source (a
+    # partial-mount / setup error) or an injected runner that *raises* (the real subprocess hitting a
+    # missing binary or a transient OSError) both become a clean failed run with the exception in
+    # run.log — not an uncaught traceback with no audit artifact. Argo retries on a fresh pod, and
+    # `verify-complete` still gates the corpus. Exception (not BaseException) so KeyboardInterrupt
+    # propagates. (The Argo `validate` step preflights `wing.vertex` once before the fan-out, so a
+    # globally-missing geometry fails the workflow in seconds rather than 27 × retries here.)
     try:
+        # Stage wing.vertex into the run dir (the deck resolves geometry_file relative to cwd).
+        shutil.copyfile(wing_vertex, run_dir / "wing.vertex")
         result = mpi_runner(argv, cwd=run_dir)
     except Exception as exc:
-        logger.warning("config %r runner raised %r; recording failed", name, exc)
+        logger.warning(
+            "config %r staging/runner failed %r; recording failed", name, exc
+        )
         result = ExecResult(returncode=1, stderr=repr(exc))
 
     # newline="" → LF on every OS. Overwrites in place on an Argo retry (last write wins).
@@ -280,7 +290,7 @@ def run_config(
     return RunOutcome(name, status, csv_path, post.rows, metadata_path)
 
 
-def main(argv: list[str] | None = None, *, mpi_runner=None) -> int:
+def main(argv: list[str] | None = None, *, mpi_runner: MpiRunner | None = None) -> int:
     """CLI entrypoint: run one configuration; exit 0 iff completed, else 1 (the Argo retry signal).
 
     When ``mpi_runner`` is ``None`` the real :func:`_subprocess_mpi_runner` is used (so the pod runs
@@ -306,6 +316,9 @@ def main(argv: list[str] | None = None, *, mpi_runner=None) -> int:
     parser.add_argument("--wing-vertex", default=DEFAULT_WING_VERTEX)
     parser.add_argument("--deck-path", default=None)
     parser.add_argument("--iamrex-binary", default=DEFAULT_IAMREX_BINARY)
+    # Escape hatch (mirrors PR3's run_sweep --csv-name): IB_Particle_1.csv is the assumed force-CSV
+    # name and is not yet verified against a real IAMReX run; a wrong guess costs a flag, not a corpus.
+    parser.add_argument("--csv-name", default=IB_PARTICLE_CSV)
     parser.add_argument("--threshold", type=float, default=DEFAULT_COMPLETION_THRESHOLD)
     # Argo orchestrator provenance (optional; recorded under run_metadata "orchestration").
     parser.add_argument("--workflow-uid", default=None)
@@ -340,6 +353,7 @@ def main(argv: list[str] | None = None, *, mpi_runner=None) -> int:
         wing_vertex=args.wing_vertex,
         deck_path=args.deck_path,
         iamrex_binary=args.iamrex_binary,
+        csv_name=args.csv_name,
         threshold=args.threshold,
         extra_provenance=extra_provenance or None,
     )

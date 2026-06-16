@@ -472,6 +472,46 @@ def test_retry_overwrites_in_place(tmp_path):
     assert sorted(p.name for p in run_dir.glob("run.log*")) == ["run.log"]
 
 
+def test_missing_wing_vertex_is_clean_failure(tmp_path):
+    """A missing wing.vertex source is a clean failed run (metadata written), not an uncaught crash."""
+    kw = _setup(tmp_path, name="cfg_a")
+    kw["wing_vertex"] = str(tmp_path / "does_not_exist.vertex")  # source missing
+    outcome = run_config(**kw, mpi_runner=FakeRunner(rows=5))
+    assert outcome.status == "failed"
+    meta = _read_meta(kw["output_root"], "cfg_a")
+    assert meta["status"] == "failed"
+    log = (Path(kw["output_root"]) / "cfg_a" / RUN_LOG).read_text("utf-8")
+    assert (
+        "Error" in log or "error" in log
+    )  # the staging exception is captured, not a traceback
+    # main() returns non-zero for the same case (Argo retries on a fresh pod)
+    argv = _main_argv(tmp_path / "mw", name="cfg_b")
+    i = argv.index("--wing-vertex")
+    argv[i + 1] = str(tmp_path / "missing.vertex")
+    assert main(argv, mpi_runner=FakeRunner(rows=5)) == 1
+
+
+def test_csv_name_is_threaded(tmp_path):
+    """--csv-name (the escape hatch) flows to the verified/recorded CSV name."""
+    kw = _setup(tmp_path, name="cfg_a", max_step=5)
+    run_config(
+        **kw,
+        mpi_runner=FakeRunner(rows=5, csv_name="forces.csv"),
+        csv_name="forces.csv",
+    )
+    meta = _read_meta(kw["output_root"], "cfg_a")
+    assert meta["ib_particle_csv"] == "cfg_a/forces.csv"
+    assert (Path(kw["output_root"]) / "cfg_a" / "forces.csv").exists()
+    # via main: a wrong default name (no fake CSV under it) → incomplete → exit 1
+    assert (
+        main(
+            _main_argv(tmp_path / "wrong", csv_name="forces.csv"),
+            mpi_runner=FakeRunner(rows=5),
+        )
+        == 1
+    )
+
+
 def test_run_config_is_reexported():
     """The top-level package re-exports run_config (mirrors the PR3 public-API convention)."""
     assert hasattr(pkg, "run_config")

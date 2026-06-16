@@ -54,16 +54,20 @@ exactly the **Argo Workflows + RunAI** pattern the lab already runs in productio
   `gpu-fraction` sharing); **`securityContext: {runAsUser: 0}`** (`mpirun --allow-run-as-root`; **not**
   `privileged` — least-privilege, GPU works without it); **`retryStrategy: {limit: 5, retryPolicy:
   OnFailure, backoff: {duration: 2m, factor: 2, maxDuration: 30m}}`**; `metadata.annotations:
-  {runai/preemptible: "true"}`; Argo provenance env via `fieldRef` (`POD_NAME=metadata.name`,
-  `NODE_NAME=spec.nodeName`) + template params (`{{workflow.uid}}`, `{{retries}}`).
+  {runai/preemptible: "true"}`; Argo provenance threaded as args (`{{workflow.uid}}`, `{{pod.name}}`,
+  `{{retries}}`) + **node via the k8s `$(NODE_NAME)` env-substitution** (`spec.nodeName` is downward-API
+  only, not an Argo arg var); plus a **`csv-name`** escape-hatch param (the force-CSV name is still
+  unverified against a real run).
 - **`cluster/argo/workflows/force-surrogate-sweep.yaml`** — the fan-out `Workflow`: DAG `validate`
-  (runs the pinned image **before any GPU pod** and `import mosquito_cfd.force_surrogate.run_one_config`
-  + checks the manifest — the **stale-digest fail-fast**) `→ extract-configs` (read
-  `/workspace/sweep_manifest.json` via `load_manifest_configs` → emit the configs as a JSON parameter) `→
-  withParam fan-out` over the configs `→ verify-complete` (run `check_completion` over **every** config's
-  `IB_Particle_1.csv`, failing the workflow otherwise). Workflow-level hostPath `volumes`,
-  `serviceAccountName: default` (mandatory for `workflowtaskresults`), namespace `runai-talmo-lab`, a
-  **`parallelism` parameter defaulting to 3** (moderate concurrency), and `activeDeadlineSeconds: 86400`.
+  (runs the pinned image **before any GPU pod**: `import …run_one_config` + `validate_image_digest(docker-
+  digest)` + asserts `image == docker-digest` + preflights `sweep_manifest.json`, `wing.vertex`, and each
+  config's `input_file`/`max_step` — the **stale-/mismatched-digest + missing-input fail-fast**) `→
+  extract-configs` (read `/workspace/sweep_manifest.json` via `load_manifest_configs` → emit the configs as
+  a JSON parameter) `→ withParam fan-out` over the configs `→ verify-complete` (run `check_completion` over
+  **every** config's CSV via the `csv-name` param, failing the workflow otherwise). Workflow-level hostPath
+  `volumes`, `serviceAccountName: default` (mandatory for `workflowtaskresults`), namespace
+  `runai-talmo-lab`, a **spec-level `parallelism: 3`** (literal — Argo's `parallelism` is an `int` field
+  that takes no `{{...}}` parameter; edit the line to change the cap), and `activeDeadlineSeconds: 86400`.
 - **`cluster/argo/scripts/submit_workflow.sh` + `monitor_workflow.sh`** — thin wrappers mirroring gapit
   (`argo submit/get/logs` via WSL + `KUBECONFIG`, `-n runai-talmo-lab`, `--parameter`), pinning the
   image by `@sha256:` digest.

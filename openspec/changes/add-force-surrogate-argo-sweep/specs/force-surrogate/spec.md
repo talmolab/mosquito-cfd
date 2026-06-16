@@ -89,13 +89,13 @@ concurrency, and SHALL gate overall success on every configuration's CSV passing
 
 - **Given** the `force-surrogate-sweep` Workflow
 - **When** it is submitted
-- **Then** concurrent GPU pods are capped by the `parallelism` workflow parameter (default 3 — the limited A40 quota, not an unbounded 27-way burst) and the run is bounded by `activeDeadlineSeconds` (24 h), so a wedged run is killed rather than holding the quota indefinitely; per-pod `retryStrategy` backoff (not the deadline) handles transient failures
+- **Then** concurrent GPU pods are capped by the workflow's spec-level `parallelism` (default 3 — the limited A40 quota, not an unbounded 27-way burst; a literal, since Argo's `parallelism` is an `int` field that takes no `{{...}}` parameter) and the run is bounded by `activeDeadlineSeconds` (24 h), so a wedged run is killed rather than holding the quota indefinitely; per-pod `retryStrategy` backoff (not the deadline) handles transient failures
 
-#### Scenario: A stale image is caught before any GPU pod
+#### Scenario: A stale or mismatched image is caught before any GPU pod
 
 - **Given** the workflow's `validate` step, which runs the pinned image **before** the fan-out
-- **When** the pinned image does not contain `run_one_config` (a digest pinned before the module shipped), or the manifest is missing
-- **Then** `validate` **fails the workflow immediately** — before any GPU pod is scheduled — so a stale-digest mistake costs seconds, not 27 configs × 5 retries of A40 time
+- **When** the pinned image does not contain `run_one_config` (a digest pinned before the module shipped), or the recorded `docker-digest` is a mutable tag, or `image != docker-digest` (a half-override that would record a digest the container was not built from), or `sweep_manifest.json`/`wing.vertex` is unmounted, or a config lacks `input_file`/`max_step`
+- **Then** `validate` **fails the workflow immediately** — before any GPU pod is scheduled — so the mistake costs seconds, not 27 configs × 5 retries of A40 time (it imports the module, runs `validate_image_digest(docker-digest)`, asserts `image == docker-digest`, and preflights the mounted manifest, geometry, and per-config keys)
 
 #### Scenario: Completion is gated by check_completion, not assumed
 

@@ -110,12 +110,13 @@ label is added (matching gapit). Because CI cannot test scheduling, the operator
 `argo lint`/`--dry-run` **and a single 1-config smoke submit** before the 27-way fan-out, to confirm
 pods actually schedule onto an A40.
 
-### D2. Moderate concurrency (parallelism = 3, parameterized)
+### D2. Moderate concurrency (spec-level `parallelism: 3`)
 The A40 quota is limited (PR3 D1 chose sequential to avoid contention). Under Argo+RunAI with
-preemptible pods, modest fan-out is safe: a `parallelism` **workflow parameter** (default 3) caps
+preemptible pods, modest fan-out is safe: the workflow's **spec-level `parallelism: 3`** caps
 concurrent pods; `retryStrategy` re-runs any preempted pod on a fresh GPU. 3 cuts wall-clock ~3× vs
-sequential (~1.5–2 h instead of ~5 h) without flooding the quota. The operator can set it to 1
-(sequential) or higher.
+sequential (~1.5–2 h instead of ~5 h) without flooding the quota. **`parallelism` is an Argo
+`int` field that does not accept a `{{...}}` parameter**, so the cap is a literal the operator changes
+by editing the one line (e.g. to 1 for sequential), not via `--parameter` — the YAML comment says so.
 
 ### D3. Tested module baked into `:fp64`, no Dockerfile change
 `run_one_config.py` lives in `src/mosquito_cfd/force_surrogate/`, which the `:fp64` Dockerfile already
@@ -182,28 +183,56 @@ them to the per-run sidecar would be a redundant 4th copy; the deck hash already
 cryptographically traceable to its exact kinematics. If a future need arises for a self-describing sidecar,
 thread them via `extra_provenance` then — not now.
 
+### Why these differ from the originally-specced design (pre-PR self-review hardening)
+The 5-agent `/review-pr` self-review (Phase 3.5) surfaced gaps that were fixed before opening the PR;
+the change deviates from the approved spec in these documented ways:
+- **`--node` is now wired** (was: "fieldRef env only, not threaded"). `main` always recorded `node` in
+  the `orchestration` block, but the template passed only uid/pod/retry, so production runs silently
+  omitted it. Fixed by `--node $(NODE_NAME)` (k8s env-substitution, since `spec.nodeName` is not an Argo
+  arg var) — design D6's "node" claim is now actually delivered.
+- **`parallelism` is a literal, not a parameter** (was: "`{{workflow.parameters.parallelism}}`"). Argo's
+  `parallelism` is an `int` field that does not accept a `{{...}}` template; the doc overpromised. The cap
+  is the spec-level literal `3`, changed by editing the line (D2).
+- **`validate` hardened**: now also rejects a mutable `docker-digest`, asserts `image == docker-digest`
+  (a half-override would record a digest ≠ the running image — a provenance lie), and preflights
+  `wing.vertex` + the per-config `input_file`/`max_step` keys — so these footguns fail in seconds, not
+  after 27×retries of GPU pods.
+- **`wing.vertex` staging is guarded**: a missing geometry source is now a clean `status=failed` with a
+  `run.log`/`run_metadata.json` (consistent with the runner-raise contract), not an uncaught
+  `FileNotFoundError` with no audit artifact.
+- **`--csv-name` escape hatch restored**: `IB_Particle_1.csv` is still unverified against a real IAMReX
+  run (the `.gitignore` hints forces may land in `forces.csv`); PR3's `run_sweep` had `--csv-name`, the
+  first Argo draft dropped it. Re-added on the entrypoint + threaded as a workflow→template param →
+  `verify-complete`, so a wrong guess (caught by the 1-config smoke) costs a flag, not the corpus.
+
 ## Argo artifacts (mirroring gapit + sleap)
 
 - **`force-surrogate-single-config` WorkflowTemplate** (namespace `runai-talmo-lab`,
   `serviceAccountName: default`): container = `{{inputs.parameters.image}}` (pinned `@sha256:`),
   `command:["/opt/cfd/mosquito-cfd/.venv/bin/python","-m","mosquito_cfd.force_surrogate.run_one_config", …]`
   (the synced venv interpreter — no `uv run` network/sync), ENV/args for
-  config-name/input-file/max-step/output-root/docker-digest/timestamp/threshold + Argo provenance
-  (`fieldRef` for pod/node; `{{workflow.uid}}`/`{{retries}}`); `volumeMounts: [{name: nfs-workspace,
-  mountPath: /workspace}]`; `resources.limits.nvidia.com/gpu: 1`; `securityContext.runAsUser: 0`;
-  `retryStrategy` (limit 5, OnFailure, backoff 2m×2→30m); `annotations.runai/preemptible: "true"`.
+  config-name/input-file/max-step/output-root/docker-digest/timestamp/threshold/**csv-name** + Argo
+  provenance (`{{workflow.uid}}`/`{{pod.name}}`/`{{retries}}` as args; **node via the k8s
+  `$(NODE_NAME)` env-substitution** — `spec.nodeName` is downward-API only, not an Argo arg var, so the
+  declared `NODE_NAME` fieldRef env is expanded into `--node $(NODE_NAME)` by kubelet); `volumeMounts:
+  [{name: nfs-workspace, mountPath: /workspace}]`; `resources.limits.nvidia.com/gpu: 1`;
+  `securityContext.runAsUser: 0`; `retryStrategy` (limit 5, OnFailure, backoff 2m×2→30m);
+  `annotations.runai/preemptible: "true"`.
 - **`force-surrogate-sweep` Workflow**: workflow-level `volumes: [{name: nfs-workspace, hostPath:
   {path: {{workflow.parameters.workspace-hostpath}}, type: Directory}}]`; DAG `validate → extract-configs
   → run-all-configs (withParam over the configs JSON, templateRef the single-config template) →
-  verify-complete`; `parallelism: {{workflow.parameters.parallelism}}` (default 3);
-  `serviceAccountName: default`; `activeDeadlineSeconds: 86400` (24 h — generous so a slow-but-progressing
-  run is not killed; per-pod `retryStrategy`/backoff handles the real failures; a corpus unfinished in
-  24 h is wedged). **`validate`** runs the pinned image (before any GPU pod) and executes
-  `python -c "import mosquito_cfd.force_surrogate.run_one_config"` + asserts `sweep_manifest.json` is
-  present — the **stale-digest fail-fast**. `extract-configs` (the `:fp64` image) reads
-  `/workspace/sweep_manifest.json` via `load_manifest_configs` and emits the configs JSON for the
-  fan-out; `verify-complete` runs `check_completion` over **every** config's CSV and fails the workflow
-  if any is incomplete.
+  verify-complete`; spec-level `parallelism: 3` (literal — D2); `serviceAccountName: default`;
+  `activeDeadlineSeconds: 86400` (24 h — generous so a slow-but-progressing run is not killed; per-pod
+  `retryStrategy`/backoff handles the real failures; a corpus unfinished in 24 h is wedged). **`validate`**
+  runs the pinned image (before any GPU pod) and `import mosquito_cfd.force_surrogate.run_one_config` +
+  **`validate_image_digest(docker-digest)`** (rejects a mutable tag) + **asserts `image == docker-digest`**
+  (so the recorded digest is the running image, not a half-override) + asserts `sweep_manifest.json` **and
+  `wing.vertex`** are mounted + checks each config has `input_file`/`max_step` (keys `load_manifest_configs`
+  does not require) — the **stale-/mismatched-digest + missing-input fail-fast** (all in seconds, before any
+  GPU pod). `extract-configs` (the `:fp64` image) reads `/workspace/sweep_manifest.json` via
+  `load_manifest_configs` and emits the configs JSON for the fan-out; `verify-complete` runs
+  `check_completion` over **every** config's CSV (using the `csv-name` param) and fails the workflow if any
+  is incomplete.
 - **`submit_workflow.sh`/`monitor_workflow.sh`**: `wsl -e bash -c "export KUBECONFIG=…; argo submit
   cluster/argo/workflows/force-surrogate-sweep.yaml -n runai-talmo-lab --parameter
   image=ghcr.io/talmolab/mosquito-cfd@sha256:… --parameter workspace-hostpath=/hpi/hpi_dev/…/prelim_sweep
