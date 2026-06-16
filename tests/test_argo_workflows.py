@@ -97,6 +97,26 @@ def test_single_config_template_threads_csv_name():
     assert "--csv-name" in text and "{{inputs.parameters.csv-name}}" in text
 
 
+def test_single_config_template_inputs_default_optional_params():
+    """A templateRef caller may omit threshold/csv-name, so the template's INPUTS must default them.
+
+    A WorkflowTemplate's ``arguments.parameters`` defaults do NOT apply to ``templateRef`` calls —
+    only ``inputs.parameters`` defaults do. Omitting these defaults makes the smoke/sweep workflows
+    fail ``argo lint`` ("inputs.parameters.threshold was not supplied"). This guards that regression
+    cheaply; ``argo lint`` is the authoritative check (CI gap tracked in #17).
+    """
+    text = _read(TEMPLATE)
+    # scope to the template's inputs block (between `- name: run-config` and `metadata:`), so the
+    # top-level arguments.parameters defaults don't satisfy this by accident
+    inputs_block = text.split("- name: run-config", 1)[1].split("metadata:", 1)[0]
+    assert re.search(r"-\s*name:\s*threshold\s*\n\s*value:", inputs_block), (
+        "threshold needs an inputs.parameters default (templateRef callers omit it)"
+    )
+    assert re.search(r"-\s*name:\s*csv-name\s*\n\s*value:", inputs_block), (
+        "csv-name needs an inputs.parameters default (templateRef callers omit it)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fan-out Workflow
 # ---------------------------------------------------------------------------

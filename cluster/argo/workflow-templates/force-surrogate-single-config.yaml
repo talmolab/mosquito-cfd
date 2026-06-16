@@ -43,8 +43,13 @@ spec:
       - name: max-step
       - name: docker-digest
       - name: timestamp
+      # threshold + csv-name carry their own defaults here so a templateRef caller (the smoke /
+      # sweep workflows) may omit them — a WorkflowTemplate's `arguments.parameters` defaults do
+      # NOT apply to templateRef invocations, only to running it directly as a Workflow.
       - name: threshold
+        value: "0.99"
       - name: csv-name
+        value: "IB_Particle_1.csv"
 
     metadata:
       labels:
