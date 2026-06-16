@@ -35,7 +35,12 @@ def test_single_config_template_scheduling_identity():
     text = _read(TEMPLATE)
     assert "serviceAccountName: default" in text  # mandatory for workflowtaskresults
     assert "namespace: runai-talmo-lab" in text
-    assert 'runai/preemptible: "true"' in text
+    # Preemptibility (D2) is driven by priorityClassName, NOT the annotation: the Run:ai scheduler
+    # treats priorityClass < 100 as preemptible. `interactive-preemptible` (75) is the lab's
+    # established preemptible GPU class — the cluster smoke proved the annotation alone leaves the
+    # pod non-preemptible (blocked at the non-preemptible quota).
+    assert "priorityClassName: interactive-preemptible" in text
+    assert "runai/preemptible" not in text  # the gapit/CPU prefixed key is not the mechanism
 
 
 def test_single_config_template_retry_strategy():

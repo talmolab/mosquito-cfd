@@ -35,6 +35,14 @@ spec:
 
   templates:
   - name: run-config
+    # PREEMPTIBILITY (D2) is driven by the pod's priorityClassName, NOT the `preemptible` annotation:
+    # the Run:ai scheduler treats priorityClass < 100 as preemptible (may go over quota, may be
+    # evicted) and >= 100 as non-preemptible (must fit in quota). With no priorityClass the pod
+    # defaults >= 100 and is blocked once the project is at its non-preemptible GPU quota — exactly
+    # what the cluster smoke showed. `interactive-preemptible` (75) is the lab's established
+    # preemptible class for GPU pods (relion/cryosparc run with it); the per-pod retryStrategy
+    # re-runs any evicted config on a fresh pod.
+    priorityClassName: interactive-preemptible
     inputs:
       parameters:
       - name: image
@@ -57,7 +65,10 @@ spec:
         component: single-config
         config-name: "{{inputs.parameters.config-name}}"
       annotations:
-        runai/preemptible: "true"  # Argo retries absorb preemption (D2)
+        # lab-convention breadcrumb (sleap-roots/gapit set it; surfaced in the Run:ai UI). NOTE: this
+        # annotation is NOT what makes the workload preemptible — `priorityClassName` above is. Kept
+        # only for visibility/consistency with the other lab pipelines.
+        preemptible: "true"
 
     container:
       image: "{{inputs.parameters.image}}"

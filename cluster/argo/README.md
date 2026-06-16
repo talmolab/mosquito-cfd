@@ -10,7 +10,7 @@ failure that lost 26 of 27 configs on the first laptop-driven run (`scripts/run_
 
 | File | Role |
 |------|------|
-| `workflow-templates/force-surrogate-single-config.yaml` | One A40 pod for one config (`nvidia.com/gpu: 1`, `runAsUser: 0`, `retryStrategy`, `runai/preemptible`). Runs the tested entrypoint `mosquito_cfd.force_surrogate.run_one_config` baked into `:fp64`. |
+| `workflow-templates/force-surrogate-single-config.yaml` | One A40 pod for one config (`nvidia.com/gpu: 1`, `runAsUser: 0`, `retryStrategy`, `preemptible: "true"` — the bare GPU-preemptible key, sleap-roots form). Runs the tested entrypoint `mosquito_cfd.force_surrogate.run_one_config` baked into `:fp64`. |
 | `workflows/force-surrogate-sweep.yaml` | Fan-out DAG: `validate → extract-configs → withParam fan-out → verify-complete`. |
 | `workflows/force-surrogate-smoke.yaml` | 1-config pre-flight wrapper (defines the `nfs-workspace` volume + one `templateRef`). |
 | `scripts/submit_workflow.sh` | `template` / `lint` / `smoke` / `full`. |
