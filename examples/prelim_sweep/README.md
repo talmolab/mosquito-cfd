@@ -3,8 +3,9 @@
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see
 [`docs/force_surrogate/roadmap.md`](../../docs/force_surrogate/roadmap.md), row #2). These decks are
-the input side of the eventual predicted-vs-CFD evidence figure; PR3 runs them on the cluster, PR4
-extracts forces, PR5 trains, PR6 plots.
+the input side of the eventual predicted-vs-CFD evidence figure; the
+[Argo sweep workflow](../../cluster/argo/README.md) runs them on the cluster, PR4 extracts forces,
+PR5 trains, PR6 plots.
 
 **Force-only (CC-6):** every deck sets `amr.plot_int = -1` — no field plotfiles (forces come from
 the IB-particle CSV), which sidesteps the velocity-field-in-plotfiles issue entirely.
@@ -68,20 +69,31 @@ prunes any stale decks first, so a shrunk config set never leaves orphans.
 > silently overwriting a deck. Widening the grid to sub-degree resolution requires changing the
 > naming scheme.
 
-## Running the sweep on the cluster (PR3)
+## Running the sweep on the cluster
 
-`scripts/run_sweep.py` (library `mosquito_cfd.force_surrogate.runner`) loops this corpus through
-the pinned `:fp64` container on **one** RunAI A40 workspace, writing each run's IB-particle force
-CSV to `runs/<name>/IB_Particle_1.csv` — exactly the per-config layout
-`scripts/extract_forces.py --input-dir runs/` consumes (no glue). It resumes a partial corpus
-(skips configs whose CSV already passes the completion check) and writes a portable per-run
-`run_metadata.json` pinned to the container **digest**. The raw `runs/` tree is **not** committed
-(`.gitignore`d) — the committed corpus + provenance land via `dataset.parquet` (below).
+Both paths write each run's IB-particle force CSV to `runs/<name>/IB_Particle_1.csv` — exactly the
+per-config layout `scripts/extract_forces.py --input-dir runs/` consumes (no glue) — plus a portable
+per-run `run_metadata.json` pinned to the container **digest**. The raw `runs/` tree is **not**
+committed (`.gitignore`d); the committed corpus + provenance land via `dataset.parquet` (below).
 
-The sweep runs in **two phases**: you submit **one** long-lived A40 workspace, then the driver
-`runai workspace exec`s each config into it (the driver does **not** submit the workspace).
+### Production: Argo workflow
 
-### 1. Stage `wing.vertex` at the mount root
+The corpus is produced cluster-side by **[Argo Workflows](../../cluster/argo/README.md)** — one A40
+pod per config whose main process is `mpirun`, with built-in retries and no laptop/VPN dependency.
+This is the production path; see [`cluster/argo/README.md`](../../cluster/argo/README.md) for the
+submit/monitor flow and the post-merge digest-pin preconditions.
+
+### Local/dev fallback (`scripts/run_sweep.py`)
+
+`scripts/run_sweep.py` (library `mosquito_cfd.force_surrogate.runner`) is a **local/dev fallback**,
+not the production path: it drives each config from the laptop via `runai workspace exec` into one
+long-lived A40 workspace. That exec stream blocks for ~10 min/config and **drops intermittently** —
+on the first full run it dropped after config 2 and left an orphaned `amr3d` holding 34 GB of the
+A40, so configs 3–27 crashed on a busy GPU (**1 of 27** completed). Use it only for a one-off
+single config or when you have no Argo access; for the full corpus, use the Argo workflow above. It
+resumes a partial corpus (skips configs whose CSV already passes the completion check).
+
+#### 1. Stage `wing.vertex` at the mount root
 
 `prelim_sweep` ships none, and the decks reference it relatively
 (`particle_inputs.geometry_file = wing.vertex`; `radius = 1.5` is already in every deck). Use the
@@ -95,7 +107,7 @@ uv run generate-wing-planform --span 3.0 --chord 1.0 --spacing 0.05 \
     --output Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep/wing.vertex
 ```
 
-### 2. Submit one long-lived A40 workspace
+#### 2. Submit one long-lived A40 workspace
 
 Mount the **`prelim_sweep`** dir at `/workspace` (`,readwrite` is mandatory) and keep the container
 alive with `sleep infinity` so the driver can exec into it 27 times:
@@ -112,7 +124,9 @@ wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml && \
     -- bash -c 'sleep infinity'"
 ```
 
-The mount maps the **same** directory three ways — keep them consistent with step 3:
+The mount maps the **same** directory three ways — keep them consistent with step 3 (the canonical
+copy of this mapping lives in
+[`openspec/runai-dev-workflow.md`](../../openspec/runai-dev-workflow.md#workspace-mount-mapping)):
 
 | View | Path |
 |---|---|
@@ -120,7 +134,7 @@ The mount maps the **same** directory three ways — keep them consistent with s
 | Cluster NFS (`--host-path path=`) | `/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep/` |
 | Inside container (`--container-workspace`, default) | `/workspace/` |
 
-### 3. Run the driver (loops `runai workspace exec`)
+#### 3. Run the driver (loops `runai workspace exec`)
 
 Get the pinned digest from the `docker.yml` build run's job summary ("FP64 image digest"), then run
 the driver with `--workspace` = the name you submitted and `--output-root` = the **host** view of
