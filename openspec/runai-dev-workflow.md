@@ -159,3 +159,42 @@ tail -40 "Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/test.log"
 > **Note**: If `gh` commands fail with HTTP 403, run `unset GITHUB_TOKEN` first.
 > The system GITHUB_TOKEN (if set) may be a fine-grained token that the `talmolab` org
 > blocks for tokens with lifetime > 366 days.
+
+---
+
+## Preemptibility & GPU over-quota scheduling
+
+**Preemptibility is set by the pod's `priorityClassName`, NOT by an annotation.** The Run:ai
+scheduler treats any `priorityClassName` **≥ 100 as non-preemptible** and **< 100 as preemptible**
+([docs](https://run-ai-docs.nvidia.com/saas/platform-management/runai-scheduler/scheduling/workload-priority-control)):
+
+| Class | Preemptible? | Behaviour |
+|---|---|---|
+| `inference` (125), `build` (100) | ❌ non-preemptible | Must fit within the project's **deserved quota**; never evicted. |
+| `interactive-preemptible` (75), `train` (50) | ✅ preemptible | May use **over-quota / opportunistic** GPUs; may be **evicted** by higher-priority work → pair with a `retryStrategy`. |
+
+The lab's established **preemptible GPU class is `interactive-preemptible`** (other labs' relion/
+cryosparc GPU pods run with it). Use it for batch GPU work that should be able to go over the
+project's GPU quota.
+
+**Symptom if you forget** (pod stuck `Pending`/`Unschedulable` when the project is at its
+non-preemptible quota):
+
+```
+NonPreemptibleOverQuota: Non-preemptible workload is over quota. Workload requested 1 GPUs, but
+talmo-lab quota is 20 GPUs, while 20 GPUs are already allocated for non-preemptible pods.
+Use a preemptible workload to go over quota.
+```
+
+**Fix** — set the priority class on the pod:
+
+- **Argo** WorkflowTemplate / Workflow: `spec.templates[].priorityClassName: interactive-preemptible`
+- **`runai` CLI**: submit as a **training** workload (preemptible) rather than a workspace, or pass
+  the project's preemptible workload type.
+
+> ⚠️ The `preemptible: "true"` (sleap-roots) / `runai/preemptible: "true"` (gapit) annotations some
+> templates carry are **NOT** the scheduling mechanism — they're a UI/convention breadcrumb. gapit is
+> CPU-only and sleap-roots' GPU jobs typically run *within* quota, so neither actually exercises
+> over-quota preemption; only `priorityClassName` does. (Discovered during the force-surrogate Argo
+> sweep cluster smoke, PR #16: the pod scheduled non-preemptible and was blocked at the full quota
+> until `priorityClassName: interactive-preemptible` was set, after which it ran over quota.)
