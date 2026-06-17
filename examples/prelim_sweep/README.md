@@ -198,7 +198,7 @@ one step depending on how the solver records `time` (e.g. accumulated solver tim
 below `k`). This affects at most one boundary row and is immaterial to converged-beat filtering, but
 do not assume beat boundaries align to an exact `phase = 0.0` row.
 
-### Regenerating (once PR3's corpus exists)
+### Regenerating
 
 ```bash
 uv run python scripts/extract_forces.py \
