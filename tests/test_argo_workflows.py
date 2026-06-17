@@ -40,7 +40,9 @@ def test_single_config_template_scheduling_identity():
     # established preemptible GPU class — the cluster smoke proved the annotation alone leaves the
     # pod non-preemptible (blocked at the non-preemptible quota).
     assert "priorityClassName: interactive-preemptible" in text
-    assert "runai/preemptible" not in text  # the gapit/CPU prefixed key is not the mechanism
+    assert (
+        "runai/preemptible" not in text
+    )  # the gapit/CPU prefixed key is not the mechanism
 
 
 def test_single_config_template_retry_strategy():
