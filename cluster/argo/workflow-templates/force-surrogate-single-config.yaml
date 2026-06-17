@@ -1,0 +1,150 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: force-surrogate-single-config
+  namespace: runai-talmo-lab
+spec:
+  # ===========================================================================
+  # Force-surrogate sweep — single CFD configuration (Track B, add-force-surrogate-argo-sweep)
+  # ===========================================================================
+  # One pod per sweep config whose MAIN PROCESS is mpirun (via the tested entrypoint
+  # mosquito_cfd.force_surrogate.run_one_config). Kubernetes manages the process, so there is no
+  # runai-exec stream to drop and no orphaned amr3d holding the GPU — the failure that lost 26/27
+  # configs of the first laptop-driven run. Reference from the sweep workflow via
+  # templateRef.name: force-surrogate-single-config.
+  #
+  # The calling workflow MUST define a volume `nfs-workspace` mounted at /workspace (the prelim_sweep
+  # NFS dir: decks, wing.vertex, sweep_manifest.json, and the runs/ output tree).
+  # ===========================================================================
+  entrypoint: run-config
+  serviceAccountName: default  # mandatory for workflowtaskresults permission
+
+  arguments:
+    parameters:
+    - name: image            # pinned by @sha256: at submit time (the POST-MERGE :fp64 digest)
+      value: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"
+    - name: config-name
+    - name: input-file       # deck path relative to /workspace (e.g. inputs/inputs.3d.s35_f085_p30)
+    - name: max-step
+    - name: docker-digest    # the same @sha256: pin, recorded in run_metadata.json provenance
+    - name: timestamp        # caller-supplied ISO-8601, recorded for reproducibility
+    - name: threshold
+      value: "0.99"
+    - name: csv-name         # force-CSV name escape hatch (assumed; verify on the first/smoke run)
+      value: "IB_Particle_1.csv"
+
+  templates:
+  - name: run-config
+    # PREEMPTIBILITY (D2) is driven by the pod's priorityClassName, NOT the `preemptible` annotation:
+    # the Run:ai scheduler treats priorityClass < 100 as preemptible (may go over quota, may be
+    # evicted) and >= 100 as non-preemptible (must fit in quota). With no priorityClass the pod
+    # defaults >= 100 and is blocked once the project is at its non-preemptible GPU quota — exactly
+    # what the cluster smoke showed. `interactive-preemptible` (75) is the lab's established
+    # preemptible class for GPU pods (relion/cryosparc run with it); the per-pod retryStrategy
+    # re-runs any evicted config on a fresh pod.
+    priorityClassName: interactive-preemptible
+    inputs:
+      parameters:
+      - name: image
+      - name: config-name
+      - name: input-file
+      - name: max-step
+      - name: docker-digest
+      - name: timestamp
+      # threshold + csv-name carry their own defaults here so a templateRef caller (the smoke /
+      # sweep workflows) may omit them — a WorkflowTemplate's `arguments.parameters` defaults do
+      # NOT apply to templateRef invocations, only to running it directly as a Workflow.
+      - name: threshold
+        value: "0.99"
+      - name: csv-name
+        value: "IB_Particle_1.csv"
+
+    metadata:
+      labels:
+        app: force-surrogate
+        component: single-config
+        config-name: "{{inputs.parameters.config-name}}"
+      annotations:
+        # lab-convention breadcrumb (sleap-roots/gapit set it; surfaced in the Run:ai UI). NOTE: this
+        # annotation is NOT what makes the workload preemptible — `priorityClassName` above is. Kept
+        # only for visibility/consistency with the other lab pipelines.
+        preemptible: "true"
+
+    container:
+      image: "{{inputs.parameters.image}}"
+      imagePullPolicy: Always
+      workingDir: /opt/cfd/mosquito-cfd
+      # The synced venv interpreter directly (avoids the per-pod project-resolution / network
+      # sync-staleness check the `uv` launcher would do on each of 27 GPU pods). The module ships in
+      # the :fp64 image via COPY src/ + uv sync (D3), so no PATH/workingDir/network is needed here.
+      command: ["/opt/cfd/mosquito-cfd/.venv/bin/python", "-m", "mosquito_cfd.force_surrogate.run_one_config"]
+      args:
+        - "--config-name"
+        - "{{inputs.parameters.config-name}}"
+        - "--input-file"
+        - "{{inputs.parameters.input-file}}"
+        - "--max-step"
+        - "{{inputs.parameters.max-step}}"
+        - "--output-root"
+        - "/workspace/runs"
+        - "--docker-digest"
+        - "{{inputs.parameters.docker-digest}}"
+        - "--timestamp"
+        - "{{inputs.parameters.timestamp}}"
+        - "--threshold"
+        - "{{inputs.parameters.threshold}}"
+        - "--csv-name"
+        - "{{inputs.parameters.csv-name}}"
+        - "--container-workspace"
+        - "/workspace"
+        # Orchestrator provenance (recorded under run_metadata "orchestration"). workflow.uid /
+        # pod.name / retries are Argo template vars; the node name is downward-API only (fieldRef),
+        # so it is passed via the k8s env-var substitution `$(NODE_NAME)` (NODE_NAME is the env
+        # declared below) — kubelet expands it from the env at container start.
+        - "--workflow-uid"
+        - "{{workflow.uid}}"
+        - "--pod"
+        - "{{pod.name}}"
+        - "--node"
+        - "$(NODE_NAME)"
+        - "--retry"
+        - "{{retries}}"
+
+      volumeMounts:
+      - name: nfs-workspace
+        mountPath: /workspace
+
+      env:
+      # Downward-API provenance for operator visibility (kubectl describe / pod env). NODE_NAME is
+      # the physical A40 this pod landed on — not reachable from args, so surfaced here.
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.name
+      - name: NODE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: spec.nodeName
+
+      # A full A40: IAMReX FP64 used ~34 GB in the smoke run, so no gpu-fraction sharing (D1).
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+          cpu: "8"
+          memory: "32Gi"
+        requests:
+          cpu: "4"
+          memory: "16Gi"
+
+      # mpirun --allow-run-as-root needs to BE root; the NVIDIA device plugin injects GPU access
+      # without host-device/kernel access, so least-privilege omits the privileged flag (D1).
+      securityContext:
+        runAsUser: 0
+
+    retryStrategy:
+      limit: 5  # 6 attempts total — a dropped/preempted run reruns on a fresh, clean GPU
+      retryPolicy: "OnFailure"
+      backoff:
+        duration: "2m"
+        factor: 2
+        maxDuration: "30m"

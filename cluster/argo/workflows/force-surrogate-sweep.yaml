@@ -1,0 +1,178 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: force-surrogate-sweep-  # Argo appends a unique suffix
+  namespace: runai-talmo-lab
+  labels:
+    pipeline: force-surrogate
+    stage: production
+spec:
+  # ===========================================================================
+  # Force-surrogate sweep — fan-out over the committed kinematic corpus (Track B)
+  # ===========================================================================
+  # DAG: validate (stale-digest fail-fast, before any GPU pod)
+  #      → extract-configs (read sweep_manifest.json → configs JSON)
+  #      → run-all-configs (withParam fan-out, one A40 pod per config via the single-config template)
+  #      → verify-complete (check_completion over EVERY config; fail the workflow if any is short)
+  #
+  # Per-pod GPU/root/retry are in the WorkflowTemplate:
+  #   cluster/argo/workflow-templates/force-surrogate-single-config.yaml
+  # ===========================================================================
+  entrypoint: sweep
+  serviceAccountName: default
+
+  arguments:
+    parameters:
+    - name: image            # pin the POST-MERGE :fp64 @sha256: digest at submit (never an older one)
+      value: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"
+    - name: docker-digest    # the same @sha256:, recorded in each run's provenance
+      value: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"
+    - name: timestamp        # caller-supplied ISO-8601 stamped into every run_metadata.json
+      value: "unset"
+    - name: workspace-hostpath  # the prelim_sweep NFS dir (decks, wing.vertex, manifest, runs/)
+      value: "/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep"
+    - name: csv-name         # force-CSV name escape hatch; threaded to the pods + verify-complete
+      value: "IB_Particle_1.csv"
+
+  # 24h ceiling: a slow-but-progressing run is not killed; per-pod retryStrategy/backoff handles the
+  # real failures, and a corpus unfinished in 24h is wedged.
+  activeDeadlineSeconds: 86400
+  # Bounded concurrency (D2): the limited A40 quota, not an unbounded 27-way burst. Argo retries
+  # absorb preemption. NOTE: Argo's `parallelism` is an int field that does NOT accept a `{{...}}`
+  # parameter, so this is a literal — change the concurrency cap (e.g. to 1 for sequential) by
+  # editing this line, not via `--parameter`.
+  parallelism: 3
+
+  volumes:
+  - name: nfs-workspace
+    hostPath:
+      path: "{{workflow.parameters.workspace-hostpath}}"
+      type: Directory
+
+  templates:
+  - name: sweep
+    dag:
+      tasks:
+      # Stale-digest fail-fast: run the PINNED image and import the module BEFORE any GPU pod, so a
+      # digest pinned before run_one_config shipped dies in seconds, not 27 × 5 A40 retries.
+      - name: validate
+        template: validate-image
+
+      - name: extract-configs
+        dependencies: [validate]
+        template: extract-configs
+
+      # One A40 pod per config, derived from the manifest (withParam) — no hardcoded config list.
+      - name: run-all-configs
+        dependencies: [extract-configs]
+        templateRef:
+          name: force-surrogate-single-config
+          template: run-config
+        arguments:
+          parameters:
+          - name: image
+            value: "{{workflow.parameters.image}}"
+          - name: config-name
+            value: "{{item.name}}"
+          - name: input-file
+            value: "{{item.input_file}}"
+          - name: max-step
+            value: "{{item.max_step}}"
+          - name: docker-digest
+            value: "{{workflow.parameters.docker-digest}}"
+          - name: timestamp
+            value: "{{workflow.parameters.timestamp}}"
+          - name: csv-name
+            value: "{{workflow.parameters.csv-name}}"
+        withParam: "{{tasks.extract-configs.outputs.result}}"
+
+      # Gate overall success on completeness: check_completion over EVERY config's CSV.
+      - name: verify-complete
+        dependencies: [run-all-configs]
+        template: verify-complete
+
+  # ---------------------------------------------------------------------------
+  - name: validate-image
+    script:
+      image: "{{workflow.parameters.image}}"
+      imagePullPolicy: Always
+      workingDir: /opt/cfd/mosquito-cfd
+      command: ["/opt/cfd/mosquito-cfd/.venv/bin/python"]
+      source: |
+        import os
+        import mosquito_cfd.force_surrogate.run_one_config  # noqa: F401 - stale-digest fail-fast
+        from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+        from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
+        # The pinned image and the recorded digest must be the SAME content-addressable reference,
+        # else the provenance would record a digest the container was not built from. Both fail
+        # here in seconds rather than after 27 x retries of GPU pods.
+        image = "{{workflow.parameters.image}}"
+        digest = "{{workflow.parameters.docker-digest}}"
+        validate_image_digest(digest)  # rejects a mutable tag (no sha256:)
+        assert image == digest, f"image ({image!r}) and docker-digest ({digest!r}) must be the same @sha256: pin"
+        assert os.path.exists("/workspace/sweep_manifest.json"), "sweep_manifest.json not mounted at /workspace"
+        # wing.vertex preflight: the decks resolve geometry_file relative to the run dir, so a missing
+        # geometry would fail every pod — catch it ONCE here, not 27 x retries downstream.
+        assert os.path.exists("/workspace/wing.vertex"), "wing.vertex not staged at /workspace"
+        # load_manifest_configs does NOT require input_file/max_step; the pods + verify-complete do.
+        configs = load_manifest_configs("/workspace/sweep_manifest.json")
+        for c in configs:
+            missing = [k for k in ("input_file", "max_step") if k not in c]
+            if missing:
+                raise SystemExit(f"config {c.get('name')!r} missing required key(s) {missing}")
+        print(f"validate ok: module importable, image==digest pinned, manifest + wing.vertex present, {len(configs)} configs")
+      volumeMounts:
+      - name: nfs-workspace
+        mountPath: /workspace
+
+  # ---------------------------------------------------------------------------
+  # Emit the configs as a JSON list (name/input_file/max_step) for the withParam fan-out, derived
+  # from sweep_manifest.json via the published load_manifest_configs (no hardcoded config names).
+  - name: extract-configs
+    script:
+      image: "{{workflow.parameters.image}}"
+      imagePullPolicy: Always
+      workingDir: /opt/cfd/mosquito-cfd
+      command: ["/opt/cfd/mosquito-cfd/.venv/bin/python"]
+      source: |
+        import json
+        from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+        configs = load_manifest_configs("/workspace/sweep_manifest.json")
+        items = [
+            {"name": c["name"], "input_file": c["input_file"], "max_step": c["max_step"]}
+            for c in configs
+        ]
+        print(json.dumps(items))
+      volumeMounts:
+      - name: nfs-workspace
+        mountPath: /workspace
+
+  # ---------------------------------------------------------------------------
+  # Completeness gate: every config's IB_Particle_1.csv must pass check_completion, else fail.
+  - name: verify-complete
+    script:
+      image: "{{workflow.parameters.image}}"
+      imagePullPolicy: Always
+      workingDir: /opt/cfd/mosquito-cfd
+      command: ["/opt/cfd/mosquito-cfd/.venv/bin/python"]
+      source: |
+        import sys
+        from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+        from mosquito_cfd.force_surrogate.runner import check_completion
+        csv_name = "{{workflow.parameters.csv-name}}"  # same name the pods wrote (escape hatch)
+        configs = load_manifest_configs("/workspace/sweep_manifest.json")
+        incomplete = []
+        for c in configs:
+            csv = f"/workspace/runs/{c['name']}/{csv_name}"
+            comp = check_completion(csv, int(c["max_step"]))
+            status = "ok" if comp.complete else comp.reason
+            print(f"{c['name']}: {status} ({comp.rows} rows)")
+            if not comp.complete:
+                incomplete.append(c["name"])
+        if incomplete:
+            print(f"INCOMPLETE: {incomplete}", file=sys.stderr)
+            sys.exit(1)
+        print(f"corpus complete: {len(configs)} configs")
+      volumeMounts:
+      - name: nfs-workspace
+        mountPath: /workspace

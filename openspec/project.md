@@ -33,6 +33,10 @@ mosquito-cfd/
 │   ├── flow_past_sphere/     # Classic CFD validation case
 │   ├── flapping_wing/        # Validated flapping-wing demo (van Veen kinematics)
 │   └── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
+├── cluster/argo/             # Argo Workflows for cluster-side sweep orchestration (production)
+│   ├── workflow-templates/   # Single-config WorkflowTemplate (one A40 pod = one mpirun)
+│   ├── workflows/            # Fan-out sweep Workflow over the manifest configs
+│   └── scripts/              # submit/monitor wrappers (WSL + KUBECONFIG)
 ├── .github/workflows/        # CI/CD pipelines
 │   ├── ci.yml                # Lint, test, Dockerfile lint
 │   └── docker.yml            # Build & publish to ghcr.io

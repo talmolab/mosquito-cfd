@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: force-surrogate-smoke-  # Argo appends a unique suffix
+  namespace: runai-talmo-lab
+  labels:
+    pipeline: force-surrogate
+    stage: smoke
+spec:
+  # ===========================================================================
+  # Force-surrogate sweep — 1-config SMOKE pre-flight (add-force-surrogate-argo-sweep)
+  # ===========================================================================
+  # Runs ONE config through the single-config WorkflowTemplate to confirm the pinned image
+  # actually schedules onto an A40 and the GPU pod runs — BEFORE the 27-way fan-out. This wrapper
+  # exists because the template declares `volumeMounts: nfs-workspace` but defines no `volumes:`
+  # (the calling workflow must); `argo submit --from workflowtemplate/...` would generate a pod
+  # referencing an undefined volume. Submit via `submit_workflow.sh smoke`.
+  # ===========================================================================
+  entrypoint: smoke
+  serviceAccountName: default
+
+  arguments:
+    parameters:
+    - name: image            # the POST-MERGE :fp64 @sha256: pin (same as docker-digest)
+      value: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"
+    - name: docker-digest
+      value: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"
+    - name: timestamp
+      value: "unset"
+    - name: workspace-hostpath  # the prelim_sweep NFS dir (decks, wing.vertex, manifest, runs/)
+      value: "/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep"
+    - name: config-name      # the single config to run (defaults to the first sweep config)
+      value: "s35_f085_p30"
+    - name: input-file
+      value: "inputs/inputs.3d.s35_f085_p30"
+    - name: max-step
+      value: "4706"
+    - name: csv-name
+      value: "IB_Particle_1.csv"
+
+  activeDeadlineSeconds: 86400
+
+  volumes:
+  - name: nfs-workspace
+    hostPath:
+      path: "{{workflow.parameters.workspace-hostpath}}"
+      type: Directory
+
+  templates:
+  - name: smoke
+    dag:
+      tasks:
+      - name: run-one
+        templateRef:
+          name: force-surrogate-single-config
+          template: run-config
+        arguments:
+          parameters:
+          - name: image
+            value: "{{workflow.parameters.image}}"
+          - name: config-name
+            value: "{{workflow.parameters.config-name}}"
+          - name: input-file
+            value: "{{workflow.parameters.input-file}}"
+          - name: max-step
+            value: "{{workflow.parameters.max-step}}"
+          - name: docker-digest
+            value: "{{workflow.parameters.docker-digest}}"
+          - name: timestamp
+            value: "{{workflow.parameters.timestamp}}"
+          - name: csv-name
+            value: "{{workflow.parameters.csv-name}}"

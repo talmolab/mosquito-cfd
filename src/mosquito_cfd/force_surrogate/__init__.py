@@ -22,6 +22,7 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_moment_coefficient,
     compute_moment_reference,
 )
+from mosquito_cfd.force_surrogate.run_one_config import run_config
 from mosquito_cfd.force_surrogate.runner import (
     Completion,
     ExecResult,
@@ -81,5 +82,6 @@ __all__ = [
     "build_wsl_command",
     "capture_compute_hardware",
     "check_completion",
+    "run_config",
     "run_sweep",
 ]
