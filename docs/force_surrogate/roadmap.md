@@ -177,6 +177,13 @@ fixtures **before** the real corpus exists (CC-2), so PR3.5 (cluster) and PR4 (l
 parallel once PR1+PR2 land. PR5 needs PR4's dataset + PR3.5's corpus; PR6 needs PR5's predictions +
 PR1's helpers.
 
+### Post-corpus follow-up issues (tracked, non-gating)
+
+Spawned by the `/review-pr` of the dataset commit ([PR #18](https://github.com/talmolab/mosquito-cfd/pull/18)) once the real corpus landed. Tech-debt / consistency only — **does not gate** PR5/PR6 or submission.
+
+- **[#19](https://github.com/talmolab/mosquito-cfd/issues/19)** — reconcile the now-**verified** `IB_Particle_1.csv` contract across the live spec + source comments (`spec.md`, `runner.py`, `run_one_config.py`, the Argo template still say "assumed / not yet verified"; PR #18 verified it against the A40 corpus). The `--csv-name` override stays as a defensive escape hatch.
+- **[#20](https://github.com/talmolab/mosquito-cfd/issues/20)** — add a cluster-free guard test pinning the committed `dataset.parquet` (schema == `DATASET_COLUMNS`, rowcount == Σ per-config `max_step`, no NaN, `phase∈[0,1)`, split/holdout match the manifest) against silent drift, since it's built from the gitignored `runs/` corpus and can't be regenerated offline (CC-2).
+
 ---
 
 ## Standards → acceptance criteria (every PR)
