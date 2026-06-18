@@ -37,7 +37,7 @@ README text eol=lf
 *.xlsx binary
 *.xls binary
 # Parquet datasets are binary — never normalize line endings or diff as text. The real
-# dataset.parquet is committed when PR3's corpus lands (force-surrogate dataset extractor).
+# force-surrogate dataset.parquet landed with the PR #16 Argo corpus (extracted by PR4).
 *.parquet binary
 *.csv text eol=lf
 
