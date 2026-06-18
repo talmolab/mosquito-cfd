@@ -50,9 +50,9 @@ CC-4 figure caption must keep it honest — readiness evidence, not the funded s
 - **Output:** `examples/prelim_sweep/dataset.parquet` (one row per (kinematics vector, time) →
   CF_x/CF_z + all three CF_m components + raw Fx/Fy/Fz/Mx/My/Mz), a trained surrogate +
   `metrics.json`, and `examples/prelim_sweep/figures/evidence_figure.png`. **The `dataset.parquet`
-  + its `run_metadata.json` are committed when PR3's real corpus lands** (PR4 commits the tested
-  extractor/driver + the `dataset.units.json` schema contract, not a fixture-derived artifact —
-  see PR4 below).
+  + its `run_metadata.json` were committed once PR3's real corpus landed** (the PR #16 Argo corpus;
+  PR4 had committed the tested extractor/driver + the `dataset.units.json` schema contract, not a
+  fixture-derived artifact — see PR4 below).
 
 ## Hardware
 
@@ -166,8 +166,8 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 | 1 | `add-force-surrogate-foundation` | `mosquito_cfd` surrogate-prep module skeleton; force-coefficient/normalization helpers (CC-3) **+ refactor the inline `F_ref` in `examples/flapping_wing/generate_all_figures.py` to source from the helper (closes CC-3 DRY)**; **reusable cluster-free fixtures** (CC-2); module constants; `run_metadata` + `units.json` sidecar conventions (CC-1, CC-5). Local, TDD. [PR #2](https://github.com/talmolab/mosquito-cfd/pull/2) | local | ✅ |
 | 2 | `add-force-surrogate-sweep-config` | Sweep generator → 27 input files over the φ×f\*×α grid; `amr.plot_int=-1`; **resolve + document the Re policy (CC-7 → ν\* fixed)**; tested against fixtures. [PR #5](https://github.com/talmolab/mosquito-cfd/pull/5) | local | ✅ |
 | 3 | `add-force-surrogate-sweep-runner` | RunAI A40 batch runner looping the sweep through the pinned `:fp64` container; per-config output dir; `run_metadata` + `run.log` per run; injected-executor mocked test path; operator `--csv-name`/`--docker-digest`. [PR #9](https://github.com/talmolab/mosquito-cfd/pull/9) | cluster | ✅ |
-| 3b | `add-force-surrogate-argo-sweep` | Cluster-side **Argo Workflows** make the corpus production robust: one A40 pod per config (main process = `mpirun`, no `runai exec` stream to drop, no orphaned GPU), `retryStrategy`, manifest-derived fan-out, `check_completion` gate. Reuses the PR3 library via a new tested `run_one_config` entrypoint baked into `:fp64`. Supersedes PR3's laptop driver as the production path (run_sweep.py = local/dev fallback) after it lost 26/27 configs to exec-stream/orphan cascade. | cluster | 🟡 |
-| 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. **Data + provenance committed when PR3's corpus lands**; PR4 commits the tested extractor/driver + the `dataset.units.json` contract (no fixture-derived data — scientific honesty, change `design.md` D10). [PR #7](https://github.com/talmolab/mosquito-cfd/pull/7) | local | ✅ |
+| 3b | `add-force-surrogate-argo-sweep` | Cluster-side **Argo Workflows** make the corpus production robust: one A40 pod per config (main process = `mpirun`, no `runai exec` stream to drop, no orphaned GPU), `retryStrategy`, manifest-derived fan-out, `check_completion` gate. Reuses the PR3 library via a new tested `run_one_config` entrypoint baked into `:fp64`. Supersedes PR3's laptop driver as the production path (run_sweep.py = local/dev fallback) after it lost 26/27 configs to exec-stream/orphan cascade. [PR #16](https://github.com/talmolab/mosquito-cfd/pull/16) | cluster | ✅ |
+| 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. **Data + provenance committed once PR3's corpus landed (the PR #16 Argo corpus)**; PR4 committed the tested extractor/driver + the `dataset.units.json` contract (no fixture-derived data — scientific honesty, change `design.md` D10). [PR #7](https://github.com/talmolab/mosquito-cfd/pull/7) | local | ✅ |
 | 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-primary, PyTorch DeepONet/MLP fallback** (de-risk PhysicsNeMo early; hard fallback checkpoint ~Jun 18); held-out-**config** split (CC-4); seeded; `metrics.json`; wandb. | A5000 | ⬜ |
 | 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m) + **Sane–Dickinson baseline overlay** + speedup/RMSE annotation; ≥200 dpi; honest caption (CC-4). | local | ⬜ |
 
@@ -176,6 +176,13 @@ transport and is what actually produces the corpus. PR4 can be built and fully t
 fixtures **before** the real corpus exists (CC-2), so PR3.5 (cluster) and PR4 (local) can proceed in
 parallel once PR1+PR2 land. PR5 needs PR4's dataset + PR3.5's corpus; PR6 needs PR5's predictions +
 PR1's helpers.
+
+### Post-corpus follow-up issues (tracked, non-gating)
+
+Spawned by the `/review-pr` of the dataset commit ([PR #18](https://github.com/talmolab/mosquito-cfd/pull/18)) once the real corpus landed. Tech-debt / consistency only — **does not gate** PR5/PR6 or submission.
+
+- **[#19](https://github.com/talmolab/mosquito-cfd/issues/19)** — reconcile the now-**verified** `IB_Particle_1.csv` contract across the live spec + source comments (`spec.md`, `runner.py`, `run_one_config.py`, the Argo template still say "assumed / not yet verified"; PR #18 verified it against the A40 corpus). The `--csv-name` override stays as a defensive escape hatch.
+- **[#20](https://github.com/talmolab/mosquito-cfd/issues/20)** — add a cluster-free guard test pinning the committed `dataset.parquet` (schema == `DATASET_COLUMNS`, rowcount == Σ per-config `max_step`, no NaN, `phase∈[0,1)`, split/holdout match the manifest) against silent drift, since it's built from the gitignored `runs/` corpus and can't be regenerated offline (CC-2).
 
 ---
 

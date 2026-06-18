@@ -160,11 +160,10 @@ Each launched config writes the solver's captured stdout/stderr to `runs/<name>/
 from `run_metadata.json`), so a failed or anomalous config is debuggable from its own output — `tail`
 it between configs to watch progress or diagnose a failure.
 
-> **Force-CSV name (verify on the first run).** `IB_Particle_1.csv` is **assumed** from PR4's
-> contract and **not yet verified against a real IAMReX run** — the repo `.gitignore` hints forces
-> may instead land in `forces.csv`. If your first single-config run shows the forces under a
-> different name, pass `--csv-name forces.csv` (mirrors `extract_forces.py --csv-name`) rather than
-> editing source. **Smoke-test one config before the full 27.**
+> **Force-CSV name.** `IB_Particle_1.csv` (PR4's contract) is **verified against the real IAMReX
+> output** of the A40 corpus — the committed `dataset.parquet` was extracted from
+> `runs/<name>/IB_Particle_1.csv`. The `--csv-name` flag stays overridable should a future run write
+> forces under a different name.
 
 ## Dataset (`dataset.parquet`)
 
@@ -177,8 +176,8 @@ sweep's `reynolds` and train/holdout `split`. Forces come from the IB-particle C
 | File | Status | Contents |
 |---|---|---|
 | `dataset.units.json` | **committed** | The column→unit contract (the schema sidecar). Pure metadata — no force values — so a consumer (PR5) has a `read_units_sidecar`-validatable contract to develop against. |
-| `dataset.parquet` | **committed when PR3's corpus lands** | The data. PR4 deliberately does **not** commit a fixture-derived parquet: the only data available pre-PR3 is the synthetic test fixture, and committing it (with a required `sha256:` digest in `run_metadata.json`) would misrepresent synthetic numbers as real CFD output with false provenance. |
-| `run_metadata.json` | **committed when PR3's corpus lands** | Provenance (pinned container digest, caller timestamp, any `dropped_configs`). |
+| `dataset.parquet` | **committed** | The data — the 27-config corpus extracted to one row per (config, timestep). PR4 deliberately deferred this until a real corpus existed (committing the synthetic test fixture, with a required `sha256:` digest in `run_metadata.json`, would have misrepresented synthetic numbers as real CFD output with false provenance); it landed once the cluster Argo sweep (PR #16) produced all 27 runs. |
+| `run_metadata.json` | **committed** | Provenance for the dataset build (pinned `:fp64` container digest of the CFD image, caller timestamp, local build host / git SHA, manifest input hash, any `dropped_configs`). Each CFD run's own A40 provenance lives in its `runs/<name>/run_metadata.json` (not committed — the `runs/` tree is gitignored). |
 
 The **normative column schema** is the `force-surrogate` spec's *"Columns are the documented
 schema"* scenario; the units are in the committed `dataset.units.json` — neither is re-listed here
@@ -199,7 +198,7 @@ one step depending on how the solver records `time` (e.g. accumulated solver tim
 below `k`). This affects at most one boundary row and is immaterial to converged-beat filtering, but
 do not assume beat boundaries align to an exact `phase = 0.0` row.
 
-### Regenerating (once PR3's corpus exists)
+### Regenerating
 
 ```bash
 uv run python scripts/extract_forces.py \
