@@ -210,3 +210,55 @@ uv run python scripts/extract_forces.py \
     --units examples/prelim_sweep/dataset.units.json \
     --metadata examples/prelim_sweep/run_metadata.json
 ```
+
+## Surrogate (`metrics.json`, predictions, checkpoint)
+
+PR5's trainer (`scripts/train_surrogate.py`, library `mosquito_cfd.force_surrogate.train`) learns
+the **kinematics(+phase) → force-coefficient** map from `dataset.parquet` with a **PhysicsNeMo**
+regressor and evaluates it on the **held-out configurations** (CC-4). Inputs are the three swept
+kinematic knobs + a cyclic `(sin, cos)(2π·phase)` encoding (Reynolds excluded — derivable under the
+ν\*-fixed policy); targets are all six `CF_*` coefficients; only the converged beat (`wingbeat ≥ 1`)
+is used. Force-coefficients only — no field/plotfile reading, DoMINO, or RL (CC-6).
+
+The four artifacts live under **`surrogate/`** (a subdirectory so the surrogate's `run_metadata.json`
+does not collide with the dataset build's `run_metadata.json` one level up):
+
+| File | Status | Contents |
+|---|---|---|
+| `surrogate/metrics.json` | **committed** | Per-target / aggregate / per-config RMSE/MAE/R² on the 6 holdout configs + an inference latency/throughput block + a reproducibility block. |
+| `surrogate/holdout_predictions.parquet` | **committed** | Per holdout (config, timestep): `CF_*_true`/`CF_*_pred` — the versioned input to the PR6 figure. |
+| `surrogate/surrogate.pt` | **committed** | The trained checkpoint (state dict + the train-fit standardizer stats). Binary (`*.pt` pinned in `.gitattributes`). |
+| `surrogate/run_metadata.json` | **committed** | Provenance: the dataset corpus's pinned `:fp64` digest, git SHA, host/GPU, seeds, resolved `torch`/`physicsnemo` versions. |
+
+The **normative schemas** for `metrics.json` and the predictions table are the `force-surrogate`
+spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"* and
+*"Predictions parquet schema"* — neither is re-listed here to avoid drift.
+
+**Training is local — the RTX A5000 (24 GB, FP32/TF32) via WSL2 + `uv`, *not* RunAI.** The GPU
+deps are an opt-in group:
+
+```bash
+uv sync --group train          # installs PhysicsNeMo + CUDA torch + wandb (Linux/WSL2 only)
+uv run python scripts/train_surrogate.py \
+    --dataset examples/prelim_sweep/dataset.parquet \
+    --out-dir examples/prelim_sweep/surrogate \
+    --docker-digest "$(python -c 'import json,sys;print(json.load(open("examples/prelim_sweep/run_metadata.json"))["docker_image"])')" \
+    --timestamp <iso-8601> \
+    --device cuda --wandb online        # --wandb defaults to "disabled" (CI/rerun-safe)
+```
+
+`--wandb online` logs the run to Weights & Biases; the default `disabled` is a no-op (no login
+needed) and `metrics.json` is always written from local state regardless of wandb.
+
+**Reproducibility (honest scope).** Seeds + `torch.use_deterministic_algorithms` are set. The
+**torch-free CPU helper chain** (features/split/standardizer/metrics) is **bitwise-reproducible**
+and CI-tested; the GPU run is **seeded but not bitwise** (cuDNN/TF32), so `metrics.json` records
+`reproducibility.bitwise == "cpu_only"`.
+
+**Tests.** CPU-tier tests are cluster-free and gate CI. The GPU tier (PhysicsNeMo construction, a
+seeded loss-decrease, and the full train→predict→`metrics.json` round-trip) is marked
+`@pytest.mark.gpu`, auto-skipped when CUDA/PhysicsNeMo are unavailable, and run on the A5000 with:
+
+```bash
+uv run pytest -m gpu        # operator-only; CI runs `-m "not gpu"`
+```
