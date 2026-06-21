@@ -70,11 +70,11 @@ REQUIRED_COLUMNS = [
 # Converged-beat threshold: the first whole beat (wingbeat 0) is the startup transient.
 CONVERGED_MIN_WINGBEAT = 1
 
-# Absolute floor below which a column's variance / sum-of-squares is treated as zero (a
-# constant column). Far below any real coefficient variance (the corpus minimum std is ~0.19)
-# yet above pure float rounding of an exactly-constant column — so the zero-variance guards in
-# ``Standardizer`` and ``compute_metrics`` fire on genuinely-constant data without letting a
-# tiny-but-nonzero variance divide through to a garbage result (design D4).
+# Relative tolerance below which a column is treated as constant (zero-variance). The R² guards
+# (:func:`_r2`) and the within-config fraction compare ``SS_tot`` to the target's own
+# ``sum(t**2)`` scale, so the sentinel fires on genuine constancy at any magnitude — including
+# the small unnormalized SS of a few cycle-means — without nulling a tiny-but-real spread.
+# ``Standardizer`` uses it as a near-zero floor on the per-column std (design D4/D13).
 _VARIANCE_EPS = 1e-12
 
 
@@ -125,6 +125,30 @@ def filter_converged_beat(
         A copy of ``df`` restricted to ``wingbeat >= min_wingbeat``.
     """
     return df[df["wingbeat"] >= min_wingbeat].copy()
+
+
+def filter_converged_beat_report_holdout(
+    df: pd.DataFrame, min_wingbeat: int = CONVERGED_MIN_WINGBEAT
+) -> tuple[pd.DataFrame, list[str]]:
+    """Filter to the converged beat and report any **holdout** configs that lost all rows.
+
+    A holdout config whose rows are all startup-transient (``wingbeat == 0``) silently vanishes
+    from the evaluation after :func:`filter_converged_beat`. This wraps the filter and returns the
+    names of any such dropped holdout configs so the caller can warn (a degraded corpus) or fail
+    with a clear, correctly-attributed error rather than a misleading "no holdout label" message.
+
+    Args:
+        df: The dataset frame (must carry ``wingbeat``, ``split``, ``config_name``).
+        min_wingbeat: Lowest wingbeat index to keep (default the converged beat, 1).
+
+    Returns:
+        ``(filtered_df, dropped_holdout_names)`` — the converged-beat frame and the sorted names
+        of holdout configs that had no converged-beat rows (``[]`` when none were dropped).
+    """
+    before = set(df.loc[df["split"] == "holdout", "config_name"].unique())
+    filtered = filter_converged_beat(df, min_wingbeat)
+    after = set(filtered.loc[filtered["split"] == "holdout", "config_name"].unique())
+    return filtered, sorted(before - after)
 
 
 class Standardizer:
@@ -236,6 +260,35 @@ def make_config_splits(
 # --- Metrics -----------------------------------------------------------------------------
 
 
+def _r2(t: NDArray[np.floating], p: NDArray[np.floating]) -> float:
+    """R² = 1 - SS_res/SS_tot, with a **scale-relative** zero-variance sentinel.
+
+    Single source of the R² + sentinel idiom shared by :func:`compute_metrics` (pointwise) and
+    :func:`compute_config_resolved` (per-config cycle-means). The denominator ``SS_tot`` is the
+    total sum of squares of ``t`` about its mean; when ``t`` is (near-)constant this is ~0 and R²
+    is the NaN sentinel rather than an explosive ``0/0``. The floor is **relative to the target's
+    own scale** (``SS_tot <= _VARIANCE_EPS * sum(t**2)``), so it fires on genuine constancy at any
+    magnitude — including the small unnormalized SS of a handful of cycle-means — but never nulls a
+    tiny-but-real spread (e.g. CF_y's near-zero-by-symmetry cycle-means keep their honest, possibly
+    negative, R²).
+
+    Args:
+        t: True values (1-D).
+        p: Predicted values (1-D), same shape as ``t``.
+
+    Returns:
+        The R², or ``nan`` when ``t`` is (near-)constant.
+    """
+    t = np.asarray(t, dtype=float)
+    p = np.asarray(p, dtype=float)
+    ss_res = float(np.sum((t - p) ** 2))
+    ss_tot = float(np.sum((t - t.mean()) ** 2))
+    scale = float(np.sum(t**2))
+    if ss_tot <= _VARIANCE_EPS * scale:  # (near-)constant target -> R² undefined
+        return float("nan")
+    return 1.0 - ss_res / ss_tot
+
+
 def compute_metrics(
     y_true: NDArray[np.floating],
     y_pred: NDArray[np.floating],
@@ -243,9 +296,10 @@ def compute_metrics(
 ) -> dict[str, Any]:
     """Per-target RMSE/MAE/R² + a NaN-aware aggregate (pure numpy; no scipy/sklearn).
 
-    R² is ``1 - SS_res/SS_tot``; for a (near-)zero-variance target ``SS_tot == 0`` it is the
-    sentinel ``nan`` (serialized as ``null`` downstream) rather than an unhandled ``0/0``. The
-    ``aggregate`` R² is the NaN-skipping mean, so a constant target does not poison it.
+    R² comes from :func:`_r2` (``1 - SS_res/SS_tot`` with a scale-relative zero-variance
+    sentinel → ``nan``, serialized as ``null`` downstream, rather than an unhandled ``0/0``). All
+    three ``aggregate`` values are NaN-skipping means, so a constant/NaN target does not poison
+    them.
 
     Args:
         y_true: ``(n, n_targets)`` true coefficients (physical units, inverse-transformed).
@@ -275,13 +329,8 @@ def compute_metrics(
         resid = t - p
         rmse = float(np.sqrt(np.mean(resid**2)))
         mae = float(np.mean(np.abs(resid)))
-        ss_res = float(np.sum(resid**2))
-        ss_tot = float(np.sum((t - t.mean()) ** 2))
-        # Sentinel for a (near-)zero-variance target: a tiny-but-nonzero ss_tot would
-        # otherwise divide through to an explosive, meaningless R² (design D4). The floor is
-        # absolute and far below any real coefficient variance (the corpus minimum is ~0.19).
-        r2 = float("nan") if ss_tot <= _VARIANCE_EPS else 1.0 - ss_res / ss_tot
-        per_target[name] = {"rmse": rmse, "mae": mae, "r2": r2}
+        # R² (with the scale-relative zero-variance sentinel) via the single-source helper.
+        per_target[name] = {"rmse": rmse, "mae": mae, "r2": _r2(t, p)}
     rmses = np.array([per_target[n]["rmse"] for n in target_names])
     maes = np.array([per_target[n]["mae"] for n in target_names])
     r2s = np.array([per_target[n]["r2"] for n in target_names])
@@ -400,7 +449,9 @@ def train_model(
     model = model.to(dev)
     xt = torch.as_tensor(np.asarray(x, dtype=np.float32), device=dev)
     yt = torch.as_tensor(np.asarray(y, dtype=np.float32), device=dev)
-    has_val = x_val is not None and y_val is not None
+    # Require a non-empty val set for selection; an empty one would make MSELoss NaN and
+    # silently keep the final-epoch weights (best_state never set). Fall back to final weights.
+    has_val = x_val is not None and y_val is not None and len(x_val) > 0
     if has_val:
         xv = torch.as_tensor(np.asarray(x_val, dtype=np.float32), device=dev)
         yv = torch.as_tensor(np.asarray(y_val, dtype=np.float32), device=dev)
@@ -462,7 +513,7 @@ def predict(
 def compute_config_resolved(
     y_true: NDArray[np.floating],
     y_pred: NDArray[np.floating],
-    config_names: NDArray,
+    config_names: NDArray[Any],
     target_names: list[str],
 ) -> dict[str, dict[str, float]]:
     """Phase-honest, config-resolved metrics that the waveform-dominated aggregate R² hides.
@@ -497,14 +548,16 @@ def compute_config_resolved(
         p = y_pred[:, i]
         cm_t = np.array([t[config_names == c].mean() for c in uniq])
         cm_p = np.array([p[config_names == c].mean() for c in uniq])
-        ss_res = float(np.sum((cm_t - cm_p) ** 2))
-        ss_tot = float(np.sum((cm_t - cm_t.mean()) ** 2))
-        config_mean_r2 = (
-            float("nan") if ss_tot <= _VARIANCE_EPS else 1.0 - ss_res / ss_tot
-        )
+        # config-to-config R² on the cycle-means (scale-relative sentinel via the shared helper).
+        config_mean_r2 = _r2(cm_t, cm_p)
         within = float(np.sum((t - cm_t[row_group]) ** 2))
         total = float(np.sum((t - t.mean()) ** 2))
-        frac = float("nan") if total <= _VARIANCE_EPS else within / total
+        # Scale-relative guard, consistent with _r2: a (near-)constant target has no fraction.
+        frac = (
+            float("nan")
+            if total <= _VARIANCE_EPS * float(np.sum(t**2))
+            else within / total
+        )
         out[name] = {
             "config_mean_r2": config_mean_r2,
             "within_config_variance_fraction": frac,
@@ -793,8 +846,9 @@ def run_training(
     Returns:
         A dict of the written artifact paths plus the in-memory ``metrics`` and ``split``.
     """
-    import torch
-
+    # NOTE: torch is imported lazily *below* (right before model construction) so all the
+    # pure-pandas validation here — digest, schema, converged-beat/holdout checks — is reachable
+    # and testable without the optional `train` group (design D2).
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
     dataset_path = Path(dataset_path)
@@ -808,19 +862,24 @@ def run_training(
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"dataset is missing required column(s) {missing}")
-    holdout_before = set(df.loc[df["split"] == "holdout", "config_name"].unique())
-    df = filter_converged_beat(df)
+    df, dropped = filter_converged_beat_report_holdout(df)
     holdout_after = set(df.loc[df["split"] == "holdout", "config_name"].unique())
-    dropped = sorted(holdout_before - holdout_after)
+    if dropped and not holdout_after:
+        # Distinguish "all holdout configs lost their converged beats" from the genuine
+        # "no holdout label" case make_config_splits would otherwise misreport.
+        raise ValueError(
+            f"all holdout config(s) {dropped} have no converged-beat "
+            f"(wingbeat>={CONVERGED_MIN_WINGBEAT}) rows; cannot form the held-out test set "
+            "(CC-4) — the configs were labelled holdout but every row is a startup transient"
+        )
     if dropped:
-        # A holdout config with no converged-beat rows would silently vanish from the eval.
+        # A holdout config with no converged-beat rows silently vanishes from the eval.
         logger.warning(
             "holdout config(s) %s have no converged-beat (wingbeat>=%d) rows and are absent "
-            "from the evaluation; metrics.json covers %d of %d holdout configs",
+            "from the evaluation; metrics.json covers %d holdout configs",
             dropped,
             CONVERGED_MIN_WINGBEAT,
             len(holdout_after),
-            len(holdout_before),
         )
     split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
 
@@ -835,6 +894,8 @@ def run_training(
     y_all = df[TARGET_COLUMNS].to_numpy(dtype=float)
     target_std = Standardizer().fit(y_all[train_mask])
     yz = target_std.transform(y_all)
+
+    import torch  # lazy: only the model/IO path below needs it (design D2)
 
     model = build_model(
         len(feature_names),

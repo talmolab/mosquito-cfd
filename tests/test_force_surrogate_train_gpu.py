@@ -156,6 +156,11 @@ def test_full_round_trip_writes_four_artifacts(tmp_path):
     repro = result["metrics"]["reproducibility"]
     assert repro["model_selection"] == "best_validation_checkpoint"
     assert repro["val_configs"] and "val_aggregate" in repro
+    # the phase-honest config-resolved block is emitted end-to-end (per target)
+    cr = result["metrics"]["config_resolved"]
+    assert set(cr) == set(TARGET_COLUMNS)
+    for block in cr.values():
+        assert {"config_mean_r2", "within_config_variance_fraction"} == set(block)
 
 
 def test_provenance_records_library_versions():

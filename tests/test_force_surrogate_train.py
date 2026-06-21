@@ -28,8 +28,10 @@ from mosquito_cfd.force_surrogate.train import (
     compute_config_resolved,
     compute_metrics,
     filter_converged_beat,
+    filter_converged_beat_report_holdout,
     log_to_wandb,
     make_config_splits,
+    run_training,
     write_json,
 )
 
@@ -315,6 +317,61 @@ def test_config_resolved_constant_means_sentinel():
     y_pred = np.array([[1.5], [2.5], [1.0], [3.0]])
     cr = compute_config_resolved(y_true, y_pred, config_names, ["CF_x"])
     assert np.isnan(cr["CF_x"]["config_mean_r2"])  # sentinel, not 0/0
+
+
+def test_config_resolved_single_config():
+    """A single holdout config has no between-config variance -> R² sentinel, fraction 1.0."""
+    config_names = np.array(["A", "A", "A"])
+    y_true = np.array([[1.0], [2.0], [3.0]])
+    y_pred = np.array([[1.1], [2.1], [2.9]])
+    cr = compute_config_resolved(y_true, y_pred, config_names, ["CF_x"])
+    assert np.isnan(cr["CF_x"]["config_mean_r2"])
+    assert cr["CF_x"]["within_config_variance_fraction"] == pytest.approx(1.0)
+
+
+def test_config_mean_r2_keeps_honest_negative_for_near_zero_signal():
+    """The scale-relative guard does NOT null a tiny-but-real between-config signal (CF_y-like)."""
+    # per-config cycle-means -0.02 / 0.01 / 0.04 — a small but genuine between-config spread
+    config_names = np.array(["A", "A", "B", "B", "C", "C"])
+    y_true = np.array([[-0.03], [-0.01], [0.00], [0.02], [0.03], [0.05]])
+    y_pred = y_true + 0.05  # biased -> worse than predicting the mean
+    cr = compute_config_resolved(y_true, y_pred, config_names, ["CF_y"])
+    r2 = cr["CF_y"]["config_mean_r2"]
+    assert np.isfinite(r2) and r2 < 0  # honest negative, not sentinel-nulled
+
+
+def test_filter_converged_beat_report_holdout_flags_dropped():
+    """A holdout config with no converged beat is reported; others survive."""
+    df = _toy_dataset()
+    victim = "s35_f085_p45"
+    df2 = df[~((df["config_name"] == victim) & (df["wingbeat"] == 1))]
+    filtered, dropped = filter_converged_beat_report_holdout(df2)
+    assert dropped == [victim]
+    assert (filtered["wingbeat"] >= 1).all()
+    assert victim not in set(
+        filtered.loc[filtered["split"] == "holdout", "config_name"]
+    )
+
+
+def test_run_training_raises_clearly_when_all_holdout_startup_only(tmp_path):
+    """All holdout configs lacking a converged beat -> clear error (not 'no holdout label')."""
+    df = _toy_dataset()
+    df = df[
+        ~((df["split"] == "holdout") & (df["wingbeat"] == 1))
+    ]  # holdout = startup only
+    pq = tmp_path / "ds.parquet"
+    df.to_parquet(pq, index=False)
+    with pytest.raises(ValueError, match="no converged-beat"):
+        run_training(
+            pq,
+            tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            device="cpu",
+        )
+    assert (
+        "torch" not in sys.modules
+    )  # raised before the lazy torch import (CPU-reachable)
 
 
 def test_metrics_json_has_config_resolved(tmp_path):
