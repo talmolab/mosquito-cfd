@@ -90,3 +90,11 @@ phase ≈ one atomic commit (see the proposal's PR-scoping note).
 - [x] 9.4 `openspec validate add-force-surrogate-train --strict` — valid.
 - [x] 9.5 `ruff check`/`format --check` clean; `pytest -m "not gpu"` green (225 passed, 6 GPU deselected); GPU tier collects-and-skips. **NOTE:** `--cov` works for numpy-only modules (e.g. `geometry`, 72%) but fails when sourcing `force_surrogate.*` (its `__init__` imports pandas → a pre-existing numpy-2.x/pandas/coverage double-import bug; reproduces on the PR1 `normalization` module, so it predates this PR). Filed as [#22](https://github.com/talmolab/mosquito-cfd/issues/22). CI uses plain `pytest` (no `--cov`), so it is unaffected. No `--cov-fail-under` on `train.py` (model/training functions are torch-tier).
 - [ ] 9.6 **MERGE-TIME:** roadmap row #5 checkbox flips via `/cleanup-merged`.
+
+## Phase 10: Config-resolved (phase-honest) metrics (post-review enhancement, D13)
+
+- [ ] 10.1 **Test first (CPU):** `config_mean_r2` + `within_config_variance_fraction` match the known-answer arrays (two configs `[1,3]`/`[5,7]`, pred means `2`/`5` → fraction `0.2`, R² `0.875`) — *Scenario: config-resolved quantities match known-answer arrays*.
+- [ ] 10.2 **Test first (CPU):** a constant per-config mean (zero between-config variance) yields the NaN sentinel for `config_mean_r2` — *Scenario: A constant per-configuration mean yields the R² sentinel*.
+- [ ] 10.3 **Test first (CPU):** `metrics.json` carries a `config_resolved` block keyed by the six targets, each with `config_mean_r2` + `within_config_variance_fraction` — *Scenario: config_resolved block is present per target*.
+- [ ] 10.4 Implement the config-resolved helper (pure numpy; cycle-mean per config; `_VARIANCE_EPS` floor) and add the `config_resolved` block to `build_metrics`, reported alongside `aggregate`.
+- [ ] 10.5 Re-validate `--strict`; re-run the CPU gate + A5000 GPU tests; refresh `surrogate/metrics.json` (gains `config_resolved`); update README + PR.

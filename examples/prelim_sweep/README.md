@@ -234,6 +234,13 @@ The **normative schemas** for `metrics.json` and the predictions table are the `
 spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"* and
 *"Predictions parquet schema"* — neither is re-listed here to avoid drift.
 
+> **Read the `config_resolved` block, not just the aggregate R² (CC-4).** The pointwise aggregate
+> R² (~0.98) is **~99.9% the within-beat force waveform** — a smooth periodic shape shared by every
+> config — so it overstates the kinematics→force-*map* skill. `metrics.json` also reports, per
+> target, `config_resolved.config_mean_r2` (R² on the per-config **cycle-mean** — the phase-removed
+> config-to-config skill, ~0.75–0.94) and `within_config_variance_fraction` (how waveform-driven the
+> aggregate is). The PR6 figure caption uses the honest config-resolved number, not the aggregate.
+
 **Training is local — the RTX A5000 (24 GB, FP32/TF32) via WSL2 + `uv`, *not* RunAI.** The GPU
 deps are an opt-in group:
 

@@ -459,6 +459,59 @@ def predict(
         return model(xt).cpu().numpy()
 
 
+def compute_config_resolved(
+    y_true: NDArray[np.floating],
+    y_pred: NDArray[np.floating],
+    config_names: NDArray,
+    target_names: list[str],
+) -> dict[str, dict[str, float]]:
+    """Phase-honest, config-resolved metrics that the waveform-dominated aggregate R² hides.
+
+    The pointwise aggregate R² is mostly the within-beat **waveform** (a smooth periodic shape
+    shared by every config), so it overstates the kinematics→force-map skill (CC-4, design D13).
+    For each target this reports, grouped by ``config_name`` (pure numpy):
+
+    - ``config_mean_r2`` — R² on the per-configuration **cycle-mean** coefficient (phase removed;
+      the physically-central cycle-averaged force), the NaN sentinel when between-config variance
+      is (near-)zero (``_VARIANCE_EPS`` floor, consistent with :func:`compute_metrics`).
+    - ``within_config_variance_fraction`` — the fraction of total holdout variance that is
+      within-configuration (the waveform), exposing how waveform-driven the aggregate R² is.
+
+    Args:
+        y_true: ``(n, n_targets)`` true coefficients (physical units), aligned with ``config_names``.
+        y_pred: ``(n, n_targets)`` predictions (physical units).
+        config_names: ``(n,)`` configuration name per row.
+        target_names: The ``n_targets`` column names.
+
+    Returns:
+        ``{name: {"config_mean_r2", "within_config_variance_fraction"}}``.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    config_names = np.asarray(config_names)
+    uniq = np.unique(config_names)  # sorted
+    row_group = np.searchsorted(uniq, config_names)
+    out: dict[str, dict[str, float]] = {}
+    for i, name in enumerate(target_names):
+        t = y_true[:, i]
+        p = y_pred[:, i]
+        cm_t = np.array([t[config_names == c].mean() for c in uniq])
+        cm_p = np.array([p[config_names == c].mean() for c in uniq])
+        ss_res = float(np.sum((cm_t - cm_p) ** 2))
+        ss_tot = float(np.sum((cm_t - cm_t.mean()) ** 2))
+        config_mean_r2 = (
+            float("nan") if ss_tot <= _VARIANCE_EPS else 1.0 - ss_res / ss_tot
+        )
+        within = float(np.sum((t - cm_t[row_group]) ** 2))
+        total = float(np.sum((t - t.mean()) ** 2))
+        frac = float("nan") if total <= _VARIANCE_EPS else within / total
+        out[name] = {
+            "config_mean_r2": config_mean_r2,
+            "within_config_variance_fraction": frac,
+        }
+    return out
+
+
 def _json_safe(obj: Any) -> Any:
     """Recursively replace non-finite floats with ``None`` (NaN R² sentinel -> JSON null)."""
     if isinstance(obj, dict):
@@ -525,7 +578,8 @@ def build_metrics(
         reproducibility: The reproducibility block (seeds, features, ``bitwise`` scope).
 
     Returns:
-        ``{"per_target", "aggregate", "per_config", "inference", "reproducibility"}``.
+        ``{"per_target", "aggregate", "per_config", "config_resolved", "inference",
+        "reproducibility"}``.
     """
     names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
     y_true = np.asarray(y_true, dtype=float)
@@ -536,10 +590,13 @@ def build_metrics(
     for cfg in sorted(pd.unique(config_names)):
         mask = config_names == cfg
         per_config[str(cfg)] = compute_metrics(y_true[mask], y_pred[mask], names)
+    # Phase-honest config-resolved skill, reported alongside the waveform-dominated aggregate (D13).
+    config_resolved = compute_config_resolved(y_true, y_pred, config_names, names)
     return {
         "per_target": overall["per_target"],
         "aggregate": overall["aggregate"],
         "per_config": per_config,
+        "config_resolved": config_resolved,
         "inference": dict(inference),
         "reproducibility": dict(reproducibility),
     }

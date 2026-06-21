@@ -143,6 +143,38 @@ poison the aggregate).
 - **When** the holdout metrics are computed
 - **Then** every row scored is from a `split == "holdout"` configuration on the converged beat, and no training or validation row contributes to the reported holdout metrics (CC-4)
 
+### Requirement: Config-resolved (phase-honest) evaluation metrics
+
+The surrogate evaluation SHALL additionally report **config-resolved** metrics in `metrics.json`,
+because the pointwise aggregate R² is dominated by the within-beat force **waveform** — a smooth
+periodic shape shared across all configurations and therefore largely "free" to learn — and on its
+own **overstates** the surrogate's skill at the kinematics→force *map* (the genuinely held-out
+config-to-config dependence) (CC-4 scientific honesty). The evaluation SHALL carry, per target, a
+`config_resolved` block reporting (a) `config_mean_r2` — the R² computed on the per-configuration
+**cycle-mean** coefficient (the phase-removed config-to-config skill, the physically-central
+cycle-averaged force) — and (b) `within_config_variance_fraction` — the fraction of total holdout
+variance that is within-configuration (the waveform), which exposes how much of the aggregate R² is
+waveform-driven. These SHALL be pure-numpy, computed on the inverse-transformed predictions grouped
+by `config_name`, and reported **alongside** (never instead of) the aggregate.
+
+#### Scenario: config_resolved block is present per target
+
+- **Given** a completed holdout evaluation
+- **When** `metrics.json` is written and re-read
+- **Then** it contains a `config_resolved` block keyed by `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`, each carrying a `config_mean_r2` and a `within_config_variance_fraction` — distinct from, and reported in addition to, the pointwise `per_target`/`aggregate` blocks
+
+#### Scenario: config-resolved quantities match known-answer arrays
+
+- **Given** two configurations whose true coefficients are `[1, 3]` (mean 2) and `[5, 7]` (mean 6), with predicted per-configuration cycle-means of `2` and `5`
+- **When** the config-resolved metrics are computed
+- **Then** `within_config_variance_fraction == 0.2` (within-config SS 4 / total SS 20) and `config_mean_r2 == 0.875` (`1 - 1/8`) — exact known answers, confirming the phase/config decomposition is correct and not a re-label of the inflated aggregate
+
+#### Scenario: A constant per-configuration mean yields the R² sentinel, not garbage
+
+- **Given** holdout configurations whose per-configuration cycle-means are (near-)identical (zero between-config variance)
+- **When** `config_mean_r2` is computed
+- **Then** it is the documented NaN sentinel (serialized as `null`) rather than an unhandled `0/0`, consistent with the pointwise R² sentinel (`_VARIANCE_EPS` floor)
+
 ### Requirement: Training reproducibility and provenance
 
 The training run SHALL be seeded (python/numpy/torch) with `torch.use_deterministic_algorithms`

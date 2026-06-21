@@ -1,11 +1,11 @@
 {
-  "run_id": "2debc3a0-9e46-40aa-a1f3-c46c668b0536",
+  "run_id": "f7879653-b46d-4a86-bf09-b32667c56da1",
   "timestamp": "2026-06-20T00:00:00Z",
   "git": {
-    "commit": "a13bb3865f8331feb87a350cde8c12d74b0ae3d9",
+    "commit": "5e7cd75eb5a5eabd93e028685332948e2cd3327d",
     "branch": "add-force-surrogate-train",
     "dirty": true,
-    "diff_hash": "a6596d135151",
+    "diff_hash": "54fe27795ab2",
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {

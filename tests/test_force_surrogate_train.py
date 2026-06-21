@@ -25,6 +25,7 @@ from mosquito_cfd.force_surrogate.train import (
     build_metrics,
     build_predictions_frame,
     build_training_metadata,
+    compute_config_resolved,
     compute_metrics,
     filter_converged_beat,
     log_to_wandb,
@@ -290,6 +291,48 @@ def test_compute_metrics_empty_raises():
     """compute_metrics on a zero-row array raises rather than emitting a NaN/warning."""
     with pytest.raises(ValueError, match="zero-row"):
         compute_metrics(np.empty((0, 1)), np.empty((0, 1)), ["CF_x"])
+
+
+def test_config_resolved_known_answer():
+    """Scenario: config-resolved quantities match known-answer arrays."""
+    # config A true [1,3] (mean 2), config B true [5,7] (mean 6); pred per-config means 2 and 5
+    config_names = np.array(["A", "A", "B", "B"])
+    y_true = np.array([[1.0], [3.0], [5.0], [7.0]])
+    y_pred = np.array([[2.0], [2.0], [5.0], [5.0]])
+    cr = compute_config_resolved(y_true, y_pred, config_names, ["CF_x"])
+    # within SS = 4, total SS = 20 -> fraction 0.2
+    assert cr["CF_x"]["within_config_variance_fraction"] == pytest.approx(0.2)
+    # config-mean R2 = 1 - 1/8 = 0.875 (cm_true [2,6], cm_pred [2,5])
+    assert cr["CF_x"]["config_mean_r2"] == pytest.approx(0.875)
+
+
+def test_config_resolved_constant_means_sentinel():
+    """Scenario: A constant per-configuration mean yields the R² sentinel, not garbage."""
+    config_names = np.array(["A", "A", "B", "B"])
+    y_true = np.array(
+        [[1.0], [3.0], [1.0], [3.0]]
+    )  # both configs mean 2 -> zero between-var
+    y_pred = np.array([[1.5], [2.5], [1.0], [3.0]])
+    cr = compute_config_resolved(y_true, y_pred, config_names, ["CF_x"])
+    assert np.isnan(cr["CF_x"]["config_mean_r2"])  # sentinel, not 0/0
+
+
+def test_metrics_json_has_config_resolved(tmp_path):
+    """Scenario: config_resolved block is present per target."""
+    holdout, y_true, y_pred = _holdout_arrays()
+    metrics = build_metrics(
+        y_true,
+        y_pred,
+        holdout,
+        inference=_placeholder_inference(),
+        reproducibility=_reproducibility(),
+    )
+    path = tmp_path / "metrics.json"
+    write_json(path, metrics)
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    assert set(loaded["config_resolved"]) == set(TARGET_COLUMNS)
+    for block in loaded["config_resolved"].values():
+        assert set(block) == {"config_mean_r2", "within_config_variance_fraction"}
 
 
 def test_standardizer_near_zero_variance_floored():

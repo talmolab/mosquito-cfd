@@ -272,9 +272,35 @@
       }
     }
   },
+  "config_resolved": {
+    "CF_x": {
+      "config_mean_r2": 0.9441909834892075,
+      "within_config_variance_fraction": 0.9784587161120212
+    },
+    "CF_y": {
+      "config_mean_r2": -3.6120608575562256,
+      "within_config_variance_fraction": 0.9998152042033325
+    },
+    "CF_z": {
+      "config_mean_r2": 0.8270997606887206,
+      "within_config_variance_fraction": 0.99878798079151
+    },
+    "CF_mx": {
+      "config_mean_r2": 0.9395787431447139,
+      "within_config_variance_fraction": 0.9991097149405329
+    },
+    "CF_my": {
+      "config_mean_r2": 0.9865158106411775,
+      "within_config_variance_fraction": 0.4422290523950217
+    },
+    "CF_mz": {
+      "config_mean_r2": 0.7514099773545481,
+      "within_config_variance_fraction": 0.9985954504178439
+    }
+  },
   "inference": {
-    "latency_ms": 0.16548966500000262,
-    "throughput_rows_per_s": 41281080.19110149,
+    "latency_ms": 0.14568997499999625,
+    "throughput_rows_per_s": 40752830.10210568,
     "basis": "mean single-row latency over 200 iters; batched throughput over 12535 rows on cuda; cuda-synchronized"
   },
   "reproducibility": {

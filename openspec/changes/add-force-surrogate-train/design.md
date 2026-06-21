@@ -201,7 +201,7 @@ claimed bitwise.
 
 ## Spec delta summary
 
-The `force-surrogate` capability gains eight requirements:
+The `force-surrogate` capability gains nine requirements:
 
 1. **Held-out-configuration train/validation/test split** (CC-4) — 6 holdout configs = test; seeded
    config-level val from the 21 train configs; disjoint.
@@ -211,6 +211,9 @@ The `force-surrogate` capability gains eight requirements:
    decreases (GPU tier).
 4. **Held-out evaluation metrics** — `metrics.json` per-target/aggregate/per-config + inference
    timing.
+4b. **Config-resolved (phase-honest) metrics** — per-target `config_mean_r2` (phase-removed
+   config-to-config skill) + `within_config_variance_fraction`, so the waveform-inflated aggregate
+   R² is reported transparently, not unqualified (CC-4).
 5. **Training reproducibility and provenance** — seeds + deterministic flags + `run_metadata`
    digest; CPU bitwise / GPU seeded; wandb gated.
 6. **Committed training artifacts** — the four artifacts, real-run provenance.
