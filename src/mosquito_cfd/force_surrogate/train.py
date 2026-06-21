@@ -70,6 +70,13 @@ REQUIRED_COLUMNS = [
 # Converged-beat threshold: the first whole beat (wingbeat 0) is the startup transient.
 CONVERGED_MIN_WINGBEAT = 1
 
+# Absolute floor below which a column's variance / sum-of-squares is treated as zero (a
+# constant column). Far below any real coefficient variance (the corpus minimum std is ~0.19)
+# yet above pure float rounding of an exactly-constant column — so the zero-variance guards in
+# ``Standardizer`` and ``compute_metrics`` fire on genuinely-constant data without letting a
+# tiny-but-nonzero variance divide through to a garbage result (design D4).
+_VARIANCE_EPS = 1e-12
+
 
 # --- Feature / target construction -------------------------------------------------------
 
@@ -137,7 +144,10 @@ class Standardizer:
         x = np.asarray(x, dtype=float)
         self.mean_ = x.mean(axis=0)
         std = x.std(axis=0, ddof=0)
-        self.scale_ = np.where(std == 0.0, 1.0, std)
+        # Floor a (near-)zero-variance column's scale to 1.0 so it standardizes to 0 rather
+        # than NaN/inf; the tolerance catches genuinely-constant columns without amplifying a
+        # tiny-but-nonzero std into an astronomically-scaled feature (design D4).
+        self.scale_ = np.where(std <= _VARIANCE_EPS, 1.0, std)
         return self
 
     def transform(self, x: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -256,6 +266,8 @@ def compute_metrics(
             f"target_names has {len(target_names)} names but arrays have "
             f"{y_true.shape[1]} columns"
         )
+    if y_true.shape[0] == 0:
+        raise ValueError("cannot compute metrics on a zero-row array")
     per_target: dict[str, dict[str, float]] = {}
     for i, name in enumerate(target_names):
         t = y_true[:, i]
@@ -265,15 +277,22 @@ def compute_metrics(
         mae = float(np.mean(np.abs(resid)))
         ss_res = float(np.sum(resid**2))
         ss_tot = float(np.sum((t - t.mean()) ** 2))
-        r2 = float("nan") if ss_tot == 0.0 else 1.0 - ss_res / ss_tot
+        # Sentinel for a (near-)zero-variance target: a tiny-but-nonzero ss_tot would
+        # otherwise divide through to an explosive, meaningless R² (design D4). The floor is
+        # absolute and far below any real coefficient variance (the corpus minimum is ~0.19).
+        r2 = float("nan") if ss_tot <= _VARIANCE_EPS else 1.0 - ss_res / ss_tot
         per_target[name] = {"rmse": rmse, "mae": mae, "r2": r2}
     rmses = np.array([per_target[n]["rmse"] for n in target_names])
     maes = np.array([per_target[n]["mae"] for n in target_names])
     r2s = np.array([per_target[n]["r2"] for n in target_names])
+    # All three aggregates are NaN-aware and consistent: a target whose metric is NaN (a
+    # constant-target R² sentinel, or a target with a NaN datum) is skipped, not propagated —
+    # so a single bad column never silently nulls the headline RMSE/MAE while R² survives.
     aggregate = {
-        "rmse": float(np.mean(rmses)),
-        "mae": float(np.mean(maes)),
-        # NaN-aware: a constant-target sentinel R² is skipped, not propagated.
+        "rmse": float(np.nanmean(rmses))
+        if np.any(np.isfinite(rmses))
+        else float("nan"),
+        "mae": float(np.nanmean(maes)) if np.any(np.isfinite(maes)) else float("nan"),
         "r2": float(np.nanmean(r2s)) if np.any(np.isfinite(r2s)) else float("nan"),
     }
     return {"per_target": per_target, "aggregate": aggregate}
@@ -348,23 +367,31 @@ def train_model(
     seed: int,
     lr: float = 1e-3,
     device: str = "cpu",
+    x_val: NDArray[np.floating] | None = None,
+    y_val: NDArray[np.floating] | None = None,
 ) -> list[float]:
     """Seeded MSE training loop; returns the per-epoch training-loss history.
+
+    If a validation set (``x_val``/``y_val``) is supplied, the per-epoch validation loss is
+    tracked and the **best-validation** weights are restored into ``model`` at the end (model
+    selection / early-stopping-equivalent, CC-4). Without it, the final-epoch weights are kept.
 
     Determinism: on ``device="cpu"`` the loss trajectory is reproducible for a fixed seed
     (asserted by the torch tier); the CUDA run is seeded but not asserted bitwise (design D6).
 
     Args:
         model: A model from :func:`build_model`.
-        x: ``(n, n_in)`` standardized features.
-        y: ``(n, n_out)`` standardized targets.
+        x: ``(n, n_in)`` standardized training features.
+        y: ``(n, n_out)`` standardized training targets.
         epochs: Number of full-batch gradient steps.
         seed: Seed applied before training.
         lr: Adam learning rate.
         device: ``"cpu"`` or ``"cuda"``.
+        x_val: Optional ``(m, n_in)`` standardized validation features for model selection.
+        y_val: Optional ``(m, n_out)`` standardized validation targets.
 
     Returns:
-        The list of per-epoch training losses (length ``epochs``).
+        The list of per-epoch **training** losses (length ``epochs``).
     """
     import torch
 
@@ -373,9 +400,15 @@ def train_model(
     model = model.to(dev)
     xt = torch.as_tensor(np.asarray(x, dtype=np.float32), device=dev)
     yt = torch.as_tensor(np.asarray(y, dtype=np.float32), device=dev)
+    has_val = x_val is not None and y_val is not None
+    if has_val:
+        xv = torch.as_tensor(np.asarray(x_val, dtype=np.float32), device=dev)
+        yv = torch.as_tensor(np.asarray(y_val, dtype=np.float32), device=dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.MSELoss()
     history: list[float] = []
+    best_val = float("inf")
+    best_state: dict | None = None
     model.train()
     for _ in range(epochs):
         opt.zero_grad()
@@ -383,6 +416,20 @@ def train_model(
         loss.backward()
         opt.step()
         history.append(float(loss.detach().cpu()))
+        if has_val:
+            model.eval()
+            with torch.no_grad():
+                v = float(loss_fn(model(xv), yv).cpu())
+            model.train()
+            if v < best_val:
+                best_val = v
+                best_state = {
+                    k: t.detach().cpu().clone() for k, t in model.state_dict().items()
+                }
+    if has_val and best_state is not None:
+        model.load_state_dict(
+            best_state
+        )  # restore best-validation weights (model selection)
     return history
 
 
@@ -584,26 +631,56 @@ def log_to_wandb(
 
 
 def _measure_inference(
-    model: torch.nn.Module, x: NDArray[np.floating], *, device: str
+    model: torch.nn.Module,
+    x: NDArray[np.floating],
+    *,
+    device: str,
+    n_latency: int = 200,
 ) -> dict[str, Any]:
-    """Measure single-row latency (ms) and batched throughput (rows/s) for the speedup figure."""
+    """Measure single-row latency (ms) and batched throughput (rows/s) for the speedup figure.
+
+    On CUDA, kernel launches are asynchronous, so the timed regions are bracketed with
+    ``torch.cuda.synchronize()`` (otherwise ``perf_counter`` captures only launch overhead).
+    Latency is the **mean** over ``n_latency`` single-row passes (one un-timed warm-up batch
+    first); throughput is one synchronized full-batch pass. Tensors are placed on-device once so
+    host->device transfer and ``model.to`` are not counted in the inference time.
+    """
     import time
 
-    n = x.shape[0]
-    one = x[:1]
-    # Warm up, then time a single-row forward pass (latency) and the full batch (throughput).
-    predict(model, one, device=device)
-    t0 = time.perf_counter()
-    predict(model, one, device=device)
-    latency_ms = (time.perf_counter() - t0) * 1.0e3
-    t0 = time.perf_counter()
-    predict(model, x, device=device)
-    batch_s = time.perf_counter() - t0
+    import torch
+
+    dev = torch.device(device)
+    model = model.to(dev).eval()
+    xt = torch.as_tensor(np.asarray(x, dtype=np.float32), device=dev)
+    one = xt[:1]
+    n = xt.shape[0]
+
+    def _sync() -> None:
+        if dev.type == "cuda":
+            torch.cuda.synchronize()
+
+    with torch.no_grad():
+        for _ in range(10):  # warm up
+            model(one)
+        _sync()
+        t0 = time.perf_counter()
+        for _ in range(n_latency):
+            model(one)
+        _sync()
+        latency_ms = (time.perf_counter() - t0) / n_latency * 1.0e3
+        _sync()
+        t0 = time.perf_counter()
+        model(xt)
+        _sync()
+        batch_s = time.perf_counter() - t0
     throughput = n / batch_s if batch_s > 0 else float("inf")
     return {
         "latency_ms": float(latency_ms),
         "throughput_rows_per_s": float(throughput),
-        "basis": f"single-row latency; batched throughput over {n} rows on {device}",
+        "basis": (
+            f"mean single-row latency over {n_latency} iters; batched throughput over {n} "
+            f"rows on {device}; cuda-synchronized"
+        ),
     }
 
 
@@ -661,19 +738,38 @@ def run_training(
     """
     import torch
 
+    from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
+
     dataset_path = Path(dataset_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Fail fast on a missing/mutable digest *before* paying for the full A5000 training run
+    # (a pure regex guard; the same digest is re-validated by build_training_metadata, CC-1).
+    validate_image_digest(docker_image_digest)
 
     df = pd.read_parquet(dataset_path)
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"dataset is missing required column(s) {missing}")
+    holdout_before = set(df.loc[df["split"] == "holdout", "config_name"].unique())
     df = filter_converged_beat(df)
+    holdout_after = set(df.loc[df["split"] == "holdout", "config_name"].unique())
+    dropped = sorted(holdout_before - holdout_after)
+    if dropped:
+        # A holdout config with no converged-beat rows would silently vanish from the eval.
+        logger.warning(
+            "holdout config(s) %s have no converged-beat (wingbeat>=%d) rows and are absent "
+            "from the evaluation; metrics.json covers %d of %d holdout configs",
+            dropped,
+            CONVERGED_MIN_WINGBEAT,
+            len(holdout_after),
+            len(holdout_before),
+        )
     split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
 
     cfg = df["config_name"].to_numpy()
     train_mask = np.isin(cfg, split.train_configs)
+    val_mask = np.isin(cfg, split.val_configs)
     test_mask = np.isin(cfg, split.test_configs)
 
     x_all, feature_names = build_features(df)
@@ -690,6 +786,7 @@ def run_training(
         hidden=hidden,
         num_layers=num_layers,
     )
+    # Train with the val set driving best-checkpoint selection (CC-4: val is config-level).
     history = train_model(
         model,
         xz[train_mask],
@@ -698,12 +795,23 @@ def run_training(
         seed=seed,
         lr=lr,
         device=device,
+        x_val=xz[val_mask],
+        y_val=yz[val_mask],
     )
 
     holdout_df = df[test_mask].reset_index(drop=True)
     yz_pred = predict(model, xz[test_mask], device=device)
     y_pred = target_std.inverse_transform(yz_pred)
     y_true = y_all[test_mask]
+
+    # Validation generalization of the selected model (the val set is held out of the fit and
+    # of the holdout metrics; reported so the carved configs are used, not silently discarded).
+    y_val_pred = target_std.inverse_transform(
+        predict(model, xz[val_mask], device=device)
+    )
+    val_aggregate = compute_metrics(y_all[val_mask], y_val_pred, list(TARGET_COLUMNS))[
+        "aggregate"
+    ]
 
     inference = _measure_inference(model, xz[test_mask], device=device)
     reproducibility = {
@@ -714,6 +822,9 @@ def run_training(
         "device": device,
         "epochs": epochs,
         "final_train_loss": history[-1] if history else None,
+        "model_selection": "best_validation_checkpoint",
+        "val_configs": list(split.val_configs),
+        "val_aggregate": val_aggregate,
     }
     metrics = build_metrics(
         y_true, y_pred, holdout_df, inference=inference, reproducibility=reproducibility

@@ -152,6 +152,10 @@ def test_full_round_trip_writes_four_artifacts(tmp_path):
     assert set(preds["config_name"]) <= set(HOLDOUT)
     for c in TARGET_COLUMNS:
         assert f"{c}_true" in preds.columns and f"{c}_pred" in preds.columns
+    # the validation set drove best-checkpoint selection and is reported (not discarded)
+    repro = result["metrics"]["reproducibility"]
+    assert repro["model_selection"] == "best_validation_checkpoint"
+    assert repro["val_configs"] and "val_aggregate" in repro
 
 
 def test_provenance_records_library_versions():

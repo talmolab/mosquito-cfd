@@ -259,6 +259,47 @@ def test_constant_target_r2_is_sentinel():
     assert m["aggregate"]["r2"] == pytest.approx(m["per_target"]["CF_x"]["r2"])
 
 
+def test_aggregate_rmse_mae_are_nan_aware():
+    """A NaN datum in one target nulls that target but not the aggregate RMSE/MAE."""
+    y_true = np.column_stack(
+        [np.array([1.0, 2.0, 3.0, 4.0]), np.array([1.0, 2.0, 3.0, 4.0])]
+    )
+    y_pred = y_true.copy()
+    y_pred[0, 1] = np.nan  # corrupt one datum in target 2
+    m = compute_metrics(y_true, y_pred, ["CF_x", "CF_y"])
+    assert np.isnan(m["per_target"]["CF_y"]["rmse"])  # target 2 is NaN
+    # aggregate RMSE/MAE skip the NaN target (consistent with R²) — not silently nulled
+    assert m["aggregate"]["rmse"] == pytest.approx(m["per_target"]["CF_x"]["rmse"])
+    assert m["aggregate"]["mae"] == pytest.approx(m["per_target"]["CF_x"]["mae"])
+
+
+def test_near_zero_variance_r2_is_sentinel():
+    """A near-(not exactly-)zero-variance target yields the NaN R² sentinel, not garbage."""
+    base = 5.0
+    y_true = np.column_stack(
+        [np.array([1.0, 2.0, 3.0, 4.0]), base + np.array([0.0, 1e-13, -1e-13, 0.0])]
+    )
+    y_pred = y_true + 0.1
+    m = compute_metrics(y_true, y_pred, ["CF_x", "CF_y"])
+    assert np.isnan(
+        m["per_target"]["CF_y"]["r2"]
+    )  # tiny variance -> sentinel, not -1e24
+
+
+def test_compute_metrics_empty_raises():
+    """compute_metrics on a zero-row array raises rather than emitting a NaN/warning."""
+    with pytest.raises(ValueError, match="zero-row"):
+        compute_metrics(np.empty((0, 1)), np.empty((0, 1)), ["CF_x"])
+
+
+def test_standardizer_near_zero_variance_floored():
+    """A near-zero-variance column is floored (no astronomically-scaled feature)."""
+    y = np.column_stack([np.linspace(0, 1, 8), 5.0 + 1e-14 * np.arange(8)])
+    z = Standardizer().fit(y).transform(y)
+    assert np.isfinite(z).all()
+    assert np.abs(z[:, 1]).max() < 1.0  # not blown up by a tiny std
+
+
 # --- Phase 5: lazy-import guard ----------------------------------------------------------
 
 
