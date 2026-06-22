@@ -21,6 +21,37 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.15.1",
 ]
+# Force-surrogate training (PR5, Track B). Opt-in only: `uv sync --group train` on the
+# local RTX A5000 (Linux/WSL2). NOT installed by the default sync or in CI. The heavy GPU
+# wheels are marker-gated to Linux so the universal `uv.lock` still resolves on the Windows
+# dev host (design.md D5); `wandb` is pure-python and left ungated. The training code is
+# env-agnostic — WSL2, the PhysicsNeMo container, or a native Linux box all run it unchanged.
+train = [
+    "nvidia-physicsnemo ; sys_platform == 'linux'",
+    "torch ; sys_platform == 'linux'",
+    # torchvision is pulled transitively by PhysicsNeMo, but it is listed here as a *direct*
+    # dep so the cu126 `[tool.uv.sources]` pin below applies to it (uv sources only bind direct
+    # deps). Without this, torchvision resolves to the default (cu130) build and its compiled
+    # ops ABI-mismatch torch+cu126 → `RuntimeError: operator torchvision::nms does not exist`.
+    "torchvision ; sys_platform == 'linux'",
+    "wandb>=0.18",
+]
+
+# Pin the Linux CUDA build of torch/torchvision to the PyTorch cu126 index (CUDA 12.6). The
+# default PyPI wheel is +cu130 (CUDA 13.0), which needs a ~580+ driver; the dev/training A5000
+# runs driver 552.86 = CUDA 12.4. A cu126 build is the same CUDA *major* (12.x) and runs on the
+# 12.4 driver via CUDA minor-version compatibility — verified `torch.cuda.is_available()` True on
+# the A5000 (design.md D5; task 1.2). PhysicsNeMo 2.1.1 supports torch>=2.10 with a `cu12` extra.
+# `explicit = true` scopes the index to only torch/torchvision; everything else stays on PyPI.
+# Linux-marker-gated so the universal lock still resolves on the Windows dev host.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
 
 [project.scripts]
 generate-wing-planform = "mosquito_cfd.geometry.cli:main"
@@ -54,3 +85,6 @@ convention = "google"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gpu: requires a CUDA device and the optional 'train' group (PhysicsNeMo/torch); auto-skipped when unavailable and deselected in CI via `-m \"not gpu\"`",
+]

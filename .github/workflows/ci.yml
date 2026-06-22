@@ -38,7 +38,9 @@ jobs:
         run: uv sync --frozen
 
       - name: Run tests
-        run: uv run pytest -v || [ $? -eq 5 ]  # Exit code 5 = no tests collected (OK for now)
+        # -m "not gpu" deselects the force-surrogate GPU tier (PhysicsNeMo/torch on the local
+        # A5000) so nothing GPU-bound blocks CI; those tests also auto-skip via conftest.
+        run: uv run pytest -v -m "not gpu" || [ $? -eq 5 ]  # Exit code 5 = no tests collected (OK for now)
 
   dockerfile-lint:
     name: Dockerfile Lint

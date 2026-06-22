@@ -39,6 +39,10 @@ README text eol=lf
 # Parquet datasets are binary — never normalize line endings or diff as text. The real
 # force-surrogate dataset.parquet landed with the PR #16 Argo corpus (extracted by PR4).
 *.parquet binary
+# Torch model checkpoints are binary pickles — never EOL-normalize (force-surrogate PR5).
+*.pt binary
+*.pth binary
+*.ckpt binary
 *.csv text eol=lf
 
 # Windows specific files can use CRLF

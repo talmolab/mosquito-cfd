@@ -2,8 +2,10 @@
 
 Provides the single source of force/moment-coefficient normalization, a dimensionless
 units-sidecar convention, a provenance wrapper that pins the Docker image digest, the
-Aedes-anchored kinematic sweep generator (PR2), and the forces-to-tidy-dataset extractor
-(PR4: ``build_dataset``/``write_dataset``/``build_run_metadata``).
+Aedes-anchored kinematic sweep generator (PR2), the forces-to-tidy-dataset extractor
+(PR4: ``build_dataset``/``write_dataset``/``build_run_metadata``), and the PhysicsNeMo
+kinematics(+phase) -> force-coefficient surrogate trainer (PR5: ``run_training`` plus the
+torch-free feature/split/metrics helpers).
 """
 
 from mosquito_cfd.force_surrogate.dataset import (
@@ -49,6 +51,26 @@ from mosquito_cfd.force_surrogate.sweep import (
     render_inputs,
     select_holdout,
 )
+from mosquito_cfd.force_surrogate.train import (
+    FEATURE_COLUMNS,
+    TARGET_COLUMNS,
+    SplitAssignment,
+    Standardizer,
+    build_features,
+    build_metrics,
+    build_model,
+    build_predictions_frame,
+    build_training_metadata,
+    compute_config_resolved,
+    compute_metrics,
+    filter_converged_beat,
+    filter_converged_beat_report_holdout,
+    log_to_wandb,
+    make_config_splits,
+    predict,
+    run_training,
+    train_model,
+)
 
 __all__ = [
     "ForceCoefficients",
@@ -84,4 +106,22 @@ __all__ = [
     "check_completion",
     "run_config",
     "run_sweep",
+    "FEATURE_COLUMNS",
+    "TARGET_COLUMNS",
+    "SplitAssignment",
+    "Standardizer",
+    "build_features",
+    "build_metrics",
+    "build_model",
+    "build_predictions_frame",
+    "build_training_metadata",
+    "compute_config_resolved",
+    "compute_metrics",
+    "filter_converged_beat",
+    "filter_converged_beat_report_holdout",
+    "log_to_wandb",
+    "make_config_splits",
+    "predict",
+    "run_training",
+    "train_model",
 ]
