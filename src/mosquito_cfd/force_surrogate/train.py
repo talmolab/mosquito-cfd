@@ -366,6 +366,8 @@ def set_seeds(seed: int) -> None:
     import torch
 
     random.seed(seed)
+    # Seed the legacy global numpy RNG (not just a local Generator) because torch/physicsnemo
+    # init paths may reach for np.random.* — required for the GPU-tier determinism guarantee.
     np.random.seed(seed)
     torch.manual_seed(seed)
     # warn_only: some CUDA kernels lack a deterministic impl; we scope the bitwise claim to CPU.
@@ -459,7 +461,7 @@ def train_model(
     loss_fn = torch.nn.MSELoss()
     history: list[float] = []
     best_val = float("inf")
-    best_state: dict | None = None
+    best_state: dict[str, torch.Tensor] | None = None
     model.train()
     for _ in range(epochs):
         opt.zero_grad()
@@ -540,6 +542,8 @@ def compute_config_resolved(
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     config_names = np.asarray(config_names)
+    if y_true.shape[0] == 0:  # parity with compute_metrics (no NaN-with-RuntimeWarning)
+        raise ValueError("cannot compute config-resolved metrics on a zero-row array")
     uniq = np.unique(config_names)  # sorted
     row_group = np.searchsorted(uniq, config_names)
     out: dict[str, dict[str, float]] = {}
@@ -746,14 +750,16 @@ def _measure_inference(
     *,
     device: str,
     n_latency: int = 200,
+    n_throughput: int = 20,
 ) -> dict[str, Any]:
     """Measure single-row latency (ms) and batched throughput (rows/s) for the speedup figure.
 
     On CUDA, kernel launches are asynchronous, so the timed regions are bracketed with
     ``torch.cuda.synchronize()`` (otherwise ``perf_counter`` captures only launch overhead).
-    Latency is the **mean** over ``n_latency`` single-row passes (one un-timed warm-up batch
-    first); throughput is one synchronized full-batch pass. Tensors are placed on-device once so
-    host->device transfer and ``model.to`` are not counted in the inference time.
+    Both numbers are **averaged** (latency over ``n_latency`` single-row passes, throughput over
+    ``n_throughput`` full-batch passes), after an un-timed warm-up, so neither is a one-shot
+    measurement subject to scheduler jitter. Tensors are placed on-device once so host->device
+    transfer and ``model.to`` are not counted in the inference time.
     """
     import time
 
@@ -780,16 +786,17 @@ def _measure_inference(
         latency_ms = (time.perf_counter() - t0) / n_latency * 1.0e3
         _sync()
         t0 = time.perf_counter()
-        model(xt)
+        for _ in range(n_throughput):
+            model(xt)
         _sync()
-        batch_s = time.perf_counter() - t0
+        batch_s = (time.perf_counter() - t0) / n_throughput
     throughput = n / batch_s if batch_s > 0 else float("inf")
     return {
         "latency_ms": float(latency_ms),
         "throughput_rows_per_s": float(throughput),
         "basis": (
-            f"mean single-row latency over {n_latency} iters; batched throughput over {n} "
-            f"rows on {device}; cuda-synchronized"
+            f"mean single-row latency over {n_latency} iters; mean batched throughput over "
+            f"{n_throughput} passes of {n} rows on {device}; cuda-synchronized"
         ),
     }
 

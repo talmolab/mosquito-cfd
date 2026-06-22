@@ -299,9 +299,9 @@
     }
   },
   "inference": {
-    "latency_ms": 0.15901046999999835,
-    "throughput_rows_per_s": 42282691.92532744,
-    "basis": "mean single-row latency over 200 iters; batched throughput over 12535 rows on cuda; cuda-synchronized"
+    "latency_ms": 0.23231488999998717,
+    "throughput_rows_per_s": 51693162.419422016,
+    "basis": "mean single-row latency over 200 iters; mean batched throughput over 20 passes of 12535 rows on cuda; cuda-synchronized"
   },
   "reproducibility": {
     "seeds": {

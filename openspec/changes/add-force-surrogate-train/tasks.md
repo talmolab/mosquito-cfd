@@ -5,7 +5,7 @@ refactor). CPU-tier tests are cluster-free (numpy/pandas only) and **gate CI**; 
 `@pytest.mark.gpu`, torch-tier, and run on the A5000. Decisions D1–D8 live in `design.md`. Each
 phase ≈ one atomic commit (see the proposal's PR-scoping note).
 
-> **Status (2026-06-19).** CPU library + driver + CPU-tier tests green (225 passed, 6 GPU
+> **Status (2026-06-19).** CPU library + driver + CPU-tier tests green (237 passed, 6 GPU
 > deselected, lint clean, `openspec --strict` valid). **De-risk complete on the A5000:**
 > PhysicsNeMo 2.1.1 stands up, `FullyConnected` matches `build_model`, all **6 GPU-tier tests
 > PASS on real CUDA**, and the full real-dataset run produced the four artifacts under
@@ -88,7 +88,7 @@ phase ≈ one atomic commit (see the proposal's PR-scoping note).
 - [x] 9.2 `openspec/project.md` `force_surrogate/` one-liner gained `train`.
 - [ ] 9.3 **MERGE-TIME:** reconcile `docs/force_surrogate/roadmap.md` row #5 text (drop the PyTorch-fallback / ~Jun-18 wording → "PhysicsNeMo-only, D1") with the status flip via `/cleanup-merged`.
 - [x] 9.4 `openspec validate add-force-surrogate-train --strict` — valid.
-- [x] 9.5 `ruff check`/`format --check` clean; `pytest -m "not gpu"` green (225 passed, 6 GPU deselected); GPU tier collects-and-skips. **NOTE:** `--cov` works for numpy-only modules (e.g. `geometry`, 72%) but fails when sourcing `force_surrogate.*` (its `__init__` imports pandas → a pre-existing numpy-2.x/pandas/coverage double-import bug; reproduces on the PR1 `normalization` module, so it predates this PR). Filed as [#22](https://github.com/talmolab/mosquito-cfd/issues/22). CI uses plain `pytest` (no `--cov`), so it is unaffected. No `--cov-fail-under` on `train.py` (model/training functions are torch-tier).
+- [x] 9.5 `ruff check`/`format --check` clean; `pytest -m "not gpu"` green (237 passed, 6 GPU deselected); GPU tier collects-and-skips. **NOTE:** `--cov` works for numpy-only modules (e.g. `geometry`, 72%) but fails when sourcing `force_surrogate.*` (its `__init__` imports pandas → a pre-existing numpy-2.x/pandas/coverage double-import bug; reproduces on the PR1 `normalization` module, so it predates this PR). Filed as [#22](https://github.com/talmolab/mosquito-cfd/issues/22). CI uses plain `pytest` (no `--cov`), so it is unaffected. No `--cov-fail-under` on `train.py` (model/training functions are torch-tier).
 - [ ] 9.6 **MERGE-TIME:** roadmap row #5 checkbox flips via `/cleanup-merged`.
 
 ## Phase 10: Config-resolved (phase-honest) metrics (post-review enhancement, D13)
@@ -98,3 +98,13 @@ phase ≈ one atomic commit (see the proposal's PR-scoping note).
 - [ ] 10.3 **Test first (CPU):** `metrics.json` carries a `config_resolved` block keyed by the six targets, each with `config_mean_r2` + `within_config_variance_fraction` — *Scenario: config_resolved block is present per target*.
 - [ ] 10.4 Implement the config-resolved helper (pure numpy; cycle-mean per config; `_VARIANCE_EPS` floor) and add the `config_resolved` block to `build_metrics`, reported alongside `aggregate`.
 - [ ] 10.5 Re-validate `--strict`; re-run the CPU gate + A5000 GPU tests; refresh `surrogate/metrics.json` (gains `config_resolved`); update README + PR.
+
+## Phase 11: /review-pr suggestion polish (D14)
+
+- [x] 11.1 Single-source `_r2` helper (scale-relative zero-variance sentinel) shared by `compute_metrics` + `compute_config_resolved`; relative floor matches the math and preserves CF_y's honest negative R².
+- [x] 11.2 `compute_config_resolved` raises on a zero-row input (parity with `compute_metrics`); single-config yields the sentinel + `within_config_variance_fraction == 1.0` — *Scenario: Degenerate config-resolved inputs are handled*. (+CPU tests)
+- [x] 11.3 `filter_converged_beat_report_holdout` helper + a correctly-attributed `ValueError` when *all* holdout configs lack a converged beat; `train_model` guards an empty val set; `config_names`/`best_state` typed precisely.
+- [x] 11.4 `_measure_inference` averages **both** latency (200 iters) and throughput (20 passes), cuda-synchronized.
+- [x] 11.5 GPU round-trip test asserts the `config_resolved` block end-to-end.
+- [x] 11.6 README: float32-metrics precision note + `config_resolved` added to the normative-schema reference list.
+

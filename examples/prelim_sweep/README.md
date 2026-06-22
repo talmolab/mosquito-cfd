@@ -231,8 +231,9 @@ does not collide with the dataset build's `run_metadata.json` one level up):
 | `surrogate/run_metadata.json` | **committed** | Provenance: the dataset corpus's pinned `:fp64` digest, git SHA, host/GPU, seeds, resolved `torch`/`physicsnemo` versions. |
 
 The **normative schemas** for `metrics.json` and the predictions table are the `force-surrogate`
-spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"* and
-*"Predictions parquet schema"* — neither is re-listed here to avoid drift.
+spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"*,
+*"config_resolved block is present per target"*, and *"Predictions parquet schema"* — none is
+re-listed here to avoid drift.
 
 > **Read the `config_resolved` block, not just the aggregate R² (CC-4).** The pointwise aggregate
 > R² (~0.98) is **~99.9% the within-beat force waveform** — a smooth periodic shape shared by every
@@ -260,7 +261,9 @@ needed) and `metrics.json` is always written from local state regardless of wand
 **Reproducibility (honest scope).** Seeds + `torch.use_deterministic_algorithms` are set. The
 **torch-free CPU helper chain** (features/split/standardizer/metrics) is **bitwise-reproducible**
 and CI-tested; the GPU run is **seeded but not bitwise** (cuDNN/TF32), so `metrics.json` records
-`reproducibility.bitwise == "cpu_only"`.
+`reproducibility.bitwise == "cpu_only"`. The model trains in **FP32** (the A5000 path); the
+predictions are FP32 and `metrics.json` values are computed in float64 on the inverse-transformed
+predictions (the float32→float64 round-off is ≪ the reported RMSE).
 
 **Tests.** CPU-tier tests are cluster-free and gate CI. The GPU tier (PhysicsNeMo construction, a
 seeded loss-decrease, and the full train→predict→`metrics.json` round-trip) is marked

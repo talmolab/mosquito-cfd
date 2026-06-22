@@ -329,6 +329,14 @@ def test_config_resolved_single_config():
     assert cr["CF_x"]["within_config_variance_fraction"] == pytest.approx(1.0)
 
 
+def test_config_resolved_empty_raises():
+    """Scenario: Degenerate config-resolved inputs — zero rows raise (parity with metrics)."""
+    with pytest.raises(ValueError, match="zero-row"):
+        compute_config_resolved(
+            np.empty((0, 1)), np.empty((0, 1)), np.array([], dtype=object), ["CF_x"]
+        )
+
+
 def test_config_mean_r2_keeps_honest_negative_for_near_zero_signal():
     """The scale-relative guard does NOT null a tiny-but-real between-config signal (CF_y-like)."""
     # per-config cycle-means -0.02 / 0.01 / 0.04 — a small but genuine between-config spread

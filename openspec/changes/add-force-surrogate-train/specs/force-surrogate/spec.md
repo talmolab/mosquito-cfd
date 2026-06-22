@@ -173,7 +173,13 @@ by `config_name`, and reported **alongside** (never instead of) the aggregate.
 
 - **Given** holdout configurations whose per-configuration cycle-means are (near-)identical (zero between-config variance)
 - **When** `config_mean_r2` is computed
-- **Then** it is the documented NaN sentinel (serialized as `null`) rather than an unhandled `0/0`, consistent with the pointwise R² sentinel (`_VARIANCE_EPS` floor)
+- **Then** it is the documented NaN sentinel (serialized as `null`) rather than an unhandled `0/0`, consistent with the pointwise R² sentinel (the **scale-relative** `_VARIANCE_EPS` floor, `SS_tot ≤ _VARIANCE_EPS · Σt²`, which fires on genuine constancy at any magnitude but does **not** null a tiny-but-real between-config spread — e.g. a near-zero-by-symmetry target keeps its honest, possibly negative, R²)
+
+#### Scenario: Degenerate config-resolved inputs are handled
+
+- **Given** either a **single** holdout configuration (no between-config variance) or a **zero-row** input
+- **When** `compute_config_resolved` is called
+- **Then** the single-configuration case yields the `config_mean_r2` sentinel (`null`) with `within_config_variance_fraction == 1.0` (all variance is within-config by definition), and a zero-row input raises `ValueError` (parity with `compute_metrics`) rather than emitting a NaN-with-`RuntimeWarning`
 
 ### Requirement: Training reproducibility and provenance
 
