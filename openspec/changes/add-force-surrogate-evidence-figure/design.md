@@ -48,11 +48,13 @@ leave #1 open as tracked tech-debt for the funded re-run.
 the issue itself flags the correct mapping as non-trivial/unverified, so asserting it in the headline
 figure would be *less* honest than reporting the raw component.
 
-## D2 — Sane–Dickinson baseline: translational-only quasi-steady, on the lift (CF_z) panel
+## D2 — Sane–Dickinson quasi-steady: a computed reference, NOT a scatter overlay
 
-**Decision.** Overlay a **translational-only** quasi-steady baseline (Sane & Dickinson 2002; F_rot and
-F_added omitted) on the **CF_z (lift)** panel — the force the translational term physically predicts.
-**Not** overlaid on CF_x or the CF_my moment panel.
+**Decision (revised — see "Why reference instead of overlay" below).** Compute a **translational-only**
+quasi-steady CF_z reference (Sane & Dickinson 2002; F_rot and F_added omitted) and report its
+**overshoot factor** + RMSE in the sidecar, but **do not draw it on the scatter panels**. The original
+plan (and CC-4) called for an overlay on the CF_z panel; building it revealed the overlay is
+misleading at the coarse grid (next paragraph), so it was demoted to a reference number.
 
 **Formula (dimensionless lift coefficient).** Using the validated flapping-wing kinematics
 (`φ(t)=φ_amp·sin(ωt)`, `α(t)=α_amp·cos(ωt)`, `ω=2π·f*`; `examples/flapping_wing/generate_all_figures.py:euler_angles`):
@@ -78,10 +80,35 @@ parsed from `config_name` (e.g. `s45_f115_p60` → φ=45°, f*=1.15, α=60°); `
 3.0, 3.0, 1.0, 5e-4 — the validated geometry), **not** re-declared locally (single-source, the same
 DRY discipline as CC-3). (D4's per-config rows come from the actual parquet counts, ≈`1/(f*·dt)`.)
 
-**Why translational-only.** CC-4 requires the baseline only to show *surrogate ≥ analytic model*. The
-translational term is the dominant, best-sourced quasi-steady contribution and needs no extra
-derivatives (F_rot needs `dα/dt`, F_added needs `d|U|/dt` and an added-mass volume). Against the
-cutoff, fewer terms = fewer places to be wrong. The omission is disclosed in the caption.
+**Why translational-only.** The translational term is the dominant, best-sourced quasi-steady
+contribution and needs no extra derivatives (F_rot needs `dα/dt`, F_added needs `d|U|/dt` and an
+added-mass volume). Against the cutoff, fewer terms = fewer places to be wrong. The omission is
+disclosed in the reference note.
+
+### Why reference instead of overlay? (CC-4 deviation, found during implementation)
+
+Drawing the baseline on the CF_z scatter is **misleading at this coarse grid**, for a reason that only
+became clear once it was computed against real data:
+
+- The uncalibrated QS model predicts a peak lift coefficient ~1.6–1.8; the coarse-grid CFD `CF_z`
+  peaks at only ~0.5 — an RMS overshoot of **~2.3×** (recorded as `overshoot_factor` in the sidecar).
+- That gap is **dominated by the ~2.4× diffused-IB underestimate** (the coarse IAMReX CFD is biased
+  *low*; `examples/flapping_wing/RESULTS.md`) plus the QS model's **tip-velocity overprediction**
+  (lift integrates over the span where inboard sections move slower; tip-scaling over-weights it).
+- The surrogate is trained to reproduce the **(IB-biased) coarse CFD** — which it does faithfully. So
+  an overlay showing "surrogate RMSE 0.056 ≪ baseline RMSE 0.985" mostly **re-displays the IB bias**,
+  not surrogate skill over the analytic model — a hollow, ~17×-looking "win." The large analytic loops
+  also visually dominated the lift panel (a reviewer/PI flagged it as confusing).
+
+**Resolution.** Keep the QS computation (it's a useful sanity number and the CC-3 reuse is genuine),
+but report it as a **reference**: `overshoot_factor = rms(CF_trans)/rms(CFD-true CF_z)` + RMSE in the
+sidecar, and one honest caption sentence ("an uncalibrated translational Sane–Dickinson model
+overshoots the coarse-grid CFD lift ~2.3× — dominated by the ~2.4× diffused-IB underestimate plus
+tip-velocity overprediction — so it is not used as a quantitative baseline at this resolution"). The
+CC-4 intent (surrogate ≥ analytic model) is **not cleanly achievable** at the coarse grid because the
+IB bias confounds the comparison; this is the honest call and is recorded as a deviation in the
+proposal + spec. (A *fair* comparison would scale-calibrate the QS to the CFD — but that makes it a
+fitted, not zero-parameter, model and is out of scope before the cutoff.)
 
 **Why AoA = α_amp·|cos(2π·phase)|.** With the prescribed kinematics (`α=α_amp·cos(ωt)` in quadrature
 with `φ=φ_amp·sin(ωt)`), this is the **symmetric-rotation** flat-plate hovering AoA: it peaks at the

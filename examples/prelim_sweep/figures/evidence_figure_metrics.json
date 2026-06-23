@@ -9,7 +9,11 @@
     "CF_z": 0.8270997606887206,
     "CF_my": 0.9865158106411775
   },
-  "baseline_rmse_cf_z": 0.9849411609099296,
+  "quasi_steady_reference": {
+    "baseline_rmse_cf_z": 0.9849411609099296,
+    "overshoot_factor": 2.2670256106197195,
+    "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — overshoots coarse-grid CFD (dominated by the ~2.4x diffused-IB underestimate + tip-velocity overprediction), so not a quantitative baseline here"
+  },
   "speedup": {
     "throughput_speedup": 3721907.694198385,
     "latency_speedup": 309.92417231630725,

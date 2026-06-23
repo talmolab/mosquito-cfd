@@ -64,24 +64,28 @@ sim→biomechanics axis relabeling.
 - **When** the figure is built
 - **Then** the headline moment coefficient is `CF_my`, and **no** axis plots a `CF_mx_*` or `CF_mz_*` column at all — so the headline panel shows a moment with genuine between-configuration variation and the waveform-dominated moments are excluded entirely
 
-### Requirement: Sane–Dickinson quasi-steady baseline overlay
+### Requirement: Sane–Dickinson quasi-steady reference (computed, not overlaid)
 
-The evidence figure SHALL overlay a **translational-only** Sane–Dickinson quasi-steady baseline on
-the **CF_z (lift)** panel and SHALL annotate the baseline's RMSE against CFD-true CF_z alongside the
-surrogate's RMSE, so the figure shows the surrogate is at least as good as the analytic model (CC-4).
-The baseline SHALL be computed through the **single-source** `compute_force_reference` helper (CC-3)
-— the reference force/tip-speed SHALL NOT be re-derived inline — as
+The evidence figure SHALL **compute** a **translational-only** Sane–Dickinson quasi-steady CF_z
+reference through the **single-source** `compute_force_reference` helper (CC-3) — the reference
+force/tip-speed SHALL NOT be re-derived inline — as
 `CF_trans(t) = F_trans(t)/F_ref = (U(t)/U_tip)²·C_L(α_eff(t))`, with `U(t)/U_tip = cos(2π·phase)` from
 the parquet `phase` column, `C_L(α)` the Dickinson–Lehmann–Sane (1999) empirical fit, and the
-per-configuration `(φ, f*, α)` parsed from `config_name`. The baseline SHALL NOT be overlaid on the
-moment panel (a translational force model does not predict a moment), and the figure SHALL scope the
-baseline to hovering (Sane & Dickinson 2002) and disclose, in the caption, that: the rotational and
-added-mass terms are omitted; the AoA uses the **symmetric-rotation** quasi-steady profile fixed by
-the prescribed kinematics; the QS lift is defined **stroke-plane-normal** while CFD `CF_z` is the
-**lab-z** force (the projections coincide only near mid-stroke); and the baseline is a **zero-parameter
-analytic model** present to **bound** the surrogate, **not** a fair-fit competitor (the surrogate is
-*fit* to sibling configs of this corpus, so a lower surrogate RMSE shows within-range interpolation,
-**not** that ML is more accurate than quasi-steady theory in general).
+per-configuration `(φ, f*, α)` parsed from `config_name`.
+
+It SHALL **NOT** overlay this reference on the scatter panels. **Why reference-only instead of an
+overlay (CC-4 deviation, design D2):** at the coarse 64×32×64 grid the uncalibrated quasi-steady
+model **overshoots** the CFD lift, and the gap is **dominated by the ~2.4× diffused-IB underestimate**
+(the CFD is biased low) plus the model's tip-velocity overprediction — so a scatter overlay would
+mostly re-display the IB bias rather than demonstrate surrogate skill (a misleading "17× better"
+artifact), and the large analytic loops visually dominated the lift panel. Instead the figure SHALL
+record the reference's **overshoot factor** (`rms(CF_trans) / rms(CFD-true CF_z)`) and its RMSE in the
+`evidence_figure_metrics.json` sidecar, and the caption SHALL disclose that an uncalibrated
+translational Sane–Dickinson model overshoots the coarse-grid CFD lift ~N× (dominated by the ~2.4×
+diffused-IB underestimate plus tip-velocity overprediction) and is therefore **not used as a
+quantitative baseline at this resolution**. The original CC-4 intent — show the surrogate ≥ the
+analytic model — is not cleanly achievable at the coarse grid because the IB bias confounds the
+comparison; this is recorded as a deviation in the proposal.
 
 #### Scenario: Baseline coefficient matches the documented formula on known inputs
 
@@ -101,25 +105,25 @@ analytic model** present to **bound** the surrogate, **not** a fair-fit competit
 - **When** it is parsed
 - **Then** it yields `phi_amp_deg == 45`, `f_star == 1.15`, and `pitch_amp_deg == 60`
 
-#### Scenario: Baseline is overlaid only on the lift panel with both RMSEs annotated
+#### Scenario: The quasi-steady reference is not drawn on any panel
 
 - **Given** the generated figure
-- **When** the CF_z panel and the CF_my panel are inspected
-- **Then** the CF_z panel carries two labeled point series (surrogate and Sane–Dickinson baseline) versus CFD-true CF_z with both RMSEs annotated, while the CF_my moment panel carries no baseline series, and the caption discloses the baseline is translational-only, hovering-scoped, symmetric-rotation, stroke-plane-normal vs lab-z, and a zero-parameter model that bounds (does not fairly compete with) the fitted surrogate
+- **When** every panel's series are inspected
+- **Then** **no** axis carries a Sane–Dickinson / baseline point series (the reference is computed, not plotted), and the panels show only the surrogate predictions colored by held-out configuration
 
-#### Scenario: Caption discloses the baseline is unfitted and the comparison is not "ML beats theory"
+#### Scenario: The quasi-steady overshoot is recorded and disclosed, not presented as a baseline
 
-- **Given** the figure overlays the fitted surrogate and the zero-parameter Sane–Dickinson baseline on CF_z, with the surrogate's RMSE lower
-- **When** the caption is built
-- **Then** it states the surrogate is fit to sibling configurations of this corpus while the baseline is a zero-parameter analytic model with no fit to any CFD data, and that the lower surrogate RMSE demonstrates within-range interpolation rather than ML being more accurate than quasi-steady theory in general
+- **Given** the computed Sane–Dickinson reference and the CFD-true CF_z
+- **When** the sidecar and caption are built
+- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (`rms(CF_trans)/rms(CFD-true CF_z)`, > 1) and `baseline_rmse_cf_z`, and the caption states that the uncalibrated quasi-steady model overshoots the coarse-grid CFD lift ~N× — dominated by the ~2.4× diffused-IB underestimate plus tip-velocity overprediction — and is **not used as a quantitative baseline** at this resolution (it is not framed as a comparison the surrogate "beats")
 
 ### Requirement: Honest evidence-figure caption and speedup annotation
 
 The evidence figure's disclosures SHALL be **split** to stay both honest **and** legible (a caption
 carrying a dozen disclosures fails an evidence figure as surely as a dishonest one): the on-figure
 caption SHALL be **compact** — a positive headline (the three panels' config-resolved R²/RMSE + the >1,000× batched
-speedup), a single terse "Caveats:" line, a single terse "Baseline:" line, and a pointer to
-`examples/prelim_sweep/README.md` — and the **full** disclosure set SHALL ALSO live in that README
+speedup), a single terse "Caveats:" line, a single terse "Quasi-steady reference (not plotted):" line,
+and a pointer to `examples/prelim_sweep/README.md` — and the **full** disclosure set SHALL ALSO live in that README
 (task 10.2) and in `evidence_figure_metrics.json`, so honesty is preserved and test-enforced without
 overloading the PNG. The positive config-resolved results (CF_x, CF_my) SHALL read as dominant; the
 off-panel CF_y −3.61 SHALL be subordinate (an honesty flag, not a co-headline). Within that compact
@@ -170,15 +174,16 @@ committed artifacts, never hard-coded.
 
 - **Given** the generated figure and the updated `examples/prelim_sweep/README.md`
 - **When** both are inspected
-- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse "Baseline:" line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion reason, the baseline's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / zero-parameter-unfitted caveats, the coarse-grid / ~2.4× / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion reason, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / ~2.4× / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
 
 ### Requirement: Committed evidence-figure artifacts with provenance
 
 The figure generator SHALL produce three artifacts under `examples/prelim_sweep/figures/`: the
 `evidence_figure.png`, an `evidence_figure_metrics.json` carrying the per-axis surrogate RMSE, the
-Sane–Dickinson baseline RMSE on CF_z, the configuration-resolved R² the figure annotates, and the
-speedup-derivation inputs (the batched throughput, the per-config rows-per-wingbeat, the coarse CFD
-per-wingbeat cost, the single-row latency, and both realized factors with their units); and a
+quasi-steady reference block (`overshoot_factor` + `baseline_rmse_cf_z`), the configuration-resolved
+R² the figure annotates, and the speedup-derivation inputs (the batched throughput, the per-config
+rows-per-wingbeat, the coarse CFD per-wingbeat cost, the single-row latency, and both realized factors
+with their units); and a
 `run_metadata.json` emitted via `capture_surrogate_run_metadata` requiring a pinned container
 **digest** and a **caller-supplied** timestamp (CC-1), recording the hash of the consumed inputs (the
 predictions parquet and metrics.json). The JSON sidecars SHALL be written **LF-newline UTF-8** (as
@@ -189,7 +194,7 @@ Linux CI.
 
 - **Given** a figure-generation run into a temporary output directory
 - **When** the run completes
-- **Then** `evidence_figure.png`, `evidence_figure_metrics.json`, and `run_metadata.json` all exist and re-load, and `evidence_figure_metrics.json` carries the per-axis surrogate RMSE, the CF_z Sane–Dickinson baseline RMSE, the annotated config-resolved R², and the speedup inputs — equal to what the figure displays
+- **Then** `evidence_figure.png`, `evidence_figure_metrics.json`, and `run_metadata.json` all exist and re-load, and `evidence_figure_metrics.json` carries the per-axis surrogate RMSE, the quasi-steady reference block (`overshoot_factor` + `baseline_rmse_cf_z`), the annotated config-resolved R², and the speedup inputs — equal to what the figure displays
 
 #### Scenario: Provenance records a pinned digest and caller timestamp
 
@@ -213,10 +218,11 @@ Linux CI.
 
 The figure generator SHALL be tested entirely **cluster-free** (CC-2) — no RunAI, no GPU, no
 plotfiles, no `train` dependency-group. Tests SHALL use a tiny synthetic predictions parquet and a
-tiny metrics dict, and SHALL assert the baseline formula on known arrays, the config-name parsing,
-the CC-3 helper as the single normalization source, the per-panel annotation values, the figure
-structure (three axes; the CF_z panel carries two labeled series; caption/annotation text present)
-via the Matplotlib object model (not pixels), the artifact schemas, and the provenance digest guard.
+tiny metrics dict, and SHALL assert the quasi-steady-reference formula on known arrays, the
+config-name parsing, the CC-3 helper as the single normalization source, the per-panel annotation
+values, the figure structure (three scatter axes; a shared config→color legend; **no** baseline
+series on any axis; caption/annotation text present) via the Matplotlib object model (not pixels),
+the artifact schemas, and the provenance digest guard.
 
 #### Scenario: Tests run without cluster, GPU, or plotfiles
 
@@ -228,7 +234,7 @@ via the Matplotlib object model (not pixels), the artifact schemas, and the prov
 
 - **Given** a generated figure object
 - **When** its structure is inspected
-- **Then** the test asserts three scatter axes, the CF_z axis carrying two labeled point series (surrogate + baseline), and the presence of the caption and per-panel annotation text — without comparing rendered pixels
+- **Then** the test asserts three scatter axes, a shared config→color legend (one entry per held-out config) with **no** Sane–Dickinson/baseline series on any axis, and the presence of the caption and per-panel annotation text — without comparing rendered pixels
 
 ### Requirement: Force-only evidence-figure scope guard
 

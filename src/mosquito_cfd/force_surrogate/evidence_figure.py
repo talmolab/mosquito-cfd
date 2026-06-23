@@ -2,15 +2,19 @@
 
 Reads the committed PR5 artifacts (``holdout_predictions.parquet`` + ``metrics.json``) and
 emits the NVIDIA-grant *Evidence-of-Readiness* figure: predicted-vs-CFD scatter for
-``CF_x / CF_z / CF_my`` on the held-out configurations, a translational Sane-Dickinson
-quasi-steady baseline overlaid on the lift (``CF_z``) panel, and an honest caption +
-batched-throughput speedup annotation. No solver, cluster, GPU, or plotfile (CC-6); the
-metrics the trainer already computed are *read*, never re-derived.
+``CF_x / CF_z / CF_my`` on the held-out configurations (points colored by config with a shared
+legend) and an honest caption + batched-throughput speedup annotation. The translational
+Sane-Dickinson quasi-steady model is computed as a **reference number** (overshoot factor), not
+drawn on the scatter — at this coarse grid it overshoots the (IB-biased) CFD, so an overlay
+would mostly re-display the ~2.4x diffused-IB bias rather than surrogate skill (CC-4 deviation,
+design D2). No solver, cluster, GPU, or plotfile (CC-6); the metrics the trainer already
+computed are *read*, never re-derived.
 
 Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my headline,
 named as a component — issue #1), D2 (translational Sane-Dickinson via the CC-3
-``compute_force_reference`` helper), D3 (honest caption, split compact-caption vs README),
-D4 (batched-throughput >1,000x speedup, disclosed as batch-size driven; ~310x latency floor).
+``compute_force_reference`` helper; reference-only, not overlaid), D3 (honest caption, split
+compact-caption vs README), D4 (batched-throughput >1,000x speedup, disclosed as batch-size
+driven; ~310x latency floor).
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ matplotlib.use("Agg")  # headless: figures are written, never shown (matches exa
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 from mosquito_cfd.force_surrogate.constants import (  # noqa: E402
     CHORD,
@@ -54,8 +59,6 @@ LIFT_PANEL = "CF_z"
 # speedup denominator, which the annotation labels "coarse-grid A40 CFD" (design D4).
 CFD_SECONDS_PER_WINGBEAT = 144.0
 
-_BASELINE_LABEL = "Sane-Dickinson (quasi-steady)"
-_SURROGATE_LABEL = "Surrogate"
 _README_POINTER = "examples/prelim_sweep/README.md"
 _CONFIG_RE = re.compile(r"^s(\d+)_f(\d+)_p(\d+)$")
 _BATCH_RE = re.compile(r"passes of (\d+) rows")
@@ -272,19 +275,22 @@ def compute_speedup(
     }
 
 
-def build_caption(metrics: dict[str, Any], speedup: dict[str, Any]) -> str:
+def build_caption(
+    metrics: dict[str, Any], speedup: dict[str, Any], baseline: dict[str, Any]
+) -> str:
     """Build the compact, honest figure caption (design D3; full prose lives in the README).
 
     A positive headline (per-axis config-resolved R2/RMSE + the batched >1,000x speedup), a
-    terse "Caveats:" line, a terse "Baseline:" line, and a README pointer. CF_x/CF_my read as
-    dominant; the off-panel CF_y negative R2 is a subordinate honesty flag.
+    terse "Caveats:" line, a terse quasi-steady-reference line, and a README pointer.
+    CF_x/CF_my read as dominant; the off-panel CF_y negative R2 is a subordinate honesty flag.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
         speedup: The :func:`compute_speedup` result.
+        baseline: The :func:`_baseline_reference` result (overshoot factor for the caption).
 
     Returns:
-        The multi-line caption string. Every number is read from ``metrics``/``speedup``.
+        The multi-line caption string. Every number is read from the artifacts.
     """
     r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
     rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
@@ -293,6 +299,7 @@ def build_caption(metrics: dict[str, Any], speedup: dict[str, Any]) -> str:
     thr = speedup["throughput_speedup"]
     lat = speedup["latency_speedup"]
     batch = speedup["batch_size"]
+    overshoot = baseline["overshoot_factor"]
     headline = (
         f"Predicted-vs-CFD force coefficients on held-out configurations. "
         f"Config-resolved R²: CF_x {r2['CF_x']}, CF_z {r2['CF_z']}, "
@@ -308,12 +315,13 @@ def build_caption(metrics: dict[str, Any], speedup: dict[str, Any]) -> str:
         f"aerodynamics. Moment is the M_y component (axis convention, issue #1); "
         f"CF_mx/CF_mz omitted (waveform-only, no between-config signal)."
     )
-    baseline = (
-        "Baseline (CF_z): zero-parameter translational Sane-Dickinson quasi-steady "
-        "(hovering; symmetric-rotation; rotational/added-mass omitted) bounds, does not "
-        "fairly compete with, the fitted surrogate."
+    reference = (
+        f"Quasi-steady reference (not plotted): an uncalibrated translational Sane-Dickinson "
+        f"model overshoots the coarse-grid CFD lift ~{overshoot:.1f}x (RMS) — dominated by "
+        f"the ~2.4x diffused-IB underestimate plus quasi-steady tip-velocity overprediction — "
+        f"so it is not used as a quantitative baseline at this resolution."
     )
-    return f"{headline}\n{caveats}\n{baseline}\nFull discussion: {_README_POINTER}."
+    return f"{headline}\n{caveats}\n{reference}\nFull discussion: {_README_POINTER}."
 
 
 def _baseline_for_config(df_cfg: pd.DataFrame) -> np.ndarray:
@@ -332,6 +340,41 @@ def _rmse(true: np.ndarray, pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.asarray(true) - np.asarray(pred)) ** 2)))
 
 
+def _baseline_reference(predictions: pd.DataFrame) -> dict[str, Any]:
+    """Translational Sane-Dickinson CF_z reference (computed, NOT overlaid on the figure).
+
+    The uncalibrated quasi-steady model overshoots the coarse-grid CFD lift, dominated by the
+    ~2.4x diffused-IB underestimate (the CFD is biased low) plus the model's tip-velocity
+    overprediction — so the gap mostly re-displays the IB bias rather than surrogate skill.
+    It is therefore reported as a reference number (RMSE + overshoot factor), not drawn as a
+    misleading scatter overlay (design D2; CC-4 deviation recorded in the proposal).
+
+    Args:
+        predictions: Holdout predictions frame.
+
+    Returns:
+        ``{baseline_rmse_cf_z, overshoot_factor, note}`` — ``overshoot_factor`` is
+        ``rms(baseline) / rms(cfd_true)`` over CF_z.
+    """
+    true, pred = [], []
+    for cfg in sorted(predictions["config_name"].unique()):
+        d = predictions[predictions["config_name"] == cfg]
+        true.append(d[f"{LIFT_PANEL}_true"].to_numpy())
+        pred.append(_baseline_for_config(d))
+    t, p = np.concatenate(true), np.concatenate(pred)
+    rms_true = float(np.sqrt(np.mean(t**2)))
+    rms_pred = float(np.sqrt(np.mean(p**2)))
+    return {
+        "baseline_rmse_cf_z": _rmse(t, p),
+        "overshoot_factor": rms_pred / rms_true if rms_true > 0 else float("nan"),
+        "note": (
+            "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the "
+            "figure — overshoots coarse-grid CFD (dominated by the ~2.4x diffused-IB "
+            "underestimate + tip-velocity overprediction), so not a quantitative baseline here"
+        ),
+    }
+
+
 def _panel_title(coef: str) -> str:
     """Axis title for a panel coefficient (CF_my labeled an M_y component, not 'pitch')."""
     if coef == MOMENT_PANEL:
@@ -348,8 +391,8 @@ def build_figure(predictions: pd.DataFrame, metrics: dict[str, Any]) -> plt.Figu
         metrics: The loaded ``metrics.json`` dict.
 
     Returns:
-        A :class:`matplotlib.figure.Figure` with three scatter panels (CF_x, CF_z, CF_my);
-        the CF_z panel carries two labeled series (surrogate + Sane-Dickinson baseline).
+        A :class:`matplotlib.figure.Figure` with three predicted-vs-CFD scatter panels
+        (CF_x, CF_z, CF_my), points colored by held-out configuration with a shared legend.
     """
     _validate_predictions(predictions)
     configs = sorted(predictions["config_name"].unique())
@@ -360,70 +403,64 @@ def build_figure(predictions: pd.DataFrame, metrics: dict[str, Any]) -> plt.Figu
         _require(metrics, "inference", "inference block"),
         _representative_rows(predictions),
     )
+    baseline = _baseline_reference(predictions)
 
-    fig, axes = plt.subplots(1, 3, figsize=(13.5, 5.0))
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 5.2))
     for ax, coef in zip(axes, PANEL_COEFFICIENTS, strict=True):
         true_col, pred_col = f"{coef}_true", f"{coef}_pred"
         lo = min(predictions[true_col].min(), predictions[pred_col].min())
         hi = max(predictions[true_col].max(), predictions[pred_col].max())
-        ax.plot([lo, hi], [lo, hi], color="0.5", lw=0.8, ls="--", zorder=0)
+        ax.plot(
+            [lo, hi],
+            [lo, hi],
+            color="0.5",
+            lw=0.8,
+            ls="--",
+            zorder=0,
+            label="1:1 (perfect)",
+        )
         for cfg in configs:
             d = predictions[predictions["config_name"] == cfg]
-            ax.scatter(
-                d[true_col],
-                d[pred_col],
-                s=8,
-                color=color[cfg],
-                alpha=0.7,
-                label=_SURROGATE_LABEL
-                if (coef == LIFT_PANEL and cfg == configs[0])
-                else None,
-            )
-        if coef == LIFT_PANEL:
-            base_true, base_pred = [], []
-            for cfg in configs:
-                d = predictions[predictions["config_name"] == cfg]
-                base_true.append(d[true_col].to_numpy())
-                base_pred.append(_baseline_for_config(d))
-            bt, bp = np.concatenate(base_true), np.concatenate(base_pred)
-            ax.scatter(
-                bt, bp, s=8, marker="x", color="black", alpha=0.5, label=_BASELINE_LABEL
-            )
-            base_rmse = _rmse(bt, bp)
-            ax.legend(fontsize=7, loc="upper left")
-            ax.text(
-                0.97,
-                0.03,
-                f"{panel_annotation(metrics, coef)}\nbaseline RMSE = {base_rmse:.3f}",
-                transform=ax.transAxes,
-                ha="right",
-                va="bottom",
-                fontsize=7,
-            )
-        else:
-            ax.text(
-                0.97,
-                0.03,
-                panel_annotation(metrics, coef),
-                transform=ax.transAxes,
-                ha="right",
-                va="bottom",
-                fontsize=7,
-            )
+            ax.scatter(d[true_col], d[pred_col], s=8, color=color[cfg], alpha=0.7)
+        ax.text(
+            0.97,
+            0.03,
+            panel_annotation(metrics, coef),
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=8,
+        )
         ax.set_title(_panel_title(coef), fontsize=9)
         ax.set_xlabel("CFD (true)", fontsize=8)
         ax.set_ylabel("surrogate (predicted)", fontsize=8)
 
+    # Shared config->color legend (so the colors are readable) + the 1:1 line, at the top.
+    config_handles = [
+        Line2D([], [], marker="o", ls="", color=color[cfg], label=cfg, markersize=5)
+        for cfg in configs
+    ]
+    one_to_one = Line2D([], [], color="0.5", lw=0.8, ls="--", label="1:1 (perfect)")
+    fig.legend(
+        handles=[*config_handles, one_to_one],
+        loc="upper center",
+        ncol=len(configs) + 1,
+        fontsize=7,
+        title="held-out configurations (one color each)",
+        title_fontsize=7,
+        bbox_to_anchor=(0.5, 1.02),
+    )
+
     fig.text(
         0.5,
-        -0.06,
-        build_caption(metrics, speedup),
+        -0.04,
+        build_caption(metrics, speedup, baseline),
         ha="center",
         va="top",
         fontsize=6.5,
         wrap=True,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
 
@@ -524,17 +561,12 @@ def generate_evidence_figure(
         _require(metrics, "inference", "inference block"),
         _representative_rows(predictions),
     )
-    base_true, base_pred = [], []
-    for cfg in configs:
-        d = predictions[predictions["config_name"] == cfg]
-        base_true.append(d[f"{LIFT_PANEL}_true"].to_numpy())
-        base_pred.append(_baseline_for_config(d))
-    baseline_rmse = _rmse(np.concatenate(base_true), np.concatenate(base_pred))
+    baseline = _baseline_reference(predictions)
 
     fig_metrics: dict[str, Any] = {
         "surrogate_rmse": {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS},
         "config_mean_r2": {c: _config_mean_r2(metrics, c) for c in PANEL_COEFFICIENTS},
-        "baseline_rmse_cf_z": baseline_rmse,
+        "quasi_steady_reference": baseline,
         "speedup": speedup,
         "rows_per_wingbeat_per_config": _rows_by_config(predictions),
     }

@@ -35,14 +35,15 @@ validated aerodynamics.
     repo's axis convention differs from biomechanics standard (issue #1), so the figure names the
     component rather than asserting a biomechanical pitch interpretation. **Issue #1 stays open**
     (its fix is a solver-level refactor + full cluster corpus re-run — out of scope, CC-6).
-  - **Sane–Dickinson translational quasi-steady baseline** computed via the **CC-3**
+  - **Sane–Dickinson translational quasi-steady reference** computed via the **CC-3**
     `compute_force_reference(...)` helper (no inline `F_ref`/`U_tip` re-derivation): coefficient
-    `CF_trans(t) = F_trans(t) / F_ref = (U(t)/U_tip)²·C_L(α_eff(t))`, `U(t)/U_tip = cos(2π·phase)`
-    taken from the parquet `phase` column, `C_L(α)` the Dickinson-1999 empirical fit. Overlaid on the
-    lift (CF_z) force panel — the force the translational term physically predicts — annotated to show
-    **baseline RMSE > surrogate RMSE** (surrogate ≥ analytic model). Scoped honestly to hovering
-    (Sane & Dickinson 2002). NOT overlaid on the moment panel (a translational force model does not
-    predict a moment).
+    `CF_trans(t) = F_trans(t) / F_ref = (U(t)/U_tip)²·C_L(α_eff(t))`, `U(t)/U_tip = cos(2π·phase)`,
+    `C_L(α)` the Dickinson-1999 empirical fit. **Computed as a reference number, NOT overlaid on the
+    scatter** (CC-4 deviation, design D2): at the coarse grid the uncalibrated model overshoots the
+    (IB-biased) CFD lift ~2.3× — a gap **dominated by the ~2.4× diffused-IB underestimate** plus
+    tip-velocity overprediction — so an overlay would mostly re-display the IB bias, not surrogate
+    skill (a hollow "17× better" artifact), and the analytic loops visually dominated the lift panel.
+    The sidecar records the `overshoot_factor` + RMSE; the caption discloses it honestly.
   - **Annotations**: the >1,000× speedup as a **batched GPU-throughput** figure
     (`inference.throughput_rows_per_s` ÷ the coarse-grid A40 CFD throughput ≈ 3.7×10⁶×), disclosed as
     **batched (N=12,535 parallel evals) vs a sequential coarse-grid A40 CFD timestep rate** (the
@@ -71,8 +72,22 @@ validated aerodynamics.
 ## Capabilities
 
 - **force-surrogate** (MODIFIED): adds the evidence-figure requirements (figure content, the CF_my
-  headline pick, the Sane–Dickinson baseline, the honest caption/annotations, committed artifacts +
-  provenance, cluster-free tests, force-only scope guard).
+  headline pick, the Sane–Dickinson quasi-steady reference, the honest caption/annotations, committed
+  artifacts + provenance, cluster-free tests, force-only scope guard).
+
+### Why a quasi-steady *reference* instead of the CC-4 baseline *overlay*?
+
+CC-4 and the original design (D2) called for overlaying the Sane–Dickinson baseline on the CF_z
+scatter "to show the surrogate ≥ the analytic model." Implementing it against the real data showed the
+overlay is **misleading at the coarse 64×32×64 grid**: the uncalibrated quasi-steady model overshoots
+the CFD lift ~2.3× (RMS), and that gap is **dominated by the ~2.4× diffused-IB underestimate** (the
+coarse CFD is biased low) plus the model's tip-velocity overprediction. Because the surrogate is
+trained to reproduce the IB-biased coarse CFD, an overlay showing "surrogate RMSE ≪ baseline RMSE"
+mostly **re-displays the IB bias, not surrogate skill** — a hollow ~17×-looking "win" — and the
+analytic loops visually dominated the panel (flagged by the PI in review). The honest resolution:
+**compute** the QS model and report its overshoot factor + RMSE as a sidecar/caption **reference**,
+but do **not** draw it on the scatter. The CC-4 intent is not cleanly achievable at this grid because
+the IB bias confounds the comparison; recorded as a deviation in design D2 and the spec.
 
 ## Impact
 

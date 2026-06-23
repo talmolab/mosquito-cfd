@@ -4,6 +4,17 @@ TDD throughout: each task writes the test(s) **first** (red), then the minimal i
 (green), then refactor. All tests are cluster-free (CC-2) — no RunAI, no GPU, no plotfiles, no
 `train` group. Tracks GitHub issue #24; closes roadmap row 6.
 
+> **Deviation (post-implementation, PI review): Sane–Dickinson reference, not overlay.** Tasks 3 and 5
+> below describe *overlaying* the quasi-steady baseline on the CF_z panel (the original CC-4 plan). On
+> review the overlay proved misleading at the coarse grid — the uncalibrated QS model overshoots the
+> CFD lift ~2.3×, a gap **dominated by the ~2.4× diffused-IB underestimate**, so an overlay mostly
+> re-displays the IB bias rather than surrogate skill, and the analytic loops dominated the panel. The
+> baseline is now **computed as a reference** (overshoot factor + RMSE in the sidecar, one honest
+> caption sentence) and **not drawn** on the scatter; the figure gained a config→color legend. See
+> proposal "Why a quasi-steady *reference* instead of the CC-4 baseline *overlay*?" + design D2. The
+> baseline *formula* + CC-3 tasks (3.1–3.3) are unchanged; the overlay-specific assertions in 5.1–5.3
+> were replaced by "no baseline series + config legend" tests.
+
 ## 1. Fixtures (CC-2)
 
 - [x] 1.1 Add a tiny synthetic **predictions** fixture (2 holdout configs `s35_f085_p45` +

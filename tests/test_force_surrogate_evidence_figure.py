@@ -287,11 +287,14 @@ def test_rows_per_wingbeat_is_actual_parquet_counts(tmp_path):
 # --- build_caption ------------------------------------------------------------------------
 
 
+_TOY_BASELINE = {"overshoot_factor": 3.2, "baseline_rmse_cf_z": 0.98}
+
+
 def test_build_caption_discloses_everything():
     """Scenario: Caption reports config-resolved skill, flags aggregate, discloses exclusions."""
     metrics = _toy_metrics(null_target=None)
     sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
     low = cap.lower()
     assert (
         "0.94" in cap and "0.83" in cap and "0.99" in cap
@@ -301,7 +304,10 @@ def test_build_caption_discloses_everything():
     assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
     assert "coarse" in low and "2.4" in cap  # coarse grid + IB underestimate
     assert "not validated" in low or "validated aerodynamics" in low
-    assert "zero-parameter" in low or "zero parameter" in low  # fitted-vs-unfitted
+    # quasi-steady reference: overshoot disclosed, NOT presented as a quantitative baseline
+    assert "overshoot" in low and "not used as a quantitative baseline" in low
+    assert "3x" in low or "3.2" in cap  # the overshoot factor
+    assert "uncalibrated" in low  # the quasi-steady reference is unfitted
     assert "readme" in low  # pointer
     assert ">1,000" in cap or ">1000" in cap
 
@@ -311,7 +317,7 @@ def test_build_caption_mutates_with_metrics():
     metrics = _toy_metrics(null_target=None)
     sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
     metrics["config_resolved"]["CF_x"]["config_mean_r2"] = 0.42
-    assert "0.42" in build_caption(metrics, sp)
+    assert "0.42" in build_caption(metrics, sp, _TOY_BASELINE)
 
 
 # --- build_figure (Matplotlib object model, no pixels) ------------------------------------
@@ -356,19 +362,25 @@ def test_build_figure_off_axis_moments_excluded():
     plt.close(fig)
 
 
-def test_build_figure_baseline_only_on_cf_z():
-    """Scenario: Baseline is overlaid only on the lift panel with both RMSEs annotated."""
+def test_baseline_not_plotted_anywhere():
+    """Scenario: the Sane-Dickinson baseline is a computed reference, not drawn on any panel."""
     fig = build_figure(_toy_predictions(), _toy_metrics())
-    # the baseline series label appears on exactly one axis, and that axis is CF_z
-    baseline_axes = []
+    # no axis carries a 'Sane-Dickinson'/'baseline' series (it overshoots; reference-only)
     for ax in fig.axes:
         labels = [t.lower() for t in ax.get_legend_handles_labels()[1]]
-        if any("dickinson" in lbl or "baseline" in lbl for lbl in labels):
-            baseline_axes.append(ax)
-    assert len(baseline_axes) == 1
-    assert "cf_z" in baseline_axes[0].get_title().lower()
-    # CF_z carries two labeled series
-    assert len(baseline_axes[0].get_legend_handles_labels()[1]) == 2
+        assert not any("dickinson" in lbl or "baseline" in lbl for lbl in labels)
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
+def test_config_color_legend_present():
+    """The figure has a shared legend mapping each held-out config to its color."""
+    configs = sorted(_toy_predictions()["config_name"].unique())
+    fig = build_figure(_toy_predictions(), _toy_metrics())
+    legend_labels = [t.get_text() for lg in fig.legends for t in lg.get_texts()]
+    for cfg in configs:
+        assert cfg in legend_labels
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -414,7 +426,8 @@ def test_generate_writes_three_artifacts(tmp_path):
     fig_metrics = json.loads((out / "evidence_figure_metrics.json").read_text())
     for c in PANEL_COEFFICIENTS:
         assert c in fig_metrics["surrogate_rmse"]
-    assert "baseline_rmse_cf_z" in fig_metrics
+    qs = fig_metrics["quasi_steady_reference"]
+    assert "baseline_rmse_cf_z" in qs and qs["overshoot_factor"] > 1
     assert (
         "speedup" in fig_metrics and fig_metrics["speedup"]["throughput_speedup"] > 1000
     )
@@ -522,17 +535,10 @@ def test_only_holdout_config_points_plotted():
     pred = _toy_predictions()
     fig = build_figure(pred, _toy_metrics())
     axes = _scatter_axes(fig)
-    for ax, coef in zip(axes, PANEL_COEFFICIENTS):
-        # surrogate offsets across all config scatters on this axis (exclude the baseline 'x'
-        # series on CF_z): total surrogate points == parquet row count
-        n_surrogate = sum(
-            c.get_offsets().shape[0]
-            for c in ax.collections
-            if c.get_paths()  # scatter PathCollections
-        )
-        # CF_z has an extra baseline series of equal length; others have just the surrogate
-        expected = len(pred) * (2 if coef == "CF_z" else 1)
-        assert n_surrogate == expected
+    for ax in axes:
+        # every panel plots exactly the surrogate points (one scatter series per config)
+        n_points = sum(c.get_offsets().shape[0] for c in ax.collections)
+        assert n_points == len(pred)
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -723,5 +729,7 @@ def test_committed_figure_metrics_matches_committed_inputs():
     assert sp["throughput_speedup"] > 1000
     assert sp["latency_speedup"] < 1000
     assert sp["batch_size"] == 12535
-    # baseline is much worse than the surrogate on CF_z (surrogate >= analytic model, CC-4)
-    assert fig_metrics["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
+    # the uncalibrated quasi-steady reference overshoots the coarse CFD (reference-only, CC-4)
+    qs = fig_metrics["quasi_steady_reference"]
+    assert qs["overshoot_factor"] > 1
+    assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
