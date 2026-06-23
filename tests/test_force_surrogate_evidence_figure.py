@@ -47,7 +47,7 @@ def _toy_predictions(configs=("s35_f085_p45", "s55_f115_p45"), n=8) -> pd.DataFr
         row = {"config_name": cfg, "time": time, "phase": phase, "wingbeat": 1}
         for t in TARGETS:
             # deterministic, distinct per target/config; pred ~ true + small offset
-            base = 0.3 * math.cos(hash(t) % 7) + 0.1 * kin.f_star
+            base = 0.3 * math.cos(TARGETS.index(t)) + 0.1 * kin.f_star
             true = base + 0.05 * np.sin(2 * np.pi * phase)
             row[f"{t}_true"] = true
             row[f"{t}_pred"] = true + 0.01
@@ -547,6 +547,46 @@ def test_missing_prediction_column_raises_no_partial_artifact(tmp_path):
     metrics.write_text(json.dumps(_toy_metrics()))
     out = tmp_path / "figs"
     with pytest.raises(ValueError, match="CF_z_pred"):
+        generate_evidence_figure(
+            predictions_path=pred,
+            metrics_path=metrics,
+            out_dir=out,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+    # no partial artifact set of any kind
+    assert not (out / "evidence_figure.png").exists()
+    assert not (out / "evidence_figure_metrics.json").exists()
+    assert not (out / "run_metadata.json").exists()
+
+
+def test_nonfinite_coefficient_rejected_no_artifact(tmp_path):
+    """Non-finite CF_* values are rejected before any write (no silently-wrong figure)."""
+    bad = _toy_predictions()
+    bad.loc[0, "CF_z_true"] = np.nan
+    pred = tmp_path / "nan.parquet"
+    bad.to_parquet(pred)
+    metrics = tmp_path / "m.json"
+    metrics.write_text(json.dumps(_toy_metrics()))
+    out = tmp_path / "figs"
+    with pytest.raises(ValueError, match="non-finite"):
+        generate_evidence_figure(
+            predictions_path=pred,
+            metrics_path=metrics,
+            out_dir=out,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+    assert not (out / "evidence_figure.png").exists()
+
+
+def test_non_object_metrics_rejected(tmp_path):
+    """A metrics.json that is not a JSON object raises a clear ValueError (not TypeError)."""
+    pred, _ = _write_inputs(tmp_path)
+    metrics = tmp_path / "scalar.json"
+    metrics.write_text("42")
+    out = tmp_path / "figs"
+    with pytest.raises(ValueError, match="must be a JSON object"):
         generate_evidence_figure(
             predictions_path=pred,
             metrics_path=metrics,

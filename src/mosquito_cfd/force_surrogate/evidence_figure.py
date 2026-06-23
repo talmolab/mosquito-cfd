@@ -351,7 +351,7 @@ def build_figure(predictions: pd.DataFrame, metrics: dict[str, Any]) -> plt.Figu
         A :class:`matplotlib.figure.Figure` with three scatter panels (CF_x, CF_z, CF_my);
         the CF_z panel carries two labeled series (surrogate + Sane-Dickinson baseline).
     """
-    _validate_predictions_columns(predictions)
+    _validate_predictions(predictions)
     configs = sorted(predictions["config_name"].unique())
     cmap = plt.get_cmap("tab10")
     color = {cfg: cmap(i % 10) for i, cfg in enumerate(configs)}
@@ -439,13 +439,27 @@ def _representative_rows(predictions: pd.DataFrame) -> int:
     return rows[rep]
 
 
-def _validate_predictions_columns(predictions: pd.DataFrame) -> None:
-    """Raise a clear ValueError if the predictions frame lacks a required column."""
+def _validate_predictions(predictions: pd.DataFrame) -> None:
+    """Validate the predictions frame: required columns present and CF_* values finite.
+
+    Raises a clear ``ValueError`` if a required column is missing or if any coefficient
+    column contains NaN/inf — a non-finite coefficient would otherwise produce a silently
+    wrong (``nan``) evidence artifact (the figure's whole purpose is an *honest* number).
+    """
     missing = [c for c in _REQUIRED_PRED_COLUMNS if c not in predictions.columns]
     if missing:
         raise ValueError(
             f"predictions parquet is missing required column(s) {missing}; the figure needs "
             f"{list(_REQUIRED_PRED_COLUMNS)}"
+        )
+    coef_cols = [c for c in _REQUIRED_PRED_COLUMNS if c.startswith("CF_")]
+    nonfinite = [
+        c for c in coef_cols if not np.isfinite(predictions[c].to_numpy()).all()
+    ]
+    if nonfinite:
+        raise ValueError(
+            f"predictions parquet has non-finite (NaN/inf) values in coefficient column(s) "
+            f"{nonfinite}; refusing to emit a silently-wrong evidence figure"
         )
 
 
@@ -492,7 +506,11 @@ def generate_evidence_figure(
 
     predictions = pd.read_parquet(predictions_path)
     metrics = json.loads(Path(metrics_path).read_text(encoding="utf-8"))
-    _validate_predictions_columns(predictions)
+    if not isinstance(metrics, dict):
+        raise ValueError(
+            f"metrics.json must be a JSON object, got {type(metrics).__name__}"
+        )
+    _validate_predictions(predictions)
     configs = sorted(predictions["config_name"].unique())
     if len(predictions) == 0 or len(configs) < 2:
         raise ValueError(
