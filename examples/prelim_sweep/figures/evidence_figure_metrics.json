@@ -1,0 +1,33 @@
+{
+  "surrogate_rmse": {
+    "CF_x": 0.042650097426377175,
+    "CF_z": 0.055974090813866506,
+    "CF_my": 0.020998344990338192
+  },
+  "config_mean_r2": {
+    "CF_x": 0.9441909834892075,
+    "CF_z": 0.8270997606887206,
+    "CF_my": 0.9865158106411775
+  },
+  "baseline_rmse_cf_z": 0.9849411609099296,
+  "speedup": {
+    "throughput_speedup": 3721907.694198385,
+    "latency_speedup": 309.92417231630725,
+    "batch_size": 12535,
+    "parallelism_factor": 12009.091341219497,
+    "cfd_rows_per_s": 13.88888888888889,
+    "cfd_seconds_per_wingbeat": 144.0,
+    "rows_per_wingbeat": 2000,
+    "surrogate_throughput_rows_per_s": 51693162.419422016,
+    "surrogate_latency_ms": 0.23231488999998717,
+    "cfd_rate_is_sequential": true
+  },
+  "rows_per_wingbeat_per_config": {
+    "s35_f085_p45": 2353,
+    "s45_f085_p60": 2353,
+    "s45_f100_p60": 2000,
+    "s45_f115_p60": 1738,
+    "s55_f085_p45": 2353,
+    "s55_f115_p45": 1738
+  }
+}

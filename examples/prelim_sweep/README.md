@@ -272,3 +272,69 @@ seeded loss-decrease, and the full train→predict→`metrics.json` round-trip) 
 ```bash
 uv run pytest -m gpu        # operator-only; CI runs `-m "not gpu"`
 ```
+
+## Figure (`figures/`)
+
+PR6's generator (`scripts/make_evidence_figure.py`, library
+`mosquito_cfd.force_surrogate.evidence_figure`) reads the committed `surrogate/` artifacts and
+produces the Track B *Evidence-of-Readiness* figure: predicted-vs-CFD scatter for **CF_x / CF_z /
+CF_my** on the held-out configurations, a translational **Sane–Dickinson** quasi-steady baseline
+overlaid on the lift (CF_z) panel, and an honest caption + batched-throughput speedup annotation.
+Force-only (CC-6): the only inputs are the committed predictions parquet + `metrics.json` — no
+plotfiles, cluster, or GPU.
+
+| File | Status | Contents |
+|---|---|---|
+| `figures/evidence_figure.png` | **committed** | The ≥200-dpi figure (3 predicted-vs-CFD panels + Sane–Dickinson CF_z overlay + caption). A snapshot artifact — review it visually, not by byte-diff; its numbers are auditable from the sidecar below. |
+| `figures/evidence_figure_metrics.json` | **committed** | Every number on the figure: per-axis surrogate RMSE, the CF_z Sane–Dickinson baseline RMSE, the annotated `config_mean_r2`, the per-config rows-per-wingbeat, and the full speedup decomposition (throughput + latency factors, batch size, parallelism factor). |
+| `figures/run_metadata.json` | **committed** | Provenance: the pinned `:fp64` container **digest**, the caller-supplied timestamp, git SHA / host, and the SHA256 of **both** consumed inputs (predictions parquet + `metrics.json`) under `inputs`. |
+
+The figure's metric *numbers* are **not** re-tabulated here (read `evidence_figure_metrics.json` /
+`surrogate/metrics.json`) — only the interpretation below.
+
+### Honest reading of the figure (CC-4)
+
+The on-figure caption is deliberately **compact** (headline + a terse Caveats line + a terse Baseline
+line + a pointer here); the full discussion lives here so the figure stays legible without losing any
+disclosure:
+
+- **Pipeline readiness, not validated aerodynamics.** The corpus is a **coarse 64×32×64** grid with
+  the IAMReX diffused-IB **~2.4× force underestimate** (`examples/flapping_wing/RESULTS.md`). The
+  figure proves the data→surrogate→inference pipeline runs end-to-end on local hardware and that the
+  PhysicsNeMo stack is usable — it is **not** a validated-aerodynamics claim. This is the deliberately
+  reduced "easy" surrogate (roadmap Vision / §9), not the funded DoMINO/latent-dynamics surrogate.
+- **Use the config-resolved skill, not the aggregate.** The pointwise aggregate R²≈0.98 is ~99.9% the
+  shared within-beat **phase waveform** and overstates the kinematics→force-*map* skill; the figure
+  reports the per-axis **config-resolved** R² (CF_x ≈0.94, CF_z ≈0.83, CF_my ≈0.99). The concrete
+  tell that the aggregate is inflated: CF_y's config-resolved R² is **negative**.
+- **Headline moment = the M_y component, not "pitch moment".** CF_my is the only moment with genuine
+  config-to-config signal (≈56% between-config variance; the highest config-resolved R²); CF_mx and
+  CF_mz are ≈99.9% the shared waveform and are **omitted** because they cannot demonstrate a
+  kinematics→force map. CF_my is named the **M_y component** rather than "pitch moment" because the
+  repo's axis convention differs from the biomechanics standard (**issue #1**); the fix is a
+  solver-level refactor + full cluster re-run, deliberately out of scope here (CC-6).
+- **The Sane–Dickinson baseline bounds, it does not fairly compete.** It is a **zero-parameter**
+  translational quasi-steady model (Sane & Dickinson 2002; hovering-scoped; **symmetric-rotation**
+  AoA; rotational + added-mass terms **omitted**; lift defined **stroke-plane-normal** while CFD CF_z
+  is the **lab-z** force — they coincide only near mid-stroke), computed through the single-source
+  `compute_force_reference` helper (CC-3). The surrogate is **fit** to sibling configurations of this
+  corpus while the baseline sees no data, so the surrogate's lower RMSE shows **within-range
+  interpolation**, not that ML is more accurate than quasi-steady theory in general.
+- **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
+  (≈3.7×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
+  rate) equals `latency_speedup × batch_size`, so ~12,000× of it is simply the **batch size**
+  (N=12,535, the whole holdout set evaluated in parallel — the surrogate is a pointwise map; a CFD
+  time integration cannot be batched). The conservative **per-evaluation latency speedup is ~310×**
+  and is reported as the like-for-like floor. Both factors, the batch size, and the parallelism
+  factor are in `evidence_figure_metrics.json`.
+
+### Regenerating
+
+```bash
+uv run python scripts/make_evidence_figure.py \
+    --predictions examples/prelim_sweep/surrogate/holdout_predictions.parquet \
+    --metrics examples/prelim_sweep/surrogate/metrics.json \
+    --out-dir examples/prelim_sweep/figures \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp <iso-8601>
+```

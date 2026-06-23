@@ -14,6 +14,20 @@ from mosquito_cfd.force_surrogate.dataset import (
     load_manifest_configs,
     write_dataset,
 )
+from mosquito_cfd.force_surrogate.evidence_figure import (
+    CFD_SECONDS_PER_WINGBEAT,
+    MOMENT_PANEL,
+    PANEL_COEFFICIENTS,
+    KinematicParams,
+    build_caption,
+    build_figure,
+    compute_speedup,
+    generate_evidence_figure,
+    lift_coefficient_dickinson,
+    panel_annotation,
+    parse_config_name,
+    sane_dickinson_cf_z,
+)
 from mosquito_cfd.force_surrogate.normalization import (
     ForceCoefficients,
     ForceReference,
@@ -73,6 +87,18 @@ from mosquito_cfd.force_surrogate.train import (
 )
 
 __all__ = [
+    "CFD_SECONDS_PER_WINGBEAT",
+    "MOMENT_PANEL",
+    "PANEL_COEFFICIENTS",
+    "KinematicParams",
+    "build_caption",
+    "build_figure",
+    "compute_speedup",
+    "generate_evidence_figure",
+    "lift_coefficient_dickinson",
+    "panel_annotation",
+    "parse_config_name",
+    "sane_dickinson_cf_z",
     "ForceCoefficients",
     "ForceReference",
     "MomentCoefficients",
