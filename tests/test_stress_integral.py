@@ -19,6 +19,8 @@ from mosquito_cfd.benchmarks.stress_integral import (
     extract_eulerian_box,
     periodic_duct_drag,
     sphere_cv_drag_cd,
+    sphere_cv_steadiness_fraction,
+    unsteady_momentum_force,
 )
 
 # --- pure-numpy core: periodic-duct momentum balance -----------------------------------------
@@ -84,13 +86,52 @@ def test_null_field_zero_drag():
 def test_nan_in_field_raises():
     n = 6
     u = np.full((n, n), 1.0)
-    u_bad = u.copy()
-    u_bad[0, 0] = np.nan
     gradpx = np.zeros((1, n, n))
+    # NaN in a velocity plane.
+    u_nan = u.copy()
+    u_nan[0, 0] = np.nan
     with pytest.raises(ValueError, match="non-finite"):
         periodic_duct_drag(
-            u, u_bad, gradpx, rho=1.0, cell_area=0.01, cell_thickness=0.1
+            u, u_nan, gradpx, rho=1.0, cell_area=0.01, cell_thickness=0.1
         )
+    # inf in a velocity plane.
+    u_inf = u.copy()
+    u_inf[1, 1] = np.inf
+    with pytest.raises(ValueError, match="non-finite"):
+        periodic_duct_drag(
+            u, u_inf, gradpx, rho=1.0, cell_area=0.01, cell_thickness=0.1
+        )
+    # NaN in the gradpx volume (the pressure path).
+    gradpx_nan = gradpx.copy()
+    gradpx_nan[0, 0, 0] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        periodic_duct_drag(
+            u, u, gradpx_nan, rho=1.0, cell_area=0.01, cell_thickness=0.1
+        )
+
+
+def test_shape_mismatch_raises():
+    with pytest.raises(ValueError, match="shapes differ"):
+        periodic_duct_drag(
+            np.ones((8, 8)),
+            np.ones((4, 8)),
+            np.zeros((1, 8, 8)),
+            rho=1.0,
+            cell_area=0.01,
+            cell_thickness=0.1,
+        )
+
+
+def test_unsteady_momentum_force_known_answer():
+    # rho * (sum(u_new) - sum(u_old)) * dV / dt.
+    rho, dV, dt, n = 1.3, 0.001, 0.5, 10
+    u_old = np.full((3, n, n), 1.0)
+    u_new = u_old + 0.2
+    f = unsteady_momentum_force(u_old, u_new, rho=rho, cell_volume=dV, dt=dt)
+    expected = rho * (0.2 * 3 * n * n) * dV / dt
+    np.testing.assert_allclose(f, expected, rtol=1e-12)
+    # A steady field (old == new) gives zero.
+    assert unsteady_momentum_force(u_old, u_old, rho=rho, cell_volume=dV, dt=dt) == 0.0
 
 
 def test_cd_from_drag_known_answer():
@@ -126,10 +167,18 @@ CONFINED_BAND = (
 )  # literature to literature + confinement + a convergence margin
 
 
-def _sphere_plt(grid: str) -> str:
+def _sphere_plt(grid: str, step: int = 10000) -> str:
     root = os.environ.get("MOSQUITO_CFD_PLOTFILE_ROOT", "")
     sub = {"coarse": "flow_past_sphere_coarse", "medium": "flow_past_sphere_10k"}[grid]
-    return str(Path(root) / sub / "plt10000")
+    return str(Path(root) / sub / f"plt{step:05d}")
+
+
+def test_sphere_cv_drag_rejects_swapped_planes():
+    # Guard raises BEFORE any plotfile I/O, so this is cluster-free.
+    with pytest.raises(ValueError, match="upstream"):
+        sphere_cv_drag_cd("no/such/plotfile", x_inlet=8.0, x_outlet=2.0)
+    with pytest.raises(ValueError, match="upstream"):
+        sphere_cv_drag_cd("no/such/plotfile", x_inlet=5.0, x_outlet=5.0)
 
 
 @pytest.mark.requires_plotfile
@@ -174,6 +223,22 @@ def test_sphere_cv_drag_classifies_h1():
 
 
 @pytest.mark.requires_plotfile
+def test_sphere_cv_steadiness_gate():
+    # Design Decision 6: the verdict stands only if the unsteady momentum term is << the drag.
+    # plt09900 -> plt10000 is 100 steps at fixed_dt=0.01 -> dt=1.0.
+    s = sphere_cv_steadiness_fraction(
+        _sphere_plt("medium", step=9900),
+        _sphere_plt("medium", step=10000),
+        x_inlet=2.0,
+        x_outlet=8.0,
+        dt=1.0,
+    )
+    assert s["fraction"] < 0.05, (
+        f"unsteady term is {s['fraction']:.1%} of drag — steady-state assumption fails; verdict void"
+    )
+
+
+@pytest.mark.requires_plotfile
 def test_extract_sphere_cd_default_preserves_contract():
     from mosquito_cfd.benchmarks.analyze_sphere import extract_sphere_cd
 
@@ -198,7 +263,11 @@ def test_extract_sphere_cd_default_preserves_contract():
 def test_extract_sphere_cd_cv_method_reports_field_cd():
     from mosquito_cfd.benchmarks.analyze_sphere import extract_sphere_cd
 
-    r = extract_sphere_cd(_sphere_plt("medium"), method="cv")
+    plt = _sphere_plt("medium")
+    r = extract_sphere_cd(plt, method="cv", x_inlet=2.0, x_outlet=8.0)
+    # cd must EQUAL the periodic-duct CV value (not merely be "large").
+    expected = sphere_cv_drag_cd(plt, x_inlet=2.0, x_outlet=8.0)["cd"]
+    assert r["cd"] == pytest.approx(expected)
     assert r["cd"] > 0.9  # the field-based CV value (~1.18), not the marker ~0.448
     assert (
         0.4 < r["cd_marker_lastpass"] < 0.5

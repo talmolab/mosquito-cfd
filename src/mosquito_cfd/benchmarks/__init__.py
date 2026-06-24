@@ -19,6 +19,8 @@ from mosquito_cfd.benchmarks.stress_integral import (
     extract_eulerian_box,
     periodic_duct_drag,
     sphere_cv_drag_cd,
+    sphere_cv_steadiness_fraction,
+    unsteady_momentum_force,
 )
 
 __all__ = [
@@ -36,4 +38,6 @@ __all__ = [
     "cd_from_drag",
     "extract_eulerian_box",
     "sphere_cv_drag_cd",
+    "sphere_cv_steadiness_fraction",
+    "unsteady_momentum_force",
 ]

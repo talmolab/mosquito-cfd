@@ -266,23 +266,33 @@ blockage the bypass flow accelerates above `U∞`, so the "side faces in the fre
 the periodic lateral faces cancel exactly, leaving
 `F_drag = ρ(∫_{x1}u_x²dA − ∫_{x2}u_x²dA) − ∫_V (∂p/∂x)dV` — read directly from `u_x` on an inlet/outlet
 plane and `gradpx` between them (no pressure reconstruction; the constant cancels). `gradp` is confirmed
-the true unscaled `∇p` (IAMReX `Projection.cpp:305`).
+the true unscaled `∇p` (IAMReX `Projection.cpp:305`). The streamwise **viscous** flux on the two planes is
+neglected — estimated **~1–5% of the drag** at Re=100, so the absolute Cd carries an error bar of that
+order; this is far below the 2.4× H1/H2 gap but means the trailing digits below are *indicative*, not
+measured to <1%.
 
 **Result (x_inlet=2, x_outlet=8; plane-insensitive plateau):**
 
 | Grid | CV Cd | vs literature 1.087 |
 |---|---|---|
 | Coarse 128×64×64 | **1.342** | +23% |
-| Medium 256×128×128 | **1.184** | +8.9% |
-| Richardson extrapolation (p=2) | **1.131** | **+4.0%** |
-| Isolated-equivalent (÷ confinement `1+kβ`, k≈3–4) | **≈1.10** | **+1–2%** |
+| Medium 256×128×128 | **1.183** | +8.9% |
+| Richardson extrap. (order unmeasured: p=1 → 1.025, p=2 → 1.131) | **≈1.03–1.13** | **−6% … +4%** |
+
+Only two grids exist, so the convergence order `p` is *assumed*, not fitted — the extrapolation is a
+**range** `1.03–1.13` that brackets literature within ~±6%. Dividing out the confinement offset
+(`1+kβ`, β=0.79%, k≈2–4) shifts the isolated-equivalent down by ~2–3%, i.e. into `≈1.00–1.11`.
+
+**Steadiness gate (design Decision 6, implemented).** `|unsteady momentum term| / |drag|` between
+`plt09900` and `plt10000` is **≈ 0.00** (the flow is fully steady at Re=100, below the ~Re 210 shedding
+onset), so the steady balance is valid and the verdict stands (not merely assumed).
 
 **Verdict — H1 (with an H1′ confinement offset).** The resolved flow field carries Cd ≈ 1.1 (grid-
-converged, confinement-corrected), within ~1–2% of literature — **not** the broken ≈0.45. The marker
-extractor under-reported by **2.64×** (`1.184/0.448`), confirming the deficit was a **force-extraction
-bug**, not a flow-field deficit (H2 is decisively excluded). The grid pair **converges toward literature**
-(1.342 → 1.184, from above), and the residual is the confined-array setup offset (+3–6%, the run is a
-transversely-periodic array at pitch 10 D) plus incomplete grid convergence.
+converged ± a few %, confinement-corrected toward ~1.0–1.1) — **not** the broken ≈0.45. The marker
+extractor under-reported by **2.64×** (`1.183/0.448`), confirming the deficit was a **force-extraction
+bug**, not a flow-field deficit (H2 is decisively excluded by a ~12× margin no error budget bridges). The
+grid pair **converges toward literature** (1.342 → 1.183, from above); the residual is the confined-array
+setup offset (the run is a transversely-periodic array at pitch 10 D) plus incomplete grid convergence.
 
 > **Answer to issue #26's question, now settled by execution:** the corrected sphere Cd **is** computable
 > from the committed plotfile fields **with no re-run** — via the field-based CV balance, not the IB

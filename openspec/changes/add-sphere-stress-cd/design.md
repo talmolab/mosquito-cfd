@@ -192,13 +192,14 @@ Handling (no pass-forcing loosening; CC-V2 intact):
   a correct confined result on the high tail is not mislabeled a failure); the **lower edge and the entire
   H2 logic are untouched**. The offset is documented in `t1a-findings.md §8` / `RESULTS.md`.
 
-## Decision 6 — steadiness gate (reject the "third answer")
+## Decision 6 — steadiness gate (reject the "third answer") — IMPLEMENTED
 
 The unsteady term `ρ(∫_CV u dV|_{plt10000} − |_{plt09900})/dt` is computed from the two committed
-plotfiles and **must be `< 5%` of |drag|** for the verdict to stand. At Re=100 the sphere wake is steady
-and axisymmetric (below the ~Re 210 shedding onset), so this should hold; if it does not, the steady
-assumption fails and the H1/H2 verdict is **void** (not silently reported). This makes the momentum-term
-check load-bearing rather than a side note.
+plotfiles and **must be `< 5%` of |drag|** for the verdict to stand. **Implemented** as
+`unsteady_momentum_force` (pure-numpy KAT) + `sphere_cv_steadiness_fraction` (plotfile wrapper) and
+asserted in `test_sphere_cv_steadiness_gate`. On the real data the fraction is **≈ 0.00** (the Re=100 wake
+is steady, below the ~Re 210 shedding onset), so the verdict stands — measured, not assumed. If it had
+exceeded 5% the H1/H2 verdict would be **void** (not silently reported).
 
 ## Decision 7 — H1/H2 is recorded, not CI-asserted
 

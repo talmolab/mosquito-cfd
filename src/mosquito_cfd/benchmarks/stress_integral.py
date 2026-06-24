@@ -88,6 +88,10 @@ def periodic_duct_drag(
     u_inlet = np.asarray(u_inlet, dtype=np.float64)
     u_outlet = np.asarray(u_outlet, dtype=np.float64)
     gradpx_volume = np.asarray(gradpx_volume, dtype=np.float64)
+    if u_inlet.shape != u_outlet.shape:
+        raise ValueError(
+            f"inlet/outlet plane shapes differ: {u_inlet.shape} vs {u_outlet.shape}"
+        )
     for name, arr in (
         ("u_inlet", u_inlet),
         ("u_outlet", u_outlet),
@@ -175,10 +179,10 @@ def extract_eulerian_box(
     names = ("u", "v", "w", "gradpx", "gradpy", "gradpz")
     out: dict[str, np.ndarray] = {}
     for key, field in zip(names, _REQUIRED_FIELDS):
-        arr = np.asarray(cg[field].to_ndarray(), dtype=np.float64)
-        if arr.dtype != np.float64:
-            raise ValueError(f"field {field} is not float64 (fp32 build?)")
-        out[key] = arr[sl]
+        raw = cg[field].to_ndarray()
+        if raw.dtype != np.float64:  # check BEFORE casting, so an fp32 build is caught
+            raise ValueError(f"field {field} is {raw.dtype}, not float64 (fp32 build?)")
+        out[key] = np.asarray(raw, dtype=np.float64)[sl]
     out["x"] = (dle[0] + (np.arange(ddims[0]) + 0.5) * dx[0])[sl[0]]
     out["y"] = (dle[1] + (np.arange(ddims[1]) + 0.5) * dx[1])[sl[1]]
     out["z"] = (dle[2] + (np.arange(ddims[2]) + 0.5) * dx[2])[sl[2]]
@@ -208,22 +212,36 @@ def sphere_cv_drag_cd(
         u_inf: Freestream velocity.
         diameter: Sphere diameter.
 
+    Raises:
+        ValueError: if ``x_inlet >= x_outlet`` (the inlet must be upstream of the outlet, else
+            the momentum term would be sign-flipped), or if the two locations resolve to the
+            same grid cell (a degenerate zero-thickness control volume).
+
     Returns:
         Dict with ``cd``, ``drag``, ``x_inlet``, ``x_outlet`` (actual cell-center positions).
     """
+    if x_inlet >= x_outlet:
+        raise ValueError(
+            f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
+        )
     box = extract_eulerian_box(
         plotfile_path,
-        lo=(min(x_inlet, x_outlet), -np.inf, -np.inf),
-        hi=(max(x_inlet, x_outlet), np.inf, np.inf),
+        lo=(x_inlet, -np.inf, -np.inf),
+        hi=(x_outlet, np.inf, np.inf),
     )
     xc = box["x"]
     i_in = int(np.argmin(np.abs(xc - x_inlet)))
     i_out = int(np.argmin(np.abs(xc - x_outlet)))
+    if i_in == i_out:
+        raise ValueError(
+            f"inlet and outlet resolve to the same cell (x={xc[i_in]:.4f}); "
+            f"choose more separated planes"
+        )
     dy, dz, dxs = float(box["dx"][1]), float(box["dx"][2]), float(box["dx"][0])
     drag = periodic_duct_drag(
         box["u"][i_in, :, :],
         box["u"][i_out, :, :],
-        box["gradpx"][min(i_in, i_out) : max(i_in, i_out), :, :],
+        box["gradpx"][i_in:i_out, :, :],
         rho=rho,
         cell_area=dy * dz,
         cell_thickness=dxs,
@@ -233,4 +251,91 @@ def sphere_cv_drag_cd(
         "drag": drag,
         "x_inlet": float(xc[i_in]),
         "x_outlet": float(xc[i_out]),
+    }
+
+
+def unsteady_momentum_force(
+    u_cv_old: np.ndarray,
+    u_cv_new: np.ndarray,
+    *,
+    rho: float,
+    cell_volume: float,
+    dt: float,
+) -> float:
+    """The unsteady x-momentum term ``rho * d/dt integral_CV u_x dV`` (time finite-difference).
+
+    The periodic-duct drag balance assumes steady flow (this term is ~0). At Re=100 the sphere
+    wake is steady (below the ~Re 210 shedding onset), but the assumption SHALL be checked, not
+    assumed (design Decision 6).
+
+    Args:
+        u_cv_old: Streamwise velocity over the control volume at the earlier time (3-D, FP64).
+        u_cv_new: Streamwise velocity over the control volume at the later time (same shape).
+        rho: Fluid density.
+        cell_volume: Volume of one cell (``dx * dy * dz``).
+        dt: Time between the two snapshots.
+
+    Returns:
+        The unsteady momentum force (same units as a drag force).
+    """
+    u_cv_old = np.asarray(u_cv_old, dtype=np.float64)
+    u_cv_new = np.asarray(u_cv_new, dtype=np.float64)
+    if u_cv_old.shape != u_cv_new.shape:
+        raise ValueError(
+            f"old/new control-volume shapes differ: {u_cv_old.shape} vs {u_cv_new.shape}"
+        )
+    if not (np.isfinite(u_cv_old).all() and np.isfinite(u_cv_new).all()):
+        raise ValueError("control-volume velocity contains non-finite values (NaN/inf)")
+    return float(rho * (np.sum(u_cv_new) - np.sum(u_cv_old)) * cell_volume / dt)
+
+
+def sphere_cv_steadiness_fraction(
+    plotfile_old: str,
+    plotfile_new: str,
+    *,
+    x_inlet: float,
+    x_outlet: float,
+    dt: float,
+    rho: float = 1.0,
+) -> dict[str, float]:
+    """Steadiness gate: ``|unsteady momentum term| / |CV drag|`` between two plotfiles.
+
+    The periodic-duct drag balance neglects the unsteady term; this quantifies it. The verdict
+    stands only if the returned ``fraction`` is small (design Decision 6 uses < 5%).
+
+    Args:
+        plotfile_old: Earlier-time plotfile (e.g. ``plt09900``).
+        plotfile_new: Later-time plotfile (e.g. ``plt10000``).
+        x_inlet: Inlet plane location.
+        x_outlet: Outlet plane location.
+        dt: Time between the two plotfiles.
+        rho: Fluid density.
+
+    Returns:
+        Dict with ``unsteady``, ``drag``, ``fraction`` (``|unsteady| / |drag|``).
+    """
+    box_old = extract_eulerian_box(
+        plotfile_old, lo=(x_inlet, -np.inf, -np.inf), hi=(x_outlet, np.inf, np.inf)
+    )
+    box_new = extract_eulerian_box(
+        plotfile_new, lo=(x_inlet, -np.inf, -np.inf), hi=(x_outlet, np.inf, np.inf)
+    )
+    xc = box_new["x"]
+    i_in = int(np.argmin(np.abs(xc - x_inlet)))
+    i_out = int(np.argmin(np.abs(xc - x_outlet)))
+    cell_volume = float(np.prod(box_new["dx"]))
+    unsteady = unsteady_momentum_force(
+        box_old["u"][i_in:i_out, :, :],
+        box_new["u"][i_in:i_out, :, :],
+        rho=rho,
+        cell_volume=cell_volume,
+        dt=dt,
+    )
+    drag = sphere_cv_drag_cd(plotfile_new, x_inlet=x_inlet, x_outlet=x_outlet, rho=rho)[
+        "drag"
+    ]
+    return {
+        "unsteady": unsteady,
+        "drag": drag,
+        "fraction": abs(unsteady) / abs(drag),
     }

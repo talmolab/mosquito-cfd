@@ -44,6 +44,20 @@ areas). At least one known-answer test SHALL use `rho != 1` so a `nu`-for-`mu`/`
 - **WHEN** the periodic-duct drag is evaluated
 - **THEN** a clear error is raised rather than a silent NaN drag/Cd being returned
 
+#### Scenario: Degenerate or misordered planes raise
+
+- **GIVEN** a sphere CV drag request with `x_inlet >= x_outlet`, or two locations that resolve to the
+  same grid cell
+- **WHEN** the control-volume drag is requested
+- **THEN** a clear error is raised (rather than a sign-flipped or zero-thickness silent-wrong-answer)
+
+#### Scenario: Steadiness gate is measured, not assumed
+
+- **GIVEN** two consecutive plotfiles (`plt09900`, `plt10000`) and a control volume
+- **WHEN** the unsteady momentum term `rho * d/dt integral_CV u_x dV` is computed and divided by the drag
+- **THEN** the fraction SHALL be below 5% for the steady balance (hence the H1/H2 verdict) to stand; on
+  the committed data it is ~0, confirming the steady-state assumption rather than assuming it
+
 ### Requirement: Plotfile Eulerian-box adapter
 
 The package SHALL provide a yt-based adapter that reads the velocity components and pressure-gradient
