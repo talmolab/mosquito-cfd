@@ -336,8 +336,11 @@ def sphere_cv_steadiness_fraction(
     drag = sphere_cv_drag_cd(plotfile_new, x_inlet=x_inlet, x_outlet=x_outlet, rho=rho)[
         "drag"
     ]
+    # A near-zero CV drag (degenerate planes / null field) is exactly the pathological case the
+    # gate should flag, not crash on — return inf rather than dividing by ~0.
+    fraction = float("inf") if abs(drag) < 1e-12 else abs(unsteady) / abs(drag)
     return {
         "unsteady": unsteady,
         "drag": drag,
-        "fraction": abs(unsteady) / abs(drag),
+        "fraction": fraction,
     }

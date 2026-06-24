@@ -4,6 +4,7 @@ Extracts drag coefficient and validates against literature for Re=100 flow.
 Reference: Johnson & Patel (1999), Cd = 1.087 at Re = 100.
 """
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -162,9 +163,16 @@ def extract_sphere_cd(
         fz_sum: float | None = float(particles["fz"].sum())
         cd_marker: float | None = compute_drag_coefficient(fx_sum)
         n_particles = particles["n_particles"]
-    except Exception:
+    except Exception as exc:
         if method == "marker":
             raise
+        # cv path only: degrade the marker diagnostic rather than fail, but WARN so a real bug
+        # in the particle path is visible rather than silently swallowed (not just "no particles").
+        warnings.warn(
+            f"IB-marker diagnostic unavailable ({exc!r}); cd_marker_lastpass=None. "
+            "The control-volume cd is unaffected.",
+            stacklevel=2,
+        )
         fx_sum = fy_sum = fz_sum = cd_marker = None
         n_particles = 0
 
