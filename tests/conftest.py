@@ -10,6 +10,8 @@ guarded so a missing ``torch``/``physicsnemo`` yields a skip, never a collection
 from __future__ import annotations
 
 import importlib.util
+import os
+from pathlib import Path
 
 import pytest
 
@@ -37,15 +39,37 @@ def _physicsnemo_available() -> bool:
     return importlib.util.find_spec("physicsnemo") is not None
 
 
+def _plotfile_root_available() -> bool:
+    """True only if ``MOSQUITO_CFD_PLOTFILE_ROOT`` is set and the directory exists.
+
+    The benchmark plotfiles live on the cluster-mounted Z: drive (Windows) and are absent on
+    the CI runner, so ``requires_plotfile`` tests skip unless the env var points at a real dir.
+    No Windows path is ever hard-coded into collection.
+    """
+    root = os.environ.get("MOSQUITO_CFD_PLOTFILE_ROOT")
+    return root is not None and Path(root).is_dir()
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip every ``@pytest.mark.gpu`` test when CUDA or PhysicsNeMo is unavailable."""
-    if _cuda_available() and _physicsnemo_available():
-        return
-    skip_gpu = pytest.mark.skip(
-        reason="requires a CUDA device and the optional 'train' group (PhysicsNeMo/torch)"
+    """Auto-skip ``gpu`` (no CUDA/PhysicsNeMo) and ``requires_plotfile`` (no plotfile root)."""
+    skip_gpu = (
+        None
+        if _cuda_available() and _physicsnemo_available()
+        else pytest.mark.skip(
+            reason="requires a CUDA device and the optional 'train' group (PhysicsNeMo/torch)"
+        )
+    )
+    skip_plotfile = (
+        None
+        if _plotfile_root_available()
+        else pytest.mark.skip(
+            reason="requires a plotfile under $MOSQUITO_CFD_PLOTFILE_ROOT (cluster/Z: data)"
+        )
     )
     for item in items:
-        if "gpu" in item.keywords:
+        if skip_gpu is not None and "gpu" in item.keywords:
             item.add_marker(skip_gpu)
+        if skip_plotfile is not None and "requires_plotfile" in item.keywords:
+            item.add_marker(skip_plotfile)
