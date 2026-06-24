@@ -83,7 +83,7 @@ upfront.
 
 | # | Tier | Oracle / exit criterion | New sims? | Bounds |
 |---|---|---|---|---|
-| **T1a** | **Diagnosis** — read IAMReX diffused-IB source / consult upstream maintainer; determine the correct force reconstruction; **confirm every field it needs is in the committed `plt10000` for both grids.** Exit decides T1b's path. | Written reconstruction spec + a yes/no: *"corrected Cd computable from committed fields?"* | No | **pre-June 30 OK** |
+| **T1a** ([#26](https://github.com/talmolab/mosquito-cfd/issues/26)) | **Diagnosis** — read IAMReX diffused-IB source / consult upstream maintainer; determine the correct force reconstruction; **confirm every field it needs is in the committed `plt10000` for both grids.** Exit decides T1b's path. | Written reconstruction spec + a yes/no: *"corrected Cd computable from committed fields?"* | No | **pre-June 30 OK** |
 | **T1b** | **Force-extraction fix** — implement the principled extractor in `mosquito_cfd.benchmarks`, replacing the ad-hoc ~2.4× factor. | Sphere **Cd → 1.087 ± tol** from existing `plt10000` (both grids); grid pair now *converges toward* literature. | No, **iff** T1a==yes; else re-run (→ deferred per guard) | **pre-June 30 OK iff analysis-only** |
 | **T2a** | **Axis-convention refactor (issue #1) — solver + convention + doc, atomic** — `wing.vertex` span→y, BC/domain reshape (`z` wall→periodic), `WingKinematics.H` Euler, hinge coords, **`docs/coordinate-convention.md` + the `WingKinematics.H` docstring + the RESULTS frame-description all in the SAME change.** | Forces **invariant** under the documented transform, graded with the **T1b extractor on both sides**; no interim commit carries new-convention geometry with old-convention docs. | Yes (coarse) | **post-submission** |
 | **T2b** | **Literature re-validation** — re-run sphere/ellipsoid/flapping (new convention, T1b extractor); grade against oracles; reconcile RESULTS **#3** (CF_x bound) & **#4** (CF_z mask) and the **METHODS.md IAMReX commit pin** (currently skewed: `c5f8e2a` vs fork `7ece065d`). | Sphere Cd=1.087; ellipsoid self-consistency + added-mass sanity; flapping CF in band without fudge; RESULTS reproducible. | Yes (coarse) | **post-submission** |
@@ -141,7 +141,7 @@ corpus is never regenerated** (it is a digest-pinned proof-of-pipeline artifact)
   is Elizabeth's own repo — no external-repo go-ahead needed).
 - **Existing issues this roadmap absorbs:** **#1** (axis → T2a), **#3** (CF_x reproducibility → T2b),
   **#4** (CF_z label → T2b). The force-extraction action item in `flow_past_sphere/RESULTS.md` becomes
-  **T1a/T1b**'s tracking issue.
+  **T1a/T1b**'s tracking issue ([#26](https://github.com/talmolab/mosquito-cfd/issues/26)).
 - Every PR links (a) its tracking issue and (b) the roadmap tier it advances; closes its sub-issue on merge.
 
 ---
