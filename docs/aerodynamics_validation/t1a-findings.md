@@ -276,7 +276,7 @@ measured to <1%.
 | Grid | CV Cd | vs literature 1.087 |
 |---|---|---|
 | Coarse 128×64×64 | **1.342** | +23% |
-| Medium 256×128×128 | **1.183** | +8.9% |
+| Medium 256×128×128 | **1.184** | +8.9% |
 | Richardson extrap. (order unmeasured: p=1 → 1.025, p=2 → 1.131) | **≈1.03–1.13** | **−6% … +4%** |
 
 Only two grids exist, so the convergence order `p` is *assumed*, not fitted — the extrapolation is a
@@ -289,9 +289,9 @@ onset), so the steady balance is valid and the verdict stands (not merely assume
 
 **Verdict — H1 (with an H1′ confinement offset).** The resolved flow field carries Cd ≈ 1.1 (grid-
 converged ± a few %, confinement-corrected toward ~1.0–1.1) — **not** the broken ≈0.45. The marker
-extractor under-reported by **2.64×** (`1.183/0.448`), confirming the deficit was a **force-extraction
+extractor under-reported by **2.64×** (`1.184/0.448`), confirming the deficit was a **force-extraction
 bug**, not a flow-field deficit (H2 is decisively excluded by a ~12× margin no error budget bridges). The
-grid pair **converges toward literature** (1.342 → 1.183, from above); the residual is the confined-array
+grid pair **converges toward literature** (1.342 → 1.184, from above); the residual is the confined-array
 setup offset (the run is a transversely-periodic array at pitch 10 D) plus incomplete grid convergence.
 
 > **Answer to issue #26's question, now settled by execution:** the corrected sphere Cd **is** computable

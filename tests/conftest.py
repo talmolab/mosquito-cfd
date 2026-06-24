@@ -1,10 +1,15 @@
 """Shared pytest configuration for the test suite.
 
-Defines the ``gpu`` marker auto-skip (force-surrogate PR5, design D2): GPU-tier tests need a
-CUDA device and the optional ``train`` dependency-group (PhysicsNeMo/torch), neither of which
-exists on the CPU-only CI runner. They are skipped here when unavailable so they are inert in
-CI; CI *also* deselects them with ``-m "not gpu"`` (belt-and-suspenders). The import probes are
-guarded so a missing ``torch``/``physicsnemo`` yields a skip, never a collection error.
+Defines two marker auto-skips so the suite is inert on a CPU-only, cluster-free runner:
+
+- ``gpu``: needs a CUDA device + the optional ``train`` group (PhysicsNeMo/torch). Auto-skipped
+  here when unavailable; CI *also* deselects it with ``-m "not gpu"`` (belt-and-suspenders).
+- ``requires_plotfile``: needs an AMReX plotfile under ``$MOSQUITO_CFD_PLOTFILE_ROOT``
+  (cluster/Z: data). Auto-skipped here when that path is absent — CI lacks it, so CI skips these
+  *without* needing an ``-m`` filter (it currently runs only ``-m "not gpu"``).
+
+The import/path probes are guarded so a missing dependency or path yields a skip, never a
+collection error.
 """
 
 from __future__ import annotations

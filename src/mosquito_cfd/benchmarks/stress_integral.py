@@ -278,6 +278,8 @@ def unsteady_momentum_force(
     Returns:
         The unsteady momentum force (same units as a drag force).
     """
+    if dt <= 0:
+        raise ValueError(f"dt must be positive, got {dt}")
     u_cv_old = np.asarray(u_cv_old, dtype=np.float64)
     u_cv_new = np.asarray(u_cv_new, dtype=np.float64)
     if u_cv_old.shape != u_cv_new.shape:

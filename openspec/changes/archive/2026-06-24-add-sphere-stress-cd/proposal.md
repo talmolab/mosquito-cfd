@@ -62,7 +62,7 @@ convergence, and the grid pair converges toward literature.
     would leave the pressure term — which dominates sphere Cd at Re=100 — untested);
   - a thin **yt adapter** `extract_eulerian_box(plotfile, bounds)` reading the CV region via
     `covering_grid` with an explicit FP64 cast (the only cluster-touching part).
-- `extract_sphere_cd` gains an opt-in `method="surface_stress"` path returning the field-based Cd; the
+- `extract_sphere_cd` gains an opt-in `method="cv"` path returning the field-based Cd; the
   existing marker-sum path is **retained but relabelled a diagnostic** (`cd_marker_lastpass`), never the
   reported number. Return dict is **extended (back-compatible), not broken** (blast radius is docs-only).
 - **Decision artifact**: running the extractor on the real `plt10000` (both grids; Z: drive is mounted

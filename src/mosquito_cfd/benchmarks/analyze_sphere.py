@@ -137,21 +137,36 @@ def extract_sphere_cd(
         - cd: Computed drag coefficient (the field-based value for ``"cv"``).
         - fx_sum, fy_sum, fz_sum: IB marker force sums.
         - cd_marker_lastpass: the legacy marker-sum Cd, labelled a diagnostic (last
-          multidirect sub-iteration only — never the result).
+          multidirect sub-iteration only — never the result). ``None`` when ``method="cv"`` is
+          run on a field-only plotfile with no particle data (``fx/fy/fz_sum`` are then ``None``
+          and ``n_particles`` is 0).
         - n_particles: Number of IB markers.
         - time: Simulation time.
         - validated: Whether Cd is within acceptance range.
         - error_pct: Percent error from literature value.
         - literature_cd: The literature reference value.
     """
+    if method not in ("marker", "cv"):
+        raise ValueError(f"unknown method {method!r}; expected 'marker' or 'cv'")
+
     ds = load_plotfile(plotfile_path)
-    particles = extract_particle_forces(ds)
 
-    fx_sum = float(particles["fx"].sum())
-    fy_sum = float(particles["fy"].sum())
-    fz_sum = float(particles["fz"].sum())
-
-    cd_marker = compute_drag_coefficient(fx_sum)
+    # IB-marker diagnostic: REQUIRED for method="marker" (it *is* that method), but only
+    # best-effort for method="cv" — a field-only plotfile has no particle fields, yet the
+    # control-volume method does not need them. On the cv path a missing-particle read degrades
+    # to cd_marker_lastpass=None rather than crashing before the principled CV path runs.
+    try:
+        particles = extract_particle_forces(ds)
+        fx_sum: float | None = float(particles["fx"].sum())
+        fy_sum: float | None = float(particles["fy"].sum())
+        fz_sum: float | None = float(particles["fz"].sum())
+        cd_marker: float | None = compute_drag_coefficient(fx_sum)
+        n_particles = particles["n_particles"]
+    except Exception:
+        if method == "marker":
+            raise
+        fx_sum = fy_sum = fz_sum = cd_marker = None
+        n_particles = 0
 
     if method == "cv":
         from mosquito_cfd.benchmarks.stress_integral import sphere_cv_drag_cd
@@ -159,10 +174,8 @@ def extract_sphere_cd(
         cd = sphere_cv_drag_cd(str(plotfile_path), x_inlet=x_inlet, x_outlet=x_outlet)[
             "cd"
         ]
-    elif method == "marker":
+    else:  # method == "marker"
         cd = cd_marker
-    else:
-        raise ValueError(f"unknown method {method!r}; expected 'marker' or 'cv'")
 
     error_pct = abs(cd - LITERATURE_CD) / LITERATURE_CD * 100
     validated = error_pct <= ACCEPTANCE_TOLERANCE * 100
@@ -173,7 +186,7 @@ def extract_sphere_cd(
         "fy_sum": fy_sum,
         "fz_sum": fz_sum,
         "cd_marker_lastpass": cd_marker,
-        "n_particles": particles["n_particles"],
+        "n_particles": n_particles,
         "time": float(ds.current_time),
         "validated": validated,
         "error_pct": error_pct,

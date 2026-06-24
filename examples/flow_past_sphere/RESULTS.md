@@ -80,7 +80,9 @@ The ~60%-low Cd was **not** under-resolution and **not** a missing kernel weight
   Cd ≈ 1.13 (grid-converged), **2.64× the marker value**, confirming the deficit was extraction.
 - The corrected pair **converges toward literature** from above (1.342 → 1.184). The residual +4–9% is the
   **confined-array setup offset** (the run is periodic in y,z = an infinite array at pitch 10 D, +3–6%) plus
-  incomplete grid convergence; the isolated-equivalent grid-converged value is ≈ 1.10 (within ~1–2%).
+  incomplete grid convergence. Dividing out the confinement offset puts the isolated-equivalent in the
+  bracket **≈1.00–1.11** (the absolute value carries a ~1–5% viscous-omission error bar plus an unfitted
+  convergence order, so it is not pinned tighter than that — see t1a-findings §8).
 
 To land the literal 1.087 ± 5% on a single grid, T2b refines the grid / applies the confinement correction.
 

@@ -272,3 +272,127 @@ def test_extract_sphere_cd_cv_method_reports_field_cd():
     assert (
         0.4 < r["cd_marker_lastpass"] < 0.5
     )  # marker diagnostic still present, relabelled
+
+
+# --- cluster-free wiring + robustness (harden-force-extraction) -------------------------------
+
+
+def _synthetic_box(*, nx, ny, nz, dx, U, c, G, i_in, i_out):
+    """A synthetic Eulerian box (the dict `extract_eulerian_box` returns) with a known drag.
+
+    Uniform inlet velocity U everywhere except the outlet plane (slowed to c*U), constant
+    gradpx=G. Lets a known-answer test drive sphere_cv_drag_cd with no plotfile.
+    """
+    shape = (nx, ny, nz)
+    u = np.full(shape, U, dtype=np.float64)
+    u[i_out, :, :] = c * U  # only the outlet plane is slowed
+    box = {
+        "u": u,
+        "v": np.zeros(shape),
+        "w": np.zeros(shape),
+        "gradpx": np.full(shape, G, dtype=np.float64),
+        "gradpy": np.zeros(shape),
+        "gradpz": np.zeros(shape),
+        "x": (np.arange(nx) + 0.5) * dx[0],
+        "y": (np.arange(ny) + 0.5) * dx[1],
+        "z": (np.arange(nz) + 0.5) * dx[2],
+        "dx": np.asarray(dx, dtype=np.float64),
+    }
+    return box, i_in, i_out
+
+
+def test_sphere_cv_drag_wiring_known_answer(monkeypatch):
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    nx, ny, nz = 10, 4, 3
+    dx = (0.2, 0.5, 0.25)
+    U, c, G = 1.0, 0.8, 0.3
+    i_in, i_out = 1, 6
+    box, i_in, i_out = _synthetic_box(
+        nx=nx, ny=ny, nz=nz, dx=dx, U=U, c=c, G=G, i_in=i_in, i_out=i_out
+    )
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+
+    x_inlet = float(box["x"][i_in])
+    x_outlet = float(box["x"][i_out])
+    r = si.sphere_cv_drag_cd("dummy", x_inlet=x_inlet, x_outlet=x_outlet)
+
+    dy, dz, dxs = dx[1], dx[2], dx[0]
+    momentum = 1.0 * ((ny * nz) * U**2 - (ny * nz) * (c * U) ** 2) * dy * dz
+    pressure = G * (i_out - i_in) * (ny * nz) * dy * dz * dxs
+    expected_drag = momentum - pressure
+    expected_cd = si.cd_from_drag(expected_drag, rho=1.0, u_inf=1.0, diameter=1.0)
+
+    assert r["cd"] == pytest.approx(expected_cd)
+    assert r["x_inlet"] == pytest.approx(x_inlet)
+    assert r["x_outlet"] == pytest.approx(x_outlet)
+
+
+def test_unsteady_dt_nonpositive_raises():
+    u = np.ones((2, 2, 2))
+    for bad_dt in (0.0, -1.0):
+        with pytest.raises(ValueError, match="dt"):
+            unsteady_momentum_force(u, u * 1.1, rho=1.0, cell_volume=1e-3, dt=bad_dt)
+
+
+def test_unsteady_shape_mismatch_raises():
+    with pytest.raises(ValueError, match="shapes? differ"):
+        unsteady_momentum_force(
+            np.ones((2, 2, 2)), np.ones((2, 2, 3)), rho=1.0, cell_volume=1e-3, dt=1.0
+        )
+
+
+def test_unsteady_nonfinite_raises():
+    u = np.ones((2, 2, 2))
+    bad = u.copy()
+    bad[0, 0, 0] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        unsteady_momentum_force(u, bad, rho=1.0, cell_volume=1e-3, dt=1.0)
+
+
+def test_cv_method_without_particles(monkeypatch):
+    # CV mode must tolerate a field-only plotfile (no IB particles).
+    import mosquito_cfd.benchmarks.analyze_sphere as az
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    box, i_in, i_out = _synthetic_box(
+        nx=10, ny=4, nz=3, dx=(0.2, 0.5, 0.25), U=1.0, c=0.8, G=0.3, i_in=1, i_out=6
+    )
+
+    class _DS:
+        current_time = 100.0
+
+    monkeypatch.setattr(az, "load_plotfile", lambda p: _DS())
+    monkeypatch.setattr(
+        az,
+        "extract_particle_forces",
+        lambda ds: (_ for _ in ()).throw(KeyError("no particle_real_comp3")),
+    )
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+
+    r = az.extract_sphere_cd(
+        "dummy",
+        method="cv",
+        x_inlet=float(box["x"][i_in]),
+        x_outlet=float(box["x"][i_out]),
+    )
+    assert r["cd"] > 0.0  # the CV value, computed despite missing particles
+    assert r["cd_marker_lastpass"] is None  # best-effort diagnostic degraded cleanly
+
+
+def test_marker_method_requires_particles(monkeypatch):
+    import mosquito_cfd.benchmarks.analyze_sphere as az
+
+    class _DS:
+        current_time = 100.0
+
+    monkeypatch.setattr(az, "load_plotfile", lambda p: _DS())
+    monkeypatch.setattr(
+        az,
+        "extract_particle_forces",
+        lambda ds: (_ for _ in ()).throw(KeyError("no particle_real_comp3")),
+    )
+    with pytest.raises(KeyError):
+        az.extract_sphere_cd(
+            "dummy"
+        )  # default method="marker" still requires particles
