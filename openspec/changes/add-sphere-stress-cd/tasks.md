@@ -1,5 +1,28 @@
 # Tasks — add-sphere-stress-cd
 
+## Status (delivered) — method deviated; see design "Why two-plane periodic-duct…"
+
+- ✅ **0** marker registered (`pyproject.toml`, `conftest.py`).
+- ✅ **1** core implemented as the **periodic-duct CV balance** (not the single-plane wake survey — invalid
+  under periodic y/z): `periodic_duct_drag`, `cd_from_drag`, `extract_eulerian_box`, `sphere_cv_drag_cd`
+  in `stress_integral.py`, with cluster-free KATs (momentum uniform+varying, constant-gradpx pressure,
+  null, NaN-raises, Cd definition; `ρ≠1`). `recover_pressure_in_plane`/`wake_survey_drag` removed.
+- ✅ **2** yt adapter (full level-0 covering grid + in-memory slice, `('boxlib',·)` tuples + presence
+  assert, `YTArray→float64`, halo, cell-center coords); marked tests pass on real data.
+- ✅ **3** `extract_sphere_cd(method="cv")` (back-compat; `cd_marker_lastpass` diagnostic); exported.
+- ✅ **4** ran on committed `plt10000` → **H1/H1′** (coarse 1.342, medium 1.184, Richardson 1.131;
+  field/marker 2.64×; H2 excluded). Recorded in `t1a-findings.md §8`, `flow_past_sphere/RESULTS.md`.
+- ⏭️ **5 (Stage-2 full 6-face box)** — **not needed**; the two-plane balance already plateaus.
+- 🟡 **6 (CC-V5/V6)** — done for `RESULTS.md` + `METHODS.md` Known-Limitation #1; the broader sweep
+  (apex change files, frozen Track-B corpus captions, `force_surrogate` roadmap, `heaving_ellipsoid`
+  RESULTS) is a **tracked follow-up issue** (keeps this PR focused; avoids entangling frozen/submitted
+  artifacts and another in-flight change).
+- 🟡 **7** close-out (this step).
+
+Original (pre-deviation) task list below, retained for traceability.
+
+
+
 TDD throughout: each implementation task is preceded by its failing test, and tests+impl for a group are
 committed together (never a red-test-only commit). CI stays cluster-free; the literature validation is a
 marked local step. Cluster-free command: `uv run pytest -m "not gpu and not requires_plotfile"`.

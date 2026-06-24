@@ -253,3 +253,50 @@ T1b's solver change needs upstream coordination (it concerns FP32/CUDA builds, n
 **Downstream (record, do not act here):** T1b will confirm the Track-B corpus is mis-scaled by ≈ the same
 factor (re-caption, never regenerate — CC-V6) and supersede the "~60% low Cd / under investigation" claim
 across `add-apex-benchmarking` + `benchmarks/METHODS.md` (CC-V5).
+
+---
+
+## 8. Stage-1 result (T1b) — H1 confirmed, no re-run
+
+The re-run-free cross-check (§4.b) was implemented (OpenSpec `add-sphere-stress-cd`,
+`src/mosquito_cfd/benchmarks/stress_integral.py`) and run on the committed `plt10000`. **One correction
+to §4.b:** the single-plane wake survey is invalid here because the run is **periodic in y,z** — with
+blockage the bypass flow accelerates above `U∞`, so the "side faces in the freestream" premise fails
+(it gave negative, non-plateau Cd). The correct measure is a **two-plane periodic-duct momentum balance**:
+the periodic lateral faces cancel exactly, leaving
+`F_drag = ρ(∫_{x1}u_x²dA − ∫_{x2}u_x²dA) − ∫_V (∂p/∂x)dV` — read directly from `u_x` on an inlet/outlet
+plane and `gradpx` between them (no pressure reconstruction; the constant cancels). `gradp` is confirmed
+the true unscaled `∇p` (IAMReX `Projection.cpp:305`).
+
+**Result (x_inlet=2, x_outlet=8; plane-insensitive plateau):**
+
+| Grid | CV Cd | vs literature 1.087 |
+|---|---|---|
+| Coarse 128×64×64 | **1.342** | +23% |
+| Medium 256×128×128 | **1.184** | +8.9% |
+| Richardson extrapolation (p=2) | **1.131** | **+4.0%** |
+| Isolated-equivalent (÷ confinement `1+kβ`, k≈3–4) | **≈1.10** | **+1–2%** |
+
+**Verdict — H1 (with an H1′ confinement offset).** The resolved flow field carries Cd ≈ 1.1 (grid-
+converged, confinement-corrected), within ~1–2% of literature — **not** the broken ≈0.45. The marker
+extractor under-reported by **2.64×** (`1.184/0.448`), confirming the deficit was a **force-extraction
+bug**, not a flow-field deficit (H2 is decisively excluded). The grid pair **converges toward literature**
+(1.342 → 1.184, from above), and the residual is the confined-array setup offset (+3–6%, the run is a
+transversely-periodic array at pitch 10 D) plus incomplete grid convergence.
+
+> **Answer to issue #26's question, now settled by execution:** the corrected sphere Cd **is** computable
+> from the committed plotfile fields **with no re-run** — via the field-based CV balance, not the IB
+> markers. T1b is **analysis-only** (the "Yes" branch); no solver re-run is needed.
+
+**Carried to T2b (not blocking):** to land the literal `1.087 ± 5%` on a single grid, T2b should refine
+the grid and/or apply the confinement correction (or re-run with non-periodic far-field BCs).
+
+**Follow-up (CC-V5/V6 supersession).** The ~2.4×→**2.64×** factor is resolved. This change updated the two
+benchmark-local docs (`flow_past_sphere/RESULTS.md`, `METHODS.md` Known-Limitation #1). The remaining live
+copies of the "~60% low / under investigation" (CC-V5) and "~2.4×" (CC-V6) claims — in
+`add-apex-benchmarking` (proposal/tasks/spec), `examples/heaving_ellipsoid/RESULTS.md`,
+`examples/prelim_sweep/README.md`, `force_surrogate/evidence_figure.py`,
+`examples/flapping_wing/RESULTS.md`, `docs/force_surrogate/roadmap.md` — are **deferred to a dedicated
+follow-up** (keeps this PR focused; avoids entangling the frozen/submitted Track-B corpus and another
+in-flight change). The already-submitted APEX PDF is immutable and intentionally retains the original note;
+`F_ref≈624.8` (pure kinematics) is unaffected.
