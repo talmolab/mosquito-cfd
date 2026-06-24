@@ -5,18 +5,25 @@ Tier T1b, Stage 1 of the aerodynamics-validation program. The corrected diffused
 t1a-findings.md``). But drag is a physical property of the resolved flow and *is* recoverable
 from the persisted Eulerian fields via a control-volume momentum balance.
 
-Stage 1 is a **single-plane wake survey**: place the control-volume side faces in the freestream
-so the box collapses to one downstream plane, where
+**Method (periodic-duct control volume).** The committed run is periodic in y and z, so the
+naive single-plane wake survey (which assumes the lateral faces sit in undisturbed freestream)
+is invalid: with periodic walls and blockage, the bypass flow accelerates above ``U_inf`` across
+the whole cross-section (see ``design.md`` "Why two-plane periodic-duct instead of single-plane
+wake survey"). But periodicity makes the correct balance *simpler*: take a control volume
+spanning the full y-z period between an inlet plane ``x1`` and an outlet plane ``x2``. The lateral
+faces carry identical fields on opposite (periodic) sides, so they cancel exactly, leaving
 
-    F_drag = rho * integral u_x (U_inf - u_x) dA + integral (p_inf - p) dA.
+    F_drag = rho * ( integral_{x1} u_x^2 dA - integral_{x2} u_x^2 dA )  -  integral_V dp/dx dV,
 
-Physically: the sphere leaves a momentum (velocity) deficit and a pressure deficit in its wake;
-that lost momentum is the drag (Newton's third law). Because the H1/H2 question is a ~2.4x
-discrimination (1.087 vs 0.45), the single plane is decisive; the full 6-face box is a Stage-2
-confirmation built only if the survey lands band-edge ambiguous (design Decision 1).
+with the pressure term written from the persisted ``gradpx`` (the unknown additive pressure
+constant cancels because both planes have equal area). The streamwise viscous flux on the two
+planes is O(1/Re) of the pressure/momentum terms in smooth flow and is neglected at Stage 1
+(the H1/H2 question is a ~2.4x discrimination, not a sub-1% measurement). Physically the pressure
+drop across the body is the form drag, which dominates sphere Cd at Re=100.
 
-All functions are pure numpy (FP64), with no plotfile or cluster dependency, so they are
-unit-testable against analytic known-answer fields in cluster-free CI.
+All numerical functions are pure numpy (FP64), with no plotfile or cluster dependency, so they
+are unit-testable against analytic known-answer fields in cluster-free CI. The yt adapter is the
+only cluster-touching code (lazy yt import).
 """
 
 from __future__ import annotations
@@ -36,7 +43,7 @@ def cd_from_drag(
     ``Cd = Fx / (0.5 * rho * U_inf^2 * A)`` with frontal area ``A = pi * D^2 / 4``.
 
     Args:
-        fx: Streamwise drag force on the body (same units as ``rho * U^2 * D^2``).
+        fx: Streamwise drag force on the body.
         rho: Fluid density.
         u_inf: Freestream velocity.
         diameter: Body diameter (frontal length scale).
@@ -48,87 +55,182 @@ def cd_from_drag(
     return float(fx / (0.5 * rho * u_inf**2 * area))
 
 
-def wake_survey_drag(
-    u_streamwise: np.ndarray,
-    pressure: np.ndarray,
+def periodic_duct_drag(
+    u_inlet: np.ndarray,
+    u_outlet: np.ndarray,
+    gradpx_volume: np.ndarray,
     *,
     rho: float,
-    u_inf: float,
-    p_inf: float,
     cell_area: float,
+    cell_thickness: float,
 ) -> float:
-    """Streamwise drag from a single downstream wake plane (momentum + pressure deficit).
+    """Streamwise drag from a periodic-duct control-volume momentum balance.
 
-    Evaluates ``D = rho * sum[ u (U_inf - u) ] * dA + sum[ p_inf - p ] * dA`` over the plane
-    (midpoint rule on cell-centered data). Valid when the plane's outer edge lies in the
-    freestream and the flow is steady (the unsteady term is handled separately by the caller's
-    steadiness gate). The pressure enters only as the deficit ``p_inf - p``, so it is invariant
-    to the unknown additive constant in a pressure reconstructed from ``grad p``.
+    For a control volume spanning the full periodic y-z cross-section between an inlet plane and
+    an outlet plane, the lateral (periodic) faces cancel and
+
+        F_drag = rho * ( sum(u_inlet^2) - sum(u_outlet^2) ) * dA  -  sum(gradpx_volume) * dA * dx.
+
+    The pressure term ``- integral dp/dx dV`` uses the persisted ``gradpx`` directly; the unknown
+    additive pressure constant cancels (both planes have equal area).
 
     Args:
-        u_streamwise: Streamwise velocity ``u_x`` on the plane (2-D array, FP64).
-        pressure: Static pressure on the plane (2-D array, same shape).
+        u_inlet: Streamwise velocity on the inlet plane (2-D array, FP64).
+        u_outlet: Streamwise velocity on the outlet plane (same shape).
+        gradpx_volume: ``dp/dx`` over the cells between the planes (3-D array, FP64).
         rho: Fluid density.
-        u_inf: Freestream streamwise velocity.
-        p_inf: Freestream static pressure (the plane's freestream-edge value).
-        cell_area: Area of one plane cell (``dy * dz``); uniform over the plane.
+        cell_area: Area of one plane cell (``dy * dz``).
+        cell_thickness: Streamwise cell size ``dx``.
 
     Returns:
         The streamwise drag force on the body.
     """
-    u_streamwise = np.asarray(u_streamwise, dtype=np.float64)
-    pressure = np.asarray(pressure, dtype=np.float64)
-    if not np.isfinite(u_streamwise).all() or not np.isfinite(pressure).all():
-        raise ValueError("wake-survey plane contains non-finite values (NaN/inf)")
-    momentum = rho * np.sum(u_streamwise * (u_inf - u_streamwise)) * cell_area
-    pressure_term = np.sum(p_inf - pressure) * cell_area
-    return float(momentum + pressure_term)
+    u_inlet = np.asarray(u_inlet, dtype=np.float64)
+    u_outlet = np.asarray(u_outlet, dtype=np.float64)
+    gradpx_volume = np.asarray(gradpx_volume, dtype=np.float64)
+    for name, arr in (
+        ("u_inlet", u_inlet),
+        ("u_outlet", u_outlet),
+        ("gradpx", gradpx_volume),
+    ):
+        if not np.isfinite(arr).all():
+            raise ValueError(
+                f"control-volume field {name} contains non-finite values (NaN/inf)"
+            )
+    momentum_flux = rho * (np.sum(u_inlet**2) - np.sum(u_outlet**2)) * cell_area
+    pressure = np.sum(gradpx_volume) * cell_area * cell_thickness
+    return float(momentum_flux - pressure)
 
 
-def recover_pressure_in_plane(
-    gradp_y: np.ndarray,
-    gradp_z: np.ndarray,
+# --- yt adapter (the only cluster-touching code; yt imported lazily) --------------------------
+
+_REQUIRED_FIELDS = (
+    ("boxlib", "x_velocity"),
+    ("boxlib", "y_velocity"),
+    ("boxlib", "z_velocity"),
+    ("boxlib", "gradpx"),
+    ("boxlib", "gradpy"),
+    ("boxlib", "gradpz"),
+)
+
+
+def extract_eulerian_box(
+    plotfile_path: str,
     *,
-    dy: float,
-    dz: float,
-) -> np.ndarray:
-    """Reconstruct in-plane pressure (up to an additive constant) from its gradient.
+    lo: tuple[float, float, float],
+    hi: tuple[float, float, float],
+    halo: int = 0,
+) -> dict[str, np.ndarray]:
+    """Read velocity + pressure-gradient over an axis-aligned region of an AMReX plotfile.
 
-    The plotfiles persist ``grad p`` (verified true, unscaled ``grad p``; IAMReX
-    ``Projection.cpp:305``), not ``p``. On a y-z plane, integrate the gradient along a fixed
-    path from the ``(0, 0)`` reference cell: ``grad p_y`` down the first column, then ``grad p_z``
-    along each row (trapezoid rule). The unknown reference constant cancels in the wake-survey
-    pressure deficit ``p_inf - p``.
+    Isolates all yt / plotfile / cluster I/O from the numpy core. Reads the full level-0 covering
+    grid (exact for the single-level sphere runs; ~0.2 GB for 4.2M cells, and free of yt's
+    ghost-cell boundary check on interior sub-regions) and slices the requested region in memory,
+    padded by ``halo`` cells on each side. Fields are read by their ``('boxlib', name)`` tuple
+    identifiers; all are asserted present. Arrays are unwrapped from yt's ``unyt_array`` to bare
+    ``float64`` numpy (yt may return ``float32`` for an fp32 build — the assert doubles as the
+    fp64-build check). Code units throughout (no conversion).
 
     Args:
-        gradp_y: ``d p / d y`` on the plane (2-D array, FP64), indexed ``[iy, iz]``.
-        gradp_z: ``d p / d z`` on the plane (same shape).
-        dy: Cell spacing along y.
-        dz: Cell spacing along z.
+        plotfile_path: Path to the plotfile directory (e.g. ``.../plt10000``).
+        lo: Physical lower corner ``(x, y, z)`` (``-inf`` allowed for "full extent").
+        hi: Physical upper corner ``(x, y, z)`` (``+inf`` allowed for "full extent").
+        halo: Extra cells sliced on every side beyond the requested region.
 
     Returns:
-        Pressure on the plane, up to an additive constant (``p[0, 0] == 0``).
+        Dict with FP64 arrays ``u, v, w, gradpx, gradpy, gradpz`` (indexed ``[ix, iy, iz]``),
+        cell-center coordinate arrays ``x, y, z``, and ``dx`` (per-axis spacing).
     """
-    gradp_y = np.asarray(gradp_y, dtype=np.float64)
-    gradp_z = np.asarray(gradp_z, dtype=np.float64)
-    # Column y-integral at z = z[0], broadcast across columns: p[iy, :] = trapz gradp_y[:, 0] dy.
-    p_col = _cumulative_trapezoid(gradp_y[:, 0], dy)  # shape (ny,)
-    # Row z-integrals from each row's start: p[iy, iz] += trapz of gradp_z[iy, :] dz.
-    p_row = _cumulative_trapezoid(gradp_z, dz, axis=1)  # shape (ny, nz)
-    return p_col[:, None] + p_row
+    import yt
 
+    yt.set_log_level("error")
+    ds = yt.load(str(plotfile_path))
+    if ds.index.max_level != 0:
+        raise ValueError(
+            f"extract_eulerian_box requires a single-level plotfile; "
+            f"max_level={ds.index.max_level}"
+        )
+    present = set(ds.field_list)
+    missing = [f for f in _REQUIRED_FIELDS if f not in present]
+    if missing:
+        raise ValueError(f"plotfile is missing required fields {missing}")
 
-def _cumulative_trapezoid(
-    values: np.ndarray, spacing: float, *, axis: int = 0
-) -> np.ndarray:
-    """Cumulative trapezoidal integral along ``axis``, starting at 0 (same shape as input)."""
-    values = np.asarray(values, dtype=np.float64)
-    avg = 0.5 * (
-        np.take(values, range(1, values.shape[axis]), axis=axis)
-        + np.take(values, range(0, values.shape[axis] - 1), axis=axis)
+    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
+    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
+    ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
+    dx = (dre - dle) / ddims
+
+    # Clamp to the domain (accepts +/-inf for "full extent" along an axis).
+    lo_c = np.clip(np.asarray(lo, dtype=np.float64), dle, dre)
+    hi_c = np.clip(np.asarray(hi, dtype=np.float64), dle, dre)
+    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
+    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
+    i_lo = np.maximum(i_lo, 0)
+    i_hi = np.minimum(np.maximum(i_hi, i_lo + 1), ddims)  # >=1 cell/axis, within domain
+
+    cg = ds.covering_grid(
+        level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
     )
-    increments = avg * spacing
-    cumulative = np.cumsum(increments, axis=axis)
-    zero_shape = list(values.shape)
-    zero_shape[axis] = 1
-    return np.concatenate([np.zeros(zero_shape), cumulative], axis=axis)
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(i_lo, i_hi))
+    names = ("u", "v", "w", "gradpx", "gradpy", "gradpz")
+    out: dict[str, np.ndarray] = {}
+    for key, field in zip(names, _REQUIRED_FIELDS):
+        arr = np.asarray(cg[field].to_ndarray(), dtype=np.float64)
+        if arr.dtype != np.float64:
+            raise ValueError(f"field {field} is not float64 (fp32 build?)")
+        out[key] = arr[sl]
+    out["x"] = (dle[0] + (np.arange(ddims[0]) + 0.5) * dx[0])[sl[0]]
+    out["y"] = (dle[1] + (np.arange(ddims[1]) + 0.5) * dx[1])[sl[1]]
+    out["z"] = (dle[2] + (np.arange(ddims[2]) + 0.5) * dx[2])[sl[2]]
+    out["dx"] = dx
+    return out
+
+
+def sphere_cv_drag_cd(
+    plotfile_path: str,
+    *,
+    x_inlet: float,
+    x_outlet: float,
+    rho: float = 1.0,
+    u_inf: float = 1.0,
+    diameter: float = 1.0,
+) -> dict[str, float]:
+    """Periodic-duct control-volume drag coefficient for the FlowPastSphere benchmark.
+
+    Reads the inlet and outlet y-z planes and the ``gradpx`` volume between them and evaluates
+    :func:`periodic_duct_drag`. The planes span the full periodic cross-section.
+
+    Args:
+        plotfile_path: Path to the plotfile directory.
+        x_inlet: Streamwise location of the upstream (inlet) plane.
+        x_outlet: Streamwise location of the downstream (outlet) plane.
+        rho: Fluid density.
+        u_inf: Freestream velocity.
+        diameter: Sphere diameter.
+
+    Returns:
+        Dict with ``cd``, ``drag``, ``x_inlet``, ``x_outlet`` (actual cell-center positions).
+    """
+    box = extract_eulerian_box(
+        plotfile_path,
+        lo=(min(x_inlet, x_outlet), -np.inf, -np.inf),
+        hi=(max(x_inlet, x_outlet), np.inf, np.inf),
+    )
+    xc = box["x"]
+    i_in = int(np.argmin(np.abs(xc - x_inlet)))
+    i_out = int(np.argmin(np.abs(xc - x_outlet)))
+    dy, dz, dxs = float(box["dx"][1]), float(box["dx"][2]), float(box["dx"][0])
+    drag = periodic_duct_drag(
+        box["u"][i_in, :, :],
+        box["u"][i_out, :, :],
+        box["gradpx"][min(i_in, i_out) : max(i_in, i_out), :, :],
+        rho=rho,
+        cell_area=dy * dz,
+        cell_thickness=dxs,
+    )
+    return {
+        "cd": cd_from_drag(drag, rho=rho, u_inf=u_inf, diameter=diameter),
+        "drag": drag,
+        "x_inlet": float(xc[i_in]),
+        "x_outlet": float(xc[i_out]),
+    }
