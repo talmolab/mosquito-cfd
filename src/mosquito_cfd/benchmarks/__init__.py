@@ -14,6 +14,12 @@ from mosquito_cfd.benchmarks.metadata import (
     load_metadata,
     save_metadata,
 )
+from mosquito_cfd.benchmarks.stress_integral import (
+    cd_from_drag,
+    extract_eulerian_box,
+    periodic_duct_drag,
+    sphere_cv_drag_cd,
+)
 
 __all__ = [
     "extract_sphere_cd",
@@ -26,4 +32,8 @@ __all__ = [
     "save_metadata",
     "load_metadata",
     "LITERATURE_CD",
+    "periodic_duct_drag",
+    "cd_from_drag",
+    "extract_eulerian_box",
+    "sphere_cv_drag_cd",
 ]

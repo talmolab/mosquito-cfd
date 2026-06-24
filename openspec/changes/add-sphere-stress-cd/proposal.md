@@ -38,12 +38,17 @@ hypotheses (§4.c):
   confound H1-vs-H2 (a +4% offset cannot masquerade as a −59% deficit) but must be named so a correct
   confined result is not misread as exact literature agreement or clipped at the band edge.
 
-The decisive computation is a **single-plane wake survey** (Stage 1) — the H1/H2 question is a ~2.4×
-discrimination, not a sub-1% measurement, so the full 6-face CV box + `<1%` viscous/convergence/plateau
-validation (Stage 2) is built only if Stage 1 is band-edge ambiguous. This change implements the field-
-based extractor, validates it cluster-free against analytic known-answers, runs it on the committed
-`plt10000` (both grids) to **classify H1 / H1′ / H2**, and records the outcome (incl. the confinement
-offset). `gradp` is confirmed to be the true unscaled `∇p` (IAMReX `Projection.cpp:305`).
+The decisive computation is a **two-plane periodic-duct control-volume balance** (the single-plane wake
+survey originally speced is invalid here — periodic y/z + blockage accelerate the bypass above `U∞`; see
+design "Why two-plane periodic-duct…"). The H1/H2 question is a ~2.4× discrimination, so the two-plane
+balance (which plateaus cleanly) is decisive on its own. `gradp` is confirmed the true unscaled `∇p`
+(IAMReX `Projection.cpp:305`).
+
+**Result (this change, run on the committed `plt10000`):** **H1/H1′** — coarse Cd = 1.342, medium = 1.184,
+Richardson(p=2) = 1.131 (+4.0% vs 1.087), isolated-equivalent (÷ confinement) ≈ 1.10 (+1–2%);
+field/marker ratio = 2.64×. **H2 (≈0.45) is decisively excluded**; the corrected sphere Cd is recovered
+from committed fields **with no re-run**, the residual is the confined-array offset (H1′) + grid
+convergence, and the grid pair converges toward literature.
 
 ## What Changes
 

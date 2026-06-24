@@ -171,3 +171,35 @@ def test_sphere_cv_drag_classifies_h1():
     assert CONFINED_BAND[0] <= extrapolated <= CONFINED_BAND[1], (
         f"extrapolated Cd={extrapolated:.3f} outside confinement-corrected band {CONFINED_BAND}"
     )
+
+
+@pytest.mark.requires_plotfile
+def test_extract_sphere_cd_default_preserves_contract():
+    from mosquito_cfd.benchmarks.analyze_sphere import extract_sphere_cd
+
+    r = extract_sphere_cd(_sphere_plt("medium"))  # default method="marker"
+    for key in (
+        "cd",
+        "fx_sum",
+        "fy_sum",
+        "fz_sum",
+        "n_particles",
+        "time",
+        "validated",
+        "error_pct",
+        "literature_cd",
+    ):
+        assert key in r, f"missing back-compat key {key}"
+    # Legacy marker path reproduces the known ~0.448 under-reported value.
+    assert 0.4 < r["cd"] < 0.5
+
+
+@pytest.mark.requires_plotfile
+def test_extract_sphere_cd_cv_method_reports_field_cd():
+    from mosquito_cfd.benchmarks.analyze_sphere import extract_sphere_cd
+
+    r = extract_sphere_cd(_sphere_plt("medium"), method="cv")
+    assert r["cd"] > 0.9  # the field-based CV value (~1.18), not the marker ~0.448
+    assert (
+        0.4 < r["cd_marker_lastpass"] < 0.5
+    )  # marker diagnostic still present, relabelled

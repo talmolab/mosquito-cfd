@@ -106,22 +106,43 @@ def compute_drag_coefficient(
     return Cd
 
 
-def extract_sphere_cd(plotfile_path: str | Path) -> dict[str, Any]:
-    """Extract drag coefficient from FlowPastSphere plot file.
+def extract_sphere_cd(
+    plotfile_path: str | Path,
+    *,
+    method: str = "marker",
+    x_inlet: float = 2.0,
+    x_outlet: float = 8.0,
+) -> dict[str, Any]:
+    """Extract drag coefficient from a FlowPastSphere plot file.
 
-    This is the main entry point for Cd extraction.
+    Two extraction methods are available:
+
+    - ``method="marker"`` (default, legacy): the raw sum of the IB marker forces
+      (``particle_real_comp3``). T1a proved this is **wrong** — the plotfile persists only the
+      last multidirect sub-iteration's force, so the marker sum under-reports the drag by ~2.6x
+      (``docs/aerodynamics_validation/t1a-findings.md``). Kept for back-compatibility and as a
+      diagnostic.
+    - ``method="cv"``: the principled field-based drag from a periodic-duct control-volume
+      momentum balance over the persisted Eulerian fields (T1b; :mod:`stress_integral`). This is
+      the corrected benchmark Cd.
 
     Args:
         plotfile_path: Path to plot file directory.
+        method: ``"marker"`` (legacy raw-sum diagnostic) or ``"cv"`` (field-based control volume).
+        x_inlet: Inlet plane location for the ``"cv"`` method.
+        x_outlet: Outlet plane location for the ``"cv"`` method.
 
     Returns:
-        Dictionary containing:
-        - cd: Computed drag coefficient
-        - fx_sum, fy_sum, fz_sum: Force sums
-        - n_particles: Number of IB markers
-        - time: Simulation time
-        - validated: Whether Cd is within acceptance range
-        - error_pct: Percent error from literature value
+        Dictionary containing (back-compatible across methods):
+        - cd: Computed drag coefficient (the field-based value for ``"cv"``).
+        - fx_sum, fy_sum, fz_sum: IB marker force sums.
+        - cd_marker_lastpass: the legacy marker-sum Cd, labelled a diagnostic (last
+          multidirect sub-iteration only — never the result).
+        - n_particles: Number of IB markers.
+        - time: Simulation time.
+        - validated: Whether Cd is within acceptance range.
+        - error_pct: Percent error from literature value.
+        - literature_cd: The literature reference value.
     """
     ds = load_plotfile(plotfile_path)
     particles = extract_particle_forces(ds)
@@ -130,9 +151,19 @@ def extract_sphere_cd(plotfile_path: str | Path) -> dict[str, Any]:
     fy_sum = float(particles["fy"].sum())
     fz_sum = float(particles["fz"].sum())
 
-    cd = compute_drag_coefficient(fx_sum)
+    cd_marker = compute_drag_coefficient(fx_sum)
 
-    # Validation
+    if method == "cv":
+        from mosquito_cfd.benchmarks.stress_integral import sphere_cv_drag_cd
+
+        cd = sphere_cv_drag_cd(str(plotfile_path), x_inlet=x_inlet, x_outlet=x_outlet)[
+            "cd"
+        ]
+    elif method == "marker":
+        cd = cd_marker
+    else:
+        raise ValueError(f"unknown method {method!r}; expected 'marker' or 'cv'")
+
     error_pct = abs(cd - LITERATURE_CD) / LITERATURE_CD * 100
     validated = error_pct <= ACCEPTANCE_TOLERANCE * 100
 
@@ -141,6 +172,7 @@ def extract_sphere_cd(plotfile_path: str | Path) -> dict[str, Any]:
         "fx_sum": fx_sum,
         "fy_sum": fy_sum,
         "fz_sum": fz_sum,
+        "cd_marker_lastpass": cd_marker,
         "n_particles": particles["n_particles"],
         "time": float(ds.current_time),
         "validated": validated,

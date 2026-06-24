@@ -9,6 +9,27 @@ that showed a single slip-side wake oracle leaves the **pressure and viscous ter
 Re=100 the **pressure/form drag dominates** sphere Cd, so that gap would ship an untested bug straight into
 the decisive H1/H2 experiment.
 
+## Why two-plane periodic-duct balance instead of the single-plane wake survey (implementation deviation)
+
+The approved design specced the Stage-1 decisive measure as a **single-plane wake survey**
+(`F = ρ∫u(U∞−u)dA + ∫(p∞−p)dA`). Implementation against the real `plt10000` showed this is **invalid
+for this run**: the domain is **periodic in y,z** with blockage, so the bypass flow accelerates *above*
+`U∞` across the whole cross-section — the wake survey's "side faces in the freestream at `U∞`" premise
+fails, and it returned **negative, non-plateau Cd** (≈ −0.5 to −0.7).
+
+The correct measure exploits the periodicity instead of fighting it: a control volume spanning the **full
+y-z period** between an inlet plane `x1` and outlet plane `x2` has **lateral faces that cancel exactly**
+(identical fields on opposite periodic sides). What remains is a clean two-plane balance:
+
+> `F_drag = ρ ( ∫_{x1} u_x² dA − ∫_{x2} u_x² dA ) − ∫_V (∂p/∂x) dV`
+
+read directly from `u_x` on the two planes and `gradpx` in between — **no pressure reconstruction, no
+freestream-reference subtlety, no viscous-transpose machinery**. It is both *more correct* (no unbounded-
+domain assumption) and *simpler* than the speced wake survey, and it produced a clean plane-insensitive
+plateau and the decisive H1 verdict. The numeric KATs below (Decision 4) are updated to this method;
+`recover_pressure_in_plane` and the single-plane `wake_survey_drag` were removed. Stage 2 (full 6-face box,
+viscous transpose, plateau-sweep) is unnecessary — the two-plane balance already plateaus.
+
 ## Goals / non-goals
 
 - **Goal**: a correct, FP64, deterministic, cluster-free-testable drag extractor that yields a single Cd
