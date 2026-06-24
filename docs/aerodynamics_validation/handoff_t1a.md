@@ -45,9 +45,10 @@ field-availability check per grid). Commit it on a branch off `docs/aerodynamics
 (that branch holds the roadmap and is not yet pushed — base off it). Open a PR; use /review-pr and
 /pre-merge-check before merge.
 
-WHEN T1b STARTS (next tier, NOT now): that's where the real code lands — use /new-feature to
-orchestrate (-> /openspec:proposal -> /review-openspec -> /openspec:apply with TDD against the
-sphere Cd=1.087 oracle -> /pre-merge-check -> PR -> /openspec:archive).
+WHEN T1b STARTS (next tier, NOT now): that's where the real code lands — run /new-feature, which
+already orchestrates the full flow (scope -> /openspec:proposal -> /review-openspec -> /openspec:apply
+with TDD -> /pre-merge-check -> PR). The sphere Cd=1.087 oracle is the TDD north star; after merge,
+/openspec:archive the change.
 
 HARD CONSTRAINTS:
 - ANALYSIS ONLY. No new simulations, no cluster/GPU runs, no re-runs.
