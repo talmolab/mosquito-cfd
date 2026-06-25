@@ -239,7 +239,7 @@ Each benchmark run produces `run_metadata.json`:
 
 ## Known Limitations
 
-1. **Force coefficient discrepancy**: Computed Cd is ~60% lower than literature. Under investigation - may be related to diffused IB force extraction method.
+1. **Force coefficient discrepancy (RESOLVED — force-extraction bug, T1a/T1b).** The IB-marker Cd was ~60% low because it summed only the last multidirect sub-iteration's force (`loop_ns=2`; the accumulated force was never persisted). The corrected drag, read from the Eulerian fields via a periodic-duct control-volume balance (`extract_sphere_cd(method="cv")`), is **2.64× the marker value** and converges toward literature (medium Cd 1.18, Richardson-extrapolated 1.13 vs 1.087; the residual is the confined-array offset). See [`docs/aerodynamics_validation/t1a-findings.md` §8](../docs/aerodynamics_validation/t1a-findings.md). No re-run was needed.
 
 2. **Geometry constraints**: IAMReX only supports sphere, ellipsoid, and cylinder. Realistic wing shapes require geometry extension or alternative solver.
 

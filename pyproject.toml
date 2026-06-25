@@ -87,4 +87,5 @@ convention = "google"
 testpaths = ["tests"]
 markers = [
     "gpu: requires a CUDA device and the optional 'train' group (PhysicsNeMo/torch); auto-skipped when unavailable and deselected in CI via `-m \"not gpu\"`",
+    "requires_plotfile: requires an AMReX plotfile under $MOSQUITO_CFD_PLOTFILE_ROOT (cluster/Z: data); auto-skipped when that path is absent (so CI, which lacks it, skips these without needing an `-m` filter)",
 ]

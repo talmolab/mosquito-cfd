@@ -54,37 +54,37 @@ Drag coefficient (Cd) vs simulation time:
 
 ### Computed Values
 
-| Grid | Computed Cd | Literature Cd | Discrepancy |
-|------|-------------|---------------|-------------|
-| Coarse | 0.503 | 1.087 | -54% |
-| Medium | 0.448 | 1.087 | -59% |
+| Grid | IB-marker Cd (wrong) | Field CV Cd (corrected) | Literature Cd |
+|------|----------------------|-------------------------|---------------|
+| Coarse | 0.503 | **1.342** | 1.087 |
+| Medium | 0.448 | **1.184** | 1.087 |
+| Richardson extrap (p=2) | — | **1.131** (+4.0%) | 1.087 |
 
 ### Literature Reference
 - Johnson & Patel (1999): Cd = 1.087 at Re = 100
 - Clift et al. (1978): Cd = 1.09
 
-### Investigation Required
+### Resolved: the IB-marker Cd was a force-extraction artifact (T1a/T1b)
 
-The computed Cd is systematically ~60% lower than literature. Possible causes:
+The ~60%-low Cd was **not** under-resolution and **not** a missing kernel weight — it was a
+**force-extraction bug**. Authoritative analysis:
+[`docs/aerodynamics_validation/t1a-findings.md`](../../docs/aerodynamics_validation/t1a-findings.md)
+(diagnosis in §1–7, **resolution in §8** — the single source for the numbers below).
 
-1. **Force extraction method**: We use `particle_real_comp3/4/5` as force components per IAMReX convention. This may not be correct for the diffused IB method.
+- **T1a (diagnosis):** IAMReX runs 2 multidirect forcing sub-iterations (`loop_ns=2`), but the plotfile
+  persists only the **last** sub-iteration's per-marker force; the accumulated force lived in an
+  `IB_Particle_*.csv` that was never saved. So `Σ particle_real_comp3` (used above) under-reports the drag.
+- **T1b (fix):** drag is recovered directly from the persisted Eulerian fields via a **periodic-duct
+  control-volume momentum balance** (`mosquito_cfd.benchmarks.stress_integral`;
+  `extract_sphere_cd(method="cv")`), independent of the markers — **no re-run**. The field carries
+  Cd ≈ 1.13 (grid-converged), **2.64× the marker value**, confirming the deficit was extraction.
+- The corrected pair **converges toward literature** from above (1.342 → 1.184). The residual +4–9% is the
+  **confined-array setup offset** (the run is periodic in y,z = an infinite array at pitch 10 D, +3–6%) plus
+  incomplete grid convergence. Dividing out the confinement offset puts the isolated-equivalent in the
+  bracket **≈1.00–1.11** (the absolute value carries a ~1–5% viscous-omission error bar plus an unfitted
+  convergence order, so it is not pinned tighter than that — see t1a-findings §8).
 
-2. **Diffused IB scaling**: The diffused IB method spreads forces over a regularization kernel. The total force may require integration with appropriate kernel weights.
-
-3. **Component mapping**: The 9 `particle_real_comp` fields may store different quantities than assumed. Need to verify against IAMReX source code.
-
-**Raw particle data at steady state (plt10000)**:
-```
-comp0: sum=3.69, mean=0.007 (possibly velocity correction x)
-comp1: sum=-0.0002, mean~0 (possibly velocity correction y)
-comp2: sum=0.0007, mean~0 (possibly velocity correction z)
-comp3: sum=-0.176, mean=-0.0003 (assumed force x - USED FOR CD)
-comp4: sum=0.00001, mean~0 (assumed force y)
-comp5: sum=-0.00003, mean~0 (assumed force z)
-comp6-8: all ~0
-```
-
-**Action item**: Consult IAMReX documentation or maintainer (Dr. Yadong Zeng) to verify correct force extraction procedure.
+To land the literal 1.087 ± 5% on a single grid, T2b refines the grid / applies the confinement correction.
 
 ## Performance Data for APEX Proposal
 
