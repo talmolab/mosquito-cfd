@@ -278,6 +278,8 @@ def unsteady_momentum_force(
     Returns:
         The unsteady momentum force (same units as a drag force).
     """
+    if dt <= 0:
+        raise ValueError(f"dt must be positive, got {dt}")
     u_cv_old = np.asarray(u_cv_old, dtype=np.float64)
     u_cv_new = np.asarray(u_cv_new, dtype=np.float64)
     if u_cv_old.shape != u_cv_new.shape:
@@ -334,8 +336,11 @@ def sphere_cv_steadiness_fraction(
     drag = sphere_cv_drag_cd(plotfile_new, x_inlet=x_inlet, x_outlet=x_outlet, rho=rho)[
         "drag"
     ]
+    # A near-zero CV drag (degenerate planes / null field) is exactly the pathological case the
+    # gate should flag, not crash on — return inf rather than dividing by ~0.
+    fraction = float("inf") if abs(drag) < 1e-12 else abs(unsteady) / abs(drag)
     return {
         "unsteady": unsteady,
         "drag": drag,
-        "fraction": abs(unsteady) / abs(drag),
+        "fraction": fraction,
     }

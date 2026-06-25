@@ -272,3 +272,159 @@ def test_extract_sphere_cd_cv_method_reports_field_cd():
     assert (
         0.4 < r["cd_marker_lastpass"] < 0.5
     )  # marker diagnostic still present, relabelled
+
+
+# --- cluster-free wiring + robustness (harden-force-extraction) -------------------------------
+
+
+def _synthetic_box(*, nx, ny, nz, dx, U, c, G, i_in, i_out):
+    """A synthetic Eulerian box (the dict `extract_eulerian_box` returns) with a known drag.
+
+    Uniform inlet velocity U everywhere except the outlet plane (slowed to c*U). `gradpx` ramps
+    along x as ``G*(ix+1)`` (NON-uniform on purpose, so the pressure-slice test pins plane
+    *identity*, not merely slice width). Lets a known-answer test drive sphere_cv_drag_cd with no
+    plotfile.
+    """
+    shape = (nx, ny, nz)
+    u = np.full(shape, U, dtype=np.float64)
+    u[i_out, :, :] = c * U  # only the outlet plane is slowed
+    gradpx = (G * (np.arange(nx) + 1.0))[:, None, None] * np.ones(shape)
+    box = {
+        "u": u,
+        "v": np.zeros(shape),
+        "w": np.zeros(shape),
+        "gradpx": gradpx.astype(np.float64),
+        "gradpy": np.zeros(shape),
+        "gradpz": np.zeros(shape),
+        "x": (np.arange(nx) + 0.5) * dx[0],
+        "y": (np.arange(ny) + 0.5) * dx[1],
+        "z": (np.arange(nz) + 0.5) * dx[2],
+        "dx": np.asarray(dx, dtype=np.float64),
+    }
+    return box, i_in, i_out
+
+
+def _expected_cv_cd(box, i_in, i_out):
+    """Independently compute the closed-form CV Cd from the synthetic box fields.
+
+    Computes the periodic-duct integral straight from the arrays (so it is independent of the
+    `sphere_cv_drag_cd` wiring under test): drag = rho(Σu_in² − Σu_out²)dA − Σgradpx[in:out] dV.
+    """
+    dy, dz, dxs = float(box["dx"][1]), float(box["dx"][2]), float(box["dx"][0])
+    momentum = (np.sum(box["u"][i_in] ** 2) - np.sum(box["u"][i_out] ** 2)) * dy * dz
+    pressure = np.sum(box["gradpx"][i_in:i_out]) * dy * dz * dxs
+    return cd_from_drag(momentum - pressure, rho=1.0, u_inf=1.0, diameter=1.0)
+
+
+def test_sphere_cv_drag_wiring_known_answer(monkeypatch):
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    nx, ny, nz = 10, 4, 3
+    dx = (0.2, 0.5, 0.25)
+    U, c, G = 1.0, 0.8, 0.3
+    i_in, i_out = 1, 6
+    box, i_in, i_out = _synthetic_box(
+        nx=nx, ny=ny, nz=nz, dx=dx, U=U, c=c, G=G, i_in=i_in, i_out=i_out
+    )
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+
+    x_inlet = float(box["x"][i_in])
+    x_outlet = float(box["x"][i_out])
+    r = si.sphere_cv_drag_cd("dummy", x_inlet=x_inlet, x_outlet=x_outlet)
+
+    assert r["cd"] == pytest.approx(_expected_cv_cd(box, i_in, i_out))
+    assert r["x_inlet"] == pytest.approx(x_inlet)
+    assert r["x_outlet"] == pytest.approx(x_outlet)
+
+
+def test_unsteady_dt_nonpositive_raises():
+    u = np.ones((2, 2, 2))
+    for bad_dt in (0.0, -1.0):
+        with pytest.raises(ValueError, match="dt"):
+            unsteady_momentum_force(u, u * 1.1, rho=1.0, cell_volume=1e-3, dt=bad_dt)
+
+
+def test_unsteady_shape_mismatch_raises():
+    with pytest.raises(ValueError, match="shapes? differ"):
+        unsteady_momentum_force(
+            np.ones((2, 2, 2)), np.ones((2, 2, 3)), rho=1.0, cell_volume=1e-3, dt=1.0
+        )
+
+
+def test_unsteady_nonfinite_raises():
+    u = np.ones((2, 2, 2))
+    for bad_value in (np.nan, np.inf):
+        bad = u.copy()
+        bad[0, 0, 0] = bad_value
+        with pytest.raises(ValueError, match="non-finite"):
+            unsteady_momentum_force(u, bad, rho=1.0, cell_volume=1e-3, dt=1.0)
+
+
+def test_cv_method_without_particles(monkeypatch):
+    # CV mode must tolerate a field-only plotfile (no IB particles).
+    import mosquito_cfd.benchmarks.analyze_sphere as az
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    box, i_in, i_out = _synthetic_box(
+        nx=10, ny=4, nz=3, dx=(0.2, 0.5, 0.25), U=1.0, c=0.8, G=0.3, i_in=1, i_out=6
+    )
+
+    class _DS:
+        current_time = 100.0
+
+    monkeypatch.setattr(az, "load_plotfile", lambda p: _DS())
+    monkeypatch.setattr(
+        az,
+        "extract_particle_forces",
+        lambda ds: (_ for _ in ()).throw(KeyError("no particle_real_comp3")),
+    )
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+
+    with pytest.warns(UserWarning, match="marker diagnostic unavailable"):
+        r = az.extract_sphere_cd(
+            "dummy",
+            method="cv",
+            x_inlet=float(box["x"][i_in]),
+            x_outlet=float(box["x"][i_out]),
+        )
+    # cd must EQUAL the field-based CV value, not merely be positive.
+    assert r["cd"] == pytest.approx(_expected_cv_cd(box, i_in, i_out))
+    assert r["cd_marker_lastpass"] is None  # best-effort diagnostic degraded cleanly
+    assert r["n_particles"] == 0 and r["fx_sum"] is None
+
+
+def test_marker_method_requires_particles(monkeypatch):
+    import mosquito_cfd.benchmarks.analyze_sphere as az
+
+    class _DS:
+        current_time = 100.0
+
+    monkeypatch.setattr(az, "load_plotfile", lambda p: _DS())
+    monkeypatch.setattr(
+        az,
+        "extract_particle_forces",
+        lambda ds: (_ for _ in ()).throw(KeyError("no particle_real_comp3")),
+    )
+    with pytest.raises(KeyError):
+        az.extract_sphere_cd(
+            "dummy"
+        )  # default method="marker" still requires particles
+
+
+def test_steadiness_fraction_zero_drag_is_inf(monkeypatch):
+    # A null/uniform box has zero CV drag; the gate must report inf, not raise ZeroDivisionError.
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    box, i_in, i_out = _synthetic_box(
+        nx=10, ny=4, nz=3, dx=(0.2, 0.5, 0.25), U=1.0, c=1.0, G=0.0, i_in=1, i_out=6
+    )
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    s = si.sphere_cv_steadiness_fraction(
+        "old",
+        "new",
+        x_inlet=float(box["x"][i_in]),
+        x_outlet=float(box["x"][i_out]),
+        dt=1.0,
+    )
+    assert s["drag"] == pytest.approx(0.0)
+    assert s["fraction"] == float("inf")
