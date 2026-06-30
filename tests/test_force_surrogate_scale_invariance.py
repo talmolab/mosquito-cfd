@@ -76,6 +76,9 @@ def test_unscaled_r2_matches_committed_metrics(coef):
 # Pinned SHA256 of the committed raw force/moment columns (Fx..Mz). The Track-B
 # re-derivation freezes these — a future regeneration that disturbs the raw CFD forces
 # (not just the derived CF) would change this digest and fail the test.
+# NOTE: `pd.util.hash_pandas_object` is value-based but pandas-major-version coupled. pandas
+# is pinned in uv.lock, so this is stable in CI; if pandas is upgraded and this digest trips
+# on unchanged data, re-pin it (it is a corpus tripwire, not phantom data corruption).
 _FROZEN_RAW_FORCE_SHA = (
     "d709c6cd458b47f037652a8719deeb68c70c314077bcddb3a26224a9b26de41d"
 )

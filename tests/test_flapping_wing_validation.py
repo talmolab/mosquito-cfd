@@ -19,8 +19,10 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     reconstruct_wing_forces,
 )
 
-# forces.csv is the committed canonical copy of the IB-particle output (IB_Particle_*.csv
-# is the gitignored raw dump; see .gitignore). Same 29-column schema incl. SumU*.
+# forces.csv is the committed write-out of the validated wingbeat (IB_Particle_*.csv is the
+# gitignored raw dump; see .gitignore). Same run + 29-col schema incl. SumU*, but a separate
+# write-out (de-duplicated leading rows; forces agree with the raw dump to ~1e-3 relative) —
+# the gate is robust to that (margins ~0.1 dwarf the ~6e-4 delta).
 _CSV = "examples/flapping_wing/forces.csv"
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0)  # validated point
 

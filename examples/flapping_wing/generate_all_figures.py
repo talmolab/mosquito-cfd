@@ -421,7 +421,7 @@ def main():
         "--forces-csv",
         type=Path,
         default=Path(__file__).parent / "forces.csv",
-        help="Path to IB_Particle_1.csv force output",
+        help="Path to the force CSV (default: committed forces.csv)",
     )
     parser.add_argument(
         "--vertex-file",
