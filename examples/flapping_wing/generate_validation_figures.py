@@ -140,7 +140,7 @@ def fig_v3_scale_invariance(out_dir: Path) -> dict:
 
 def fig_v4_added_mass(out_dir: Path) -> dict:
     """V4: ib_force vs added-mass decomposition over the cycle (added-mass NOT gated)."""
-    d = reconstruct_wing_forces(_HERE / "IB_Particle_1.csv", f_star=1.0, phi_amp_deg=70.0)
+    d = reconstruct_wing_forces(_HERE / "forces.csv", f_star=1.0, phi_amp_deg=70.0)
     frac = added_mass_fraction(d)
     m = d.time >= STEADY_WINDOW_T0
     fig, (axx, axz) = plt.subplots(2, 1, figsize=(9, 7), sharex=True)

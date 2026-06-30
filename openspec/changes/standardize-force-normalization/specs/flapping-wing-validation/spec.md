@@ -52,7 +52,7 @@ SHALL NOT be loosened to make the gate pass.
 
 #### Scenario: Steady window is pinned by a physical criterion and reproducible
 
-- **Given** the single committed wingbeat of `forces.csv`/`IB_Particle_1.csv`, whose first steps carry an impulsive-start transient
+- **Given** the single committed wingbeat of `forces.csv` (the committed copy of the IB-particle output), whose first steps carry an impulsive-start transient
 - **When** the headline peak coefficients are evaluated
 - **Then** the analysis pins the steady evaluation window by a **documented physical criterion** (e.g. excluding the impulsive-start transient, ≥ a stated fraction of a wingbeat after `t = 0`) expressed as a **named constant** — not chosen post-hoc to land in band — and the reported peaks are reproducible from the committed data for that window
 - **And** with the pinned window the `CF_z` floor stays clear of `0.5` on `ib_force` alone (the margin is reported)
@@ -64,14 +64,14 @@ columns of the IB-particle output) as a **separate decomposition** alongside `ib
 into the coefficient the plausibility gate grades. The `SumU*`→force relationship SHALL be taken from
 the IAMReX `WriteIBForceAndMoment` definition (resolved from the solver source before any combination),
 documented in the analysis with the exact column algebra, and a test SHALL assert the added-mass
-expression matches that definition on a known row of the committed `IB_Particle_1.csv` — locking the
+expression matches that definition on a known row of the committed `forces.csv` (kept IB-particle output) — locking the
 formula to the **source**, not to the band. The analysis MAY additionally report the net 6-DOF
 hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's momentum balance), clearly
 labelled, but the gate verdict SHALL rest on `ib_force` alone.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
 
-- **Given** the committed 29-column `IB_Particle_1.csv` (with `Fx/Fy/Fz` and `SumU{x,y,z}`) and the documented `WriteIBForceAndMoment` definition
+- **Given** the committed 29-column `forces.csv` (with `Fx/Fy/Fz` and `SumU{x,y,z}`) and the documented `WriteIBForceAndMoment` definition
 - **When** the added-mass term is computed
 - **Then** it equals the documented expression (whether an already-force-like accumulation or a momentum sum requiring `d/dt`, as resolved from the solver source) evaluated on a known row, with the formula citation in the test docstring — and the test does **not** select the expression that makes the gate pass
 

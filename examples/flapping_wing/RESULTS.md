@@ -91,8 +91,8 @@ nu* = V_mid / Re = 11.5 / 100 = 0.115 (r_mid = hinge-to-midspan = 1.5)
 
 ## Aerodynamic Forces
 
-Forces extracted from `IB_Particle_1.csv` (the accumulated immersed-boundary force
-`kernel.ib_force`).
+Forces extracted from `forces.csv` — the committed copy of the IAMReX IB-particle output
+(the accumulated immersed-boundary force `kernel.ib_force`).
 
 ### Reference normalization (van Veen 2022)
 
@@ -127,7 +127,7 @@ van Veen literature band **[0.5, 1.5]** with no fudge:
 | Quantity (van Veen, ib_force) | Value | In [0.5, 1.5]? |
 |----------|-------|----|
 | CF_x range (stroke axis) | [-1.410, +0.853] | — |
-| CF_z range (lift axis) | [-0.613, +0.680] | — |
+| CF_z range (lift axis) | [-0.613, +0.681] | — |
 | Max \|CF_x\| | **1.41** (ceiling margin 0.09) | ✅ |
 | Max \|CF_z\| | **0.68** (floor margin 0.18) | ✅ |
 | Resultant max \|CF\| = √(CF_x²+CF_z²) | 1.42 (rotation-invariant companion) | — |
@@ -167,12 +167,14 @@ See **fig_forces.pdf** for the full force time series.
 
 ### Force at key phases
 
+CF_z below is the van Veen `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27`):
+
 | Phase | t | phi (deg) | alpha (deg) | Fz | CF_z |
 |-------|---|-----------|-------------|-----|------|
 | Start | 0.000 | 0 | 45 | 0 | 0 |
-| Forward mid-stroke | 0.250 | +70 | 0 | -78.9 | -0.126 |
-| Return start | 0.500 | 0 | -45 | +48.7 | +0.078 |
-| Return mid-stroke | 0.750 | -70 | 0 | -77.2 | -0.124 |
+| Forward mid-stroke | 0.250 | +70 | 0 | -78.9 | -0.394 |
+| Return start | 0.500 | 0 | -45 | +48.7 | +0.243 |
+| Return mid-stroke | 0.750 | -70 | 0 | -77.2 | -0.385 |
 
 ---
 

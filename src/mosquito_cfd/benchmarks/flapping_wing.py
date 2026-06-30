@@ -95,7 +95,8 @@ def reconstruct_wing_forces(
     """Reconstruct lab-frame van Veen CF series from an IB-particle CSV (no correction factor).
 
     Args:
-        csv_path: Path to the committed ``IB_Particle_*.csv``.
+        csv_path: Path to the committed ``forces.csv`` (the kept copy of the IB-particle
+            output; the raw ``IB_Particle_*.csv`` dump is gitignored).
         f_star: Dimensionless flap frequency.
         phi_amp_deg: Stroke amplitude [deg].
         rho_f: Fluid density (``euler_fluid_rho``; 1.0 dimensionless here).

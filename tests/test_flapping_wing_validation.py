@@ -19,7 +19,9 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     reconstruct_wing_forces,
 )
 
-_CSV = "examples/flapping_wing/IB_Particle_1.csv"
+# forces.csv is the committed canonical copy of the IB-particle output (IB_Particle_*.csv
+# is the gitignored raw dump; see .gitignore). Same 29-column schema incl. SumU*.
+_CSV = "examples/flapping_wing/forces.csv"
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0)  # validated point
 
 
