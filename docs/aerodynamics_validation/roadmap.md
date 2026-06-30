@@ -125,12 +125,19 @@ corpus is never regenerated** (it is a digest-pinned proof-of-pipeline artifact)
   scenario), and `benchmarks/METHODS.md` Known-Limitation #1. The **already-submitted APEX proposal PDF
   is immutable and intentionally retains the original note** — record that so the drift reads as
   intentional, not an error.
-- **CC-V6. Re-caption (don't regenerate) the frozen Track-B corpus when T1 resolves the factor.** T1
-  *confirms* the merged `dataset.parquet` is mis-scaled by the exact ~2.4× it investigates. The corpus
-  stays frozen (pipeline-readiness framing intact, F_ref≈624.8 is pure-kinematics and unaffected), but
-  the *"~2.4× (under investigation)"* language in `examples/prelim_sweep/README.md`,
-  `force_surrogate/evidence_figure.py`, and the corpus captions/`run_metadata` must be updated to cite
-  the resolved factor — otherwise T1 leaves the same dangling claim in Track B that CC-V5 fixes for APEX.
+- **CC-V6. Re-derive (don't regenerate the CFD) the Track-B corpus coefficients under the van Veen
+  convention.** *Resolved by `standardize-force-normalization` (#32).* The wing/Track-B "~2.4×" was a
+  **normalization-convention mismatch** — the repo normalized by **peak wingtip** velocity; van Veen
+  (eq 1.1) normalizes by the stroke rate at the **radius of gyration** (second moment of area `S_yy`),
+  a geometry factor of **(r_tip/r_gyr)² = 3.12×**. It is **not** a diffused-IB force deficit and **not**
+  the sphere's 2.64× extraction bug (those two were conflated). The **raw** CFD (IB-particle CSVs, raw
+  force/moment columns) stays frozen/digest-pinned; only the **derived** coefficients are re-derived
+  (`dataset.parquet` CF columns, `holdout_predictions.parquet`, the evidence figure + metrics) — the
+  surrogate is scale-invariant, so held-out R² is unchanged and no retrain is needed. `F_ref` **does**
+  move (624.79 → 200.27 at the validated point; it is *not* "unaffected"). The "~2.4× diffused-IB
+  underestimate" language in `examples/prelim_sweep/README.md`, `force_surrogate/evidence_figure.py`,
+  `examples/flapping_wing/RESULTS.md`, and `docs/force_surrogate/roadmap.md` is **removed**, not
+  re-captioned to a different number.
 
 ---
 
@@ -184,8 +191,10 @@ Reconciled findings:
   T2–T4 + any re-run remediation deferred post-submission.
 - **[IMPORTANT] CC-V5 fixed only 1 of ≥5 copies of the "60% low" claim; missed the unmet apex spec
   requirement + immutable submitted artifact** → CC-V5 expanded to the full checklist + immutability note.
-- **[IMPORTANT] T1 confirms the merged Track-B corpus is mis-scaled** → new **CC-V6** (re-caption, never
-  regenerate; F_ref unaffected — pure kinematics).
+- **[IMPORTANT] The Track-B corpus coefficients used the wrong (peak-tip) normalization** → **CC-V6**
+  (re-derive the *derived* coefficients under the van Veen convention; the raw CFD stays frozen; `F_ref`
+  *does* move 624.79 → 200.27). *Superseded by #32: the "~2.4×" was a normalization convention, not a
+  diffused-IB deficit; the earlier "F_ref unaffected" assumption was wrong.*
 - **[MINOR] CC-V4 wording implied committed corpus values change** → reworded to "frozen and
   reinterpreted, not edited"; contingency branch states the corpus is never regenerated.
 - **[MINOR] METHODS.md IAMReX commit pin skew** (`c5f8e2a` vs fork `7ece065d`) → folded into T2b's
