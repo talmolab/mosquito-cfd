@@ -55,6 +55,15 @@ def test_added_mass_force_is_rho_times_sumu_column():
 # --- E.1b: gate on ib_force ALONE, in band, no fudge; verdict independent of added-mass ---
 
 
+def test_van_veen_band_is_not_loosened():
+    """The literature band is pinned to [0.5,1.5] — it SHALL NOT be widened to pass.
+
+    Scenario: ib_force magnitudes fall in band without a fudge (the band itself is fixed).
+    Guards against quietly widening VAN_VEEN_BAND to admit a future out-of-band config.
+    """
+    assert VAN_VEEN_BAND == (0.5, 1.5)
+
+
 def test_ib_force_gate_in_band_without_fudge():
     """max|CF_x|, max|CF_z| (ib_force, van Veen) lie in [0.5,1.5] with no correction factor.
 
@@ -113,6 +122,38 @@ def test_window_excludes_impulsive_start():
     """Including the impulsive start (t=0) blows |CF_x| out of band — the cut is load-bearing."""
     gate_full = plausibility_gate(_decomp(), window_t0=0.0)
     assert gate_full["max_cf_x"] > 1.5  # transient spike, excluded by the pinned window
+
+
+# --- Robustness / degenerate-input guards (new analysis functions) ---
+
+
+def test_empty_steady_window_raises_clear_error():
+    """A window past all timesteps reports the data range, not a bare reduction crash."""
+    d = _decomp()
+    with pytest.raises(ValueError, match="selects no timesteps"):
+        plausibility_gate(d, window_t0=1e9)
+    with pytest.raises(ValueError, match="selects no timesteps"):
+        added_mass_fraction(d, window_t0=1e9)
+
+
+def test_degenerate_kinematics_rejected():
+    """f_star=0 / phi_amp_deg=0 give f_ref=0 — reject, don't return inf/NaN coefficients.
+
+    Parity with compute_force_coefficients (the corpus path already guards this).
+    """
+    with pytest.raises(ValueError, match="f_ref must be positive"):
+        reconstruct_wing_forces(_CSV, f_star=0.0, phi_amp_deg=70.0)
+    with pytest.raises(ValueError, match="f_ref must be positive"):
+        reconstruct_wing_forces(_CSV, f_star=1.0, phi_amp_deg=0.0)
+
+
+def test_missing_csv_column_raises_descriptive_error(tmp_path):
+    """A CSV missing a required column raises a schema-citing ValueError, not a bare KeyError."""
+    df = pd.read_csv(_CSV).drop(columns=["SumUx"])
+    bad = tmp_path / "no_sumux.csv"
+    df.to_csv(bad, index=False)
+    with pytest.raises(ValueError, match="missing required column"):
+        reconstruct_wing_forces(bad, **_KIN)
 
 
 # --- E.3: decomposition is the 6-DOF momentum balance, self-consistent ---

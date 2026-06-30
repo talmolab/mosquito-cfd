@@ -39,6 +39,20 @@ STEADY_WINDOW_T0 = 0.05
 # van Veen plausibility band for insect-wing force coefficients (van Veen 2022, JFM 936:A3).
 VAN_VEEN_BAND = (0.5, 1.5)
 
+# IB-particle CSV columns this analysis reads (subset of the 29-col IAMReX schema).
+_REQUIRED_CSV_COLUMNS = ("time", "Fx", "Fz", "SumUx", "SumUz")
+
+
+def _steady_mask(decomp: WingForceDecomposition, window_t0: float) -> NDArray[np.bool_]:
+    """Boolean mask for the steady window, raising if it selects no timesteps."""
+    mask = decomp.time >= window_t0
+    if not mask.any():
+        raise ValueError(
+            f"steady window_t0={window_t0} selects no timesteps; the data time range is "
+            f"[{decomp.time.min():.4g}, {decomp.time.max():.4g}]"
+        )
+    return mask
+
 
 def added_mass_force(
     sum_u: NDArray[np.floating], rho_f: float = RHO
@@ -90,9 +104,20 @@ def reconstruct_wing_forces(
         A :class:`WingForceDecomposition` with ib / added-mass / 6-DOF hydrodynamic CF series.
     """
     df = pd.read_csv(csv_path)
+    missing = [c for c in _REQUIRED_CSV_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"IB-particle CSV {csv_path} is missing required column(s) {missing}; "
+            f"expected the IAMReX schema columns {list(_REQUIRED_CSV_COLUMNS)}"
+        )
     f_ref = compute_force_reference(
         f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, RHO
     ).f_ref
+    if f_ref <= 0:
+        raise ValueError(
+            f"f_ref must be positive (got {f_ref}); check f_star / phi_amp_deg for "
+            "degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0)."
+        )
     ib_x, ib_z = df["Fx"].to_numpy(float), df["Fz"].to_numpy(float)
     am_x = added_mass_force(df["SumUx"].to_numpy(float), rho_f)
     am_z = added_mass_force(df["SumUz"].to_numpy(float), rho_f)
@@ -121,7 +146,7 @@ def plausibility_gate(
     frame-honest companion.
     """
     lo, hi = VAN_VEEN_BAND
-    m = decomp.time >= window_t0
+    m = _steady_mask(decomp, window_t0)
     max_cf_x = float(np.abs(decomp.cf_x_ib[m]).max())
     max_cf_z = float(np.abs(decomp.cf_z_ib[m]).max())
     resultant = np.sqrt(decomp.cf_x_ib[m] ** 2 + decomp.cf_z_ib[m] ** 2)
@@ -141,7 +166,7 @@ def added_mass_fraction(
     decomp: WingForceDecomposition, window_t0: float = STEADY_WINDOW_T0
 ) -> dict:
     """RMS fraction of the added-mass term relative to ``ib_force`` over the steady window."""
-    m = decomp.time >= window_t0
+    m = _steady_mask(decomp, window_t0)
 
     def frac(added, ib):
         return float(np.sqrt(np.mean(added[m] ** 2)) / np.sqrt(np.mean(ib[m] ** 2)))

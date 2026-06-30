@@ -73,36 +73,50 @@ def test_unscaled_r2_matches_committed_metrics(coef):
     assert _r2(y, yhat) == pytest.approx(metrics["per_target"][coef]["r2"], abs=1e-9)
 
 
-def test_committed_corpus_cf_is_van_veen_consistent():
-    """The re-derived dataset.parquet CF_* equal raw force / per-config van Veen f_ref.
+# Pinned SHA256 of the committed raw force/moment columns (Fx..Mz). The Track-B
+# re-derivation freezes these — a future regeneration that disturbs the raw CFD forces
+# (not just the derived CF) would change this digest and fail the test.
+_FROZEN_RAW_FORCE_SHA = (
+    "d709c6cd458b47f037652a8719deeb68c70c314077bcddb3a26224a9b26de41d"
+)
 
-    Scenario: Raw corpus stays frozen; only derived coefficients move. This is the durable
-    invariant after the Task-B re-derivation: every CF column is the van Veen
-    normalization of the (unchanged) raw force column, so CF and raw forces are mutually
-    consistent under the new convention.
+
+def test_committed_corpus_cf_is_van_veen_consistent():
+    """Every distinct config's CF_* equals raw force / per-config van Veen f_ref.
+
+    Scenario: Raw corpus stays frozen; only derived coefficients move. Covers ALL distinct
+    (stroke, freq) keys (f_ref ∝ stroke², so a stroke-dependent bug must not slip through),
+    using a vectorized per-config check.
     """
+    import hashlib
+
     from mosquito_cfd.force_surrogate import compute_moment_reference
 
     df = pd.read_parquet("examples/prelim_sweep/dataset.parquet")
-    # check a sample of distinct configs (one per (stroke, freq) is enough)
-    seen = set()
-    for _, row in df.iterrows():
-        key = (row["stroke_amp_deg"], row["frequency_fstar"])
-        if key in seen:
-            continue
-        seen.add(key)
+    keys = df.drop_duplicates(["stroke_amp_deg", "frequency_fstar"])[
+        ["stroke_amp_deg", "frequency_fstar"]
+    ]
+    assert len(keys) == 9  # the full 3x3 (stroke x freq) grid
+    for stroke, freq in keys.itertuples(index=False):
+        sub = df[(df["stroke_amp_deg"] == stroke) & (df["frequency_fstar"] == freq)]
         f_ref = compute_force_reference(
-            row["frequency_fstar"], row["stroke_amp_deg"], R_GYRATION, SPAN, CHORD, RHO
+            freq, stroke, R_GYRATION, SPAN, CHORD, RHO
         ).f_ref
         m_ref = compute_moment_reference(
-            row["frequency_fstar"], row["stroke_amp_deg"], R_GYRATION, SPAN, CHORD, RHO
+            freq, stroke, R_GYRATION, SPAN, CHORD, RHO
         ).m_ref
-        assert row["CF_x"] == pytest.approx(row["Fx"] / f_ref, rel=1e-9)
-        assert row["CF_z"] == pytest.approx(row["Fz"] / f_ref, rel=1e-9)
-        assert row["CF_my"] == pytest.approx(row["My"] / m_ref, rel=1e-9)
-        if len(seen) >= 5:
-            break
-    assert len(seen) >= 5
+        np.testing.assert_allclose(sub["CF_x"], sub["Fx"] / f_ref, rtol=1e-9)
+        np.testing.assert_allclose(sub["CF_z"], sub["Fz"] / f_ref, rtol=1e-9)
+        np.testing.assert_allclose(sub["CF_my"], sub["My"] / m_ref, rtol=1e-9)
+
+    # Raw force/moment columns are frozen (only derived CF columns were re-derived).
+    raw = df[["Fx", "Fy", "Fz", "Mx", "My", "Mz"]]
+    raw_sha = hashlib.sha256(
+        pd.util.hash_pandas_object(raw, index=False).values.tobytes()
+    ).hexdigest()
+    assert raw_sha == _FROZEN_RAW_FORCE_SHA, (
+        "raw CFD forces changed — they must stay frozen"
+    )
 
 
 def test_degenerate_renormalization_is_rejected():
