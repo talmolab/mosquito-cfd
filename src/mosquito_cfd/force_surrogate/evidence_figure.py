@@ -4,11 +4,11 @@ Reads the committed PR5 artifacts (``holdout_predictions.parquet`` + ``metrics.j
 emits the NVIDIA-grant *Evidence-of-Readiness* figure: predicted-vs-CFD scatter for
 ``CF_x / CF_z / CF_my`` on the held-out configurations (points colored by config with a shared
 legend) and an honest caption + batched-throughput speedup annotation. The translational
-Sane-Dickinson quasi-steady model is computed as a **reference number** (overshoot factor), not
-drawn on the scatter — at this coarse grid it overshoots the (IB-biased) CFD, so an overlay
-would mostly re-display the ~2.4x diffused-IB bias rather than surrogate skill (CC-4 deviation,
-design D2). No solver, cluster, GPU, or plotfile (CC-6); the metrics the trainer already
-computed are *read*, never re-derived.
+Sane-Dickinson quasi-steady model is computed as a **reference number** (RMS ratio), not
+drawn on the scatter — the uncalibrated translational model is a poor fit to the CFD lift (it
+omits rotational, added-mass, and LEV lift), so an overlay would mostly re-display the model's
+analytic loops rather than surrogate skill (CC-4 deviation). No solver, cluster, GPU, or plotfile
+(CC-6); the metrics the trainer already computed are *read*, never re-derived.
 
 Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my headline,
 named as a component — issue #1), D2 (translational Sane-Dickinson via the CC-3
@@ -37,7 +37,7 @@ from matplotlib.lines import Line2D  # noqa: E402
 
 from mosquito_cfd.force_surrogate.constants import (  # noqa: E402
     CHORD,
-    R_TIP,
+    R_GYRATION,
     RHO,
     SPAN,
 )
@@ -178,8 +178,8 @@ def sane_dickinson_cf_z(
     u_ratio = np.cos(2.0 * np.pi * ph)
     alpha_eff = pitch_amp_deg * np.abs(u_ratio)
     c_l = lift_coefficient_dickinson(alpha_eff)
-    ref = compute_force_reference(f_star, phi_amp_deg, R_TIP, SPAN, CHORD, rho=RHO)
-    f_trans = ref.q_tip * ref.area * u_ratio**2 * c_l
+    ref = compute_force_reference(f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, rho=RHO)
+    f_trans = ref.q_ref * ref.area * u_ratio**2 * c_l
     return f_trans / ref.f_ref
 
 
@@ -310,15 +310,15 @@ def build_caption(
     )
     caveats = (
         f"Caveats: aggregate pointwise R²~{agg:.2f} is waveform-dominated and overstates "
-        f"skill (CF_y config-resolved R² = {_fmt_r2(cf_y)} < 0). Coarse 64x32x64 grid, "
-        f"~2.4x diffused-IB force underestimate: pipeline readiness, not validated "
+        f"skill (CF_y config-resolved R² = {_fmt_r2(cf_y)} < 0). Coarse 64x32x64 grid: "
+        f"pipeline readiness, not validated "
         f"aerodynamics. Moment is the M_y component (axis convention, issue #1); "
         f"CF_mx/CF_mz omitted (waveform-only, no between-config signal)."
     )
     reference = (
         f"Quasi-steady reference (not plotted): an uncalibrated translational Sane-Dickinson "
-        f"model overshoots the coarse-grid CFD lift ~{overshoot:.1f}x (RMS) — dominated by "
-        f"the ~2.4x diffused-IB underestimate plus quasi-steady tip-velocity overprediction — "
+        f"model is ~{overshoot:.1f}x the coarse-grid CFD lift (RMS) — translational-only, it "
+        f"omits rotational/added-mass/LEV lift — "
         f"so it is not used as a quantitative baseline at this resolution."
     )
     return f"{headline}\n{caveats}\n{reference}\nFull discussion: {_README_POINTER}."
@@ -343,9 +343,10 @@ def _rmse(true: np.ndarray, pred: np.ndarray) -> float:
 def _baseline_reference(predictions: pd.DataFrame) -> dict[str, Any]:
     """Translational Sane-Dickinson CF_z reference (computed, NOT overlaid on the figure).
 
-    The uncalibrated quasi-steady model overshoots the coarse-grid CFD lift, dominated by the
-    ~2.4x diffused-IB underestimate (the CFD is biased low) plus the model's tip-velocity
-    overprediction — so the gap mostly re-displays the IB bias rather than surrogate skill.
+    The uncalibrated translational quasi-steady model is a poor fit to the coarse-grid CFD lift
+    (RMS ratio < 1 under the van Veen convention; it omits rotational, added-mass, and LEV lift,
+    so it under-predicts the now-in-band CFD) — so the gap mostly re-displays the model's analytic
+    loops rather than surrogate skill.
     It is therefore reported as a reference number (RMSE + overshoot factor), not drawn as a
     misleading scatter overlay (design D2; CC-4 deviation recorded in the proposal).
 
@@ -369,8 +370,8 @@ def _baseline_reference(predictions: pd.DataFrame) -> dict[str, Any]:
         "overshoot_factor": rms_pred / rms_true if rms_true > 0 else float("nan"),
         "note": (
             "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the "
-            "figure — overshoots coarse-grid CFD (dominated by the ~2.4x diffused-IB "
-            "underestimate + tip-velocity overprediction), so not a quantitative baseline here"
+            "figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to "
+            "the coarse-grid CFD lift, so not a quantitative baseline here"
         ),
     }
 

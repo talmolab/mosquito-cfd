@@ -12,7 +12,8 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-swe
   therefore varies across the sweep as a deterministic function of stroke and frequency, and
   is recorded per config.
 - **Reynolds arm (D2):** :func:`compute_reynolds` uses the midspan arm ``R_MID = 1.5``, NOT the
-  force-normalization tip arm ``R_TIP = 3.0``.
+  force-normalization arm ``R_GYRATION`` (the van Veen radius of gyration) used by
+  :func:`compute_force_reference`.
 - **Run duration (D3):** each config is scaled to cover ``N_WINGBEATS`` whole wingbeats.
 - **Force-only (D6):** ``amr.plot_int`` is forced to -1; only the swept/derived keys change.
 - **Reproducibility (D5-D7):** ``generate_sweep`` writes a deterministic ``sweep_manifest.json``
@@ -100,8 +101,8 @@ def compute_reynolds(
     """Reynolds number from kinematics, using the midspan arm.
 
     ``Re = 2*pi * f* * radians(stroke_amp_deg) * r_mid / nu_star``. The midspan arm
-    ``r_mid = R_MID = 1.5`` is the viscous-scaling arm — NOT the force-normalization tip arm
-    ``R_TIP = 3.0`` (constants.py warns against conflating them). Reproduces Re ~ 100 at the
+    ``r_mid = R_MID = 1.5`` is the viscous-scaling arm — NOT the force-normalization arm
+    ``R_GYRATION`` (constants.py warns against conflating them). Reproduces Re ~ 100 at the
     validated phi=70 deg, f*=1.0, nu*=0.115 point.
 
     Args:

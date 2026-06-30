@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate.constants import R_GYRATION
 from mosquito_cfd.geometry import generate_planform, read_vertex_file
 
 # ---------------------------------------------------------------------------
@@ -233,10 +234,11 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     t_s, Fx_s, Fy_s, Fz_s = t[mask], Fx[mask], Fy[mask], Fz[mask]
     phi_s, alpha_s = phi[mask], alpha[mask]
 
-    # Reference: tip dynamic pressure (single source — mosquito_cfd.force_surrogate)
-    ref = compute_force_reference(F_STAR, PHI_AMP_DEG, R_TIP, SPAN, CHORD, rho=1.0)
-    U_tip_max, q_tip, S, F_ref = ref.u_tip_max, ref.q_tip, ref.area, ref.f_ref
-    print(f"  U_tip_max = {U_tip_max:.2f}, q_tip = {q_tip:.2f}, S = {S:.4f}, F_ref = {F_ref:.2f}")
+    # Reference: van Veen F_ref = 0.5*rho*omega^2*S_yy at the radius of gyration
+    # (single source — mosquito_cfd.force_surrogate).
+    ref = compute_force_reference(F_STAR, PHI_AMP_DEG, R_GYRATION, SPAN, CHORD, rho=1.0)
+    u_ref, q_ref, S, F_ref = ref.u_ref, ref.q_ref, ref.area, ref.f_ref
+    print(f"  u_ref = {u_ref:.2f}, q_ref = {q_ref:.2f}, S = {S:.4f}, F_ref = {F_ref:.2f}")
 
     CF_x = Fx_s / F_ref
     CF_y = Fy_s / F_ref
@@ -288,7 +290,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax3.set_xlabel("Dimensionless time t/T", fontsize=10)
 
     # Add normalization note
-    note = f"Forces normalized by q_tip x S = {F_ref:.1f} (q_tip = 0.5 rho V_tip^2, V_tip = {U_tip_max:.1f})"
+    note = f"Forces normalized by q_ref x S = {F_ref:.1f} (van Veen: q_ref = 0.5 rho u_ref^2, u_ref = {u_ref:.1f} at radius of gyration)"
     fig.text(0.5, -0.01, note, ha="center", fontsize=7, color="gray")
 
     out = figures_dir / "fig_forces.pdf"
@@ -419,7 +421,7 @@ def main():
         "--forces-csv",
         type=Path,
         default=Path(__file__).parent / "forces.csv",
-        help="Path to IB_Particle_1.csv force output",
+        help="Path to the force CSV (default: committed forces.csv)",
     )
     parser.add_argument(
         "--vertex-file",

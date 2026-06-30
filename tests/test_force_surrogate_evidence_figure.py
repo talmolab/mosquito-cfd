@@ -32,7 +32,7 @@ from mosquito_cfd.force_surrogate import (
     parse_config_name,
     sane_dickinson_cf_z,
 )
-from mosquito_cfd.force_surrogate.constants import CHORD, R_TIP, SPAN
+from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
 
 TARGETS = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
 
@@ -176,7 +176,7 @@ def test_sane_dickinson_uses_cc3_helper(monkeypatch):
     # called with the parsed kinematics + the validated module geometry
     args, kwargs = captured["args"]
     allvals = list(args) + list(kwargs.values())
-    assert R_TIP in allvals and SPAN in allvals and CHORD in allvals
+    assert R_GYRATION in allvals and SPAN in allvals and CHORD in allvals
 
 
 def test_sane_dickinson_divides_by_helper_f_ref(monkeypatch):
@@ -188,9 +188,9 @@ def test_sane_dickinson_divides_by_helper_f_ref(monkeypatch):
 
     def sentinel(*args, **kwargs):
         r = real(*args, **kwargs)
-        # double f_ref while keeping q_tip*area -> output must halve (proves it divides by f_ref)
+        # double f_ref while keeping q_ref*area -> output must halve (proves it divides by f_ref)
         return ForceReference(
-            u_tip_max=r.u_tip_max, q_tip=r.q_tip, area=r.area, f_ref=2 * r.f_ref
+            u_ref=r.u_ref, q_ref=r.q_ref, area=r.area, f_ref=2 * r.f_ref
         )
 
     phase = np.array([0.0, 0.3])
@@ -302,11 +302,14 @@ def test_build_caption_discloses_everything():
     assert "-3.61" in cap or "−3.61" in cap  # CF_y negative tell
     assert "waveform" in low and "overstates" in low  # aggregate inflated
     assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
-    assert "coarse" in low and "2.4" in cap  # coarse grid + IB underestimate
+    assert "coarse" in low  # coarse-grid pipeline-readiness framing
+    assert "2.4" not in cap  # the false ~2.4x diffused-IB claim is retired
     assert "not validated" in low or "validated aerodynamics" in low
-    # quasi-steady reference: overshoot disclosed, NOT presented as a quantitative baseline
-    assert "overshoot" in low and "not used as a quantitative baseline" in low
-    assert "3x" in low or "3.2" in cap  # the overshoot factor
+    # quasi-steady reference: disclosed as a ratio, NOT presented as a quantitative baseline
+    assert (
+        "quasi-steady reference" in low and "not used as a quantitative baseline" in low
+    )
+    assert "3.2x" in low or "3.2" in cap  # the QS-vs-CFD RMS ratio (toy = 3.2)
     assert "uncalibrated" in low  # the quasi-steady reference is unfitted
     assert "readme" in low  # pointer
     assert ">1,000" in cap or ">1000" in cap
@@ -365,7 +368,7 @@ def test_build_figure_off_axis_moments_excluded():
 def test_baseline_not_plotted_anywhere():
     """Scenario: the Sane-Dickinson baseline is a computed reference, not drawn on any panel."""
     fig = build_figure(_toy_predictions(), _toy_metrics())
-    # no axis carries a 'Sane-Dickinson'/'baseline' series (it overshoots; reference-only)
+    # no axis carries a 'Sane-Dickinson'/'baseline' series (poor fit; reference-only)
     for ax in fig.axes:
         labels = [t.lower() for t in ax.get_legend_handles_labels()[1]]
         assert not any("dickinson" in lbl or "baseline" in lbl for lbl in labels)
@@ -705,7 +708,7 @@ def test_readme_carries_full_disclosures():
     assert "stroke-plane-normal" in low and "lab-z" in low  # projection caveat
     assert "zero-parameter" in low  # fitted-vs-unfitted
     assert "not validated aerodynamics" in low or "not a validated" in low
-    assert "2.4" in readme  # diffused-IB underestimate
+    assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
     assert "~310" in readme or "310×" in readme or "310x" in low  # latency floor
@@ -729,7 +732,9 @@ def test_committed_figure_metrics_matches_committed_inputs():
     assert sp["throughput_speedup"] > 1000
     assert sp["latency_speedup"] < 1000
     assert sp["batch_size"] == 12535
-    # the uncalibrated quasi-steady reference overshoots the coarse CFD (reference-only, CC-4)
+    # the uncalibrated translational QS reference is a poor fit to the coarse CFD (reference-only,
+    # CC-4). Under the van Veen convention the RMS ratio is < 1 (the model under-predicts the
+    # now-in-band CFD lift); the surrogate beats it by RMSE regardless.
     qs = fig_metrics["quasi_steady_reference"]
-    assert qs["overshoot_factor"] > 1
+    assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (van Veen: < 1)
     assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]

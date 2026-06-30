@@ -301,12 +301,18 @@ setup offset (the run is a transversely-periodic array at pitch 10 D) plus incom
 **Carried to T2b (not blocking):** to land the literal `1.087 ± 5%` on a single grid, T2b should refine
 the grid and/or apply the confinement correction (or re-run with non-periodic far-field BCs).
 
-**Follow-up (CC-V5/V6 supersession).** The ~2.4×→**2.64×** factor is resolved. This change updated the two
-benchmark-local docs (`flow_past_sphere/RESULTS.md`, `METHODS.md` Known-Limitation #1). The remaining live
-copies of the "~60% low / under investigation" (CC-V5) and "~2.4×" (CC-V6) claims — in
-`add-apex-benchmarking` (proposal/tasks/spec), `examples/heaving_ellipsoid/RESULTS.md`,
-`examples/prelim_sweep/README.md`, `force_surrogate/evidence_figure.py`,
-`examples/flapping_wing/RESULTS.md`, `docs/force_surrogate/roadmap.md` — are **deferred to a dedicated
-follow-up** (keeps this PR focused; avoids entangling the frozen/submitted Track-B corpus and another
-in-flight change). The already-submitted APEX PDF is immutable and intentionally retains the original note;
-`F_ref≈624.8` (pure kinematics) is unaffected.
+**Follow-up (CC-V5/V6 supersession).** The **sphere** force-extraction factor (~2.4×→**2.64×**) is
+resolved here and reflected in the two benchmark-local docs (`flow_past_sphere/RESULTS.md`,
+`METHODS.md` Known-Limitation #1).
+
+- **CC-V6 (wing/Track-B) — DONE in `standardize-force-normalization` (#32).** The wing/Track-B "~2.4×"
+  was **never** the sphere's 2.64× extraction bug — it was a **normalization-convention mismatch**
+  (peak-tip → van Veen radius of gyration, factor **(r_tip/r_gyr)² = 3.12×**). #32 removes that false
+  claim from `examples/prelim_sweep/README.md`, `force_surrogate/evidence_figure.py`,
+  `examples/flapping_wing/RESULTS.md`, and `docs/force_surrogate/roadmap.md`, and re-derives the
+  *derived* corpus coefficients (raw CFD frozen). `F_ref` **does** move (624.79 → 200.27) — the earlier
+  "F_ref unaffected" note applied only to the *sphere's* Cd, which is genuinely unaffected by the wing
+  normalization.
+- **CC-V5 (sphere "~60% low") — still deferred to #29.** The `add-apex-benchmarking`
+  (proposal/tasks/spec) and `examples/heaving_ellipsoid/RESULTS.md` copies stay in #29. The
+  already-submitted APEX PDF is immutable and intentionally retains the original note.

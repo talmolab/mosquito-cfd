@@ -1,8 +1,8 @@
 {
   "surrogate_rmse": {
-    "CF_x": 0.042650097426377175,
-    "CF_z": 0.055974090813866506,
-    "CF_my": 0.020998344990338192
+    "CF_x": 0.13305640509354175,
+    "CF_z": 0.17462354722468793,
+    "CF_my": 0.06550897807798299
   },
   "config_mean_r2": {
     "CF_x": 0.9441909834892075,
@@ -10,9 +10,9 @@
     "CF_my": 0.9865158106411775
   },
   "quasi_steady_reference": {
-    "baseline_rmse_cf_z": 0.9849411609099296,
-    "overshoot_factor": 2.2670256106197195,
-    "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — overshoots coarse-grid CFD (dominated by the ~2.4x diffused-IB underestimate + tip-velocity overprediction), so not a quantitative baseline here"
+    "baseline_rmse_cf_z": 1.4515339281049768,
+    "overshoot_factor": 0.7266757514833557,
+    "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to the coarse-grid CFD lift, so not a quantitative baseline here"
   },
   "speedup": {
     "throughput_speedup": 3721907.694198385,

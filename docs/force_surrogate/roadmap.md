@@ -80,19 +80,24 @@ PR1 commits, under `tests/fixtures/`, a tiny **synthetic IB-particle CSV** (a fe
 analytically known forces) and a **2-config micro-sweep**. Every test in PR2/PR4/PR6 runs against
 these — **no RunAI, no GPU, no real plotfiles**. This is the fixture base the user asked for.
 
-### CC-3. Single-source force normalization.
-The `F_ref = q_tip · S` math (U_tip_max = 2π·f\*·φ_amp·r_tip; q_tip = ½ρU²; S = π/4·span·chord)
+### CC-3. Single-source force normalization (van Veen convention).
+The `F_ref = ½ρ·ω²·S_yy` math (van Veen 2022 eq 1.1: `ω = 2π·f\*·φ_amp` the stroke rate,
+`S_yy = ∫c(y)y²dy = r_gyr²·area` the spanwise second moment of area; equivalently
+`u_ref = ω·r_gyr` at the radius of gyration and `F_ref = ½ρ·u_ref²·area`)
 lives in **one tested helper** in PR1 and is reused by the extractor (PR4) and figure (PR6) —
-never re-derived inline (PR1 refactors the existing inline copy in `generate_all_figures.py` to
-use the helper). Regression-locked to the formula values at the validated 70° point
-(F_ref ≈ 624.79; RESULTS.md shows the rounded F_ref = 624.8), at `rtol=1e-3`.
+never re-derived inline. Regression-locked to the formula values at the validated 70° point
+(F_ref ≈ 200.27, with `r_gyr = R_GYRATION ≈ 1.6985` traced to `wing.vertex`), at `rtol=1e-3`.
+*(Updated by `standardize-force-normalization`: the earlier peak-tip convention gave
+F_ref ≈ 624.79; the change is a normalization convention, not a force-magnitude fix.)*
 
 ### CC-4. Scientific honesty.
 Evaluate on **held-out configurations**, not just held-out timesteps within a run (so we measure
 the kinematics→force map, not within-run interpolation). The figure overlays the **Sane–Dickinson
 quasi-steady baseline** so it shows the surrogate ≥ the analytic model. The caption frames it as
-*pipeline readiness on coarse-grid forces*, **not** validated aerodynamics (coarse 64×32×64; the
-IAMReX diffused-IB force underestimate, ~2.4×, still applies).
+*pipeline readiness on coarse-grid forces*, **not** validated aerodynamics (coarse 64×32×64).
+*(The earlier "IAMReX diffused-IB force underestimate, ~2.4×" caveat was retired by
+`standardize-force-normalization`: that ~2.4× was a normalization-convention mismatch on the wing,
+not a diffused-IB force deficit, and not the sphere's 2.64× extraction bug.)*
 
 ### CC-5. Pure-data convention.
 The dataset carries **dimensionless coefficients + raw forces**; kinematic parameters in
@@ -106,7 +111,7 @@ deliverables and are explicitly out of scope here.
 
 ### CC-7. Reynolds handling in the sweep (RESOLVED in PR2: hold ν\* fixed).
 The validated ν\* = 0.115 sets Re≈100 at the 70° point. Changing stroke amplitude / frequency
-changes U_tip and therefore Re unless ν\* is rescaled per config. PR2 (sweep-config) must choose
+changes the wing velocity and therefore Re unless ν\* is rescaled per config. PR2 (sweep-config) must choose
 and document one policy: **(a) hold ν\* fixed** (Re varies across the sweep — simpler, surrogate
 sees a Re range) or **(b) hold Re fixed** (rescale ν\* per config — cleaner kinematics isolation).
 Record the choice in the dataset metadata either way.
@@ -147,9 +152,9 @@ predicted-vs-CFD figure. Phase lead fixed at 90°, deviation 0° (validated valu
 | Aedes stroke amplitude | 39° ± 4° | Bomphrey 2017 | repo `timestep_cfl_analysis.md:24` |
 | Aedes wing length R | 3.0 mm | Bomphrey 2017 | repo `timestep_cfl_analysis.md:23` |
 | Validated baseline kinematics | φ 70°, α 45°, f\* 1.0, dev 0°, phase-lead 90° | this repo | `inputs.3d.validation` (`kinematics_*`), `RESULTS.md:44–48` |
-| Force reference | F_ref = 624.8 (q_tip 265.2 × S 2.356; U_tip 23.0) | this repo | `RESULTS.md:100–103`, `generate_all_figures.py:236–241` |
+| Force reference (van Veen) | F_ref = 200.27 (q_ref 85.0 × S 2.356; u_ref 13.04 at r_gyr 1.6985) | this repo | `RESULTS.md`, `generate_all_figures.py`, `constants.py` (`R_GYRATION`) |
 | Grid / dt / steps / ν\* | 64×32×64 / 5e-4 / 2000 / 0.115 | this repo | `inputs.3d.validation`, `RESULTS.md:70–76` |
-| Diffused-IB force underestimate | ~2.4× (Cd 0.45 vs 1.09, Re=100 sphere) | this repo | `RESULTS.md:118` |
+| Wing normalization-convention factor | 3.12× = (r_tip/r_gyr)² (peak-tip → van Veen radius-of-gyration); NOT the sphere's 2.64× extraction bug | this repo | `standardize-force-normalization`; van Veen 2022 |
 
 Citations: **Bomphrey et al. 2017**, *Nature* 544:92–95, DOI 10.1038/nature21727. **van Veen et al.
 2022**, *J. Fluid Mech.* 936:A3, DOI 10.1017/jfm.2022.31.
@@ -169,7 +174,7 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 | 3b | `add-force-surrogate-argo-sweep` | Cluster-side **Argo Workflows** make the corpus production robust: one A40 pod per config (main process = `mpirun`, no `runai exec` stream to drop, no orphaned GPU), `retryStrategy`, manifest-derived fan-out, `check_completion` gate. Reuses the PR3 library via a new tested `run_one_config` entrypoint baked into `:fp64`. Supersedes PR3's laptop driver as the production path (run_sweep.py = local/dev fallback) after it lost 26/27 configs to exec-stream/orphan cascade. [PR #16](https://github.com/talmolab/mosquito-cfd/pull/16) | cluster | ✅ |
 | 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. **Data + provenance committed once PR3's corpus landed (the PR #16 Argo corpus)**; PR4 committed the tested extractor/driver + the `dataset.units.json` contract (no fixture-derived data — scientific honesty, change `design.md` D10). [PR #7](https://github.com/talmolab/mosquito-cfd/pull/7) | local | ✅ |
 | 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-only** (PyTorch fallback dropped, change `design.md` D1; PhysicsNeMo de-risked first on the A5000 and stood up — no fallback needed); held-out-**config** split (CC-4); seeded; `metrics.json` (+ phase-honest `config_resolved`, D13); wandb. Held-out-config R²≈0.98 (config-mean R²≈0.75–0.94); torch pinned to the cu126 index (D11). [PR #23](https://github.com/talmolab/mosquito-cfd/pull/23) | A5000 | ✅ |
-| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (~310× latency floor). **Sane–Dickinson quasi-steady kept as a computed *reference* (overshoot factor), NOT a scatter overlay** — at the coarse grid the overlay re-displays the ~2.4× diffused-IB bias, not surrogate skill (CC-4 deviation, design D2). [PR #25](https://github.com/talmolab/mosquito-cfd/pull/25) | local | ✅ |
+| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (~310× latency floor). **Sane–Dickinson quasi-steady kept as a computed *reference* (overshoot factor), NOT a scatter overlay** — at the coarse grid the overlay re-displays the uncalibrated model's analytic loops, not surrogate skill (CC-4 deviation). [PR #25](https://github.com/talmolab/mosquito-cfd/pull/25) | local | ✅ |
 
 **Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6. PR3.5 (Argo) supersedes PR3's
 transport and is what actually produces the corpus. PR4 can be built and fully tested against

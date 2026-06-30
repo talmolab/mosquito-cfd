@@ -7,16 +7,20 @@ scaling (see the force-surrogate design doc, decision D3).
 # Wing geometry (dimensionless chord units).
 SPAN = 3.0  # wing span [chord lengths]
 CHORD = 1.0  # wing chord [reference length]
-R_TIP = (
-    3.0  # hinge-to-tip distance, used for tip-velocity normalization [chord lengths]
-)
+R_TIP = 3.0  # hinge-to-tip distance [chord lengths]; the geometry's tip arm
 R_MID = (
     1.5  # hinge-to-midspan arm, used for viscosity / Reynolds scaling [chord lengths]
 )
-# NOTE: R_TIP (tip radius, 3.0) is the normalization arm. The midspan arm R_MID = 1.5
-# (hinge-to-midspan) is used for viscosity / Reynolds scaling (see
-# examples/flapping_wing/RESULTS.md), NOT for force normalization. Do not conflate them:
-# force coefficients normalize on R_TIP; compute_reynolds (sweep.py) uses R_MID.
+# Radius of gyration r_gyr = sqrt(S_yy / area), the van Veen (2022) force-normalization
+# arm (S_yy = integral c(y) y^2 dy is the spanwise second moment of area). Derived once
+# from the committed examples/flapping_wing/wing.vertex (908 markers) and guarded by
+# test_radius_of_gyration_traced_from_wing_vertex. It sits outboard of the geometric
+# midspan (1.5) because the elliptic load is tip-weighted, and inboard of R_TIP (3.0).
+R_GYRATION = 1.6984914918884995  # van Veen S_yy normalization arm [chord lengths]
+# NOTE: force coefficients normalize on R_GYRATION (van Veen F_ref = 0.5*rho*omega^2*S_yy,
+# i.e. the speed at the radius of gyration). R_TIP (3.0) is the geometric tip arm and is
+# NOT the normalization arm; R_MID (1.5) is the viscosity/Reynolds arm used by
+# compute_reynolds (sweep.py). Do not conflate the three.
 RHO = 1.0  # fluid density [dimensionless]
 
 # Validated reference kinematics (the van Veen-style demo point documented in RESULTS.md).

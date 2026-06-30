@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mosquito_cfd.force_surrogate.constants import CHORD, R_TIP, RHO, SPAN
+from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 from mosquito_cfd.force_surrogate.normalization import (
     compute_force_coefficients,
     compute_force_reference,
@@ -164,8 +164,8 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
     my = raw["My"].to_numpy(dtype=float)
     mz = raw["Mz"].to_numpy(dtype=float)
 
-    f_ref = compute_force_reference(f_star, stroke, R_TIP, SPAN, CHORD, RHO).f_ref
-    m_ref = compute_moment_reference(f_star, stroke, R_TIP, SPAN, CHORD, RHO).m_ref
+    f_ref = compute_force_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).f_ref
+    m_ref = compute_moment_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).m_ref
     fc = compute_force_coefficients(fx, fy, fz, f_ref)
     mc = compute_moment_coefficient(mx, my, mz, m_ref)
 
