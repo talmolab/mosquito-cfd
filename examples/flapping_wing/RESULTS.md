@@ -91,42 +91,77 @@ nu* = V_mid / Re = 11.5 / 100 = 0.115 (r_mid = hinge-to-midspan = 1.5)
 
 ## Aerodynamic Forces
 
-Forces extracted from `IB_Particle_1.csv` (IAMReX diffused-IB output).
+Forces extracted from `IB_Particle_1.csv` (the accumulated immersed-boundary force
+`kernel.ib_force`).
 
-### Reference normalization
+### Reference normalization (van Veen 2022)
+
+Coefficients use the **van Veen (2022, JFM 936:A3) convention** (eq 1.1):
+`F_ref = ½ρ·ω²·S_yy`, the stroke rate at the **radius of gyration** and the spanwise
+**second moment of area** `S_yy = ∫c(y)y²dy`. Equivalently `F_ref = ½ρ·u_ref²·S` with the
+reference speed at the radius of gyration. The single source is
+`mosquito_cfd.force_surrogate.compute_force_reference` (no inline re-derivation, **no
+correction factor**).
 
 | Quantity | Value |
 |----------|-------|
-| U_tip_max | 23.0 (= 2*pi * f* * phi_amp * r_tip) |
-| Dynamic pressure q | 265.2 (= 0.5 * rho * U_tip_max^2) |
-| Wing area S | 2.356 (elliptic, = pi/4 * span * chord) |
-| Force reference F_ref | 624.8 (= q * S) |
+| Radius of gyration r_gyr | 1.6985 (= sqrt(S_yy/S), from `wing.vertex`; vs tip arm 3.0) |
+| Reference speed u_ref | 13.04 (= 2π·f*·phi_amp·r_gyr) |
+| Dynamic pressure q_ref | 85.0 (= 0.5·rho·u_ref²) |
+| Wing area S | 2.356 (elliptic, = pi/4·span·chord) |
+| Force reference F_ref | **200.27** (= q_ref·S = ½ρ·ω²·S_yy) |
 
-### Force coefficient summary (steps 100–2000, after startup)
+> The earlier peak-tip convention (`F_ref ≈ 624.8`) normalized by the wingtip velocity
+> instead of the radius of gyration, making the coefficients a factor of
+> `(r_tip/r_gyr)² = 3.12×` too small. Adopting the van Veen radius-of-gyration reference is
+> a **normalization-convention change**, not a force-extraction correction — `kernel.ib_force`
+> is read directly and unchanged. **No correction factor is applied**; the in-band result
+> follows from the normalization alone. (See `standardize-force-normalization` for the full
+> reconciliation.)
 
-| Quantity | Value |
-|----------|-------|
-| CF_z range (lift axis) | [-0.197, +0.218] |
-| CF_x range (stroke axis) | [-0.452, +0.431] |
-| Mean CF_z | -0.020 |
-| RMS CF_z | 0.134 |
-| Max |CF_z| | 0.218 |
-| Max |CF_x| | 0.452 |
+### Force-coefficient plausibility gate (steps 100–2000, t ≥ 0.05 after startup)
 
-**Note on IAMReX force scaling**: As documented in FlowPastSphere RESULTS.md,
-IAMReX's diffused-IB force output is systematically ~2.4× lower than the correct
-aerodynamic force (Cd_computed / Cd_literature ≈ 0.45 / 1.09 for Re=100 sphere).
-Applying this correction factor:
+The gate is graded on **`ib_force` alone** — `max|CF_x|` and `max|CF_z|` must lie in the
+van Veen literature band **[0.5, 1.5]** with no fudge:
 
-| Corrected coefficient | Value |
-|------------------------|-------|
-| Max |CF_z| corrected | ~0.52 |
-| Max |CF_x| corrected | ~1.08 |
+| Quantity (van Veen, ib_force) | Value | In [0.5, 1.5]? |
+|----------|-------|----|
+| CF_x range (stroke axis) | [-1.410, +0.853] | — |
+| CF_z range (lift axis) | [-0.613, +0.680] | — |
+| Max \|CF_x\| | **1.41** (ceiling margin 0.09) | ✅ |
+| Max \|CF_z\| | **0.68** (floor margin 0.18) | ✅ |
+| Resultant max \|CF\| = √(CF_x²+CF_z²) | 1.42 (rotation-invariant companion) | — |
 
-The corrected CF_x is within the expected range [0.5, 1.5] for insect wing
-aerodynamics (van Veen et al. 2022, Fig. 3–4). The corrected CF_z (lift)
-is at the lower bound; this is expected at coarse resolution where the LEV
-is under-resolved.
+**Both components are in band without any correction factor.** The steady window
+`t ≥ 0.05` excludes the impulsive-start transient (confined to the first ~8 steps,
+`t ≤ 0.004`, where `|CF_x|` briefly spikes to ~39); every defensible steady window clears
+both band edges.
+
+### Added-mass decomposition (reported separately — NOT graded by the gate)
+
+Per IAMReX `WriteIBForceAndMoment` (`DiffusedIB.cpp`), the `SumU*` columns are written as
+`(sum_u_new − sum_u_old)/dt` (already a rate), and the 6-DOF momentum balance makes the net
+hydrodynamic force `F_hydro = ρ_f·(SumU − ib_force)`. The added-mass term `ρ_f·SumU` is a
+real, non-trivial fraction of `ib_force` and is **reported, not folded into the gated
+coefficient** (its formula is locked to the solver source, not tuned to the band):
+
+| Term | Max \|CF_x\| | Max \|CF_z\| | RMS fraction of ib_force |
+|------|-------|-------|------|
+| `ib_force` (gated) | 1.41 | 0.68 | — |
+| added-mass `ρ_f·SumU` | 0.22 | 0.22 | stroke 10%, lift 40% |
+| 6-DOF `F_hydro = ρ_f(SumU−ib)` | 1.39 | 0.80 | — |
+
+The full 6-DOF hydrodynamic force is also in band (CF_x 1.39, CF_z 0.80).
+
+### Frame and tier caveat (no overclaim)
+
+These are **lab-frame** coefficients. van Veen reports body-frame chord-wise/normal
+components, and the repo's axis convention is non-standard (stroke `Rz(φ)` about the span
+axis; at the α=45° midstroke lab ≠ body — **issue #1**). The gate here is therefore an
+**O(1) magnitude plausibility** check, **not** a frame-faithful van Veen comparison: the
+lab `CF_x`/`CF_z` are not van Veen's body-frame axes. The faithful body-frame per-component
+comparison is deferred to **T2a (#1)** and the **time-resolved** curve match (peak phase +
+curve RMSE vs van Veen Fig 3–4) to **T4**. The band is not loosened to pass.
 
 See **fig_forces.pdf** for the full force time series.
 
@@ -184,7 +219,7 @@ See **fig_forces.pdf** for the full force time series.
 | Marker motion (visual) | PASS | Correct arc traced (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak force at mid-stroke | PASS | |CF_x| max at phi~64 deg |
-| Force coefficient range | MARGINAL | Raw CF_z max = 0.22; corrected ~0.52 |
+| Force coefficient range | PASS | van Veen CF_x 1.41, CF_z 0.68 — both in [0.5,1.5], no fudge |
 | Induced velocity field | PASS | Non-zero, physical dipole at mid-stroke (v2 re-run, ns.init_iter=2) |
 | LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run still planned |
 
@@ -197,13 +232,16 @@ See **fig_forces.pdf** for the full force time series.
 | Stroke amplitude | 70 deg | 70 deg | MATCH |
 | Pitch amplitude | 45 deg | 45 deg | MATCH |
 | Re (midspan) | ~100 | 100–500 | MATCH |
-| Peak CF_z (corrected) | ~0.52 | 0.5–1.5 | MARGINAL |
-| Peak CF_x (corrected) | ~1.08 | 0.5–1.5 | PASS |
+| Peak CF_z (van Veen, ib_force) | 0.68 | 0.5–1.5 | PASS |
+| Peak CF_x (van Veen, ib_force) | 1.41 | 0.5–1.5 | PASS |
 
 The simulation demonstrates correct kinematics and physically plausible aerodynamic
-forces. Coefficient magnitudes are in the expected range after applying the known
-IAMReX diffused-IB scaling correction. Medium-resolution runs (128×64×128) and
-plotfile output for flow field visualization are planned for Phase 4.1.3.
+forces: under the van Veen radius-of-gyration normalization, both `ib_force` coefficient
+magnitudes fall in the literature band [0.5, 1.5] with **no correction factor**. This is an
+**O(1) magnitude plausibility gate** in the **lab frame** — the faithful body-frame
+per-component comparison (issue #1 / T2a) and the time-resolved curve match vs van Veen
+Fig 3–4 (T4) are deferred. Medium-resolution runs (128×64×128) and plotfile output for flow
+field visualization are planned for Phase 4.1.3.
 
 ---
 

@@ -1,11 +1,11 @@
 {
-  "run_id": "c50a1def-12fc-470a-b355-dc86a1dea885",
+  "run_id": "6cb86bc1-649e-4f1a-bc68-4a55b4a06036",
   "timestamp": "2026-06-23T00:00:00+00:00",
   "git": {
-    "commit": "e29e8188fcaa16fd2adb388642078a4a812fbe7a",
-    "branch": "add-force-surrogate-evidence-figure",
+    "commit": "fed32fe789cf9210f4c0a6074ba6b40e04148d2b",
+    "branch": "standardize-force-normalization",
     "dirty": true,
-    "diff_hash": "4865015edc94",
+    "diff_hash": "c8c440084ccc",
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -22,9 +22,9 @@
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:6f971036d44c75bafcd5f340cc28bc7309695a5513e9edcc6aa521e8edf994fb",
   "inputs": {
     "file": "examples\\prelim_sweep\\surrogate\\holdout_predictions.parquet",
-    "hash": "a9dbdc8aa1e016e4d5f121393d4afbc02b7a0120715666b327f2fb3fd7362005"
+    "hash": "b35c36286f16c936bd6e86b59f0f8f861091bc0987afb0cc4dde20217b90f9db"
   },
-  "metrics_json_sha256": "ca6de60cc6f6ae754350af0add8afd95faa45323752570033befce3c896690a9",
+  "metrics_json_sha256": "0b6b96c37123237af34e081f18b0a8f07056f3112c6d101997ccad4ab94d592b",
   "seeds": {
     "global": 1234
   }

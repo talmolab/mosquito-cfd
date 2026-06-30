@@ -37,6 +37,6 @@ def test_generate_all_figures_uses_shared_reference(tmp_path, monkeypatch):
 
     assert captured["n"] >= 1, "plot_f1_forces did not call compute_force_reference"
     expected = real(
-        gaf.F_STAR, gaf.PHI_AMP_DEG, gaf.R_TIP, gaf.SPAN, gaf.CHORD, rho=1.0
+        gaf.F_STAR, gaf.PHI_AMP_DEG, gaf.R_GYRATION, gaf.SPAN, gaf.CHORD, rho=1.0
     )
     assert captured["ref"].f_ref == expected.f_ref

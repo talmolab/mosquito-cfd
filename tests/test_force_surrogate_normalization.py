@@ -1,4 +1,10 @@
-"""Tests for force_surrogate.normalization (TDD red phase)."""
+"""Tests for force_surrogate.normalization (TDD red phase).
+
+van Veen convention (standardize-force-normalization): F_ref = 0.5*rho*omega^2*S_yy,
+parameterized on the radius of gyration r_gyr (= R_GYRATION), NOT the tip arm. The
+validated point now reproduces f_ref ~= 200.27 (was 624.79 under the old peak-tip
+convention). See openspec/changes/standardize-force-normalization.
+"""
 
 import numpy as np
 import pytest
@@ -11,6 +17,7 @@ from mosquito_cfd.force_surrogate import (
 )
 from mosquito_cfd.force_surrogate.constants import (
     CHORD,
+    R_GYRATION,
     R_TIP,
     RHO,
     SPAN,
@@ -18,6 +25,24 @@ from mosquito_cfd.force_surrogate.constants import (
     VALIDATED_PHI_AMP_DEG,
     VALIDATED_PITCH_AMP_DEG,
 )
+
+_VERTEX_FILE = "examples/flapping_wing/wing.vertex"  # committed geometry; 908 markers
+
+
+def test_radius_of_gyration_traced_from_wing_vertex():
+    """R_GYRATION is the wing's radius of gyration, traced to the committed markers.
+
+    Spec scenario: Radius of gyration is traced to the committed wing geometry. The
+    normalization arm is sqrt(mean(r^2)) (the van Veen S_yy radius), NOT a magic
+    constant. NOTE: R_TIP is used *inside* the hinge-offset formula and must survive a
+    rename sweep.
+    """
+    verts = np.loadtxt(_VERTEX_FILE, skiprows=1)  # cols: x(chord), y, z(span-local)
+    z = verts[:, 2]
+    r = z + (R_TIP - z.max())  # hinge-distance; tip marker -> R_TIP
+    r_gyr = np.sqrt(np.mean(r**2))
+    assert r_gyr == pytest.approx(R_GYRATION, rel=1e-3)
+    assert R_GYRATION < R_TIP  # load is tip-weighted -> gyration arm < tip arm
 
 
 def test_validated_constants_reproduce_reference_point():
@@ -28,30 +53,43 @@ def test_validated_constants_reproduce_reference_point():
         45.0,
     )
     ref = compute_force_reference(
-        VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, R_TIP, SPAN, CHORD, rho=RHO
+        VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, R_GYRATION, SPAN, CHORD, rho=RHO
     )
-    assert ref.f_ref == pytest.approx(624.79, rel=1e-3)
+    assert ref.f_ref == pytest.approx(200.27, rel=1e-3)
 
 
 def test_compute_force_reference_matches_validated():
-    """Reference normalization reproduces the documented validated values."""
+    """Reference normalization reproduces the documented validated values.
+
+    van Veen eq 1.1: F_ref = 0.5*rho*omega^2*S_yy with S_yy = r_gyr^2 * area.
+    """
     ref = compute_force_reference(
-        f_star=1.0, phi_amp_deg=70.0, r_tip=3.0, span=3.0, chord=1.0, rho=1.0
+        f_star=1.0,
+        phi_amp_deg=70.0,
+        r_gyr=R_GYRATION,
+        span=3.0,
+        chord=1.0,
+        rho=1.0,
     )
-    assert ref.u_tip_max == pytest.approx(23.029, rel=1e-3)
-    assert ref.q_tip == pytest.approx(265.17, rel=1e-3)
+    assert ref.u_ref == pytest.approx(13.04, rel=1e-3)
+    assert ref.q_ref == pytest.approx(85.0, rel=1e-3)
     assert ref.area == pytest.approx(2.3562, rel=1e-3)
-    assert ref.f_ref == pytest.approx(624.79, rel=1e-3)
+    assert ref.f_ref == pytest.approx(200.27, rel=1e-3)
+    # f_ref == 0.5*rho*omega_peak^2 * S_yy, S_yy = r_gyr^2 * area
+    omega_peak = 2.0 * np.pi * 1.0 * np.radians(70.0)
+    s_yy = R_GYRATION**2 * ref.area
+    assert ref.f_ref == pytest.approx(0.5 * 1.0 * omega_peak**2 * s_yy, rel=1e-9)
+    assert s_yy == pytest.approx(6.797, rel=1e-3)
 
 
 def test_compute_force_reference_parameterized():
     """F_ref is a pure function of inputs, not hardcoded."""
-    base = compute_force_reference(1.0, 70.0, 3.0, 3.0, 1.0)
-    smaller = compute_force_reference(1.0, 35.0, 3.0, 3.0, 1.0)
-    assert smaller.u_tip_max < base.u_tip_max
+    base = compute_force_reference(1.0, 70.0, R_GYRATION, 3.0, 1.0)
+    smaller = compute_force_reference(1.0, 35.0, R_GYRATION, 3.0, 1.0)
+    assert smaller.u_ref < base.u_ref
     assert smaller.f_ref < base.f_ref
-    doubled = compute_force_reference(2.0, 70.0, 3.0, 3.0, 1.0)
-    assert doubled.u_tip_max == pytest.approx(2 * base.u_tip_max, rel=1e-12)
+    doubled = compute_force_reference(2.0, 70.0, R_GYRATION, 3.0, 1.0)
+    assert doubled.u_ref == pytest.approx(2 * base.u_ref, rel=1e-12)
 
 
 def test_compute_force_coefficients_array_and_scalar():
@@ -103,14 +141,14 @@ def test_compute_force_coefficients_empty_and_nan():
 
 
 def test_compute_moment_reference_at_validated_point():
-    """M_ref = q_tip*area*chord reproduces the validated value (rtol=1e-3).
+    """M_ref = q_ref*area*chord reproduces the validated value (rtol=1e-3).
 
     Spec scenario: Moment reference at the validated point.
     """
     ref = compute_moment_reference(
-        f_star=1.0, phi_amp_deg=70.0, r_tip=3.0, span=3.0, chord=1.0, rho=1.0
+        f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=3.0, chord=1.0, rho=1.0
     )
-    assert ref.m_ref == pytest.approx(624.79, rel=1e-3)
+    assert ref.m_ref == pytest.approx(200.27, rel=1e-3)
     assert ref.length == 1.0
 
 
@@ -122,14 +160,14 @@ def test_compute_moment_reference_scales_with_chord_and_reuses_force_ref():
     (S = pi/4*span*chord) and once via the explicit length scale L = chord -- so
     m_ref scales quadratically with chord. The robust single-source check is the
     equality m_ref == compute_force_reference(same args).f_ref * chord at a NON-unit
-    chord (trivially true at chord=1.0): a divergent re-implementation of q_tip/area
+    chord (trivially true at chord=1.0): a divergent re-implementation of q_ref/area
     inside compute_moment_reference would break it (CC-3).
     """
-    one = compute_moment_reference(1.0, 70.0, 3.0, 3.0, 1.0)
-    two = compute_moment_reference(1.0, 70.0, 3.0, 3.0, 2.0)
+    one = compute_moment_reference(1.0, 70.0, R_GYRATION, 3.0, 1.0)
+    two = compute_moment_reference(1.0, 70.0, R_GYRATION, 3.0, 2.0)
     # chord enters via area AND via L -> quadratic, so 2x chord -> 4x m_ref.
     assert two.m_ref == pytest.approx(4.0 * one.m_ref, rel=1e-12)
-    force_ref = compute_force_reference(1.0, 70.0, 3.0, 3.0, 2.0)
+    force_ref = compute_force_reference(1.0, 70.0, R_GYRATION, 3.0, 2.0)
     assert two.m_ref == pytest.approx(force_ref.f_ref * 2.0, rel=1e-12)
 
 

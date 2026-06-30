@@ -22,7 +22,7 @@ from mosquito_cfd.force_surrogate import (
     read_units_sidecar,
     write_dataset,
 )
-from mosquito_cfd.force_surrogate.constants import CHORD, R_TIP, RHO, SPAN
+from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 from mosquito_cfd.force_surrogate.dataset import (
     _DATASET_UNITS,
     DATASET_COLUMNS,
@@ -53,7 +53,7 @@ def _write_manifest(path: Path, configs: list[dict]) -> Path:
 def _validated_point_config() -> dict:
     """A synthetic single config at the validated point (phi=70, f*=1.0).
 
-    No committed-corpus config is at phi=70, so the f_ref ~ 624.79 anchor and the
+    No committed-corpus config is at phi=70, so the f_ref ~ 200.27 anchor and the
     phase/wingbeat time*f*=1.0 boundary can only be exercised by a synthetic config.
     """
     return {
@@ -149,15 +149,15 @@ def test_coefficients_use_single_source_per_config_normalization(tmp_path):
     df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
 
     f_ref = compute_force_reference(
-        f_star=1.0, phi_amp_deg=70.0, r_tip=R_TIP, span=SPAN, chord=CHORD, rho=RHO
+        f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).f_ref
     m_ref = compute_moment_reference(
-        f_star=1.0, phi_amp_deg=70.0, r_tip=R_TIP, span=SPAN, chord=CHORD, rho=RHO
+        f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).m_ref
-    assert f_ref == pytest.approx(624.79, rel=1e-3)
+    assert f_ref == pytest.approx(200.27, rel=1e-3)
     np.testing.assert_allclose(df["CF_x"].to_numpy(), FIXTURE_FX / f_ref)
     np.testing.assert_allclose(df["CF_mx"].to_numpy(), FIXTURE_MX / m_ref)
-    # Not round literals: 50/624.79 ~ 0.0800.
+    # Not round literals: 50/200.27 ~ 0.2497.
     assert df["CF_x"].to_numpy()[1] == pytest.approx(50.0 / f_ref)
 
 

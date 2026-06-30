@@ -299,8 +299,7 @@ The on-figure caption is deliberately **compact** (headline + a terse Caveats li
 line + a pointer here); the full discussion lives here so the figure stays legible without losing any
 disclosure:
 
-- **Pipeline readiness, not validated aerodynamics.** The corpus is a **coarse 64×32×64** grid with
-  the IAMReX diffused-IB **~2.4× force underestimate** (`examples/flapping_wing/RESULTS.md`). The
+- **Pipeline readiness, not validated aerodynamics.** The corpus is a **coarse 64×32×64** grid. The
   figure proves the data→surrogate→inference pipeline runs end-to-end on local hardware and that the
   PhysicsNeMo stack is usable — it is **not** a validated-aerodynamics claim. This is the deliberately
   reduced "easy" surrogate (roadmap Vision / §9), not the funded DoMINO/latent-dynamics surrogate.
@@ -320,11 +319,11 @@ disclosure:
   **stroke-plane-normal** while CFD CF_z is the **lab-z** force), computed through the single-source
   `compute_force_reference` helper (CC-3). **It is deliberately *not* drawn on the scatter.** At this
   coarse grid it overshoots the CFD lift ~**2.3×** (RMS, in `evidence_figure_metrics.json` as
-  `quasi_steady_reference.overshoot_factor`), and that gap is **dominated by the ~2.4× diffused-IB
-  underestimate** (the coarse CFD is biased low) plus the model's tip-velocity overprediction (lift
-  integrates over the span where inboard sections move slower; tip-scaling over-weights it). Since the
-  surrogate is trained to reproduce the IB-biased coarse CFD, an overlay would mostly **re-display the
-  IB bias, not surrogate skill over the analytic model** — a hollow comparison — so it is reported as a
+  `quasi_steady_reference.overshoot_factor`) — the **model's tip-velocity overprediction** under the
+  van Veen convention (lift integrates over the span where inboard sections move slower, while the
+  uncalibrated QS model scales on a single tip-like velocity and over-weights it); the CFD `ib_force`
+  itself is correct. An overlay would mostly **re-display the model's analytic loops, not surrogate
+  skill over the analytic model** — a hollow comparison — so it is reported as a
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
