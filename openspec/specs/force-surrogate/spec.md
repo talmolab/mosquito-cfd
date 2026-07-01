@@ -6,22 +6,36 @@ TBD - created by archiving change add-force-surrogate-foundation. Update Purpose
 ### Requirement: Single-source force normalization
 
 The force-surrogate module SHALL be the single, parameterized source for aerodynamic force
-normalization and force-coefficient computation. The reference normalization SHALL be a pure
-function of its kinematic and geometric inputs (no hardcoded amplitude/frequency, no I/O) and
-SHALL reproduce the validated reference values. No other module SHALL re-derive `F_ref` inline.
+normalization and force-coefficient computation, using the **van Veen (2022) convention**: the
+reference force SHALL be `F_ref = ½·ρ·ω_peak²·S_yy` (van Veen eq 1.1), where
+`ω_peak = 2π·f_star·radians(phi_amp_deg)` is the peak stroke rate and `S_yy = ∫c(y)·y² dy` is the
+spanwise **second moment of area**. Equivalently `F_ref = ½·ρ·u_ref²·area` with
+`u_ref = ω_peak·r_gyr`, the speed at the **radius of gyration** `r_gyr = sqrt(S_yy/area)`, and
+`area = π/4·span·chord`. The reference normalization SHALL be a pure function of its kinematic and
+geometric inputs (no hardcoded amplitude/frequency, no I/O) and SHALL reproduce the validated
+reference values. No other module SHALL re-derive `F_ref` inline, and **no post-hoc correction
+factor** (e.g. "~2.4×"/"~2.64×") SHALL be applied to coefficients.
 
 #### Scenario: Reference normalization at the validated point
 
-- **Given** `f_star = 1.0`, `phi_amp_deg = 70.0`, `r_tip = 3.0`, `span = 3.0`, `chord = 1.0`, `rho = 1.0`
+- **Given** `f_star = 1.0`, `phi_amp_deg = 70.0`, `r_gyr = R_GYRATION` (≈ 1.6985), `span = 3.0`, `chord = 1.0`, `rho = 1.0`
 - **When** `compute_force_reference` is called
-- **Then** it returns `u_tip_max ≈ 23.029`, `q_tip ≈ 265.17`, `area ≈ 2.3562`, `f_ref ≈ 624.79` (each within 0.1%; these are recomputed from the formula and consistent with the rounded values in `examples/flapping_wing/RESULTS.md`)
+- **Then** it returns `u_ref ≈ 13.04`, `q_ref ≈ 85.0`, `area ≈ 2.3562`, `f_ref ≈ 200.27` (each within 0.1%, `rtol=1e-3`)
+- **And** `f_ref` equals `½·rho·ω_peak²·S_yy` with `S_yy = r_gyr²·area ≈ 6.797`
+
+#### Scenario: Radius of gyration is traced to the committed wing geometry
+
+- **Given** the committed `examples/flapping_wing/wing.vertex` markers
+- **When** the radius of gyration is re-derived as `sqrt(mean(r²))` over the markers (`r` = hinge-distance along the span, using the documented hinge offset `r = z_local + (R_TIP − max z_local)`)
+- **Then** it equals `R_GYRATION ≈ 1.6985` within `rtol=1e-3`, confirming the normalization arm is the wing's radius of gyration (van Veen `S_yy`), not a magic constant
+- **And** it is strictly less than the tip arm `r_tip = 3.0` (the load is tip-weighted, so `r_gyr` sits outboard of the geometric midspan `1.5`)
 
 #### Scenario: Parameterization, not hardcoded
 
 - **Given** the validated inputs with `phi_amp_deg` reduced from 70° to 35°
 - **When** `compute_force_reference` is called
-- **Then** both `u_tip_max` and `f_ref` are strictly smaller than at 70°
-- **And** doubling `f_star` doubles `u_tip_max`
+- **Then** both `u_ref` and `f_ref` are strictly smaller than at 70°
+- **And** doubling `f_star` doubles `u_ref`
 
 #### Scenario: Force coefficients
 
@@ -51,7 +65,7 @@ SHALL reproduce the validated reference values. No other module SHALL re-derive 
 
 - **Given** the flapping-wing figure script `examples/flapping_wing/generate_all_figures.py`
 - **When** it computes the force reference
-- **Then** it calls `compute_force_reference` from this module rather than re-deriving `F_ref` inline, and still reports `f_ref ≈ 624.79`
+- **Then** it calls `compute_force_reference` from this module rather than re-deriving `F_ref` inline, and reports `f_ref ≈ 200.27`
 
 ### Requirement: Dimensionless units sidecar
 
@@ -329,17 +343,17 @@ and a byte-identical manifest + units sidecar.
 
 The force-surrogate module SHALL be the single, parameterized source for aerodynamic **moment**
 normalization and moment-coefficient computation, sibling to the published force normalization. The
-reference moment SHALL be `M_ref = q_tip · area · L` with the moment length scale **`L = chord`**,
-where `q_tip` and `area` are computed by the **same formulas** as the force reference (no second
-copy). It SHALL be a pure function of its kinematic and geometric inputs (no hardcoded
-amplitude/frequency, no I/O), SHALL reproduce the validated reference value, and SHALL NOT be
-re-derived inline by any other module.
+reference moment SHALL be `M_ref = q_ref · area · L` with the moment length scale **`L = chord`**,
+where `q_ref` and `area` are computed by the **same formulas** as the force reference (no second
+copy; `q_ref = ½·ρ·u_ref²` at the radius of gyration). It SHALL be a pure function of its kinematic and
+geometric inputs (no hardcoded amplitude/frequency, no I/O), SHALL reproduce the validated reference
+value, and SHALL NOT be re-derived inline by any other module.
 
 #### Scenario: Moment reference at the validated point
 
-- **Given** `f_star = 1.0`, `phi_amp_deg = 70.0`, `r_tip = 3.0`, `span = 3.0`, `chord = 1.0`, `rho = 1.0`
+- **Given** `f_star = 1.0`, `phi_amp_deg = 70.0`, `r_gyr = R_GYRATION` (≈ 1.6985), `span = 3.0`, `chord = 1.0`, `rho = 1.0`
 - **When** `compute_moment_reference` is called
-- **Then** it returns `m_ref ≈ 624.79` (within 0.1%, i.e. `rtol=1e-3`), equal to `q_tip · area · chord` and — because `chord = 1.0` — numerically equal to the force reference `f_ref` at the same point, while remaining a distinct, chord-parameterized quantity
+- **Then** it returns `m_ref ≈ 200.27` (within 0.1%, i.e. `rtol=1e-3`), equal to `q_ref · area · chord` and — because `chord = 1.0` — numerically equal to the force reference `f_ref` at the same point, while remaining a distinct, chord-parameterized quantity
 - **And** the returned `length` field equals the supplied `chord`
 
 #### Scenario: Moment reference scales with the chord length scale and reuses the force reference
@@ -347,7 +361,7 @@ re-derived inline by any other module.
 - **Given** the validated inputs evaluated once with `chord = 1.0` and once with `chord = 2.0`
 - **When** `compute_moment_reference` is called for each
 - **Then** the second `m_ref` is exactly **four** times the first — because `chord` enters `m_ref` **twice**, once through the area (`S = π/4·span·chord`) and once through the explicit moment length scale `L = chord`, so `m_ref` scales **quadratically** with chord — confirming the helper is genuinely parameterized on chord rather than hardcoding `L = 1.0`
-- **And** at a **non-unit** chord (e.g. `chord = 2.0`) `m_ref` equals `compute_force_reference(same kinematics/geometry).f_ref · chord` exactly — proving the moment helper reuses the force reference's `q_tip`/`area` (CC-3, single source) rather than carrying a divergent second copy of the formula (an equality that would hold trivially at `chord = 1.0` and hide a copy)
+- **And** at a **non-unit** chord (e.g. `chord = 2.0`) `m_ref` equals `compute_force_reference(same kinematics/geometry).f_ref · chord` exactly — proving the moment helper reuses the force reference's `q_ref`/`area` (CC-3, single source) rather than carrying a divergent second copy of the formula (an equality that would hold trivially at `chord = 1.0` and hide a copy)
 
 #### Scenario: Moment coefficients
 
@@ -380,10 +394,12 @@ kinematics (plus per-timestep phase) to normalized force and moment coefficients
 **only** from the IB-particle CSV. It SHALL read the CSV **name-based** against the documented 29-column
 schema (never positional), join each configuration's kinematics, `reynolds`, and train/holdout
 `split` from `sweep_manifest.json`, compute the **per-configuration** `F_ref`/`M_ref` via the
-single-source normalization helpers (with `f_star = frequency_fstar`, `phi_amp_deg = stroke_amp_deg`),
-and emit **one row per (configuration × timestep)**. The build SHALL return both the dataframe and
-the list of any configurations dropped under `allow_missing`, so the caller can record the drop in
-run metadata (the dataframe alone provides no channel for the dropped names).
+single-source normalization helpers (with `f_star = frequency_fstar`, `phi_amp_deg = stroke_amp_deg`,
+and the geometry's `r_gyr`/`span`/`chord`), and emit **one row per (configuration × timestep)**. Raw
+force/moment columns SHALL be carried through unchanged; only the derived coefficient columns reflect
+the convention. The build SHALL return both the dataframe and the list of any configurations dropped
+under `allow_missing`, so the caller can record the drop in run metadata (the dataframe alone provides
+no channel for the dropped names).
 
 #### Scenario: One row per configuration and timestep
 
@@ -399,9 +415,9 @@ run metadata (the dataframe alone provides no channel for the dropped names).
 
 #### Scenario: Coefficients use the single-source per-config normalization
 
-- **Given** the committed `synthetic_ib_particle.csv` mapped to a **synthetic single-config manifest** at the validated point (`stroke_amp_deg = 70.0`, `frequency_fstar = 1.0`, `pitch_amp_deg = 45.0`) — chosen because no committed-corpus config is at φ=70°, and so the per-config `f_ref` is the regression-locked `≈ 624.79`
+- **Given** the committed `synthetic_ib_particle.csv` mapped to a **synthetic single-config manifest** at the validated point (`stroke_amp_deg = 70.0`, `frequency_fstar = 1.0`, `pitch_amp_deg = 45.0`) — chosen because no committed-corpus config is at φ=70°, and so the per-config `f_ref` is the regression-locked `≈ 200.27`
 - **When** `build_dataset` is called
-- **Then** each `CF_x` equals `Fx / compute_force_reference(f_star=1.0, phi_amp_deg=70.0, r_tip=R_TIP, span=SPAN, chord=CHORD, rho=RHO).f_ref` and each `CF_mx` equals `Mx / compute_moment_reference(...).m_ref` (and likewise for y/z) — **ratio** equality, not round literals (the validated `f_ref ≈ 624.79` is not round, so `CF_x = 50/624.79 ≈ 0.080`, etc.), confirming the extractor reuses the PR1/PR4 helpers rather than re-deriving a reference inline (CC-3)
+- **Then** each `CF_x` equals `Fx / compute_force_reference(f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO).f_ref` and each `CF_mx` equals `Mx / compute_moment_reference(...).m_ref` (and likewise for y/z) — **ratio** equality, not round literals (the validated `f_ref ≈ 200.27` is not round, so `CF_x = 50/200.27 ≈ 0.250`, etc.), confirming the extractor reuses the helpers rather than re-deriving a reference inline (CC-3)
 - **And** a separate config whose reference is the round `f_ref = m_ref = 100` (e.g. via the helper unit tests) is where the fixture's round forces/moments give exact-decimal coefficients — the dataset path asserts the **ratio**, the helper path asserts the **exact decimals**
 
 #### Scenario: Phase and wingbeat tag every timestep, no rows dropped
@@ -1274,24 +1290,24 @@ sim→biomechanics axis relabeling.
 
 The evidence figure SHALL **compute** a **translational-only** Sane–Dickinson quasi-steady CF_z
 reference through the **single-source** `compute_force_reference` helper (CC-3) — the reference
-force/tip-speed SHALL NOT be re-derived inline — as
-`CF_trans(t) = F_trans(t)/F_ref = (U(t)/U_tip)²·C_L(α_eff(t))`, with `U(t)/U_tip = cos(2π·phase)` from
+force/reference speed SHALL NOT be re-derived inline — as
+`CF_trans(t) = F_trans(t)/F_ref = (U(t)/u_ref)²·C_L(α_eff(t))`, with `U(t)/u_ref = cos(2π·phase)` from
 the parquet `phase` column, `C_L(α)` the Dickinson–Lehmann–Sane (1999) empirical fit, and the
 per-configuration `(φ, f*, α)` parsed from `config_name`.
 
 It SHALL **NOT** overlay this reference on the scatter panels. **Why reference-only instead of an
-overlay (CC-4 deviation, design D2):** at the coarse 64×32×64 grid the uncalibrated quasi-steady
-model **overshoots** the CFD lift, and the gap is **dominated by the ~2.4× diffused-IB underestimate**
-(the CFD is biased low) plus the model's tip-velocity overprediction — so a scatter overlay would
-mostly re-display the IB bias rather than demonstrate surrogate skill (a misleading "17× better"
-artifact), and the large analytic loops visually dominated the lift panel. Instead the figure SHALL
-record the reference's **overshoot factor** (`rms(CF_trans) / rms(CFD-true CF_z)`) and its RMSE in the
-`evidence_figure_metrics.json` sidecar, and the caption SHALL disclose that an uncalibrated
-translational Sane–Dickinson model overshoots the coarse-grid CFD lift ~N× (dominated by the ~2.4×
-diffused-IB underestimate plus tip-velocity overprediction) and is therefore **not used as a
-quantitative baseline at this resolution**. The original CC-4 intent — show the surrogate ≥ the
-analytic model — is not cleanly achievable at the coarse grid because the IB bias confounds the
-comparison; this is recorded as a deviation in the proposal.
+overlay (CC-4 deviation; reference-only decision recorded in the proposal):** the uncalibrated
+**translational-only** quasi-steady model is a poor fit to the coarse 64×32×64 CFD lift — it omits
+rotational, added-mass, and LEV lift — so a scatter overlay would mostly re-display the model's
+analytic loops rather than demonstrate surrogate skill. The earlier "~2.4× diffused-IB underestimate"
+framing was a normalization-convention artifact and is removed (the CFD `ib_force` is correct). Under
+the corrected van Veen normalization the model's RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)` is **< 1**
+(it **under-predicts** the now-in-band CFD lift, ≈ 0.7 on the committed corpus — the opposite of the
+old > 1 "overshoot," because the CFD lift is no longer mis-normalized small). The figure SHALL record
+this RMS ratio (key `overshoot_factor`) and the baseline RMSE in `evidence_figure_metrics.json`, and
+the caption SHALL disclose the ratio neutrally (the model is ~N× the CFD lift in RMS) and that the
+uncalibrated translational model is therefore **not used as a quantitative baseline at this
+resolution**.
 
 #### Scenario: Baseline coefficient matches the documented formula on known inputs
 
@@ -1302,8 +1318,8 @@ comparison; this is recorded as a deviation in the proposal.
 #### Scenario: Baseline normalizes through the CC-3 single-source helper
 
 - **Given** the baseline computation for a configuration
-- **When** the reference force `F_ref` and tip speed `U_tip` are obtained
-- **Then** they come from `compute_force_reference(f_star, phi_amp_deg, r_tip, span, chord)` (the single source — CC-3), and the baseline force is divided by that `F_ref` explicitly rather than using an inline-re-derived reference
+- **When** the reference force `F_ref` and reference speed `u_ref` are obtained
+- **Then** they come from `compute_force_reference(f_star, phi_amp_deg, r_gyr, span, chord)` (the single source — CC-3), and the baseline force is divided by that `F_ref` explicitly rather than using an inline-re-derived reference
 
 #### Scenario: config_name parses to kinematic parameters
 
@@ -1321,7 +1337,13 @@ comparison; this is recorded as a deviation in the proposal.
 
 - **Given** the computed Sane–Dickinson reference and the CFD-true CF_z
 - **When** the sidecar and caption are built
-- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (`rms(CF_trans)/rms(CFD-true CF_z)`, > 1) and `baseline_rmse_cf_z`, and the caption states that the uncalibrated quasi-steady model overshoots the coarse-grid CFD lift ~N× — dominated by the ~2.4× diffused-IB underestimate plus tip-velocity overprediction — and is **not used as a quantitative baseline** at this resolution (it is not framed as a comparison the surrogate "beats")
+- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (the RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)`, a positive finite number — **< 1** under the van Veen convention) and `baseline_rmse_cf_z`, and the caption states neutrally that the uncalibrated translational quasi-steady model is ~N× the coarse-grid CFD lift in RMS and is **not used as a quantitative baseline** at this resolution (it is not framed as a comparison the surrogate "beats")
+
+#### Scenario: No diffused-IB underestimate claim remains
+
+- **Given** the evidence-figure module docstring, caption strings, `_baseline_reference` docstring, the `evidence_figure_metrics.json` `note`, and the `Sane–Dickinson` rationale text
+- **When** they are inspected
+- **Then** none contains a "~2.4× diffused-IB underestimate" (or equivalent CFD-is-biased-low) claim and no post-hoc correction factor — the quasi-steady reference's RMS ratio is described neutrally (translational-only model, a poor fit that under-predicts the in-band CFD lift)
 
 ### Requirement: Honest evidence-figure caption and speedup annotation
 
@@ -1337,7 +1359,7 @@ caption, the figure SHALL report the **configuration-resolved** R² (read from
 `metrics.json config_resolved.<coefficient>.config_mean_r2`) for the three figure axes and state that the
 pointwise aggregate R²≈0.98 is dominated by the shared within-beat phase waveform and **overstates**
 the kinematics→force skill (naming CF_y's negative config-resolved R² as the concrete tell), that the
-result is **pipeline readiness on coarse-grid forces** (64×32×64; ~2.4× diffused-IB underestimate),
+result is **pipeline readiness on coarse-grid forces** (64×32×64),
 **not** validated aerodynamics, and that the two off-axis moments **CF_mx/CF_mz are excluded because
 they are ≈99.9% the shared within-beat waveform** (no between-config signal) — the exclusion is stated
 with its reason, not silent. The figure SHALL annotate the inference-vs-CFD speedup as a **batched
@@ -1380,7 +1402,7 @@ committed artifacts, never hard-coded.
 
 - **Given** the generated figure and the updated `examples/prelim_sweep/README.md`
 - **When** both are inspected
-- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion reason, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / ~2.4× / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion reason, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
 
 ### Requirement: Committed evidence-figure artifacts with provenance
 
@@ -1454,4 +1476,27 @@ plotfiles/velocity/pressure fields, build a DoMINO/latent-dynamics encoder, or i
 - **Given** the figure-generation inputs
 - **When** the generator runs
 - **Then** it requires only the predictions parquet and metrics.json (and module geometry constants) — it neither accepts nor requires a plotfile/field path — and it produces only the figure and its sidecar artifacts, with no field reconstruction, latent state, or RL interaction
+
+### Requirement: Re-normalization preserves surrogate skill (scale-invariance)
+
+Re-deriving force/moment coefficients under a different per-configuration convention SHALL rescale the CFD targets and the surrogate predictions by the **same** constant, leaving the held-out **R²** and the predicted-vs-CFD relationship invariant. The frozen corpus's raw force/moment columns and IB-particle CSVs SHALL NOT be regenerated; only derived coefficients change, and no surrogate retraining SHALL be required.
+
+#### Scenario: R² is invariant under re-normalization
+
+- **Given** the committed `examples/prelim_sweep/surrogate/holdout_predictions.parquet` (`CF_x_true/pred`, `CF_z_true/pred`, …) whose `R²` matches `metrics.json`
+- **When** both the `*_true` and `*_pred` columns are multiplied by the convention factor `k = f_ref_old / f_ref_new` (≈ 3.119)
+- **Then** the recomputed per-target `R²` for `CF_x` and `CF_z` each equals the original within `1e-9`, confirming no retrain is needed
+- **And** the `RMSE`/`MAE` rescale by exactly `k` (reported honestly), while the scatter shape is unchanged (axes relabeled)
+
+#### Scenario: Raw corpus stays frozen; only derived coefficients move
+
+- **Given** the convention change re-derives the corpus coefficients
+- **When** `dataset.parquet` is regenerated
+- **Then** its raw `Fx, Fy, Fz, Mx, My, Mz` column **values** are exactly equal (e.g. `pandas.testing.assert_frame_equal(..., check_exact=True)`) to the committed corpus, only the derived `CF_*` columns change (each new column equals the old divided by `k`), and the committed `metrics.json` per-target `R²` is reused unchanged (within `1e-9`)
+
+#### Scenario: Degenerate re-normalization is rejected
+
+- **Given** a convention factor that is undefined — `f_ref_new = 0` (so `k` divides by zero) or a `holdout_predictions.parquet` missing a required `CF_*_true`/`CF_*_pred` column
+- **When** the scale-invariance check is run
+- **Then** it raises `ValueError` (or `KeyError` for the missing column) rather than emitting `inf`/`NaN` R² or silently skipping the target
 
