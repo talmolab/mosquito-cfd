@@ -13,10 +13,11 @@ IAMReX force semantics (``IAMReX-fork/Source/DiffusedIB.cpp``):
   - The 6-DOF momentum balance (line ~1078) makes the net hydrodynamic force
     ``F_hydro = rho_f * (SumU - ib_force)``. The added-mass contribution is ``rho_f * SumU``.
 
-Frame caveat (issue #1 / T2a): these are **lab-frame** coefficients. van Veen's band is a
-body-frame per-component statement; the gate here is an O(1) **magnitude plausibility** check.
-The faithful body-frame per-component comparison and the time-resolved curve match are deferred
-to T2a (#1) and T4.
+Frame note (issue #1 / T2a): :func:`plausibility_gate` grades **lab-frame** coefficients as an
+O(1) **magnitude plausibility** check. The faithful **body-frame** per-component van Veen
+comparison is **delivered** here by :func:`reconstruct_wing_body_forces` /
+:func:`body_frame_overall_match` (rotating ``ib_force`` into the wing frame by the analytic
+``R(t)``); only the **time-resolved** curve match vs van Veen fig 3-4 remains deferred to T4.
 """
 
 from __future__ import annotations
@@ -28,6 +29,11 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from mosquito_cfd.benchmarks.wing_kinematics import (
+    euler_angles,
+    rotation_matrix,
+    rotation_matrix_legacy,
+)
 from mosquito_cfd.force_surrogate import compute_force_reference
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 
@@ -38,6 +44,24 @@ STEADY_WINDOW_T0 = 0.05
 
 # van Veen plausibility band for insect-wing force coefficients (van Veen 2022, JFM 936:A3).
 VAN_VEEN_BAND = (0.5, 1.5)
+
+# van Veen reported OVERALL body-frame force-coefficient targets (T2a, sourced from the open-access
+# PDF Fig 4a/4b/4e + eqs 3.1-3.8, in our F_ref = 0.5*rho*omega^2*S_yy normalization). The wing-normal
+# translational coefficient follows a least-squares sine fit C_Fz,transl(alpha) ~ 3.4*sin(alpha)
+# (peak ~3.4 at alpha=90 deg, ~2.4 at the alpha=45 deg pitch amplitude); the chord-wise tangential
+# coefficient is small (~0.2-0.3 peak). CAVEAT: our ib_force is the TOTAL hydrodynamic force whereas
+# van Veen's C_Fz is decomposed into translational + added-mass + Wagner, so our body-frame CF_normal
+# corresponds to van Veen's TOTAL normal coefficient (translational dominant). The precise per-instant
+# per-component curve match is T4 (needs the Section 3.3 mosquito-wingbeat curves digitized); T2a
+# grades the [0.5,1.5] floor per component (live) plus this overall-magnitude comparison with the gap
+# reported (never reverse-fit). These are pinned constants guarded by test_match_tolerance_not_loosened.
+VAN_VEEN_CF_TARGETS = {
+    "cf_normal_peak": 2.4,  # C_Fz,transl at the alpha~45 deg midstroke pitch (Fig 4a sine fit)
+    "cf_chord_peak": 0.3,  # C_Fx,transl small tangential peak (Fig 4b)
+}
+# Overall-magnitude match tolerance [dimensionless CF]. Provisional pending the coarse re-run
+# (task 7); NOT reverse-fit to any measured value (no new-convention run exists yet).
+VAN_VEEN_MATCH_TOL = 0.6
 
 # IB-particle CSV columns this analysis reads (subset of the 29-col IAMReX schema).
 _REQUIRED_CSV_COLUMNS = ("time", "Fx", "Fz", "SumUx", "SumUz")
@@ -177,3 +201,252 @@ def added_mass_fraction(
         "stroke": frac(decomp.cf_x_added, decomp.cf_x_ib),
         "lift": frac(decomp.cf_z_added, decomp.cf_z_ib),
     }
+
+
+# --- Body-frame (chord/normal) per-component van Veen comparison (Tier T2a) -------------------
+#
+# #36 graded a LAB-frame O(1) magnitude gate and deferred the faithful body-frame per-component
+# comparison to T2a (see the module frame caveat above). Here the lab-frame ib_force is rotated
+# into the instantaneous WING body frame by the analytic R(t) from the kinematics mirror (the same
+# composition the solver applies), giving chord-wise CF_chord and wing-normal CF_normal in van
+# Veen's convention F = (F_x chord, F_z normal). The spanwise F_y is carried as a diagnostic
+# (cf_span) but van Veen ignores it. Rotation axes are passed EXPLICITLY (no hard-coded streamwise
+# axis) so the analysis layer cannot re-introduce a #1-style mislabel.
+
+# van Veen body-frame axes (wing reference frame, fig 1f / Fig 2 caption): x=chord, y=span, z=normal.
+_CHORD_AXIS = np.array([1.0, 0.0, 0.0])
+_SPAN_AXIS = np.array([0.0, 1.0, 0.0])
+_NORMAL_AXIS = np.array([0.0, 0.0, 1.0])
+
+# Body-frame CSV columns (ib_force vector). Fy is needed here (unlike the lab-frame gate).
+_REQUIRED_BODY_CSV_COLUMNS = ("time", "Fx", "Fy", "Fz")
+
+
+def _validate_rotation(rot: NDArray[np.floating]) -> NDArray[np.float64]:
+    """Return ``rot`` as FP64, raising if it is not a proper orthonormal rotation (per matrix)."""
+    r = np.asarray(rot, dtype=np.float64)
+    if r.ndim not in (2, 3) or r.shape[-2:] != (3, 3):
+        raise ValueError(f"rotation must be (3,3) or (N,3,3), got shape {r.shape}")
+    if not np.isfinite(r).all():
+        raise ValueError("rotation contains non-finite values (NaN/inf)")
+    batch = r if r.ndim == 3 else r[None]
+    ident = np.einsum("nij,nkj->nik", batch, batch)  # R @ R^T
+    if not np.allclose(ident, np.eye(3), atol=1e-8):
+        raise ValueError("rotation is not orthonormal (R @ R^T != I)")
+    if not np.allclose(np.linalg.det(batch), 1.0, atol=1e-8):
+        raise ValueError(
+            "rotation has det != 1 (not a proper rotation / reflection or singular)"
+        )
+    return r
+
+
+def body_frame_coefficients(
+    f_lab: NDArray[np.floating],
+    rot: NDArray[np.floating],
+    f_ref: float,
+    *,
+    chord_axis: NDArray[np.floating] = _CHORD_AXIS,
+    normal_axis: NDArray[np.floating] = _NORMAL_AXIS,
+    span_axis: NDArray[np.floating] = _SPAN_AXIS,
+) -> dict[str, NDArray[np.floating]]:
+    """Rotate lab-frame force(s) into the wing body frame and form van Veen CF components.
+
+    ``F_body = R^T @ F_lab`` (``R`` maps body->lab, so its transpose maps lab->body); the
+    coefficients are the body components projected on the **explicitly supplied** chord/normal/span
+    axes, divided by ``f_ref``. Swapping ``chord_axis`` and ``normal_axis`` exchanges the returned
+    ``cf_chord``/``cf_normal`` — the axes are honoured, not hard-coded.
+
+    Args:
+        f_lab: Lab-frame force vector(s), shape ``(3,)`` or ``(N, 3)`` (FP64).
+        rot: Rotation matrix/matrices ``R(t)``, shape ``(3, 3)`` or ``(N, 3, 3)``.
+        f_ref: Reference force (van Veen ``F_ref``); must be positive.
+        chord_axis: Body-frame chord unit vector (default van Veen x).
+        normal_axis: Body-frame wing-normal unit vector (default van Veen z).
+        span_axis: Body-frame span unit vector (default van Veen y; reported as a diagnostic).
+
+    Returns:
+        Dict of ``cf_chord``, ``cf_normal``, ``cf_span`` arrays (shape ``(N,)`` or 0-d).
+
+    Raises:
+        ValueError: if ``f_ref <= 0``, ``f_lab`` is empty or not ``(...,3)``, or ``rot`` is not a
+            proper orthonormal rotation.
+    """
+    if f_ref <= 0:
+        raise ValueError(f"f_ref must be positive to form coefficients (got {f_ref})")
+    f = np.asarray(f_lab, dtype=np.float64)
+    if f.shape[-1] != 3:
+        raise ValueError(f"f_lab must have a trailing size-3 axis, got shape {f.shape}")
+    if f.size == 0:
+        raise ValueError("f_lab is empty; nothing to decompose")
+    if not np.isfinite(f).all():
+        raise ValueError("f_lab contains non-finite values (NaN/inf)")
+    r = _validate_rotation(rot)
+    single = f.ndim == 1
+    fb = np.atleast_2d(f)
+    rb = r[None] if r.ndim == 2 else r
+    if rb.shape[0] == 1 and fb.shape[0] > 1:
+        rb = np.broadcast_to(rb, (fb.shape[0], 3, 3))
+    if rb.shape[0] != fb.shape[0]:
+        raise ValueError(
+            f"rotation batch {rb.shape[0]} does not match force batch {fb.shape[0]}"
+        )
+    # F_body[n,j] = sum_i R[n,i,j] * F_lab[n,i]  (= (R^T @ F)[j])
+    f_body = np.einsum("nij,ni->nj", rb, fb)
+    out = {
+        "cf_chord": (f_body @ np.asarray(chord_axis, float)) / f_ref,
+        "cf_normal": (f_body @ np.asarray(normal_axis, float)) / f_ref,
+        "cf_span": (f_body @ np.asarray(span_axis, float)) / f_ref,
+    }
+    if single:
+        return {k: v[0] for k, v in out.items()}
+    return out
+
+
+@dataclass(frozen=True)
+class WingBodyFrameDecomposition:
+    """Body-frame (van Veen) force coefficients for the flapping wing.
+
+    ``cf_chord`` (body x), ``cf_normal`` (body z) are the graded van Veen components; ``cf_span``
+    (body y) is the diagnostic van Veen ignores. Each is a per-timestep array.
+    """
+
+    time: NDArray[np.floating]
+    f_ref: float
+    cf_chord: NDArray[np.floating]
+    cf_normal: NDArray[np.floating]
+    cf_span: NDArray[np.floating]
+
+
+def reconstruct_wing_body_forces(
+    csv_path: str | Path,
+    *,
+    f_star: float,
+    phi_amp_deg: float,
+    pitch_amp_deg: float,
+    deviation_amp_deg: float = 0.0,
+    legacy_kinematics: bool = False,
+) -> WingBodyFrameDecomposition:
+    """Body-frame CF_chord/CF_normal series from an IB-particle CSV via the analytic ``R(t)``.
+
+    For each timestep the lab-frame ``ib_force`` ``(Fx,Fy,Fz)`` is rotated into the wing body frame
+    by ``R(t)`` from the kinematics mirror (:mod:`mosquito_cfd.benchmarks.wing_kinematics`), the same
+    composition the solver applies. ``F_ref`` comes from the single-source ``compute_force_reference``.
+
+    Args:
+        csv_path: Path to the committed ``forces.csv`` (IB-particle output; must carry ``Fy``).
+        f_star: Dimensionless flap frequency.
+        phi_amp_deg: Stroke amplitude [deg].
+        pitch_amp_deg: Pitch amplitude [deg].
+        deviation_amp_deg: Deviation amplitude [deg]; default 0.
+        legacy_kinematics: If True, use the pre-T2a ``rotation_matrix_legacy`` composition — for the
+            **contrast baseline only** (shows the old stroke-∥-span motion's body-frame CF differ).
+
+    Returns:
+        A :class:`WingBodyFrameDecomposition`.
+    """
+    df = pd.read_csv(csv_path)
+    missing = [c for c in _REQUIRED_BODY_CSV_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"IB-particle CSV {csv_path} is missing required column(s) {missing}; "
+            f"body-frame decomposition needs {list(_REQUIRED_BODY_CSV_COLUMNS)}"
+        )
+    f_ref = compute_force_reference(
+        f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, RHO
+    ).f_ref
+    if f_ref <= 0:
+        raise ValueError(
+            f"f_ref must be positive (got {f_ref}); check f_star / phi_amp_deg"
+        )
+    time = df["time"].to_numpy(float)
+    f_lab = np.column_stack(
+        [df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)]
+    )
+    rot_fn = rotation_matrix_legacy if legacy_kinematics else rotation_matrix
+    phi_amp = np.radians(phi_amp_deg)
+    alpha_amp = np.radians(pitch_amp_deg)
+    theta_amp = np.radians(deviation_amp_deg)
+    rots = np.stack(
+        [
+            rot_fn(
+                *euler_angles(
+                    t,
+                    frequency=f_star,
+                    stroke_amp_rad=phi_amp,
+                    pitch_amp_rad=alpha_amp,
+                    deviation_amp_rad=theta_amp,
+                )
+            )
+            for t in time
+        ]
+    )
+    cf = body_frame_coefficients(f_lab, rots, f_ref)
+    return WingBodyFrameDecomposition(
+        time=time,
+        f_ref=f_ref,
+        cf_chord=cf["cf_chord"],
+        cf_normal=cf["cf_normal"],
+        cf_span=cf["cf_span"],
+    )
+
+
+def body_frame_overall_match(
+    decomp: WingBodyFrameDecomposition,
+    *,
+    window_t0: float = STEADY_WINDOW_T0,
+    targets: dict[str, float] | None = None,
+    tol: float = VAN_VEEN_MATCH_TOL,
+    band: tuple[float, float] = VAN_VEEN_BAND,
+) -> dict:
+    """Grade the body-frame per-component van Veen comparison over the steady window.
+
+    Two graded modes, kept distinct (design D5): (a) the always-on **band floor** — peak
+    ``|CF_chord|``/``|CF_normal|`` graded against ``band`` (default the pinned ``VAN_VEEN_BAND``);
+    (b) the **overall scalar-match** — when ``targets`` is supplied, peak coefficients must fall
+    within ``tol`` of the van Veen values. With ``targets=None`` the verdict falls back to the band
+    floor and the van-Veen gap is reported as ``None`` (CC-V2 — never reverse-fit).
+
+    Returns a dict with per-component peaks, cycle-means, ``*_in_band`` bools, and (when targets are
+    given) ``*_gap`` and ``*_match`` bools plus an overall ``match`` verdict.
+    """
+    mask = decomp.time >= window_t0
+    if not mask.any():
+        raise ValueError(
+            f"steady window_t0={window_t0} selects no timesteps; data range "
+            f"[{decomp.time.min():.4g}, {decomp.time.max():.4g}]"
+        )
+    lo, hi = band
+    peak_chord = float(np.abs(decomp.cf_chord[mask]).max())
+    peak_normal = float(np.abs(decomp.cf_normal[mask]).max())
+    mean_chord = float(np.abs(decomp.cf_chord[mask]).mean())
+    mean_normal = float(np.abs(decomp.cf_normal[mask]).mean())
+    result = {
+        "peak_cf_chord": peak_chord,
+        "peak_cf_normal": peak_normal,
+        "mean_cf_chord": mean_chord,
+        "mean_cf_normal": mean_normal,
+        "cf_chord_in_band": lo <= peak_chord <= hi,
+        "cf_normal_in_band": lo <= peak_normal <= hi,
+        "window_t0": window_t0,
+        "targets": targets,
+    }
+    if targets is None:
+        result["cf_chord_gap"] = None
+        result["cf_normal_gap"] = None
+        result["match"] = None  # tolerance gate is pending sourced targets
+        return result
+    gap_chord = peak_chord - float(targets["cf_chord_peak"])
+    gap_normal = peak_normal - float(targets["cf_normal_peak"])
+    chord_match = abs(gap_chord) <= tol
+    normal_match = abs(gap_normal) <= tol
+    result.update(
+        {
+            "cf_chord_gap": gap_chord,
+            "cf_normal_gap": gap_normal,
+            "cf_chord_match": chord_match,
+            "cf_normal_match": normal_match,
+            "tol": tol,
+            "match": bool(chord_match and normal_match),
+        }
+    )
+    return result

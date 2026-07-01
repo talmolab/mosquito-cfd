@@ -51,6 +51,16 @@ def main() -> None:
         help="Center position in meters",
     )
     parser.add_argument(
+        "--axis",
+        type=str,
+        choices=["y", "z"],
+        default="z",
+        help=(
+            "Span axis: 'z' (legacy) or 'y' (van Veen / Bomphrey convention, Tier T2a: "
+            "span along y, chord along x, wing flat in x-y)"
+        ),
+    )
+    parser.add_argument(
         "--output",
         "-o",
         type=str,
@@ -66,11 +76,12 @@ def main() -> None:
         chord=args.chord,
         spacing=args.spacing,
         center=tuple(args.center),
+        span_axis=args.axis,
     )
 
     write_vertex_file(markers, args.output)
 
-    print(f"Shape: {args.shape}")
+    print(f"Shape: {args.shape} (span along {args.axis})")
     print(f"Span: {args.span * 1e3:.2f} mm, Chord: {args.chord * 1e3:.2f} mm")
     print(f"Spacing: {args.spacing * 1e6:.1f} µm")
     print(f"Generated {len(markers)} markers")
