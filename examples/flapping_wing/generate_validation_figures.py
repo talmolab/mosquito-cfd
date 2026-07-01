@@ -74,8 +74,11 @@ def fig_v1_three_convention(out_dir: Path) -> dict:
 def fig_v2_second_moment(out_dir: Path) -> dict:
     """V2: planform + the tip-weighted second-moment integrand; r_gyr from markers."""
     verts = np.loadtxt(_HERE / "wing.vertex", skiprows=1)
-    x, z = verts[:, 0], verts[:, 2]
-    r = z + (R_TIP - z.max())
+    x = verts[:, 0]  # chord
+    # Span is the widest-extent axis: T2a re-orients it to y; the legacy geometry used z. Detecting
+    # it keeps r_gyr/S_yy orientation-invariant across the axis-convention refactor.
+    span = verts[:, int(np.argmax(np.ptp(verts, axis=0)))]
+    r = span + (R_TIP - span.max())
     r_gyr = float(np.sqrt(np.mean(r**2)))
     s_planform = np.pi / 4.0 * SPAN * CHORD
     s_yy = r_gyr**2 * s_planform

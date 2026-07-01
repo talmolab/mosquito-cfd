@@ -3,7 +3,24 @@
 **Date**: February 26–27, 2026 (velocity-field re-run: April 27, 2026)
 **Platform**: NVIDIA A40 (Salk RunAI cluster, gpu-node14)
 **Docker Image**: `ghcr.io/talmolab/mosquito-cfd:fp64`
-**IAMReX Fork**: `talmolab/IAMReX @ 7ece065d` (feature/arbitrary-geometry)
+**IAMReX Fork**: `talmolab/IAMReX @ 7ece065d` (feature/arbitrary-geometry) — *updated to the T2a
+commit `X` when the new-convention re-run lands (see banner).*
+
+---
+
+> ## ⚠️ Tier T2a status (axis-convention refactor, issue #1) — re-run pending
+>
+> The geometry, kinematics, deck, and docs have been re-oriented to the **van Veen / Bomphrey
+> convention** (x = chord, y = span, z = vertical/lift; stroke `Rz(φ)` about the vertical, so the
+> span-tip sweeps — see [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md)). This
+> is a **motion change**, not a relabel, so the numeric force tables below are from the **old**
+> stroke-∥-span run and are **superseded / pending the coarse A40 re-run** (which also writes
+> `ns.init_iter = 2` velocity plotfiles to the Z: drive). They are retained as the **old-convention
+> contrast baseline**. The faithful **body-frame per-component** van Veen comparison
+> (`CF_chord`/`CF_normal`) is now **delivered** in code
+> (`mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_body_forces` /
+> `body_frame_overall_match`); its numbers land with the re-run. Time-resolved curve match vs
+> van Veen fig 3–4 remains **T4**.
 
 ---
 
@@ -30,8 +47,10 @@ completes 2000 timesteps (1 wingbeat) in under 5 minutes on a single A40 GPU.
 | Lagrangian markers | 908 |
 | File | `wing.vertex` (dimensionless coordinates) |
 
-The wing is centered at (4.0, 2.0, 4.0) with the hinge (wing root) at (4.0, 2.0, 2.5).
-Span runs in the z-direction; chord is in x. The stroke plane is horizontal (xy).
+The wing is centered at (4.0, 2.0, 4.0) with the hinge (wing root) at (4.0, 0.5, 4.0).
+**Span runs in the y-direction; chord is in x; the wing is flat in the x–y plane** (van Veen
+convention, T2a). The stroke plane is horizontal (x–y) and the lift axis is z.
+(Legacy: span ran in z with the hinge at z=2.5 — see git history for the pre-T2a geometry.)
 
 See **fig_planform.pdf** for the marker scatter plot.
 
@@ -54,7 +73,10 @@ alpha(t) = alpha_amp * cos(2*pi*f*t)   [pitch, 90-deg lead]
 theta(t) = 0                            [no deviation]
 ```
 
-Rotation convention: ZYX Euler — R = Rz(phi) * Ry(theta) * Rx(alpha)
+Rotation convention (T2a, van Veen): R = Rz(phi) * Ry(alpha) * Rx(theta) — stroke phi about the
+lab vertical z, pitch alpha about the span y, deviation theta about the chord x. See
+[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md). (Legacy pre-T2a order was
+R = Rz(phi) * Ry(theta) * Rx(alpha) with the span along z.)
 
 See **fig_kinematics.pdf** for Euler angle time series and **fig_wing_phases.pdf**
 for wing positions at t=0, T/4, T/2, 3T/4.
@@ -81,11 +103,11 @@ nu* = V_mid / Re = 11.5 / 100 = 0.115 (r_mid = hinge-to-midspan = 1.5)
 
 ### Boundary Conditions
 
-| Direction | BC |
-|-----------|----|
-| x (lo/hi) | Pressure outflow |
-| y | Periodic |
-| z (lo/hi) | Wall (no-penetration) |
+| Direction | BC | Role (T2a convention) |
+|-----------|----|----|
+| x (lo/hi) | Pressure outflow | chord / streamwise |
+| y | Periodic | **span** (infinite-span model) |
+| z (lo/hi) | Pressure outflow | vertical / lift — **z wall→outflow** (was wall pre-T2a; span-tip no longer near a wall) |
 
 ---
 
@@ -155,13 +177,15 @@ The full 6-DOF hydrodynamic force is also in band (CF_x 1.39, CF_z 0.80).
 
 ### Frame and tier caveat (no overclaim)
 
-These are **lab-frame** coefficients. van Veen reports body-frame chord-wise/normal
-components, and the repo's axis convention is non-standard (stroke `Rz(φ)` about the span
-axis; at the α=45° midstroke lab ≠ body — **issue #1**). The gate here is therefore an
-**O(1) magnitude plausibility** check, **not** a frame-faithful van Veen comparison: the
-lab `CF_x`/`CF_z` are not van Veen's body-frame axes. The faithful body-frame per-component
-comparison is deferred to **T2a (#1)** and the **time-resolved** curve match (peak phase +
-curve RMSE vs van Veen Fig 3–4) to **T4**. The band is not loosened to pass.
+The `plausibility_gate` numbers above are **lab-frame** coefficients — an **O(1) magnitude
+plausibility** check, not a frame-faithful comparison. **T2a delivers the faithful body-frame
+per-component comparison**: `reconstruct_wing_body_forces` rotates `ib_force` into the wing frame by
+the analytic `R(t)` to give van Veen's `CF_chord`/`CF_normal`, and `body_frame_overall_match` grades
+them against van Veen's fitted coefficients (`C_Fz,transl ≈ 3.4·sinα`, tangential small) with the
+`[0.5,1.5]` band as a floor. Those numbers land with the **new-convention re-run** (pending). Only the
+**time-resolved** curve match (peak phase + curve RMSE vs van Veen Fig 3–4) remains deferred to **T4**.
+The band is not loosened to pass; the `ib_force` (total) vs van Veen (transl+AM+WE decomposition)
+caveat is documented in the code.
 
 See **fig_forces.pdf** for the full force time series.
 
