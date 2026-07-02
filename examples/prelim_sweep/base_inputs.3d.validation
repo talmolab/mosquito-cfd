@@ -1,16 +1,15 @@
 #*******************************************************************************
-# INPUTS.3D.VALIDATION  (van Veen / Bomphrey axis convention — Tier T2a, issue #1)
+# INPUTS.3D.VALIDATION
 #
-# Quick validation run (~5 min) to verify code correctness in the new convention:
-#   x = chord (streamwise), y = span (periodic, infinite-span), z = vertical / lift.
-# See docs/coordinate-convention.md for the canonical convention.
+# Quick validation run (~10 min) to verify code correctness
+# Uses f*=1.0 scaling for faster turnaround
 #
 # Checks:
-#   - Markers move according to the prescribed van Veen kinematics (stroke sweeps the span-tip)
-#   - Forces develop with the correct phase relationship
-#   - Induced velocity field is non-zero (ns.init_iter = 2 persists it to plotfiles)
+#   - Markers move according to prescribed kinematics
+#   - Forces develop with correct phase relationship
+#   - Wake shows vortex structures
 #
-# NOT for publication - the medium-grid production deck is re-authored in Tier T3.
+# NOT for publication - use inputs.3d.production for that
 #*******************************************************************************
 
 # Simulation control
@@ -20,9 +19,7 @@ stop_time       = 1.0
 
 ns.fixed_dt     = 0.0005
 ns.cfl          = 0.3
-# init_iter = 2 persists the induced velocity field to the plotfiles (the v2 fix); init_iter = 0
-# writes x_velocity = 0 to every plotfile (see RESULTS.md / flapping-wing-velocity-v2 note).
-ns.init_iter    = 2
+ns.init_iter    = 0
 
 # Diffused IB input file
 particle.input  = particle_inputs
@@ -43,7 +40,7 @@ mac_proj.verbose        = 0
 amr.v                   = 1
 
 #*******************************************************************************
-# I/O - frequent output for validation (plotfiles carry the induced velocity field)
+# I/O - frequent output for validation
 #*******************************************************************************
 amr.check_int       = 1000
 amr.plot_int        = 100
@@ -52,10 +49,9 @@ amr.plot_int        = 100
 # Physics
 #*******************************************************************************
 
-# Viscosity scaling for f*=1.0 (unchanged from the legacy deck: the hinge-to-midspan arm is
-# still r_mid = 1.5, now along y — span root at y=0.5, wing centre at y=2.0):
-#   V_mid* = 2 pi * 1.0 * 1.22 rad * 1.5 ~= 11.5
-#   For Re_eff = 100: nu* = V_mid* / Re = 11.5 / 100 = 0.115
+# Viscosity scaling for f*=1.0:
+#   V_tip* = 2π × 1.0 × 1.22 rad × 1.5 ≈ 11.5
+#   For Re_eff = 100: ν* = V_tip* / Re = 11.5 / 100 = 0.115
 ns.vel_visc_coef    = 0.115
 
 # No scalar diffusion
@@ -69,23 +65,21 @@ amr.subcycling_mode = None
 ns.skip_level_projector = 0
 
 #*******************************************************************************
-# Domain geometry (x = chord/streamwise, y = span, z = vertical/lift)
+# Domain geometry
 #*******************************************************************************
 
 geometry.coord_sys  = 0
 
-# Domain: 8 (chord/streamwise) x 4 (span, periodic) x 8 (vertical/lift)
+# Domain: 8 x 4 x 8
 geometry.prob_lo    = 0. 0. 0.
 geometry.prob_hi    = 8. 4. 8.
 
-# Periodic in y (span) — the infinite-span model; the periodic axis now coincides with the span.
+# Periodic in y
 geometry.is_periodic = 0 1 0
 
-# Boundary conditions: x pressure-outflow (2), y periodic (0), z pressure-outflow (2).
-# NB the z wall (4) of the legacy deck becomes OUTFLOW here because z is now vertical/lift, not
-# span — so the span-tip is no longer adjacent to a wall (issue #1). (Not "z wall -> periodic".)
-ns.lo_bc            = 2 0 2
-ns.hi_bc            = 2 0 2
+# Boundary conditions
+ns.lo_bc            = 2 0 4
+ns.hi_bc            = 2 0 4
 
 #*******************************************************************************
 # Problem type
@@ -111,27 +105,24 @@ mac_proj.mac_tol        = 1.e-8
 mac_proj.mac_abs_tol    = 1.e-9
 
 #*******************************************************************************
-#  Particle inputs - VALIDATION (van Veen convention: span along y)
+#  Particle inputs - VALIDATION
 #*******************************************************************************
 
-# Wing centre (midspan): x = chord centre, y = span centre, z = vertical centre.
 particle_inputs.x = 4.0
 particle_inputs.y = 2.0
 particle_inputs.z = 4.0
 
 particle_inputs.rho = 1.0
 
-# Characteristic length for the diffused IB regularization kernel
+# Characteristic length for diffused IB regularization kernel
 particle_inputs.radius = 1.5
 
 particle_inputs.geometry_type = 4
 particle_inputs.geometry_file = wing.vertex
 
-# Hinge (wing root): chord centre (x=4), span root (y=0.5, the low-y end of the span 0.5..3.5),
-# vertical centre (z=4). Stroke Rz(phi) sweeps the wing about this hinge in the x-y plane.
 particle_inputs.hinge_x = 4.0
-particle_inputs.hinge_y = 0.5
-particle_inputs.hinge_z = 4.0
+particle_inputs.hinge_y = 2.0
+particle_inputs.hinge_z = 2.5
 
 particle_inputs.do_prescribed_motion = 1
 

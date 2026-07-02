@@ -30,7 +30,11 @@ from mosquito_cfd.force_surrogate.constants import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BASE_INPUTS = REPO_ROOT / "examples" / "flapping_wing" / "inputs.3d.validation"
+# Track-B templates off a FROZEN snapshot of the pre-T2a validation deck, NOT the live
+# examples/flapping_wing/inputs.3d.validation (which T2a re-oriented to the van Veen convention).
+# The snapshot is byte-identical to the deck the frozen corpus was generated from, so the corpus is
+# decoupled from T2a and never regenerated (CC-V6 / hard constraint). See the T2a proposal deviation.
+BASE_INPUTS = REPO_ROOT / "examples" / "prelim_sweep" / "base_inputs.3d.validation"
 MICRO_SWEEP = REPO_ROOT / "tests" / "fixtures" / "micro_sweep.json"
 TS = "2020-01-01T00:00:00+00:00"
 

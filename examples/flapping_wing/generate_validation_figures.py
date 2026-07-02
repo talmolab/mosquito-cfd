@@ -74,8 +74,11 @@ def fig_v1_three_convention(out_dir: Path) -> dict:
 def fig_v2_second_moment(out_dir: Path) -> dict:
     """V2: planform + the tip-weighted second-moment integrand; r_gyr from markers."""
     verts = np.loadtxt(_HERE / "wing.vertex", skiprows=1)
-    x, z = verts[:, 0], verts[:, 2]
-    r = z + (R_TIP - z.max())
+    x = verts[:, 0]  # chord
+    # Span is the widest-extent axis: T2a re-orients it to y; the legacy geometry used z. Detecting
+    # it keeps r_gyr/S_yy orientation-invariant across the axis-convention refactor.
+    span = verts[:, int(np.argmax(np.ptp(verts, axis=0)))]
+    r = span + (R_TIP - span.max())
     r_gyr = float(np.sqrt(np.mean(r**2)))
     s_planform = np.pi / 4.0 * SPAN * CHORD
     s_yy = r_gyr**2 * s_planform
@@ -186,8 +189,9 @@ def fig_v5_lab_vs_body(out_dir: Path) -> dict:
     ax.set_xlim(-1.4, 1.4)
     ax.set_ylim(-1.4, 1.4)
     ax.set_aspect("equal")
-    ax.set_title(f"V5  Lab vs body frame at the alpha={alpha:.0f} deg midstroke\n"
-                 "lab CF_x/CF_z != van Veen body chord/normal -> body-frame deferred to T2a/T4")
+    ax.set_title(f"V5  Lab vs body frame at the alpha={alpha:.0f} deg pitch amplitude\n"
+                 "lab CF_x/CF_z != van Veen body chord/normal -> body-frame delivered in T2a "
+                 "(time-resolved curve match deferred to T4)")
     ax.legend(fontsize=8, loc="lower left")
     ax.grid(alpha=0.25)
     fig.tight_layout()

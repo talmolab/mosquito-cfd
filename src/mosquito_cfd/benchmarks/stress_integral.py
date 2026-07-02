@@ -106,6 +106,77 @@ def periodic_duct_drag(
     return float(momentum_flux - pressure)
 
 
+def cv_force_vector(
+    u_inlet: np.ndarray,
+    u_outlet: np.ndarray,
+    gradp_volume: np.ndarray,
+    *,
+    streamwise_axis: np.ndarray,
+    rho: float,
+    cell_area: float,
+    cell_thickness: float,
+) -> np.ndarray:
+    """Full ``(Fx, Fy, Fz)`` control-volume force for an **explicit** streamwise axis.
+
+    Coordinate-covariant generalization of :func:`periodic_duct_drag` — it takes the streamwise
+    axis explicitly (rather than hard-coding ``+x``) and returns the whole force vector. For a
+    control volume spanning the full periodic cross-section between an inlet and an outlet plane,
+    both normal to ``streamwise_axis`` (``s_hat``), the lateral periodic faces cancel and the force
+    on the body is, per component ``j``::
+
+        F_j = rho * ( sum_inlet u_j (u . s_hat) - sum_outlet u_j (u . s_hat) ) * dA
+              - sum_V gradp_j * dA * ds.
+
+    Every term transforms as a vector under an orthogonal rotation ``Q`` — the dot product
+    ``u . s_hat`` is invariant and the components rotate — so ``F(Q.field) == Q.F(field)`` to
+    round-off. That **rotation-equivariance** is the invariance instrument for the axis-convention
+    change (CC-V4: orientation/labeling only), and passing the streamwise axis explicitly is what
+    stops a #1-style mislabel re-entering the analysis layer (design Decision 9). With
+    ``streamwise_axis = (1, 0, 0)`` the x-component equals :func:`periodic_duct_drag`.
+
+    Args:
+        u_inlet: Velocity **vectors** on the inlet-plane cells, shape ``(..., 3)`` (FP64).
+        u_outlet: Velocity vectors on the outlet-plane cells, same shape.
+        gradp_volume: Pressure-gradient **vectors** over the CV cells, shape ``(..., 3)``.
+        streamwise_axis: Unit 3-vector ``s_hat`` normal to the inlet/outlet planes.
+        rho: Fluid density.
+        cell_area: Area of one plane cell (perpendicular to ``s_hat``).
+        cell_thickness: Cell size along ``s_hat`` (``ds``).
+
+    Returns:
+        The force vector ``np.array([Fx, Fy, Fz])`` (FP64).
+
+    Raises:
+        ValueError: if ``streamwise_axis`` is not a finite, non-zero, unit 3-vector, or if any
+            control-volume field contains NaN/inf.
+    """
+    s = np.asarray(streamwise_axis, dtype=np.float64)
+    if s.shape != (3,):
+        raise ValueError(f"streamwise_axis must be a 3-vector, got shape {s.shape}")
+    norm = float(np.linalg.norm(s))
+    if not np.isfinite(norm) or norm < 1e-12:
+        raise ValueError(
+            f"streamwise_axis must be a non-zero finite vector, got {streamwise_axis!r}"
+        )
+    if not np.isclose(norm, 1.0, atol=1e-6):
+        raise ValueError(
+            f"streamwise_axis must be a unit vector (|s|={norm:.6g}); normalize it explicitly"
+        )
+    u_in = np.asarray(u_inlet, dtype=np.float64).reshape(-1, 3)
+    u_out = np.asarray(u_outlet, dtype=np.float64).reshape(-1, 3)
+    gp = np.asarray(gradp_volume, dtype=np.float64).reshape(-1, 3)
+    for name, arr in (("u_inlet", u_in), ("u_outlet", u_out), ("gradp_volume", gp)):
+        if not np.isfinite(arr).all():
+            raise ValueError(
+                f"control-volume field {name} contains non-finite values (NaN/inf)"
+            )
+    flux_in = (u_in * (u_in @ s)[:, None]).sum(axis=0)
+    flux_out = (u_out * (u_out @ s)[:, None]).sum(axis=0)
+    momentum = rho * (flux_in - flux_out) * cell_area
+    pressure = gp.sum(axis=0) * cell_area * cell_thickness
+    return momentum - pressure
+
+
 # --- yt adapter (the only cluster-touching code; yt imported lazily) --------------------------
 
 _REQUIRED_FIELDS = (

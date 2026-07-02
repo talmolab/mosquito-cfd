@@ -1,9 +1,45 @@
 # Flapping Wing Validation Results
 
-**Date**: February 26–27, 2026 (velocity-field re-run: April 27, 2026)
-**Platform**: NVIDIA A40 (Salk RunAI cluster, gpu-node14)
-**Docker Image**: `ghcr.io/talmolab/mosquito-cfd:fp64`
-**IAMReX Fork**: `talmolab/IAMReX @ 7ece065d` (feature/arbitrary-geometry)
+**Validated run (T2a, this document's headline numbers)**: van Veen convention, Salk RunAI cluster
+GPU, image `ghcr.io/talmolab/mosquito-cfd:fp64-t2a` (`@sha256:7f826102…`), IAMReX
+`talmolab/IAMReX @ f93dc794` (feature/arbitrary-geometry: van Veen convention + DiffusedIB 3D d_nn fix).
+Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
+**Contrast baseline (superseded)**: original Feb 2026 run, A40 (gpu-node14), `:fp64` @ `7ece065d`
+(old span-∥-z convention), retained as `forces.csv` — see the contrast baseline section.
+
+---
+
+> ## Tier T2a (axis-convention refactor, issue #1) — re-run COMPLETE, body-frame comparison delivered (PARTIAL)
+>
+> The geometry, kinematics, deck, and docs are in the **van Veen / Bomphrey convention** (x = chord,
+> y = span, z = vertical/lift; stroke `Rz(φ)` about the vertical so the span-tip sweeps — see
+> [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md)). This is a **motion change**,
+> not a relabel: the coarse A40 re-run (`fp64-t2a`, IAMReX `f93dc794`, `ns.init_iter = 2`, plotfiles on
+> the Z: drive; forces in `forces_t2a_newconv.csv`, provenance in `run_metadata_t2a.json`) confirms it.
+>
+> **Body-frame per-component van Veen comparison (delivered here, deferred by #36) — steady window t≥0.05:**
+>
+ | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
+> |---|---|---|---|
+> | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
+> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target → `cf_chord_match=False` (#40) |
+>
+> **Honest framing (both are total-vs-translational; verdict is PARTIAL).** Our `ib_force` is the
+> **total** hydrodynamic force; van Veen's `C_F*,transl` are **translational-only** (he decomposes into
+> translational + added-mass + Wagner). So `CF_normal ≈ 2.4` because van Veen's added-mass (+) and
+> Wagner (−) contributions roughly **cancel** in the wing-normal at this condition (not a like-for-like
+> translational match) → `cf_normal_match=True`. `CF_chord` runs ~3× the translational chord; the
+> **working hypothesis** is rotational drag + tangential added mass **adding** to it (Bomphrey 2017;
+> design-D5 caveat), but this is **unverified** (coarse grid Δx=0.125, single-wingbeat transient, and
+> total-vs-translational are unseparated) → the grader returns `cf_chord_match=False` (gap 0.62 > tol
+> 0.6), so the overall verdict is **PARTIAL**. The decomposition + added-mass-subtracted check are
+> tracked in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. The
+> lab-frame numbers *changed* vs the old run (CF_x 2.37/CF_z 1.46 vs old 1.41/0.68), confirming the
+> motion fix. **NB** the `[0.5,1.5]` band is a *lab-frame* O(1) plausibility range, not a body-frame
+> gate — van Veen's own CF_normal (~2.4) exceeds 1.5, so a body-frame CF_normal above the band is
+> expected. The faithful **time-resolved** per-component curve match (which resolves the total-vs-
+> translational split) is **T4**. The old stroke-∥-span tables below (`forces.csv`) are the **contrast
+> baseline**.
 
 ---
 
@@ -30,8 +66,10 @@ completes 2000 timesteps (1 wingbeat) in under 5 minutes on a single A40 GPU.
 | Lagrangian markers | 908 |
 | File | `wing.vertex` (dimensionless coordinates) |
 
-The wing is centered at (4.0, 2.0, 4.0) with the hinge (wing root) at (4.0, 2.0, 2.5).
-Span runs in the z-direction; chord is in x. The stroke plane is horizontal (xy).
+The wing is centered at (4.0, 2.0, 4.0) with the hinge (wing root) at (4.0, 0.5, 4.0).
+**Span runs in the y-direction; chord is in x; the wing is flat in the x–y plane** (van Veen
+convention, T2a). The stroke plane is horizontal (x–y) and the lift axis is z.
+(Legacy: span ran in z with the hinge at z=2.5 — see git history for the pre-T2a geometry.)
 
 See **fig_planform.pdf** for the marker scatter plot.
 
@@ -54,7 +92,10 @@ alpha(t) = alpha_amp * cos(2*pi*f*t)   [pitch, 90-deg lead]
 theta(t) = 0                            [no deviation]
 ```
 
-Rotation convention: ZYX Euler — R = Rz(phi) * Ry(theta) * Rx(alpha)
+Rotation convention (T2a, van Veen): R = Rz(phi) * Ry(alpha) * Rx(theta) — stroke phi about the
+lab vertical z, pitch alpha about the span y, deviation theta about the chord x. See
+[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md). (Legacy pre-T2a order was
+R = Rz(phi) * Ry(theta) * Rx(alpha) with the span along z.)
 
 See **fig_kinematics.pdf** for Euler angle time series and **fig_wing_phases.pdf**
 for wing positions at t=0, T/4, T/2, 3T/4.
@@ -81,18 +122,19 @@ nu* = V_mid / Re = 11.5 / 100 = 0.115 (r_mid = hinge-to-midspan = 1.5)
 
 ### Boundary Conditions
 
-| Direction | BC |
-|-----------|----|
-| x (lo/hi) | Pressure outflow |
-| y | Periodic |
-| z (lo/hi) | Wall (no-penetration) |
+| Direction | BC | Role (T2a convention) |
+|-----------|----|----|
+| x (lo/hi) | Pressure outflow | chord / streamwise |
+| y | Periodic | **span** (infinite-span model) |
+| z (lo/hi) | Pressure outflow | vertical / lift — **z wall→outflow** (was wall pre-T2a; span-tip no longer near a wall) |
 
 ---
 
 ## Aerodynamic Forces
 
-Forces extracted from `forces.csv` — the committed copy of the IAMReX IB-particle output
-(the accumulated immersed-boundary force `kernel.ib_force`).
+Forces extracted from `forces_t2a_newconv.csv` — the validated new-convention IB-particle output
+(the accumulated immersed-boundary force `kernel.ib_force`). The old `forces.csv` is the contrast
+baseline (see the end of this file).
 
 ### Reference normalization (van Veen 2022)
 
@@ -119,68 +161,80 @@ correction factor**).
 > follows from the normalization alone. (See `standardize-force-normalization` for the full
 > reconciliation.)
 
-### Force-coefficient plausibility gate (steps 100–2000, t ≥ 0.05 after startup)
+All numbers below are the **validated new-convention (van Veen) run** (`forces_t2a_newconv.csv`,
+IAMReX `f93dc794`; steady window t ≥ 0.05). The old stroke-∥-span run is in the **contrast baseline**
+section at the end of this file.
 
-The gate is graded on **`ib_force` alone** — `max|CF_x|` and `max|CF_z|` must lie in the
-van Veen literature band **[0.5, 1.5]** with no fudge:
+### Force coefficients — lab-frame magnitudes (O(1) plausibility, reported, not the gate)
 
-| Quantity (van Veen, ib_force) | Value | In [0.5, 1.5]? |
-|----------|-------|----|
-| CF_x range (stroke axis) | [-1.410, +0.853] | — |
-| CF_z range (lift axis) | [-0.613, +0.681] | — |
-| Max \|CF_x\| | **1.41** (ceiling margin 0.09) | ✅ |
-| Max \|CF_z\| | **0.68** (floor margin 0.18) | ✅ |
-| Resultant max \|CF\| = √(CF_x²+CF_z²) | 1.42 (rotation-invariant companion) | — |
+| Quantity (lab, `ib_force`) | New-convention run |
+|----------|-------|
+| CF_x range (chord / streamwise) | [−2.35, +2.37] |
+| CF_z range (vertical / lift) | [−1.46, +0.03] |
+| max \|CF_x\| | **2.37** |
+| max \|CF_z\| | **1.46** |
 
-**Both components are in band without any correction factor.** The steady window
-`t ≥ 0.05` excludes the impulsive-start transient (confined to the first ~8 steps,
-`t ≤ 0.004`, where `|CF_x|` briefly spikes to ~39); every defensible steady window clears
-both band edges.
+> Under the corrected motion the lab `max|CF_x| = 2.37` **exceeds** the `[0.5, 1.5]` band (the old
+> stroke-∥-span run gave 1.41). This is **expected, not a regression**: `[0.5, 1.5]` is a **lab-frame
+> O(1) plausibility range**, not the body-frame gate — van Veen's own body-frame coefficients
+> (normal ~2.4) also exceed 1.5. The meaningful T2a comparison is the **body frame** below.
 
-### Added-mass decomposition (reported separately — NOT graded by the gate)
+### Body-frame per-component van Veen comparison — the T2a deliverable (steady t ≥ 0.05)
 
-Per IAMReX `WriteIBForceAndMoment` (`DiffusedIB.cpp`), the `SumU*` columns are written as
-`(sum_u_new − sum_u_old)/dt` (already a rate), and the 6-DOF momentum balance makes the net
-hydrodynamic force `F_hydro = ρ_f·(SumU − ib_force)`. The added-mass term `ρ_f·SumU` is a
-real, non-trivial fraction of `ib_force` and is **reported, not folded into the gated
-coefficient** (its formula is locked to the solver source, not tuned to the band):
+`reconstruct_wing_body_forces` rotates `ib_force` into the wing body frame by the analytic `R(t)`:
 
-| Term | Max \|CF_x\| | Max \|CF_z\| | RMS fraction of ib_force |
-|------|-------|-------|------|
-| `ib_force` (gated) | 1.41 | 0.68 | — |
-| added-mass `ρ_f·SumU` | 0.22 | 0.22 | stroke 10%, lift 40% |
-| 6-DOF `F_hydro = ρ_f(SumU−ib)` | 1.39 | 0.80 | — |
+| Component | T2a run (**total** force) | van Veen (**translational-only**, Fig 4) | note |
+|---|---|---|---|
+| **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
+| **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target — see hypothesis below (#40) |
+| cycle-mean \|CF_normal\| / \|CF_chord\| | 1.06 / 0.52 | — | reported (peaks graded) |
 
-The full 6-DOF hydrodynamic force is also in band (CF_x 1.39, CF_z 0.80).
+Both compare our **total** `ib_force` to van Veen's **translational-only** coefficients. `CF_normal ≈
+2.4` because van Veen's added-mass (+) and Wagner (−) roughly **cancel** in the wing-normal, so the
+total ≈ the translational value — this component lands within tol. `CF_chord` runs ~3× the
+translational chord target. The **working hypothesis** is that rotational drag + tangential added mass
+**add** in the chord direction (Bomphrey 2017), but this is **not yet verified** — the coarse grid
+(Δx = 0.125), the single-wingbeat transient, and the total-vs-translational mismatch are all
+unseparated at T2a. Decomposing the force per component (and the cheap added-mass-subtracted check)
+is tracked in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. The scalar-match grader
+accordingly returns `cf_normal_match = True` but **`cf_chord_match = False`** (gap 0.62 > tol 0.6) —
+the honest per-component verdict is **PARTIAL**, not a full pass. The gate grades the **peaks**;
+cycle-means are reported. Time-resolved curve match vs van Veen Fig 3–4 is **T4**.
 
-### Frame and tier caveat (no overclaim)
+### Added-mass decomposition (reported, not gated)
 
-These are **lab-frame** coefficients. van Veen reports body-frame chord-wise/normal
-components, and the repo's axis convention is non-standard (stroke `Rz(φ)` about the span
-axis; at the α=45° midstroke lab ≠ body — **issue #1**). The gate here is therefore an
-**O(1) magnitude plausibility** check, **not** a frame-faithful van Veen comparison: the
-lab `CF_x`/`CF_z` are not van Veen's body-frame axes. The faithful body-frame per-component
-comparison is deferred to **T2a (#1)** and the **time-resolved** curve match (peak phase +
-curve RMSE vs van Veen Fig 3–4) to **T4**. The band is not loosened to pass.
+Per IAMReX `WriteIBForceAndMoment`, the added-mass term `ρ_f·SumU` RMS fraction of `ib_force`
+(new-convention run) is **stroke 37 %, lift 29 %** — reported separately; the gate rests on `ib_force`.
 
 See **fig_forces.pdf** for the full force time series.
 
-### Force at key phases
+### Force at key phases (new-convention run)
 
-CF_z below is the van Veen `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27`):
+CF_z below is the lab-frame `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27`). Note **t = 0.25 /
+0.75 are the stroke extremes** (φ = ±70°, φ̇ = 0, momentarily stopped); the max-stroke-velocity
+mid-stroke is **t = 0 / 0.5**.
 
-| Phase | t | phi (deg) | alpha (deg) | Fz | CF_z |
+| Phase | t | phi (deg) | alpha (deg) | Fz | CF_z (lab) |
 |-------|---|-----------|-------------|-----|------|
-| Start | 0.000 | 0 | 45 | 0 | 0 |
-| Forward mid-stroke | 0.250 | +70 | 0 | -78.9 | -0.394 |
-| Return start | 0.500 | 0 | -45 | +48.7 | +0.243 |
-| Return mid-stroke | 0.750 | -70 | 0 | -77.2 | -0.385 |
+| Start | 0.00 | 0 | +45 | 0 | 0 |
+| Forward stroke extreme | 0.25 | +70 | 0 | −9.9 | −0.049 |
+| Mid-stroke (return) | 0.50 | 0 | −45 | −290.3 | −1.449 |
+| Return stroke extreme | 0.75 | −70 | 0 | −18.4 | −0.092 |
+| **Peak \|Fz\|** | 0.49 | ≈+9 | ≈−44 | **−292** | **−1.459** |
+
+**Peak lift is at mid-stroke** (t ≈ 0.5, φ ≈ 0, φ̇ max) — the correct translational-stroke signature.
+The old stroke-∥-span run instead peaked at the **stroke extreme** (t = 0.25); this reversal is direct
+evidence of the motion fix. (See the contrast baseline at the end.)
 
 ---
 
 ## Performance
 
-| Metric | Value |
+*Timing below is from the **original** February run (A40, gpu-node14); the T2a new-convention
+re-run was a coarse operator job on a Salk RunAI cluster GPU (comparable ~minutes wall time),
+scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
+
+| Metric | Value (original run) |
 |--------|-------|
 | GPU | NVIDIA A40 |
 | Grid cells | 131,072 (64×32×64) |
@@ -203,13 +257,15 @@ CF_z below is the van Veen `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27
 
 | File | Description |
 |------|-------------|
-| `forces.csv` | Full force time series (2000 steps, all columns) |
-| `wing.vertex` | Wing planform in dimensionless coordinates (908 markers) |
+| `forces.csv` | OLD-convention force series (2000 steps) — **contrast baseline** |
+| `wing.vertex` | Wing planform (908 markers, span-along-y, origin-centred) |
 | [figures/fig_planform.pdf](figures/fig_planform.pdf) / [.png](figures/fig_planform.png) | G1: Wing marker scatter |
 | [figures/fig_kinematics.pdf](figures/fig_kinematics.pdf) / [.png](figures/fig_kinematics.png) | K1: Euler angle time series |
 | [figures/fig_wing_phases.pdf](figures/fig_wing_phases.pdf) / [.png](figures/fig_wing_phases.png) | K2: Wing at 4 key phases |
 | [figures/fig_forces.pdf](figures/fig_forces.pdf) / [.png](figures/fig_forces.png) | F1: Force coefficient time series |
-| [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: x-velocity field z-slice at mid-span (t=0.25, phi=70°), from the v2 re-run (ns.init_iter=2); u ∈ [−8.9, +5.5] |
+| [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: x-velocity, top-down z-slice at the wing/stroke plane (z=4), t=0.25 (φ=+70°, the stroke extreme), from the new-convention run; u ∈ [−9.98, +1.90] |
+| `forces_t2a_newconv.csv` | Validated new-convention force series (2000 steps, 29-col IAMReX schema) |
+| `run_metadata_t2a.json` | Provenance (image digest, IAMReX commit, inputs hash) |
 
 ---
 
@@ -217,33 +273,46 @@ CF_z below is the van Veen `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|
-| Simulation stability | PASS | No crashes, clean exit |
-| Marker motion (visual) | PASS | Correct arc traced (fig_wing_phases.pdf) |
+| Simulation stability | PASS | No crashes, clean exit (2000 steps) |
+| Marker motion (span-tip sweeps) | PASS | ±70° arc in the x–y stroke plane (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
-| Peak force at mid-stroke | PASS | |CF_x| max at phi~64 deg |
-| Force coefficient range | PASS | van Veen CF_x 1.41, CF_z 0.68 — both in [0.5,1.5], no fudge |
-| Induced velocity field | PASS | Non-zero, physical dipole at mid-stroke (v2 re-run, ns.init_iter=2) |
-| LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run still planned |
+| Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
+| Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40 |
+| Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
+| LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run is Tier T3 |
 
 ---
 
 ## Comparison with van Veen et al. (2022)
 
-| Quantity | Simulation | van Veen (expected) | Status |
+| Quantity | Simulation (new convention) | van Veen | Status |
 |----------|-----------|---------------------|--------|
 | Stroke amplitude | 70 deg | 70 deg | MATCH |
 | Pitch amplitude | 45 deg | 45 deg | MATCH |
 | Re (midspan) | ~100 | 100–500 | MATCH |
-| Peak CF_z (van Veen, ib_force) | 0.68 | 0.5–1.5 | PASS |
-| Peak CF_x (van Veen, ib_force) | 1.41 | 0.5–1.5 | PASS |
+| Peak-lift phase | mid-stroke (t≈0.5, φ̇ max) | mid-stroke | MATCH |
+| **Body-frame CF_normal** | **2.61** | ~2.4 (`C_Fz,transl`) | within tol (gap +0.21) |
+| Body-frame CF_chord | 0.92 | ~0.3 (`C_Fx,transl`) | above target (hypothesis; #40) |
 
-The simulation demonstrates correct kinematics and physically plausible aerodynamic
-forces: under the van Veen radius-of-gyration normalization, both `ib_force` coefficient
-magnitudes fall in the literature band [0.5, 1.5] with **no correction factor**. This is an
-**O(1) magnitude plausibility gate** in the **lab frame** — the faithful body-frame
-per-component comparison (issue #1 / T2a) and the time-resolved curve match vs van Veen
-Fig 3–4 (T4) are deferred. Medium-resolution runs (128×64×128) and plotfile output for flow
-field visualization are planned for Phase 4.1.3.
+The faithful **body-frame per-component** comparison (issue #1 / T2a) is **delivered** (the machinery,
+not a full pass): `CF_normal` matches van Veen's normal coefficient within tolerance, and the peak-lift
+phase is now at mid-stroke (the correct translational-stroke signature). `CF_chord` sits ~3× the
+translational target — an unverified total-vs-translational/coarse-grid hypothesis, tracked in
+**[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. Both `CF_*` compare our **total**
+`ib_force` to van Veen's **translational-only** coefficients (see the body-frame section above). The
+per-component **decomposition** (#40 / **T4**), the time-resolved curve match vs van Veen Fig 3–4
+(**T4**), and medium-grid LEV convergence (**T3**) remain.
+
+---
+
+## Contrast baseline — the OLD stroke-∥-span run (superseded, kept for comparison)
+
+The pre-T2a run (`forces.csv`, IAMReX `7ece065d`, old convention: span along z, stroke `Rz(φ)` about
+the span) is retained **only as a contrast baseline**. Its lab-frame `ib_force` gate read CF_x 1.41 /
+CF_z 0.68 (both in [0.5,1.5]) and its lift peaked at the **stroke extreme** (t=0.25, Fz −78.9) — the
+signature of the stroke-∥-span motion in which the span-tip barely sweeps. The new-convention run above
+peaks at **mid-stroke** instead; that reversal is the physical evidence that T2a is a genuine motion
+fix, not a relabel. (The old numbers are also in this file's git history prior to the T2a commits.)
 
 ---
 
@@ -262,25 +331,23 @@ mpirun --allow-run-as-root -np 1 \
   amr.plot_int=-1 amr.check_int=-1
 ```
 
-**Figures** (from repo root, produces both PDF and PNG):
+**Figures** (from repo root, produces both PDF and PNG; see [`figures/README.md`](figures/README.md)):
 ```bash
-# CSV-based figures (no cluster access required):
+# CSV-based figures default to the validated forces_t2a_newconv.csv (no cluster access):
 uv run python examples/flapping_wing/generate_all_figures.py
 
-# Velocity field figure (requires a v2 plotfile, ns.init_iter=2):
+# Velocity field figure (needs a new-convention plotfile on the Z: drive, ns.init_iter=2):
 uv run python examples/flapping_wing/generate_all_figures.py \
-    --plotfile examples/flapping_wing/plt_v2_00500
+    --plotfile Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/<run>/plt00500
 ```
-Requires only `forces.csv` and `wing.vertex` — no cluster access needed for CSV figures.
 
-**Note on velocity field (resolved)**: The original validation run (`ns.init_iter = 0`) wrote
-`x_velocity = 0` to every plotfile (plt00000–plt02000), even though the solver computed the
-field internally — the forces, which depend on the interpolated marker velocity, were correct.
-A re-run with `ns.init_iter = 2` (the *only* input change; see `inputs.3d.validation_v2`) now
-persists the induced velocity field to the plotfiles (`plt_v2_00000`–`plt_v2_02000`). The v2
-forces are identical to the original run (Fz at mid-stroke −78.86 vs −78.85; full ranges match
-to <0.1), so the force validation above is unaffected. The V1 figure is generated from
-`plt_v2_00500` (t=0.25, φ=70°) and shows a physical wing-induced velocity dipole, u ∈ [−8.9, +5.5].
+**Note on the velocity field (`ns.init_iter = 2`)**: with `ns.init_iter = 0` the solver writes
+`x_velocity = 0` to every plotfile (the field is computed internally but not persisted — the forces,
+which use the interpolated marker velocity, are unaffected). The new-convention deck sets
+`ns.init_iter = 2`, so the plotfiles carry the induced field. `fig_velocity` is from the new run's
+`plt00500` (t = 0.25, φ = +70° — the stroke extreme) and shows the wing-induced dipole, u ∈ [−9.98,
++1.90]. (The plotfiles live on the Z: drive, not in-repo — the committed `plt_v2_*` are the old
+convention.)
 
 ---
 

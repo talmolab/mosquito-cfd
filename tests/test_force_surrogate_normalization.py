@@ -37,9 +37,13 @@ def test_radius_of_gyration_traced_from_wing_vertex():
     constant. NOTE: R_TIP is used *inside* the hinge-offset formula and must survive a
     rename sweep.
     """
-    verts = np.loadtxt(_VERTEX_FILE, skiprows=1)  # cols: x(chord), y, z(span-local)
-    z = verts[:, 2]
-    r = z + (R_TIP - z.max())  # hinge-distance; tip marker -> R_TIP
+    verts = np.loadtxt(_VERTEX_FILE, skiprows=1)  # cols x(chord), y, z
+    # Span is the widest-extent axis: T2a re-orients it to y (col 1); the legacy geometry used
+    # z (col 2). Detecting it keeps r_gyr orientation-invariant (it depends on the span
+    # distribution, not the axis label), so this guard survives the axis-convention refactor.
+    span_col = int(np.argmax(np.ptp(verts, axis=0)))
+    span = verts[:, span_col]
+    r = span + (R_TIP - span.max())  # hinge-distance; tip marker -> R_TIP
     r_gyr = np.sqrt(np.mean(r**2))
     assert r_gyr == pytest.approx(R_GYRATION, rel=1e-3)
     assert R_GYRATION < R_TIP  # load is tip-weighted -> gyration arm < tip arm

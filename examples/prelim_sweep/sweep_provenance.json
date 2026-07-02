@@ -1,6 +1,6 @@
 {
   "base_inputs": {
-    "path": "examples/flapping_wing/inputs.3d.validation",
+    "path": "examples/prelim_sweep/base_inputs.3d.validation",
     "sha256": "dfb1e24b15ce0ab5307414743d2455d8c399d004d2face7146aa45c1a107aa0d"
   },
   "generated_at": "2026-06-09T00:00:00+00:00",

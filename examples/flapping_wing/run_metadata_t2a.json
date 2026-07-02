@@ -1,0 +1,56 @@
+{
+  "run_id": "f7614173-ad82-4cb2-89ba-9749ba017da1",
+  "timestamp": "2026-07-02T05:08:02.631864+00:00",
+  "git": {
+    "commit": "f72c8935a482bfe8d1d44505defa9790f7254821",
+    "branch": "feat/t2a-axis-convention",
+    "dirty": true,
+    "diff_hash": "1bf5ee3173a8",
+    "repository": "https://github.com/talmolab/mosquito-cfd.git",
+    "note": "commit = the branch tip that owns forces_t2a_newconv.csv; dirty flag reflects the local analysis working tree, not the CFD image (which is the pinned digest below)"
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
+  "inputs": {
+    "file": "examples\\flapping_wing\\inputs.3d.validation",
+    "hash": "f9b69d98b5f37f3fbe9766640d37eae75fdf3413ce18105ce8fdfaf3aeec28e3"
+  },
+  "timing": {
+    "note": "coarse RunAI cluster run, 2000 steps (~minutes wall)"
+  },
+  "outputs": {
+    "note": "new-convention plotfiles on the Z: drive (MOSQUITO_CFD_PLOTFILE_ROOT, run dir t2a-clean); not committed",
+    "committed_forces": "examples/flapping_wing/forces_t2a_newconv.csv"
+  },
+  "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
+  "tier": "T2a",
+  "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
+  "image_build": "GHA docker.yml run 28565940131 (clean, IAMREX_COMMIT=f93dc794)",
+  "body_frame_result": {
+    "peak_cf_normal": 2.606,
+    "peak_cf_chord": 0.923,
+    "mean_cf_normal": 1.06,
+    "mean_cf_chord": 0.515,
+    "van_veen_normal_transl": 2.4,
+    "van_veen_chord_transl": 0.3,
+    "cf_normal_match": true,
+    "cf_chord_match": false,
+    "verdict": "PARTIAL",
+    "note": "total force (ours) vs translational-only (van Veen). normal~match via AM/Wagner cancellation (cf_normal_match=True). chord ~3x target -> cf_chord_match=False (gap 0.62 > tol 0.6); the rotational-drag+tangential-AM explanation is an UNVERIFIED hypothesis (coarse grid, single-wingbeat transient, total-vs-translational unseparated), decomposition tracked in issue #40",
+    "tracking_issue": "https://github.com/talmolab/mosquito-cfd/issues/40"
+  },
+  "image_digest": "sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
+  "image_tag": "ghcr.io/talmolab/mosquito-cfd:fp64-t2a",
+  "analysis_host": {
+    "note": "metadata assembled on the local analysis box (NOT the CFD run node)",
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "run_platform": "Salk RunAI cluster GPU (talmo-lab project); exact node/GPU model not captured by the local analysis"
+}
