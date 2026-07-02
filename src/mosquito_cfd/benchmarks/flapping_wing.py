@@ -142,11 +142,11 @@ def reconstruct_wing_forces(
             f"expected the IAMReX schema columns {list(_REQUIRED_CSV_COLUMNS)}"
         )
     f_ref = compute_force_reference(
-        f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, RHO
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).f_ref
-    if f_ref <= 0:
+    if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(
-            f"f_ref must be positive (got {f_ref}); check f_star / phi_amp_deg for "
+            f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg for "
             "degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0)."
         )
     ib_x, ib_z = df["Fx"].to_numpy(float), df["Fz"].to_numpy(float)
@@ -219,9 +219,13 @@ def added_mass_fraction(
 # axis) so the analysis layer cannot re-introduce a #1-style mislabel.
 
 # van Veen body-frame axes (wing reference frame, fig 1f / Fig 2 caption): x=chord, y=span, z=normal.
+# Write-locked because they are bound as default args below — a caller mutating the returned/default
+# array in place would otherwise corrupt shared module state (the axes must stay pure constants).
 _CHORD_AXIS = np.array([1.0, 0.0, 0.0])
 _SPAN_AXIS = np.array([0.0, 1.0, 0.0])
 _NORMAL_AXIS = np.array([0.0, 0.0, 1.0])
+for _axis in (_CHORD_AXIS, _SPAN_AXIS, _NORMAL_AXIS):
+    _axis.setflags(write=False)
 
 # Body-frame CSV columns (ib_force vector). Fy is needed here (unlike the lab-frame gate).
 _REQUIRED_BODY_CSV_COLUMNS = ("time", "Fx", "Fy", "Fz")
@@ -273,11 +277,13 @@ def body_frame_coefficients(
         Dict of ``cf_chord``, ``cf_normal``, ``cf_span`` arrays (shape ``(N,)`` or 0-d).
 
     Raises:
-        ValueError: if ``f_ref <= 0``, ``f_lab`` is empty or not ``(...,3)``, or ``rot`` is not a
+        ValueError: if ``f_ref`` is not finite and positive, ``f_lab`` is empty or not ``(...,3)``, or ``rot`` is not a
             proper orthonormal rotation.
     """
-    if f_ref <= 0:
-        raise ValueError(f"f_ref must be positive to form coefficients (got {f_ref})")
+    if not (np.isfinite(f_ref) and f_ref > 0):
+        raise ValueError(
+            f"f_ref must be finite and positive to form coefficients (got {f_ref})"
+        )
     f = np.asarray(f_lab, dtype=np.float64)
     if f.shape[-1] != 3:
         raise ValueError(f"f_lab must have a trailing size-3 axis, got shape {f.shape}")
@@ -357,11 +363,11 @@ def reconstruct_wing_body_forces(
             f"body-frame decomposition needs {list(_REQUIRED_BODY_CSV_COLUMNS)}"
         )
     f_ref = compute_force_reference(
-        f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, RHO
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).f_ref
-    if f_ref <= 0:
+    if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(
-            f"f_ref must be positive (got {f_ref}); check f_star / phi_amp_deg"
+            f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg"
         )
     time = df["time"].to_numpy(float)
     f_lab = np.column_stack(
@@ -419,6 +425,15 @@ def body_frame_overall_match(
         raise ValueError(
             f"steady window_t0={window_t0} selects no timesteps; data range "
             f"[{decomp.time.min():.4g}, {decomp.time.max():.4g}]"
+        )
+    # Raise on a non-finite CF series rather than letting np.max/np.mean hide it: an all-NaN
+    # series would otherwise grade silently out-of-band (NaN <= hi is False) instead of erroring.
+    if not (
+        np.isfinite(decomp.cf_chord[mask]).all()
+        and np.isfinite(decomp.cf_normal[mask]).all()
+    ):
+        raise ValueError(
+            "cf_chord/cf_normal contain non-finite values (NaN/inf) in the window"
         )
     lo, hi = band
     peak_chord = float(np.abs(decomp.cf_chord[mask]).max())

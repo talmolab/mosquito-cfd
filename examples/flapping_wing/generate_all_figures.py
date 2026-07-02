@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate all figures for the flapping wing validation.
+r"""Generate all figures for the flapping wing validation.
 
 Usage:
     uv run python examples/flapping_wing/generate_all_figures.py [--forces-csv PATH]
-    uv run python examples/flapping_wing/generate_all_figures.py \\
+    uv run python examples/flapping_wing/generate_all_figures.py \
         --plotfile Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/plt00500
 
 Produces:
@@ -172,7 +172,7 @@ def plot_k1_kinematics(figures_dir: Path):
     ax2.set_ylim(-85, 85)
 
     lns = ln1 + ln2
-    ax1.legend(lns, [l.get_label() for l in lns], loc="upper right", fontsize=9)
+    ax1.legend(lns, [ln.get_label() for ln in lns], loc="upper right", fontsize=9)
     ax1.set_title(
         "Wing Kinematics (van Veen et al. 2022)\n"
         f"f* = {F_STAR:.0f}, phi_amp = {PHI_AMP_DEG:.0f} deg, alpha_amp = {ALPHA_AMP_DEG:.0f} deg",
@@ -353,9 +353,8 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 def plot_velocity_field(figures_dir: Path, plotfile: Path):
     """V1: x-velocity z-slice at the stroke extreme (t=0.25, phi=70 deg; phi_dot=0, alpha=0).
 
-    Technique adapted from:
-        C:\\vaults\\physics surrogate models\\ellipsoid-validation-figure\\
-        generate_ellipsoid_figure.py
+    Reads the AMReX plotfile via yt: a top-down z-slice at the wing/stroke plane, upsampled
+    to a fixed-resolution buffer, with the IB-marker centroid overlaid for the wing outline.
     """
     import yt
 
@@ -469,6 +468,7 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
 
 
 def main():
+    """Parse CLI args and generate the flapping-wing figure set (velocity slice if --plotfile)."""
     parser = argparse.ArgumentParser(description="Generate all flapping wing figures")
     parser.add_argument(
         "--forces-csv",
