@@ -6,18 +6,8 @@
     "branch": "feat/t2a-axis-convention",
     "dirty": true,
     "diff_hash": "1bf5ee3173a8",
-    "repository": "https://github.com/talmolab/mosquito-cfd.git"
-  },
-  "hardware": {
-    "hostname": "talmo-lab-02",
-    "gpus": [
-      {
-        "model": "NVIDIA RTX A5000",
-        "memory_mb": 24564,
-        "driver_version": "552.86"
-      }
-    ],
-    "gpu_count": 1
+    "repository": "https://github.com/talmolab/mosquito-cfd.git",
+    "note": "commit = the branch tip that owns forces_t2a_newconv.csv; dirty flag reflects the local analysis working tree, not the CFD image (which is the pinned digest below)"
   },
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
   "inputs": {
@@ -25,38 +15,11 @@
     "hash": "f9b69d98b5f37f3fbe9766640d37eae75fdf3413ce18105ce8fdfaf3aeec28e3"
   },
   "timing": {
-    "note": "coarse A40 clean-image run, 2000 steps"
+    "note": "coarse RunAI cluster run, 2000 steps (~minutes wall)"
   },
   "outputs": {
-    "directory": "examples\\flapping_wing",
-    "plot_files": [
-      "plt_v2_00000",
-      "plt_v2_00100",
-      "plt_v2_00200",
-      "plt_v2_00300",
-      "plt_v2_00400",
-      "plt_v2_00500",
-      "plt_v2_00600",
-      "plt_v2_00700",
-      "plt_v2_00800",
-      "plt_v2_00900",
-      "plt_v2_01000",
-      "plt_v2_01100",
-      "plt_v2_01200",
-      "plt_v2_01300",
-      "plt_v2_01400",
-      "plt_v2_01500",
-      "plt_v2_01600",
-      "plt_v2_01700",
-      "plt_v2_01800",
-      "plt_v2_01900",
-      "plt_v2_02000"
-    ],
-    "checkpoint_files": [
-      "chk_v2_00000",
-      "chk_v2_01000",
-      "chk_v2_02000"
-    ]
+    "note": "new-convention plotfiles on the Z: drive (MOSQUITO_CFD_PLOTFILE_ROOT, run dir t2a-clean); not committed",
+    "committed_forces": "examples/flapping_wing/forces_t2a_newconv.csv"
   },
   "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
   "tier": "T2a",
@@ -72,5 +35,18 @@
     "note": "total force (ours) vs translational-only (van Veen); normal~match via AM/Wagner cancellation, chord higher via rotational drag"
   },
   "image_digest": "sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
-  "image_tag": "ghcr.io/talmolab/mosquito-cfd:fp64-t2a"
+  "image_tag": "ghcr.io/talmolab/mosquito-cfd:fp64-t2a",
+  "analysis_host": {
+    "note": "metadata assembled on the local analysis box (NOT the CFD run node)",
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "run_platform": "Salk RunAI cluster GPU (talmo-lab project); exact node/GPU model not captured by the local analysis"
 }
