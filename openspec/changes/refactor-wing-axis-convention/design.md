@@ -86,9 +86,10 @@ narrative source for this (D12); it states the convention with a diagram and the
 ### D5 — Body-frame decomposition + overall scalar-match oracle
 Rotate lab `ib_force (Fx,Fy,Fz)` into the wing body frame by the **analytic** `R(t)ᵀ` (the same matrix
 the solver applies), giving `CF_chord = (Rᵀ·F)_x / F_ref` and `CF_normal = (Rᵀ·F)_z / F_ref`. Grade an
-**overall scalar match**: cycle-mean **and** peak `|CF_chord|`, `|CF_normal|` within a stated tolerance
-of van Veen's reported overall values, with `[0.5,1.5]` (`VAN_VEEN_BAND`, test-pinned, **not loosened**)
-as a floor. The match target(s) and tolerance are **named, test-guarded constants**
+**overall scalar match**: **peak** `|CF_chord|`, `|CF_normal|` graded within a stated tolerance of van
+Veen's reported overall values (cycle-**means are reported alongside**, not gated — a coarse
+single-wingbeat run has no converged mean), with `[0.5,1.5]` (`VAN_VEEN_BAND`, test-pinned,
+**not loosened**) as a floor. The match target(s) and tolerance are **named, test-guarded constants**
 (`VAN_VEEN_CF_TARGETS`, `VAN_VEEN_MATCH_TOL`) — mirroring `test_van_veen_band_is_not_loosened` — so
 "never reverse-fit" is *enforced*, not merely prose (review TDD §8). The grader is proven on synthetic
 fixtures with **injected** targets in **both** directions (passes within tolerance, fails outside), so

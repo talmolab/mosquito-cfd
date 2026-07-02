@@ -153,8 +153,11 @@ The first operator A40 re-run (on the new convention) produced **all-zero IB for
 plane only**, with a hard-coded assumption "y-coordinate is near-zero" (the *old* convention, where
 the wing lay flat in y). Under the new convention the wing is flat in **z** (span along y), so the xz
 projection collapses the span → coincident markers → `d_nn=0 → dv=0 → zero force`. **Fixed in the
-fork** (`98d46a62`) by computing `d_nn` in **full 3D** (orientation-invariant; reduces to the in-plane
-spacing regardless of the flat axis). The pin was bumped `d4bf9829 → 98d46a62` and the image rebuilt.
-This is a genuine solver bug the axis refactor *exposed* — it co-lands with T2a (same re-run cycle),
-does not alter force *magnitude* reconstruction for the old convention, and is verified by the
-non-zero-force re-run.
+fork** by computing `d_nn` in **full 3D** (orientation-invariant; reduces to the in-plane
+spacing regardless of the flat axis). A second issue (double-centred `wing.vertex` — the solver's
+`InitializeExternalGeometry` re-adds the domain centre) was fixed by regenerating the geometry at the
+origin. The pin was bumped through these fixes (`d4bf9829 → 98d46a62 → …`) and finalized at
+**`f93dc794`** — the commit baked into the validated image (`docker/build-args.env` +
+`docker/Dockerfile.fp64`, guarded by `test_iamrex_pin_consistent`). This is a genuine solver bug the
+axis refactor *exposed* — it co-lands with T2a (same re-run cycle), does not alter force *magnitude*
+reconstruction for the old convention, and is verified by the non-zero-force re-run.
