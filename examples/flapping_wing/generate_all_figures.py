@@ -12,7 +12,7 @@ Produces:
         fig_kinematics.pdf/png     K1: Euler angles vs phase
         fig_wing_phases.pdf/png    K2: Wing positions at key phases
         fig_forces.pdf/png         F1: Force time series with kinematics
-        fig_velocity.pdf/png       V1: x-velocity field at mid-stroke [requires --plotfile]
+        fig_velocity.pdf/png       V1: x-velocity at the stroke extreme (t=0.25) [requires --plotfile]
 """
 
 import argparse
@@ -338,7 +338,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     print(f"F1: {out} + .png")
 
     # Print summary stats
-    print(f"  CF_z range (t>0.1): [{CF_z.min():.3f}, {CF_z.max():.3f}]")
+    print(f"  CF_z range (t>=0.05): [{CF_z.min():.3f}, {CF_z.max():.3f}]")
     print(
         f"  mean CF_z = {CF_z.mean():.4f}, rms CF_z = {np.sqrt((CF_z**2).mean()):.4f}"
     )
@@ -346,12 +346,12 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
 
 # ---------------------------------------------------------------------------
-# V1: x-velocity field at mid-stroke (requires --plotfile)
+# V1: x-velocity field at the stroke extreme (requires --plotfile)
 # ---------------------------------------------------------------------------
 
 
 def plot_velocity_field(figures_dir: Path, plotfile: Path):
-    """V1: x-velocity field z-slice at mid-stroke (t=0.25, phi=70°).
+    """V1: x-velocity z-slice at the stroke extreme (t=0.25, phi=70 deg; phi_dot=0, alpha=0).
 
     Technique adapted from:
         C:\\vaults\\physics surrogate models\\ellipsoid-validation-figure\\

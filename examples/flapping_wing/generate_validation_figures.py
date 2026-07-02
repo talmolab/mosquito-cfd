@@ -189,8 +189,9 @@ def fig_v5_lab_vs_body(out_dir: Path) -> dict:
     ax.set_xlim(-1.4, 1.4)
     ax.set_ylim(-1.4, 1.4)
     ax.set_aspect("equal")
-    ax.set_title(f"V5  Lab vs body frame at the alpha={alpha:.0f} deg midstroke\n"
-                 "lab CF_x/CF_z != van Veen body chord/normal -> body-frame deferred to T2a/T4")
+    ax.set_title(f"V5  Lab vs body frame at the alpha={alpha:.0f} deg pitch amplitude\n"
+                 "lab CF_x/CF_z != van Veen body chord/normal -> body-frame delivered in T2a "
+                 "(time-resolved curve match deferred to T4)")
     ax.legend(fontsize=8, loc="lower left")
     ax.grid(alpha=0.25)
     fig.tight_layout()
