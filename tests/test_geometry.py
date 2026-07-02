@@ -1,11 +1,9 @@
 """Tests for geometry module."""
 
-import math
 import tempfile
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from mosquito_cfd.geometry import (
     PlanformShape,
@@ -15,40 +13,10 @@ from mosquito_cfd.geometry import (
 )
 from mosquito_cfd.geometry.parametric_planform import estimate_marker_count
 
-# ---------------------------------------------------------------------------
-# Python re-implementation of WingKinematics.H (ZYX Euler, van Veen 2022)
-# Used to validate the kinematics math independently of the C++ code.
-# ---------------------------------------------------------------------------
-
-
-def _euler_angles(
-    time, freq=600.0, phi_amp=70.0, alpha_amp=45.0, theta_amp=0.0, phase_lead=90.0
-):
-    """Compute (phi, alpha, theta) in radians at given time."""
-    omega = 2.0 * math.pi * freq
-    phi = math.radians(phi_amp) * math.sin(omega * time)
-    alpha = math.radians(alpha_amp) * math.cos(
-        omega * time + math.radians(phase_lead) - math.pi / 2
-    )
-    # van Veen: phi = phi_amp*sin(wt), alpha = alpha_amp*cos(wt)
-    # pitch_phase_lead=90° means alpha = alpha_amp * cos(wt) (cos leads sin by 90°)
-    alpha = math.radians(alpha_amp) * math.cos(omega * time)
-    theta = math.radians(theta_amp) * math.sin(2.0 * omega * time)
-    return phi, alpha, theta
-
-
-def _rotation_matrix(phi, alpha, theta):
-    """R = Rz(phi) * Ry(theta) * Rx(alpha)  [ZYX convention, matches WingKinematics.H]."""
-    cp, sp = math.cos(phi), math.sin(phi)
-    ca, sa = math.cos(alpha), math.sin(alpha)
-    ct, st = math.cos(theta), math.sin(theta)
-    return np.array(
-        [
-            [cp * ct, cp * st * sa - sp * ca, cp * st * ca + sp * sa],
-            [sp * ct, sp * st * sa + cp * ca, sp * st * ca - cp * sa],
-            [-st, ct * sa, ct * ca],
-        ]
-    )
+# NOTE: the flapping-wing kinematics (Euler angles + rotation matrix) are now the van Veen
+# convention R = Rz(φ)·Ry(α)·Rx(θ) and are tested in tests/test_wing_kinematics.py against the
+# single canonical source (mosquito_cfd.benchmarks.wing_kinematics) + a C++ conformance golden test.
+# The old span-∥-z re-implementation that used to live here (R = Rz·Ry(θ)·Rx(α)) was removed in T2a.
 
 
 class TestGeneratePlanform:
@@ -265,74 +233,5 @@ class TestVertexFileReader:
             Path(filepath).unlink()
 
 
-class TestWingKinematics:
-    """Validate van Veen (2022) kinematics math (task 3.2.3).
-
-    Tests the Python re-implementation of WingKinematics.H to verify the
-    expected angular relationships before running the C++ code.
-    """
-
-    def test_at_t0_phi_zero(self):
-        """At t=0, stroke angle φ = 0 (sin(0) = 0)."""
-        phi, alpha, theta = _euler_angles(0.0)
-        assert phi == pytest.approx(0.0, abs=1e-12)
-
-    def test_at_t0_alpha_max(self):
-        """At t=0, pitch angle α = α_amp (cos(0) = 1 → maximum pitch)."""
-        phi, alpha, theta = _euler_angles(0.0, alpha_amp=45.0)
-        assert alpha == pytest.approx(math.radians(45.0), rel=1e-9)
-
-    def test_at_quarter_period_phi_max(self):
-        """At t=T/4, stroke angle φ = +φ_amp (sin reaches maximum)."""
-        freq = 600.0
-        T = 1.0 / freq
-        phi, alpha, theta = _euler_angles(T / 4, freq=freq, phi_amp=70.0)
-        assert phi == pytest.approx(math.radians(70.0), rel=1e-9)
-
-    def test_at_quarter_period_alpha_zero(self):
-        """At t=T/4, pitch angle α = 0 (cos(π/2) = 0 → wing at zero pitch at max stroke)."""
-        freq = 600.0
-        T = 1.0 / freq
-        phi, alpha, theta = _euler_angles(T / 4, freq=freq, alpha_amp=45.0)
-        assert alpha == pytest.approx(0.0, abs=1e-9)
-
-    def test_pitch_leads_stroke_by_90_degrees(self):
-        """Pitch leads stroke by 90°: α peaks at t=0, φ peaks at t=T/4."""
-        freq = 600.0
-        T = 1.0 / freq
-        n = 1000
-        times = np.linspace(0, T, n, endpoint=False)
-        phis = [_euler_angles(t, freq=freq)[0] for t in times]
-        alphas = [_euler_angles(t, freq=freq)[1] for t in times]
-        phi_peak_idx = int(np.argmax(np.abs(phis)))
-        alpha_peak_idx = int(np.argmax(np.abs(alphas)))
-        # α peaks near t=0, φ peaks near t=T/4 → phase difference ≈ n/4
-        phase_diff = abs(phi_peak_idx - alpha_peak_idx)
-        # Allow ±5% tolerance on n/4
-        assert abs(phase_diff - n // 4) < n * 0.05
-
-    def test_rotation_matrix_is_orthogonal(self):
-        """Rotation matrix R must satisfy R^T @ R = I (orthogonality)."""
-        freq = 600.0
-        T = 1.0 / freq
-        for t in [0.0, T / 8, T / 4, T / 2, 3 * T / 4]:
-            phi, alpha, theta = _euler_angles(t, freq=freq)
-            R = _rotation_matrix(phi, alpha, theta)
-            np.testing.assert_allclose(R.T @ R, np.eye(3), atol=1e-12)
-
-    def test_at_t0_reference_positions_unchanged_when_phi_zero_theta_zero(self):
-        """At t=0 with phi=0, theta=0, only Rx(alpha) is applied.
-
-        A point on the z-axis (x=0, y=0, z=r) relative to hinge rotates by α only.
-        """
-        phi, alpha, theta = _euler_angles(0.0)  # phi=0, theta=0, alpha=45°
-        assert phi == pytest.approx(0.0, abs=1e-12)
-        assert theta == pytest.approx(0.0, abs=1e-12)
-        R = _rotation_matrix(phi, alpha, theta)
-        # Point on z-axis: (0, 0, r) should rotate to (0, -r*sin(α), r*cos(α))
-        r = 1.0
-        pt = np.array([0.0, 0.0, r])
-        rotated = R @ pt
-        np.testing.assert_allclose(rotated[0], 0.0, atol=1e-12)
-        np.testing.assert_allclose(rotated[1], -r * math.sin(alpha), atol=1e-12)
-        np.testing.assert_allclose(rotated[2], r * math.cos(alpha), atol=1e-12)
+# TestWingKinematics removed in T2a — the flapping-wing kinematics are now tested in
+# tests/test_wing_kinematics.py (van Veen convention + C++-conformance golden test).

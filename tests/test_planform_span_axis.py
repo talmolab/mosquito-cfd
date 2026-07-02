@@ -7,6 +7,8 @@ set with the span axis moved from z to y (a re-orientation, not a geometry chang
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -56,3 +58,34 @@ def test_rectangular_span_axis_y():
     )
     assert np.ptp(m[:, 1]) > np.ptp(m[:, 0])
     assert np.ptp(m[:, 2]) == pytest.approx(0.0)
+
+
+# --- Guards on the COMMITTED wing.vertex (the headline T2a geometry artifact, tasks 4.3/4.4) ---
+
+_WING_VERTEX = Path("examples/flapping_wing/wing.vertex")
+
+
+def test_committed_wing_vertex_span_along_y():
+    """The committed wing.vertex is span-along-y, chord-x, flat-in-z (origin-centred, 908 markers).
+
+    Guards the headline geometry deliverable directly — the r_gyr trace auto-detects the span axis
+    and would NOT catch a silent revert to span-z, so pin the orientation here.
+    """
+    v = np.loadtxt(_WING_VERTEX, skiprows=1)
+    assert v.shape[0] == 908
+    assert np.ptp(v[:, 1]) > np.ptp(v[:, 0])  # span(y) > chord(x)
+    assert np.ptp(v[:, 2]) == pytest.approx(0.0, abs=1e-9)  # flat in z
+    assert np.ptp(v[:, 1]) == pytest.approx(_SPAN, abs=0.1)  # span ~ 3
+    assert np.ptp(v[:, 0]) == pytest.approx(_CHORD, abs=0.1)  # chord ~ 1
+    # Origin-centred (the solver adds the domain centre): means ~ 0.
+    assert abs(v[:, 0].mean()) < 0.05 and abs(v[:, 1].mean()) < 0.05
+
+
+def test_committed_wing_vertex_matches_generator():
+    """The committed wing.vertex is byte-set-equal to `generate-wing-planform --axis y` (regen guard)."""
+    v = np.loadtxt(_WING_VERTEX, skiprows=1)
+    gen = generate_planform("elliptic", _SPAN, _CHORD, _SPACING, span_axis="y")
+    assert gen.shape == v.shape  # same marker count (908)
+    sort_v = v[np.lexsort(v.T)]
+    sort_g = gen[np.lexsort(gen.T)]
+    np.testing.assert_allclose(sort_v, sort_g, atol=1e-9)

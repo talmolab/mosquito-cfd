@@ -25,24 +25,39 @@ def test_no_duplicate_rotation_matrix_in_figure_scripts():
     """DRY: figure scripts use the canonical kinematics mirror, not a re-implemented rotation.
 
     The single code source of R(t) is mosquito_cfd.benchmarks.wing_kinematics. A figure script may
-    keep a thin `rotation_matrix` wrapper, but must NOT re-derive the matrix inline (guard against
-    the old span-z composition drifting back in).
+    keep a thin `rotation_matrix` wrapper, but must NOT re-derive the matrix inline.
     """
-    tell_tale = ("sp*st*sa", "cp*st*ca", "sp * st * sa", "cp * st * ca")
-    uses_mirror = False
-    for f in _FIG_SCRIPTS:
-        if not f.exists():
-            continue
-        src = f.read_text(encoding="utf-8")
-        for lit in tell_tale:
-            assert lit not in src, (
-                f"{f} re-implements the rotation matrix ({lit!r}); import the mirror"
-            )
-        if "wing_kinematics" in src:
-            uses_mirror = True
+    uses_mirror = any(
+        f.exists() and "wing_kinematics" in f.read_text(encoding="utf-8")
+        for f in _FIG_SCRIPTS
+    )
     assert uses_mirror, (
         "no figure script imports the canonical wing_kinematics rotation"
     )
+
+
+def test_no_legacy_rotation_composition_anywhere():
+    """Tree-wide: the OLD span-∥-z composition (R = Rz·Ry(θ)·Rx(α)) lives nowhere in src/tests/examples.
+
+    Guards against a legacy rotation drifting back into ANY .py (the figure-only scan missed the
+    stale copy that used to live in test_geometry.py — B4). Scans for the old composition's
+    tell-tale products; the new van Veen composition (Rz·Ry(α)·Rx(θ)) has different products
+    (``cp*ca``, ``cp*sa*st``) so the C++-conformance transcription is not flagged.
+    """
+    self_path = Path(__file__).resolve()
+    tell_tale = ("sp*st*sa", "cp*st*ca", "sp * st * sa", "cp * st * ca")
+    for root in (Path("src"), Path("tests"), Path("examples")):
+        for f in root.rglob("*.py"):
+            if (
+                f.resolve() == self_path
+            ):  # this guard file lists the literals as search strings
+                continue
+            src = f.read_text(encoding="utf-8")
+            for lit in tell_tale:
+                assert lit not in src, (
+                    f"{f} contains the OLD span-∥-z rotation composition ({lit!r}); "
+                    f"use the canonical mosquito_cfd.benchmarks.wing_kinematics mirror"
+                )
 
 
 def _kv(text: str, key: str) -> str:
