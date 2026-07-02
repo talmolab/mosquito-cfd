@@ -183,18 +183,27 @@ def test_decomposition_is_six_dof_momentum_balance():
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---
 
 
-def test_results_doc_discloses_frame_and_tier_caveat():
-    """RESULTS.md frames the gate as lab-frame O(1) magnitude, defers body-frame to T2a/T4.
+def test_results_doc_delivers_body_frame_and_defers_t4():
+    """RESULTS.md delivers the body-frame per-component van Veen comparison (T2a) and defers T4.
 
-    Scenario: Per-component values are flagged as lab-frame, not van Veen body axes.
+    Scenario (task 5.5): the faithful body-frame CF_chord/CF_normal comparison #36 deferred is now
+    DELIVERED here; only the time-resolved curve match (T4) remains deferred. The lab-frame band is
+    still disclosed as an O(1) plausibility range, not the body-frame gate.
     """
     from pathlib import Path
 
     text = Path("examples/flapping_wing/RESULTS.md").read_text(encoding="utf-8")
     low = text.lower()
+    # Body frame is DELIVERED, not deferred (the #36 deferral is now closed by T2a).
+    assert "body-frame" in low or "body frame" in low
+    assert (
+        "cf_normal" in low and "cf_chord" in low
+    )  # per-component decomposition present
+    assert "deliver" in low  # framed as delivered, not deferred
+    # Lab-frame magnitudes still disclosed as an O(1) plausibility range (not the gate).
     assert "lab-frame" in low or "lab frame" in low
-    assert "t2a" in low or "issue #1" in low  # body-frame deferral
-    assert "t4" in low  # time-resolved deferral
-    assert "plausibility" in low  # framed as an O(1) magnitude gate
+    assert "plausibility" in low
+    # Time-resolved curve match is the remaining deferral (T4).
+    assert "t4" in low
     assert "200.27" in text or "200.3" in text  # van Veen F_ref
     assert "2.64" not in text  # no sphere extraction-factor conflation

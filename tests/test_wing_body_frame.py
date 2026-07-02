@@ -80,6 +80,53 @@ def test_empty_series_and_bad_rotation_raise():
         body_frame_coefficients(np.array([1.0, 0.0, 0.0]), reflect, _F_REF)
 
 
+def test_nan_or_inf_force_raises_not_silent():
+    """A NaN/inf lab force must raise (NaN in -> explicit error), never produce a silent CF.
+
+    Guards the behavioural-correctness contract: a corrupt IB-force row surfaces loudly rather
+    than propagating a NaN coefficient into the graded peak/mean (which np.nanmax would hide).
+    """
+    r = rotation_matrix(0.2, 0.3, 0.1)
+    with pytest.raises(ValueError, match="non-finite"):
+        body_frame_coefficients(np.array([1.0, np.nan, 0.0]), r, _F_REF)
+    with pytest.raises(ValueError, match="non-finite"):
+        body_frame_coefficients(np.array([np.inf, 0.0, 0.0]), r, _F_REF)
+    # A NaN buried in a batch is caught too (not just a leading scalar).
+    batch = np.array([[1.0, 0.0, 0.0], [0.0, np.nan, 0.0]])
+    with pytest.raises(ValueError, match="non-finite"):
+        body_frame_coefficients(batch, np.stack([r, r]), _F_REF)
+
+
+_NEWCONV_CSV = Path("examples/flapping_wing/forces_t2a_newconv.csv")
+_IB_PARTICLE_29_COLS = (
+    "iStep,time,X,Y,Z,Vx,Vy,Vz,Rx,Ry,Rz,Fx,Fy,Fz,Mx,My,Mz,"
+    "Fcpx,Fcpy,Fcpz,Tcpx,Tcpy,Tcpz,SumUx,SumUy,SumUz,SumTx,SumTy,SumTz"
+).split(",")
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_newconv_csv_matches_ib_particle_contract():
+    """forces_t2a_newconv.csv keeps the 29-column IB_Particle schema the decomposition depends on.
+
+    The body-frame decomposition reads Fx/Fy/Fz/time by name; a silent column-order or -name change
+    in the solver write-out would break the T2a gate. Pin the exact schema (order + names) and
+    confirm the decomposition consumes it end-to-end.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(_NEWCONV_CSV)
+    assert list(df.columns) == _IB_PARTICLE_29_COLS
+    assert len(df) > 0  # not an empty write-out
+    # The decomposition reads this exact file without a missing-column error.
+    decomp = reconstruct_wing_body_forces(
+        _NEWCONV_CSV, f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0
+    )
+    assert decomp.cf_chord.shape == decomp.cf_normal.shape == (len(df),)
+    assert np.isfinite(decomp.cf_normal).all()
+
+
 def _synthetic_decomp(
     peak_chord: float, peak_normal: float
 ) -> WingBodyFrameDecomposition:
