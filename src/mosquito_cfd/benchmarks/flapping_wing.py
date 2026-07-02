@@ -49,12 +49,17 @@ VAN_VEEN_BAND = (0.5, 1.5)
 # PDF Fig 4a/4b/4e + eqs 3.1-3.8, in our F_ref = 0.5*rho*omega^2*S_yy normalization). The wing-normal
 # translational coefficient follows a least-squares sine fit C_Fz,transl(alpha) ~ 3.4*sin(alpha)
 # (peak ~3.4 at alpha=90 deg, ~2.4 at the alpha=45 deg pitch amplitude); the chord-wise tangential
-# coefficient is small (~0.2-0.3 peak). CAVEAT: our ib_force is the TOTAL hydrodynamic force whereas
-# van Veen's C_Fz is decomposed into translational + added-mass + Wagner, so our body-frame CF_normal
-# corresponds to van Veen's TOTAL normal coefficient (translational dominant). The precise per-instant
-# per-component curve match is T4 (needs the Section 3.3 mosquito-wingbeat curves digitized); T2a
-# grades the [0.5,1.5] floor per component (live) plus this overall-magnitude comparison with the gap
-# reported (never reverse-fit). These are pinned constants guarded by test_match_tolerance_not_loosened.
+# coefficient is small (~0.2-0.3 peak). CAVEAT (applies to BOTH components): our ib_force is the
+# TOTAL hydrodynamic force, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
+# (van Veen decomposes F into translational + added-mass + Wagner, eqs 3.1-3.8). So the comparison is
+# total (ours) vs translational (target): our CF_normal ~ van Veen's normal because the added-mass (+)
+# and Wagner (-) contributions roughly cancel in the wing-normal at this condition; our CF_chord runs
+# HIGHER than the translational chord because rotational drag + tangential added mass add to it
+# (Bomphrey 2017's mosquito mechanism). The precise per-instant per-component curve match is T4 (needs
+# the Section 3.3 mosquito-wingbeat curves digitized). NB VAN_VEEN_BAND [0.5,1.5] is a LAB-frame O(1)
+# plausibility range, NOT a body-frame gate: van Veen's own CF_normal (~2.4) exceeds 1.5, so a
+# body-frame CF_normal above the band is expected, not a failure — the body-frame gate is this
+# van-Veen-target comparison. These are pinned constants guarded by test_match_tolerance_not_loosened.
 VAN_VEEN_CF_TARGETS = {
     "cf_normal_peak": 2.4,  # C_Fz,transl at the alpha~45 deg midstroke pitch (Fig 4a sine fit)
     "cf_chord_peak": 0.3,  # C_Fx,transl small tangential peak (Fig 4b)

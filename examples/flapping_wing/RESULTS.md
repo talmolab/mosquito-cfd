@@ -18,17 +18,22 @@ van Veen convention + DiffusedIB 3D d_nn fix); the legacy contrast tables below 
 >
 > **Body-frame per-component van Veen comparison (delivered here, deferred by #36) — steady window t≥0.05:**
 >
-> | Component | T2a run | van Veen fitted (Fig 4) | verdict |
+ | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
 > |---|---|---|---|
-> | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | **matches within tol (gap +0.21)** |
-> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | higher — see caveat |
+> | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
+> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | higher — rotational drag |
 >
-> The wing-**normal** force matches van Veen's normal coefficient closely. The **chord**-wise is
-> higher because our `ib_force` is the **total** hydrodynamic force while van Veen's `C_Fx,transl` is
-> translational-only — the excess is the **rotational drag + tangential added mass** (Bomphrey 2017's
-> mosquito mechanism; the design-D5 caveat). The lab-frame numbers *changed* vs the old run (CF_x
-> 2.37/CF_z 1.46 vs old 1.41/0.68), confirming the motion fix. Time-resolved curve match vs van Veen
-> Fig 3–4 remains **T4**. The old stroke-∥-span tables below (`forces.csv`) are the **contrast
+> **Honest framing (both are total-vs-translational).** Our `ib_force` is the **total** hydrodynamic
+> force; van Veen's `C_F*,transl` are **translational-only** (he decomposes into translational +
+> added-mass + Wagner). So `CF_normal ≈ 2.4` because van Veen's added-mass (+) and Wagner (−)
+> contributions roughly **cancel** in the wing-normal at this condition (not a like-for-like
+> translational match); `CF_chord` runs **higher** than the translational chord because rotational drag
+> + tangential added mass **add** to it (Bomphrey 2017's mosquito mechanism; design-D5 caveat). The
+> lab-frame numbers *changed* vs the old run (CF_x 2.37/CF_z 1.46 vs old 1.41/0.68), confirming the
+> motion fix. **NB** the `[0.5,1.5]` band is a *lab-frame* O(1) plausibility range, not a body-frame
+> gate — van Veen's own CF_normal (~2.4) exceeds 1.5, so a body-frame CF_normal above the band is
+> expected. The faithful **time-resolved** per-component curve match (which resolves the total-vs-
+> translational split) is **T4**. The old stroke-∥-span tables below (`forces.csv`) are the **contrast
 > baseline**.
 
 ---
