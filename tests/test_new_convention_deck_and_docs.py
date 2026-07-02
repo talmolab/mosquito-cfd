@@ -14,6 +14,35 @@ import pytest
 
 _DECK = Path("examples/flapping_wing/inputs.3d.validation")
 _DOC = Path("docs/coordinate-convention.md")
+_FIG_SCRIPTS = [
+    Path("examples/flapping_wing/generate_all_figures.py"),
+    Path("examples/flapping_wing/visualize.py"),
+    Path("examples/flapping_wing/generate_validation_figures.py"),
+]
+
+
+def test_no_duplicate_rotation_matrix_in_figure_scripts():
+    """DRY: figure scripts use the canonical kinematics mirror, not a re-implemented rotation.
+
+    The single code source of R(t) is mosquito_cfd.benchmarks.wing_kinematics. A figure script may
+    keep a thin `rotation_matrix` wrapper, but must NOT re-derive the matrix inline (guard against
+    the old span-z composition drifting back in).
+    """
+    tell_tale = ("sp*st*sa", "cp*st*ca", "sp * st * sa", "cp * st * ca")
+    uses_mirror = False
+    for f in _FIG_SCRIPTS:
+        if not f.exists():
+            continue
+        src = f.read_text(encoding="utf-8")
+        for lit in tell_tale:
+            assert lit not in src, (
+                f"{f} re-implements the rotation matrix ({lit!r}); import the mirror"
+            )
+        if "wing_kinematics" in src:
+            uses_mirror = True
+    assert uses_mirror, (
+        "no figure script imports the canonical wing_kinematics rotation"
+    )
 
 
 def _kv(text: str, key: str) -> str:

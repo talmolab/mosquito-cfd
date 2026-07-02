@@ -17,26 +17,33 @@ Produces:
 
 import argparse
 from pathlib import Path
-import numpy as np
+
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+
+from mosquito_cfd.benchmarks.wing_kinematics import rotation_matrix as _wing_rotation
 from mosquito_cfd.force_surrogate import compute_force_reference
 from mosquito_cfd.force_surrogate.constants import R_GYRATION
 from mosquito_cfd.geometry import generate_planform, read_vertex_file
 
 # ---------------------------------------------------------------------------
-# Constants matching inputs.3d.validation
+# Constants matching inputs.3d.validation (van Veen convention, Tier T2a):
+# x = chord, y = span, z = vertical/lift. See docs/coordinate-convention.md.
 # ---------------------------------------------------------------------------
-F_STAR = 1.0        # dimensionless frequency (1 wingbeat = 1 time unit)
+F_STAR = 1.0  # dimensionless frequency (1 wingbeat = 1 time unit)
 PHI_AMP_DEG = 70.0  # stroke amplitude (degrees)
 ALPHA_AMP_DEG = 45.0  # pitch amplitude (degrees)
-SPAN = 3.0          # wing span (dimensionless chord lengths)
-CHORD = 1.0         # wing chord (reference length)
-R_TIP = 3.0         # hinge-to-tip distance (dimensionless)
-HINGE = np.array([4.0, 2.0, 2.5])  # hinge position (domain units)
-CENTER = np.array([4.0, 2.0, 4.0])  # wing center (domain units)
+SPAN = 3.0  # wing span (dimensionless chord lengths)
+CHORD = 1.0  # wing chord (reference length)
+R_TIP = 3.0  # hinge-to-tip distance (dimensionless)
+HINGE = np.array([4.0, 0.5, 4.0])  # hinge (span root, low-y end) — domain units
+CENTER = np.array(
+    [4.0, 2.0, 4.0]
+)  # wing centre (solver adds this to the origin-centred vertex file)
 
 # IBM colorblind-safe palette (from plot_config.py)
 BLUE = "#0072B2"
@@ -55,18 +62,15 @@ def euler_angles(time, f=F_STAR, phi_amp=PHI_AMP_DEG, alpha_amp=ALPHA_AMP_DEG):
 
 
 def rotation_matrix(phi_deg, alpha_deg, theta_deg=0.0):
-    """ZYX Euler rotation matrix R = Rz(phi) * Ry(theta) * Rx(alpha)."""
-    phi = np.radians(phi_deg)
-    alpha = np.radians(alpha_deg)
-    theta = np.radians(theta_deg)
-    cp, sp = np.cos(phi), np.sin(phi)
-    ca, sa = np.cos(alpha), np.sin(alpha)
-    ct, st = np.cos(theta), np.sin(theta)
-    return np.array([
-        [cp*ct, cp*st*sa - sp*ca, cp*st*ca + sp*sa],
-        [sp*ct, sp*st*sa + cp*ca, sp*st*ca - cp*sa],
-        [-st,   ct*sa,            ct*ca],
-    ])
+    """Van Veen convention R = Rz(phi)*Ry(alpha)*Rx(theta) (degrees in).
+
+    Thin wrapper over the single canonical source
+    ``mosquito_cfd.benchmarks.wing_kinematics.rotation_matrix`` (no independent rotation math
+    here — the DRY code-source rule; docs/coordinate-convention.md).
+    """
+    return _wing_rotation(
+        np.radians(phi_deg), np.radians(alpha_deg), np.radians(theta_deg)
+    )
 
 
 def transform_markers(ref_pos, hinge, R):
@@ -79,19 +83,24 @@ def transform_markers(ref_pos, hinge, R):
 # G1: Wing planform
 # ---------------------------------------------------------------------------
 
+
 def plot_g1_planform(figures_dir: Path, vertex_file: Path | None = None):
     """G1: Wing planform marker scatter in local frame."""
     if vertex_file and vertex_file.exists():
+        # The committed wing.vertex is origin-centred (the solver adds the domain centre), so it
+        # is already in the local frame — no CENTER subtraction.
         markers = read_vertex_file(str(vertex_file))
-        # Convert from domain frame to local frame (subtract center)
-        markers = markers - CENTER
     else:
-        markers = generate_planform("elliptic", SPAN, CHORD, spacing=0.05) - np.array([0., 0., 0.])
-    # markers are in local frame: x = chord (-0.5 to 0.5), z = span (-1.5 to 1.5)
+        markers = generate_planform(
+            "elliptic", SPAN, CHORD, spacing=0.05, span_axis="y"
+        )
+    # Local frame (van Veen): x = chord (-0.5..0.5), y = span (-1.5..1.5), z = 0 (flat).
 
     fig, ax = plt.subplots(figsize=(5, 4))
-    ax.scatter(markers[:, 2], markers[:, 0], s=1.5, color=BLUE, alpha=0.7, rasterized=True)
-    ax.set_xlabel("Span z (chord lengths)", fontsize=10)
+    ax.scatter(
+        markers[:, 1], markers[:, 0], s=1.5, color=BLUE, alpha=0.7, rasterized=True
+    )
+    ax.set_xlabel("Span y (chord lengths)", fontsize=10)
     ax.set_ylabel("Chord x (chord lengths)", fontsize=10)
     ax.set_aspect("equal")
     ax.set_title(
@@ -103,12 +112,28 @@ def plot_g1_planform(figures_dir: Path, vertex_file: Path | None = None):
     ax.axvline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
 
     # Annotate span and chord
-    ax.annotate("", xy=(1.5, 0.0), xytext=(-1.5, 0.0),
-                arrowprops=dict(arrowstyle="<->", color=RED, lw=1.5))
+    ax.annotate(
+        "",
+        xy=(1.5, 0.0),
+        xytext=(-1.5, 0.0),
+        arrowprops=dict(arrowstyle="<->", color=RED, lw=1.5),
+    )
     ax.text(0, -0.65, f"Span = {SPAN:.0f}c", ha="center", color=RED, fontsize=9)
-    ax.annotate("", xy=(0.0, 0.5), xytext=(0.0, -0.5),
-                arrowprops=dict(arrowstyle="<->", color=GREEN, lw=1.5))
-    ax.text(1.6, 0.0, f"Chord = {CHORD:.0f}c", ha="left", color=GREEN, fontsize=9, va="center")
+    ax.annotate(
+        "",
+        xy=(0.0, 0.5),
+        xytext=(0.0, -0.5),
+        arrowprops=dict(arrowstyle="<->", color=GREEN, lw=1.5),
+    )
+    ax.text(
+        1.6,
+        0.0,
+        f"Chord = {CHORD:.0f}c",
+        ha="left",
+        color=GREEN,
+        fontsize=9,
+        va="center",
+    )
 
     fig.tight_layout()
     out = figures_dir / "fig_planform.pdf"
@@ -121,6 +146,7 @@ def plot_g1_planform(figures_dir: Path, vertex_file: Path | None = None):
 # ---------------------------------------------------------------------------
 # K1: Euler angles vs phase
 # ---------------------------------------------------------------------------
+
 
 def plot_k1_kinematics(figures_dir: Path):
     """K1: phi(t) and alpha(t) over one wingbeat."""
@@ -164,12 +190,17 @@ def plot_k1_kinematics(figures_dir: Path):
 # K2: Wing positions at key phases
 # ---------------------------------------------------------------------------
 
+
 def plot_k2_wing_phases(figures_dir: Path, vertex_file: Path | None = None):
     """K2: Wing marker positions projected to xz-plane at 4 key phases."""
     if vertex_file and vertex_file.exists():
-        ref_markers = read_vertex_file(str(vertex_file))
+        # Origin-centred file -> domain frame by adding the wing centre (the solver does this).
+        ref_markers = read_vertex_file(str(vertex_file)) + CENTER
     else:
-        ref_markers = generate_planform("elliptic", SPAN, CHORD, spacing=0.05) + CENTER
+        ref_markers = (
+            generate_planform("elliptic", SPAN, CHORD, spacing=0.05, span_axis="y")
+            + CENTER
+        )
 
     # 4 key phases: t=0, T/4, T/2, 3T/4
     phases = [(0.0, "t=0"), (0.25, "t=T/4"), (0.5, "t=T/2"), (0.75, "t=3T/4")]
@@ -182,26 +213,28 @@ def plot_k2_wing_phases(figures_dir: Path, vertex_file: Path | None = None):
         R = rotation_matrix(phi_deg, alpha_deg)
         markers = transform_markers(ref_markers, HINGE, R)
 
-        # Project to xz plane (horizontal=x, vertical=z)
-        ax.scatter(markers[:, 0], markers[:, 2], s=1.0, color=color, alpha=0.7, rasterized=True)
-        ax.scatter(*HINGE[[0, 2]], s=50, color="black", zorder=5, marker="^")
-        ax.set_title(
-            f"{label}\n"
-            f"phi={phi_deg:.0f}deg, alpha={alpha_deg:.0f}deg",
-            fontsize=8, color=color,
+        # Project to the x-y stroke plane (van Veen: stroke sweeps the span-tip in x-y)
+        ax.scatter(
+            markers[:, 0], markers[:, 1], s=1.0, color=color, alpha=0.7, rasterized=True
         )
-        ax.set_xlabel("x", fontsize=9)
-        ax.set_xlim(2.5, 5.5)
-        ax.set_ylim(1.5, 6.5)
+        ax.scatter(*HINGE[[0, 1]], s=50, color="black", zorder=5, marker="^")
+        ax.set_title(
+            f"{label}\nphi={phi_deg:.0f}deg, alpha={alpha_deg:.0f}deg",
+            fontsize=8,
+            color=color,
+        )
+        ax.set_xlabel("x (chord / streamwise)", fontsize=9)
+        ax.set_xlim(0.5, 7.5)
+        ax.set_ylim(-0.5, 4.5)
         ax.set_aspect("equal")
         ax.grid(True, alpha=0.3)
 
-    axes[0].set_ylabel("z", fontsize=9)
-    axes[0].text(HINGE[0], HINGE[2] - 0.25, "Hinge", ha="center", fontsize=7)
+    axes[0].set_ylabel("y (span)", fontsize=9)
+    axes[0].text(HINGE[0], HINGE[1] - 0.3, "Hinge", ha="center", fontsize=7)
 
     fig.suptitle(
-        "Wing Marker Positions at Key Phases (xz projection)\n"
-        "Triangle = wing hinge (root)",
+        "Wing Marker Positions at Key Phases (x-y stroke plane, van Veen convention)\n"
+        "Triangle = wing hinge (root); the stroke sweeps the span-tip through x-y",
         fontsize=10,
     )
     fig.tight_layout()
@@ -215,6 +248,7 @@ def plot_k2_wing_phases(figures_dir: Path, vertex_file: Path | None = None):
 # ---------------------------------------------------------------------------
 # F1: Force time series
 # ---------------------------------------------------------------------------
+
 
 def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     """F1: Force time series with kinematics overlay."""
@@ -238,7 +272,9 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     # (single source — mosquito_cfd.force_surrogate).
     ref = compute_force_reference(F_STAR, PHI_AMP_DEG, R_GYRATION, SPAN, CHORD, rho=1.0)
     u_ref, q_ref, S, F_ref = ref.u_ref, ref.q_ref, ref.area, ref.f_ref
-    print(f"  u_ref = {u_ref:.2f}, q_ref = {q_ref:.2f}, S = {S:.4f}, F_ref = {F_ref:.2f}")
+    print(
+        f"  u_ref = {u_ref:.2f}, q_ref = {q_ref:.2f}, S = {S:.4f}, F_ref = {F_ref:.2f}"
+    )
 
     CF_x = Fx_s / F_ref
     CF_y = Fy_s / F_ref
@@ -269,15 +305,17 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     plt.setp(ax1.get_xticklabels(), visible=False)
 
     # Panel 2: CF_x and CF_y (stroke-plane forces)
-    ax2.plot(t_s, CF_x, color=BLUE, lw=1.5, alpha=0.8, label="CF_x (stroke)")
-    ax2.plot(t_s, CF_y, color=GREEN, lw=1.5, alpha=0.8, ls="--", label="CF_y (lateral)")
+    ax2.plot(
+        t_s, CF_x, color=BLUE, lw=1.5, alpha=0.8, label="CF_x (chord / streamwise)"
+    )
+    ax2.plot(t_s, CF_y, color=GREEN, lw=1.5, alpha=0.8, ls="--", label="CF_y (span)")
     ax2.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
-    ax2.set_ylabel("CF (stroke plane)", fontsize=9)
+    ax2.set_ylabel("CF (lab frame)", fontsize=9)
     ax2.legend(fontsize=8, loc="upper right")
     plt.setp(ax2.get_xticklabels(), visible=False)
 
     # Panel 3: CF_z (lift / span-axis force)
-    ax3.plot(t_s, CF_z, color=RED, lw=1.5, label="CF_z (lift / span-normal)")
+    ax3.plot(t_s, CF_z, color=RED, lw=1.5, label="CF_z (vertical / lift)")
     ax3.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
     # Mark acceptance range
     ax3.axhline(0.5, color=RED, lw=0.8, ls=":", alpha=0.5)
@@ -301,13 +339,16 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
     # Print summary stats
     print(f"  CF_z range (t>0.1): [{CF_z.min():.3f}, {CF_z.max():.3f}]")
-    print(f"  mean CF_z = {CF_z.mean():.4f}, rms CF_z = {np.sqrt((CF_z**2).mean()):.4f}")
+    print(
+        f"  mean CF_z = {CF_z.mean():.4f}, rms CF_z = {np.sqrt((CF_z**2).mean()):.4f}"
+    )
     print(f"  max |CF_x| = {np.abs(CF_x).max():.4f}")
 
 
 # ---------------------------------------------------------------------------
 # V1: x-velocity field at mid-stroke (requires --plotfile)
 # ---------------------------------------------------------------------------
+
 
 def plot_velocity_field(figures_dir: Path, plotfile: Path):
     """V1: x-velocity field z-slice at mid-stroke (t=0.25, phi=70°).
@@ -317,6 +358,7 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
         generate_ellipsoid_figure.py
     """
     import yt
+
     yt.set_log_level("error")
 
     print(f"  Loading plotfile: {plotfile}")
@@ -338,13 +380,13 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
     # Upsample 4x for smooth visualization of coarse grid
     frb_nx = nx * 4
     frb_ny = ny * 4
-    slc = ds.slice('z', ds.domain_center[2])
+    slc = ds.slice("z", ds.domain_center[2])
     frb = slc.to_frb(
         ds.domain_width[0],
         (frb_nx, frb_ny),
         height=ds.domain_width[1],
     )
-    u = np.array(frb['x_velocity'])
+    u = np.array(frb["x_velocity"])
     # FRB shape: either (frb_nx, frb_ny) or (frb_ny, frb_nx) — imshow wants rows=y, cols=x
     if u.shape == (frb_nx, frb_ny):
         u = u.T
@@ -358,49 +400,58 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
 
     # Wing centroid from IB particle positions
     ad = ds.all_data()
-    x_wing = float(np.mean(np.array(ad['all', 'particle_position_x'])))
-    y_wing = float(np.mean(np.array(ad['all', 'particle_position_y'])))
-    print(f"  Wing centroid (domain): ({x_wing:.2f}, {y_wing:.2f})"
-          f"  -> display: ({x_wing - cx:.2f}, {y_wing - cy:.2f})")
+    x_wing = float(np.mean(np.array(ad["all", "particle_position_x"])))
+    y_wing = float(np.mean(np.array(ad["all", "particle_position_y"])))
+    print(
+        f"  Wing centroid (domain): ({x_wing:.2f}, {y_wing:.2f})"
+        f"  -> display: ({x_wing - cx:.2f}, {y_wing - cy:.2f})"
+    )
 
     if not velocity_available:
-        print("  WARNING: x_velocity is all zeros -- falling back to tracer field (wing position).")
-        tracer = np.array(frb['tracer'])
+        print(
+            "  WARNING: x_velocity is all zeros -- falling back to tracer field (wing position)."
+        )
+        tracer = np.array(frb["tracer"])
         if tracer.shape == (frb_nx, frb_ny):
             tracer = tracer.T
         field_data = tracer
-        cmap = 'Blues'
-        cbar_label = 'tracer (wing material indicator)'
-        title_note = 'tracer field (velocity not in plotfile)'
+        cmap = "Blues"
+        cbar_label = "tracer (wing material indicator)"
+        title_note = "tracer field (velocity not in plotfile)"
     else:
         field_data = u
-        cmap = 'RdYlBu_r'
-        cbar_label = '$u$ (dimensionless)'
-        title_note = f'x-velocity field ($t = {time:.3f}$, $\\phi = {phi_deg:.0f}°$)'
+        cmap = "RdYlBu_r"
+        cbar_label = "$u$ (dimensionless)"
+        title_note = f"x-velocity field ($t = {time:.3f}$, $\\phi = {phi_deg:.0f}°$)"
 
     fig, ax = plt.subplots(figsize=(8, 5))
     extent = [xl - cx, xr - cx, yl - cy, yr - cy]
     im = ax.imshow(
         field_data,
-        origin='lower',
+        origin="lower",
         extent=extent,
         cmap=cmap,
-        aspect='equal',
-        interpolation='bilinear',
+        aspect="equal",
+        interpolation="bilinear",
     )
     cbar = plt.colorbar(im, ax=ax, label=cbar_label, fraction=0.04, pad=0.04)
     cbar.ax.tick_params(labelsize=9)
 
-    ax.plot(x_wing - cx, y_wing - cy,
-            'r+', markersize=14, markeredgewidth=2,
-            label=f'wing centroid ({x_wing:.1f}, {y_wing:.1f})')
-    ax.legend(fontsize=8, loc='lower right', framealpha=0.7)
+    ax.plot(
+        x_wing - cx,
+        y_wing - cy,
+        "r+",
+        markersize=14,
+        markeredgewidth=2,
+        label=f"wing centroid ({x_wing:.1f}, {y_wing:.1f})",
+    )
+    ax.legend(fontsize=8, loc="lower right", framealpha=0.7)
 
-    ax.set_xlabel('$x$ (dimensionless)', fontsize=11)
-    ax.set_ylabel('$y$ (dimensionless)', fontsize=11)
+    ax.set_xlabel("$x$ (dimensionless)", fontsize=11)
+    ax.set_ylabel("$y$ (dimensionless)", fontsize=11)
     ax.set_title(
-        f'Flapping Wing — {title_note}\n'
-        f'z-slice at z={float(ds.domain_center[2]):.1f} (mid-span)',
+        f"Flapping Wing — {title_note}\n"
+        f"z-slice at z={float(ds.domain_center[2]):.1f} (mid-span)",
         fontsize=11,
     )
 
@@ -415,13 +466,14 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Generate all flapping wing figures")
     parser.add_argument(
         "--forces-csv",
         type=Path,
-        default=Path(__file__).parent / "forces.csv",
-        help="Path to the force CSV (default: committed forces.csv)",
+        default=Path(__file__).parent / "forces_t2a_newconv.csv",
+        help="Path to the force CSV (default: the validated T2a new-convention run)",
     )
     parser.add_argument(
         "--vertex-file",

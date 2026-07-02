@@ -1,10 +1,11 @@
 {
-  "run_id": "44232f8f-d912-4a39-b6bd-0e5f07b1d61f",
-  "timestamp": "2026-07-02T00:28:25.906570+00:00",
+  "run_id": "f7614173-ad82-4cb2-89ba-9749ba017da1",
+  "timestamp": "2026-07-02T05:08:02.631864+00:00",
   "git": {
-    "commit": "0757a530a4c043a4e0ff908eac53d7f7299baabb",
+    "commit": "f72c8935a482bfe8d1d44505defa9790f7254821",
     "branch": "feat/t2a-axis-convention",
-    "dirty": false,
+    "dirty": true,
+    "diff_hash": "1bf5ee3173a8",
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -24,7 +25,7 @@
     "hash": "f9b69d98b5f37f3fbe9766640d37eae75fdf3413ce18105ce8fdfaf3aeec28e3"
   },
   "timing": {
-    "note": "coarse A40 re-run, 2000 steps"
+    "note": "coarse A40 clean-image run, 2000 steps"
   },
   "outputs": {
     "directory": "examples\\flapping_wing",
@@ -59,12 +60,15 @@
   },
   "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
   "tier": "T2a",
-  "convention": "van Veen (span y, stroke about vertical z)",
-  "graded_build_note": "graded run used physics-identical DBG build d6bd846e (print-only diff vs pinned f93dc794)",
+  "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
+  "image_build": "GHA docker.yml run 28565940131 (clean, debug-free); digest in that run job-summary",
   "body_frame_result": {
-    "peak_cf_normal": 2.61,
-    "peak_cf_chord": 0.92,
-    "van_veen_normal": 2.4,
-    "van_veen_chord_transl": 0.3
+    "peak_cf_normal": 2.606,
+    "peak_cf_chord": 0.923,
+    "mean_cf_normal": 1.06,
+    "mean_cf_chord": 0.515,
+    "van_veen_normal_transl": 2.4,
+    "van_veen_chord_transl": 0.3,
+    "note": "total force (ours) vs translational-only (van Veen); normal~match via AM/Wagner cancellation, chord higher via rotational drag"
   }
 }

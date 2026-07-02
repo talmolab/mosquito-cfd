@@ -138,7 +138,7 @@ old-convention docs *or figures*** (D8; review docs B1/I4).
       test). Write `docs/coordinate-convention.md` (labeled diagram; verbatim van Veen fig 1f + eq
       1.1–1.2 and Bomphrey 2017 fig 1a citations). This is the **canonical narrative source**; the
       `WingKinematics.H` docstring, `RESULTS.md`, and the memo cross-reference it (DRY — review docs I5).
-- [ ] 5.4 Parametrize the figure code off the convention/mirror and **regenerate all figures**
+- [x] 5.4 Parametrize the figure code off the convention/mirror and **regenerate all figures**
       (`generate_all_figures.py`: `HINGE`, the `rotation_matrix` duplicate → import task-2.2 mirror,
       "Span z"/"xz projection" labels; `visualize.py` hinge slice; `generate_validation_figures.py`
       `fig_v2_second_moment` span column, and the `fig_v5`/frame captions that say "deferred to T2a").
