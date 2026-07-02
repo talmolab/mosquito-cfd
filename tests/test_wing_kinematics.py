@@ -131,10 +131,13 @@ def test_cpp_wingkinematics_conforms_to_mirror():
 
 
 def test_new_stroke_sweeps_span_tip_old_does_not():
-    """The NEW motion sweeps the span-tip at the α=0 midstroke; the OLD (stroke-∥-span) does not."""
+    """The NEW motion displaces the span-tip along the stroke arc; the OLD (stroke-∥-span) does not.
+
+    Position check at the stroke EXTREME (φ = +70°, φ̇ = 0, α = 0 — i.e. t = T/4, the turnaround).
+    """
     r = 1.5  # span-tip arm
     phi_amp = np.radians(70.0)
-    # Midstroke: φ = +70°, α = 0.
+    # Stroke extreme (t = T/4): φ = +70°, α = 0.
     phi, alpha = phi_amp, 0.0
 
     # New convention: span is along y, tip body vector (0, r, 0).
@@ -145,6 +148,52 @@ def test_new_stroke_sweeps_span_tip_old_does_not():
 
     # Old convention: span is along z, tip body vector (0, 0, r); stroke Rz(φ) is about the span.
     tip_old = rotation_matrix_legacy(phi, alpha, 0.0) @ np.array([0.0, 0.0, r])
-    # At the α=0 midstroke the old span-tip has NO horizontal (x,y) excursion — it sits on the axis.
+    # At the stroke extreme the old span-tip has NO horizontal (x,y) excursion — it sits on the axis.
     horizontal_old = np.hypot(tip_old[0], tip_old[1])
     assert horizontal_old == pytest.approx(0.0, abs=1e-9)
+
+
+def test_new_stroke_span_tip_has_horizontal_velocity_old_does_not():
+    """VELOCITY-level: the STROKE sweeps the NEW span-tip through the horizontal plane; the OLD
+    (stroke-∥-span) stroke leaves the span-tip stationary.
+
+    Position displacement alone doesn't prove a *translational sweep* — the load-bearing claim is that
+    the tip *translates*. We isolate the stroke's effect with a **pure-stroke** motion (pitch α≡0,
+    deviation θ≡0, only `φ = φ_amp·sin(2πt)`) and finite-difference the span-tip position at the
+    maximum-stroke-rate phase (t = 0, φ = 0, φ̇ = 2π·φ_amp·f_star). Isolating the stroke avoids the
+    pitch confound: at the real coupled kinematics α is maximal exactly when φ̇ is, which would tilt the
+    old span-tip off its rotation axis and mask the distinction.
+    """
+    r = 1.5
+    f_star = 1.0
+    phi_amp = np.radians(70.0)
+    dt = 1e-6
+
+    def tip(rot_fn, body_vec, t):
+        phi, alpha, theta = euler_angles(
+            t,
+            frequency=f_star,
+            stroke_amp_rad=phi_amp,
+            pitch_amp_rad=0.0,  # pure stroke — isolate the stroke's effect on the span-tip
+            deviation_amp_rad=0.0,
+        )
+        return rot_fn(phi, alpha, theta) @ np.asarray(body_vec)
+
+    # Central finite difference of tip position at t=0 (φ=0, φ̇ = 2π·φ_amp·f_star, maximal).
+    new_vel = (
+        tip(rotation_matrix, [0.0, r, 0.0], dt)
+        - tip(rotation_matrix, [0.0, r, 0.0], -dt)
+    ) / (2 * dt)
+    old_vel = (
+        tip(rotation_matrix_legacy, [0.0, 0.0, r], dt)
+        - tip(rotation_matrix_legacy, [0.0, 0.0, r], -dt)
+    ) / (2 * dt)
+
+    new_horiz_speed = float(np.hypot(new_vel[0], new_vel[1]))
+    old_horiz_speed = float(np.hypot(old_vel[0], old_vel[1]))
+
+    # New tip sweeps horizontally at r·φ̇ = r·2π·φ_amp·f_star (cos(0)=1).
+    expected = r * 2 * np.pi * phi_amp * f_star
+    assert new_horiz_speed == pytest.approx(expected, rel=1e-3)
+    # Old span-tip lies ON the stroke (z) axis under pure stroke → Rz(φ) never moves it: ~zero speed.
+    assert old_horiz_speed < 1e-6 * expected

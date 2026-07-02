@@ -7,6 +7,8 @@ set with the span axis moved from z to y (a re-orientation, not a geometry chang
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -89,3 +91,77 @@ def test_committed_wing_vertex_matches_generator():
     sort_v = v[np.lexsort(v.T)]
     sort_g = gen[np.lexsort(gen.T)]
     np.testing.assert_allclose(sort_v, sort_g, atol=1e-9)
+
+
+# --- Guards on the CLI --axis passthrough (the contract surface: geometry is made via the CLI) ---
+
+
+def _run_cli(tmp_path: Path, *extra: str) -> Path:
+    """Invoke the generate-wing-planform CLI as a subprocess; return the written vertex path."""
+    out = tmp_path / "cli_wing.vertex"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mosquito_cfd.geometry.cli",
+            "--shape",
+            "elliptic",
+            "--span",
+            str(_SPAN),
+            "--chord",
+            str(_CHORD),
+            "--spacing",
+            str(_SPACING),
+            "--output",
+            str(out),
+            *extra,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out
+
+
+def test_cli_axis_y_writes_span_along_y(tmp_path):
+    """`generate-wing-planform --axis y` writes a span-along-y (van Veen) vertex file.
+
+    Every other span-axis test calls generate_planform directly; this exercises the argparse
+    passthrough (`--axis` -> `span_axis`) so a typo in the CLI wiring cannot ship green.
+    """
+    v = np.loadtxt(_run_cli(tmp_path, "--axis", "y"), skiprows=1)
+    assert np.ptp(v[:, 1]) > np.ptp(v[:, 0])  # span(y) > chord(x)
+    assert np.ptp(v[:, 2]) == pytest.approx(0.0, abs=1e-9)  # flat in z
+
+
+def test_cli_default_axis_is_z_legacy(tmp_path):
+    """Omitting --axis reproduces the legacy span-along-z orientation."""
+    v = np.loadtxt(_run_cli(tmp_path), skiprows=1)
+    assert np.ptp(v[:, 2]) > np.ptp(v[:, 0])  # span(z) > chord(x)
+    assert np.ptp(v[:, 1]) == pytest.approx(0.0, abs=1e-9)  # flat in y
+
+
+def test_cli_bad_axis_is_rejected(tmp_path):
+    """argparse rejects an invalid --axis (choices=[y,z]) with a nonzero exit, no file written."""
+    out = tmp_path / "should_not_exist.vertex"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mosquito_cfd.geometry.cli",
+            "--span",
+            str(_SPAN),
+            "--chord",
+            str(_CHORD),
+            "--spacing",
+            str(_SPACING),
+            "--axis",
+            "x",
+            "--output",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert not out.exists()

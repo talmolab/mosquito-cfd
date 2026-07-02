@@ -145,9 +145,9 @@ def test_degenerate_kinematics_rejected():
 
     Parity with compute_force_coefficients (the corpus path already guards this).
     """
-    with pytest.raises(ValueError, match="f_ref must be positive"):
+    with pytest.raises(ValueError, match="f_ref must be finite and positive"):
         reconstruct_wing_forces(_CSV, f_star=0.0, phi_amp_deg=70.0)
-    with pytest.raises(ValueError, match="f_ref must be positive"):
+    with pytest.raises(ValueError, match="f_ref must be finite and positive"):
         reconstruct_wing_forces(_CSV, f_star=1.0, phi_amp_deg=0.0)
 
 

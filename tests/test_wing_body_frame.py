@@ -55,8 +55,11 @@ def test_known_R_pure_chord_and_normal_and_axis_swap():
 
 
 def test_batched_R_matches_per_timestep():
-    """A batch of rotations decomposes each force with its own R(t)."""
-    rots = np.stack([rotation_matrix(0.1 * k, 0.2 * k, 0.0) for k in range(4)])
+    """A batch of rotations decomposes each force with its own R(t) (incl. nonzero deviation θ)."""
+    # Nonzero θ on every element exercises the full 3-angle Rz·Ry·Rx composition, not just Rz·Ry.
+    rots = np.stack(
+        [rotation_matrix(0.1 * k, 0.2 * k, 0.05 * (k + 1)) for k in range(4)]
+    )
     f_lab = np.array([[1.0, 2.0, 3.0]] * 4)
     out = body_frame_coefficients(f_lab, rots, _F_REF)
     for k in range(4):
@@ -125,6 +128,62 @@ def test_newconv_csv_matches_ib_particle_contract():
     )
     assert decomp.cf_chord.shape == decomp.cf_normal.shape == (len(df),)
     assert np.isfinite(decomp.cf_normal).all()
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_committed_run_verdict_is_partial_normal_passes_chord_fails():
+    """Lock the HONEST per-component verdict on the committed T2a run: normal passes, chord fails.
+
+    RESULTS.md reports the body-frame comparison as PARTIAL. Pin that to the grader's own output so
+    the doc wording cannot drift away from what the code computes: on `forces_t2a_newconv.csv`, graded
+    against `VAN_VEEN_CF_TARGETS` (normal 2.4, chord 0.3) at tol 0.6, CF_normal is within tol
+    (2.61 → gap ~0.2) but CF_chord is NOT (0.92 → gap ~0.62 > 0.6), so the overall match is False.
+    """
+    decomp = reconstruct_wing_body_forces(
+        _NEWCONV_CSV, f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0
+    )
+    res = body_frame_overall_match(decomp, targets=VAN_VEEN_CF_TARGETS)
+    assert res["cf_normal_match"] is True
+    assert res["cf_chord_match"] is False  # ~3x target — the honest PARTIAL verdict
+    assert res["match"] is False
+    assert (
+        res["cf_chord_gap"] > VAN_VEEN_MATCH_TOL
+    )  # gap exceeds tol, not a rounding artifact
+
+
+def test_grader_raises_on_all_nan_cf_series():
+    """An all-NaN CF series raises (not silently graded out-of-band via NaN comparisons)."""
+    t = np.linspace(0.0, 1.0, 50)
+    nan_decomp = WingBodyFrameDecomposition(
+        time=t,
+        f_ref=_F_REF,
+        cf_chord=np.full_like(t, np.nan),
+        cf_normal=np.cos(2 * np.pi * t),
+        cf_span=np.zeros_like(t),
+    )
+    with pytest.raises(ValueError, match="non-finite"):
+        body_frame_overall_match(nan_decomp, targets=None)
+
+
+def test_nonfinite_f_ref_raises_not_silent():
+    """f_ref = NaN/inf must raise (NaN <= 0 is False, so a bare `<= 0` guard would leak it)."""
+    r = rotation_matrix(0.2, 0.3, 0.1)
+    f = np.array([1.0, 0.0, 0.0])
+    for bad in (np.nan, np.inf):
+        with pytest.raises(ValueError, match="finite and positive"):
+            body_frame_coefficients(f, r, bad)
+
+
+def test_default_body_axes_are_write_locked():
+    """The module-level default axis constants are immutable — a caller cannot corrupt shared state."""
+    from mosquito_cfd.benchmarks import flapping_wing as fw
+
+    for axis in (fw._CHORD_AXIS, fw._SPAN_AXIS, fw._NORMAL_AXIS):
+        assert axis.flags.writeable is False
+        with pytest.raises(ValueError):
+            axis[0] = 999.0
 
 
 def _synthetic_decomp(
