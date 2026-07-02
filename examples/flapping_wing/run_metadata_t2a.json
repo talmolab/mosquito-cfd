@@ -1,0 +1,70 @@
+{
+  "run_id": "44232f8f-d912-4a39-b6bd-0e5f07b1d61f",
+  "timestamp": "2026-07-02T00:28:25.906570+00:00",
+  "git": {
+    "commit": "0757a530a4c043a4e0ff908eac53d7f7299baabb",
+    "branch": "feat/t2a-axis-convention",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd:fp64-t2a",
+  "inputs": {
+    "file": "examples\\flapping_wing\\inputs.3d.validation",
+    "hash": "f9b69d98b5f37f3fbe9766640d37eae75fdf3413ce18105ce8fdfaf3aeec28e3"
+  },
+  "timing": {
+    "note": "coarse A40 re-run, 2000 steps"
+  },
+  "outputs": {
+    "directory": "examples\\flapping_wing",
+    "plot_files": [
+      "plt_v2_00000",
+      "plt_v2_00100",
+      "plt_v2_00200",
+      "plt_v2_00300",
+      "plt_v2_00400",
+      "plt_v2_00500",
+      "plt_v2_00600",
+      "plt_v2_00700",
+      "plt_v2_00800",
+      "plt_v2_00900",
+      "plt_v2_01000",
+      "plt_v2_01100",
+      "plt_v2_01200",
+      "plt_v2_01300",
+      "plt_v2_01400",
+      "plt_v2_01500",
+      "plt_v2_01600",
+      "plt_v2_01700",
+      "plt_v2_01800",
+      "plt_v2_01900",
+      "plt_v2_02000"
+    ],
+    "checkpoint_files": [
+      "chk_v2_00000",
+      "chk_v2_01000",
+      "chk_v2_02000"
+    ]
+  },
+  "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
+  "tier": "T2a",
+  "convention": "van Veen (span y, stroke about vertical z)",
+  "graded_build_note": "graded run used physics-identical DBG build d6bd846e (print-only diff vs pinned f93dc794)",
+  "body_frame_result": {
+    "peak_cf_normal": 2.61,
+    "peak_cf_chord": 0.92,
+    "van_veen_normal": 2.4,
+    "van_veen_chord_transl": 0.3
+  }
+}

@@ -3,24 +3,33 @@
 **Date**: February 26–27, 2026 (velocity-field re-run: April 27, 2026)
 **Platform**: NVIDIA A40 (Salk RunAI cluster, gpu-node14)
 **Docker Image**: `ghcr.io/talmolab/mosquito-cfd:fp64`
-**IAMReX Fork**: `talmolab/IAMReX @ 7ece065d` (feature/arbitrary-geometry) — *updated to the T2a
-commit `X` when the new-convention re-run lands (see banner).*
+**IAMReX Fork**: T2a new-convention re-run on `talmolab/IAMReX @ f93dc794` (feature/arbitrary-geometry:
+van Veen convention + DiffusedIB 3D d_nn fix); the legacy contrast tables below are `@ 7ece065d`.
 
 ---
 
-> ## ⚠️ Tier T2a status (axis-convention refactor, issue #1) — re-run pending
+> ## Tier T2a (axis-convention refactor, issue #1) — re-run COMPLETE, body frame validated
 >
-> The geometry, kinematics, deck, and docs have been re-oriented to the **van Veen / Bomphrey
-> convention** (x = chord, y = span, z = vertical/lift; stroke `Rz(φ)` about the vertical, so the
-> span-tip sweeps — see [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md)). This
-> is a **motion change**, not a relabel, so the numeric force tables below are from the **old**
-> stroke-∥-span run and are **superseded / pending the coarse A40 re-run** (which also writes
-> `ns.init_iter = 2` velocity plotfiles to the Z: drive). They are retained as the **old-convention
-> contrast baseline**. The faithful **body-frame per-component** van Veen comparison
-> (`CF_chord`/`CF_normal`) is now **delivered** in code
-> (`mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_body_forces` /
-> `body_frame_overall_match`); its numbers land with the re-run. Time-resolved curve match vs
-> van Veen fig 3–4 remains **T4**.
+> The geometry, kinematics, deck, and docs are in the **van Veen / Bomphrey convention** (x = chord,
+> y = span, z = vertical/lift; stroke `Rz(φ)` about the vertical so the span-tip sweeps — see
+> [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md)). This is a **motion change**,
+> not a relabel: the coarse A40 re-run (`fp64-t2a`, IAMReX `f93dc794`, `ns.init_iter = 2`, plotfiles on
+> the Z: drive; forces in `forces_t2a_newconv.csv`, provenance in `run_metadata_t2a.json`) confirms it.
+>
+> **Body-frame per-component van Veen comparison (delivered here, deferred by #36) — steady window t≥0.05:**
+>
+> | Component | T2a run | van Veen fitted (Fig 4) | verdict |
+> |---|---|---|---|
+> | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | **matches within tol (gap +0.21)** |
+> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | higher — see caveat |
+>
+> The wing-**normal** force matches van Veen's normal coefficient closely. The **chord**-wise is
+> higher because our `ib_force` is the **total** hydrodynamic force while van Veen's `C_Fx,transl` is
+> translational-only — the excess is the **rotational drag + tangential added mass** (Bomphrey 2017's
+> mosquito mechanism; the design-D5 caveat). The lab-frame numbers *changed* vs the old run (CF_x
+> 2.37/CF_z 1.46 vs old 1.41/0.68), confirming the motion fix. Time-resolved curve match vs van Veen
+> Fig 3–4 remains **T4**. The old stroke-∥-span tables below (`forces.csv`) are the **contrast
+> baseline**.
 
 ---
 

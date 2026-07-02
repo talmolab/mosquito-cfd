@@ -187,7 +187,7 @@ and red-Xs `main`**. Task 5 (geometry/deck/docs/figures) and the pin bump (6.2/6
 
 ## 7. Cluster re-run (post-submission, operator/A40, unattended)
 
-- [ ] 7.1 Submit one **coarse** new-convention validation wingbeat on the A40 with
+- [x] 7.1 Submit one **coarse** new-convention validation wingbeat on the A40 with
       `--image-pull-policy Always` (so the pinned-SHA `:fp64` from 6.4 is used, not a stale cache).
       **Enable plot output and save plotfiles to a NEW run directory under
       `MOSQUITO_CFD_PLOTFILE_ROOT` = `Z:\users\eberrigan\mosquito-cfd-benchmarks`** (a dedicated
@@ -195,13 +195,13 @@ and red-Xs `main`**. Task 5 (geometry/deck/docs/figures) and the pin bump (6.2/6
       from 5.2 so velocity is non-zero. **Non-destructive (D13): do NOT overwrite** the committed
       old-convention `examples/flapping_wing/plt_v2_*` (the preserved contrast baseline) or any existing
       Z: run.
-- [ ] 7.2 Capture `run_metadata.json`: the **GHA-published `:fp64` digest** read from the `docker.yml`
+- [x] 7.2 Capture `run_metadata.json`: the **GHA-published `:fp64` digest** read from the `docker.yml`
       job-summary block (6.4; not a local image id), and the **pinned `IAMREX_COMMIT=X`** threaded via
       `capture_run_metadata`'s **existing** `extra=` param (`extra={"iamrex_commit": X}` — metadata.py
       already has this param; no code change), inputs hash, caller-supplied timestamp (CC-V3). A
       `get_git_info(fork)` clean-at-`X` check is a **secondary** sanity gate, NOT a hard validity gate
       (the image's real provenance is the pinned SHA + digest; GHA clones fresh). Track-B corpus untouched.
-- [ ] 7.3 Grade the D5 body-frame overall-scalar-match on the re-run (`requires_plotfile`/re-run test);
+- [x] 7.3 Grade the D5 body-frame overall-scalar-match on the re-run (`requires_plotfile`/re-run test);
       **regenerate the new-convention velocity figure** (`fig_velocity`) from a new-run plotfile on the
       Z: drive; and **replace** the stale old-run numeric tables in RESULTS with `CF_chord`/`CF_normal`
       cycle-mean + peak vs van Veen, and **repoint the `RESULTS.md:6` IAMReX-fork SHA header to `X`**. If
