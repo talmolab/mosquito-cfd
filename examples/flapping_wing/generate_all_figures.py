@@ -376,7 +376,7 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
     cx = float(ds.domain_center[0])
     cy = float(ds.domain_center[1])
 
-    # Fixed-resolution buffer: full x-y plane at z = domain center (mid-span)
+    # Fixed-resolution buffer: full x-y plane at z = domain center (wing / stroke plane)
     # Upsample 4x for smooth visualization of coarse grid
     frb_nx = nx * 4
     frb_ny = ny * 4
@@ -451,7 +451,8 @@ def plot_velocity_field(figures_dir: Path, plotfile: Path):
     ax.set_ylabel("$y$ (dimensionless)", fontsize=11)
     ax.set_title(
         f"Flapping Wing — {title_note}\n"
-        f"z-slice at z={float(ds.domain_center[2]):.1f} (mid-span)",
+        f"top-down z-slice at z={float(ds.domain_center[2]):.1f} "
+        f"(wing / stroke plane; x=chord, y=span)",
         fontsize=11,
     )
 
