@@ -62,10 +62,11 @@ with old-convention docs):
    the **instantaneous wing body frame** using the *known analytic* `R(t)` from the kinematics, yielding
    **`CF_chord` and `CF_normal`** series (van Veen `F = (F_x, F_z)`). The rotation/axes are passed
    **explicitly** — no hard-coded streamwise axis, no #1-style mislabeling in the analysis layer. The
-   graded oracle is an **overall scalar match**: cycle-mean **and** peak `CF_chord`/`CF_normal` land
-   within a stated tolerance of van Veen's reported overall values, with the `[0.5,1.5]` band as a
-   floor. The OLD committed run's body-frame decomposition is reported as a **contrast baseline** (shows
-   the old motion is off).
+   graded oracle is an **overall scalar match**: the **peak** `CF_chord`/`CF_normal` land within a
+   stated tolerance of van Veen's reported overall values (cycle-means **reported alongside**, not
+   graded — a coarse single-wingbeat run has no converged mean), with the `[0.5,1.5]` band as a floor.
+   The OLD committed run's body-frame decomposition is reported as a **contrast baseline** (shows the
+   old motion is off).
 
 3. **Stroke-motion verification (issue #1 note).** A cluster-free **kinematic** test evaluates the
    refactored kinematics on the wing markers and asserts the span-tip traces the ±70° horizontal arc

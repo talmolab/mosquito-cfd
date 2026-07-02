@@ -32,7 +32,11 @@
     "mean_cf_chord": 0.515,
     "van_veen_normal_transl": 2.4,
     "van_veen_chord_transl": 0.3,
-    "note": "total force (ours) vs translational-only (van Veen); normal~match via AM/Wagner cancellation, chord higher via rotational drag"
+    "cf_normal_match": true,
+    "cf_chord_match": false,
+    "verdict": "PARTIAL",
+    "note": "total force (ours) vs translational-only (van Veen). normal~match via AM/Wagner cancellation (cf_normal_match=True). chord ~3x target -> cf_chord_match=False (gap 0.62 > tol 0.6); the rotational-drag+tangential-AM explanation is an UNVERIFIED hypothesis (coarse grid, single-wingbeat transient, total-vs-translational unseparated), decomposition tracked in issue #40",
+    "tracking_issue": "https://github.com/talmolab/mosquito-cfd/issues/40"
   },
   "image_digest": "sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
   "image_tag": "ghcr.io/talmolab/mosquito-cfd:fp64-t2a",

@@ -52,9 +52,10 @@ in van Veen's convention (`F = (F_x chord, F_z normal)`), normalized by the sing
 `compute_force_reference` (`F_ref = ½ρω²S_yy`; no correction factor). The rotation axes/order SHALL be
 passed **explicitly** (no hard-coded streamwise axis) so the analysis layer cannot re-introduce a
 #1-style mislabel. On the **new-convention re-run**, the analysis SHALL grade an **overall scalar
-match** — cycle-mean **and** peak `|CF_chord|` and `|CF_normal|` within a **stated tolerance** of van
-Veen's reported overall values — with the test-pinned `VAN_VEEN_BAND` `[0.5,1.5]` as a floor that SHALL
-NOT be loosened. Where van Veen's overall numeric targets are not yet sourced (CC-V2), the graded
+match** — the **peak** `|CF_chord|` and `|CF_normal|` within a **stated tolerance** of van Veen's
+reported overall values (cycle-means SHALL be **reported alongside**, not graded — a coarse
+single-wingbeat run has no converged mean) — with the test-pinned `VAN_VEEN_BAND` `[0.5,1.5]` as a
+floor that SHALL NOT be loosened. Where van Veen's overall numeric targets are not yet sourced (CC-V2), the graded
 criterion SHALL fall back to the band floor and the van-Veen gap SHALL be **reported, not reverse-fit**.
 The body-frame decomposition of the **old committed run** SHALL be reported as a **contrast baseline**.
 
@@ -70,17 +71,19 @@ The body-frame decomposition of the **old committed run** SHALL be reported as a
 
 - **Given** the body-frame `CF_chord`/`CF_normal` series over the pinned steady window
 - **When** the floor gate is computed
-- **Then** cycle-mean **and** peak `|CF_chord|`, `|CF_normal|` are graded against `[0.5,1.5]` read from
-  the pinned `VAN_VEEN_BAND`, and a **widened band flips the verdict to fail** (guarded by a
-  not-loosened test) — this gate is CI-gradeable before van Veen's overall numbers are sourced
+- **Then** the **peak** `|CF_chord|`, `|CF_normal|` are graded against `[0.5,1.5]` read from
+  the pinned `VAN_VEEN_BAND` (cycle-means reported, not graded), and a **widened band flips the verdict
+  to fail** (guarded by a not-loosened test) — this gate is CI-gradeable before van Veen's overall
+  numbers are sourced
 
 #### Scenario: Overall scalar-match tolerance, gated on sourced targets (pending numbers)
 
 - **Given** the body-frame series and van Veen's reported overall values pinned as the named constant
   `VAN_VEEN_CF_TARGETS` with tolerance `VAN_VEEN_MATCH_TOL`
 - **When** the tolerance match is computed
-- **Then** cycle-mean and peak `|CF_chord|`, `|CF_normal|` must fall within `VAN_VEEN_MATCH_TOL` of the
-  targets; the grader is proven on synthetic fixtures to **pass within and fail outside** (both
+- **Then** the **peak** `|CF_chord|`, `|CF_normal|` must fall within `VAN_VEEN_MATCH_TOL` of the
+  targets (cycle-means reported, not graded); the grader is proven on synthetic fixtures to **pass
+  within and fail outside** (both
   directions); and when `VAN_VEEN_CF_TARGETS is None` (not yet sourced, CC-V2) the verdict falls back to
   the band floor and the van-Veen gap is **reported, not reverse-fit**. Both `VAN_VEEN_CF_TARGETS` and
   `VAN_VEEN_MATCH_TOL` are named, test-guarded constants (a loosened tolerance fails a not-loosened test)

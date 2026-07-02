@@ -40,8 +40,9 @@ the remaining axis, default 0). A **kinematic** oracle (D6) confirms the span-ti
 
 **Reproducible-pin mechanism (review B1/B2, corrected).** `WingKinematics.H` lives in the **separate**
 `talmolab/IAMReX` repo; the `:fp64` image clones IAMReX at the commit pinned in `docker/build-args.env`
-(line 9) **and** `docker/Dockerfile.fp64` (ARG line 17), which currently both equal `7ece065d` (= the
-fork HEAD). An in-container hot-patch (`cp` into `/opt/cfd/IAMReX/Source/` + local rebuild) produces a
+(line 9) **and** `docker/Dockerfile.fp64` (ARG line 17), which **pre-refactor** both equal `7ece065d`
+(= the then fork HEAD; this change bumps both to the new `f93dc794`, see the deviation note in
+`proposal.md`). An in-container hot-patch (`cp` into `/opt/cfd/IAMReX/Source/` + local rebuild) produces a
 binary whose source is captured by **no** commit — unreproducible, violating CC-V3. The refactor MUST
 therefore follow the canonical workflow (`openspec/runai-dev-workflow.md:130-141`): (1) commit
 `WingKinematics.H` on the fork → SHA `X`; (2) bump `IAMREX_COMMIT` to `X` in **both** pin files (they
@@ -113,6 +114,11 @@ scenarios:** (a) the always-on floor (`VAN_VEEN_BAND` not loosened) — live and
   grades the `[0.5,1.5]` **floor** per component (live) + an **overall-magnitude** check of peak
   `CF_normal` against `C_Fz,transl(α≈45°)≈2.4` and peak `CF_chord` small, gap **reported**, not
   reverse-fit.
+
+**Re-run outcome (post-hoc).** On the T2a re-run the grader returns `cf_normal_match=True` (2.61 vs
+2.4) but **`cf_chord_match=False`** (0.92 vs 0.3, gap 0.62 > tol 0.6) — verdict **PARTIAL**. The chord
+excess is an unverified total-vs-translational / coarse-grid hypothesis; the per-component decomposition
+(and the cheap added-mass-subtracted check) is deferred to **T4** and tracked in **issue #40**.
 
 The rotation axes/order are passed **explicitly** (no hard-coded streamwise axis) — the
 `stress_integral` Decision-9 analog — so the analysis layer cannot re-introduce a #1-style mislabel.

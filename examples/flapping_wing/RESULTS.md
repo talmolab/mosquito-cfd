@@ -9,7 +9,7 @@ Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
 
 ---
 
-> ## Tier T2a (axis-convention refactor, issue #1) — re-run COMPLETE, body frame validated
+> ## Tier T2a (axis-convention refactor, issue #1) — re-run COMPLETE, body-frame comparison delivered (PARTIAL)
 >
 > The geometry, kinematics, deck, and docs are in the **van Veen / Bomphrey convention** (x = chord,
 > y = span, z = vertical/lift; stroke `Rz(φ)` about the vertical so the span-tip sweeps — see
@@ -22,14 +22,18 @@ Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
  | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
 > |---|---|---|---|
 > | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
-> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | higher — rotational drag |
+> | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target → `cf_chord_match=False` (#40) |
 >
-> **Honest framing (both are total-vs-translational).** Our `ib_force` is the **total** hydrodynamic
-> force; van Veen's `C_F*,transl` are **translational-only** (he decomposes into translational +
-> added-mass + Wagner). So `CF_normal ≈ 2.4` because van Veen's added-mass (+) and Wagner (−)
-> contributions roughly **cancel** in the wing-normal at this condition (not a like-for-like
-> translational match); `CF_chord` runs **higher** than the translational chord because rotational drag
-> + tangential added mass **add** to it (Bomphrey 2017's mosquito mechanism; design-D5 caveat). The
+> **Honest framing (both are total-vs-translational; verdict is PARTIAL).** Our `ib_force` is the
+> **total** hydrodynamic force; van Veen's `C_F*,transl` are **translational-only** (he decomposes into
+> translational + added-mass + Wagner). So `CF_normal ≈ 2.4` because van Veen's added-mass (+) and
+> Wagner (−) contributions roughly **cancel** in the wing-normal at this condition (not a like-for-like
+> translational match) → `cf_normal_match=True`. `CF_chord` runs ~3× the translational chord; the
+> **working hypothesis** is rotational drag + tangential added mass **adding** to it (Bomphrey 2017;
+> design-D5 caveat), but this is **unverified** (coarse grid Δx=0.125, single-wingbeat transient, and
+> total-vs-translational are unseparated) → the grader returns `cf_chord_match=False` (gap 0.62 > tol
+> 0.6), so the overall verdict is **PARTIAL**. The decomposition + added-mass-subtracted check are
+> tracked in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. The
 > lab-frame numbers *changed* vs the old run (CF_x 2.37/CF_z 1.46 vs old 1.41/0.68), confirming the
 > motion fix. **NB** the `[0.5,1.5]` band is a *lab-frame* O(1) plausibility range, not a body-frame
 > gate — van Veen's own CF_normal (~2.4) exceeds 1.5, so a body-frame CF_normal above the band is
@@ -182,14 +186,20 @@ section at the end of this file.
 | Component | T2a run (**total** force) | van Veen (**translational-only**, Fig 4) | note |
 |---|---|---|---|
 | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
-| **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | higher — rotational drag |
+| **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target — see hypothesis below (#40) |
 | cycle-mean \|CF_normal\| / \|CF_chord\| | 1.06 / 0.52 | — | reported (peaks graded) |
 
-Both compare our **total** `ib_force` to van Veen's **translational-only** coefficients: `CF_normal ≈
-2.4` because van Veen's added-mass (+) and Wagner (−) roughly **cancel** in the wing-normal, and
-`CF_chord` runs higher because rotational drag + tangential added mass **add** (Bomphrey 2017). The
-gate grades the **peaks**; cycle-means are reported. Time-resolved curve match vs van Veen Fig 3–4 is
-**T4**.
+Both compare our **total** `ib_force` to van Veen's **translational-only** coefficients. `CF_normal ≈
+2.4` because van Veen's added-mass (+) and Wagner (−) roughly **cancel** in the wing-normal, so the
+total ≈ the translational value — this component lands within tol. `CF_chord` runs ~3× the
+translational chord target. The **working hypothesis** is that rotational drag + tangential added mass
+**add** in the chord direction (Bomphrey 2017), but this is **not yet verified** — the coarse grid
+(Δx = 0.125), the single-wingbeat transient, and the total-vs-translational mismatch are all
+unseparated at T2a. Decomposing the force per component (and the cheap added-mass-subtracted check)
+is tracked in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. The scalar-match grader
+accordingly returns `cf_normal_match = True` but **`cf_chord_match = False`** (gap 0.62 > tol 0.6) —
+the honest per-component verdict is **PARTIAL**, not a full pass. The gate grades the **peaks**;
+cycle-means are reported. Time-resolved curve match vs van Veen Fig 3–4 is **T4**.
 
 ### Added-mass decomposition (reported, not gated)
 
@@ -267,7 +277,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Marker motion (span-tip sweeps) | PASS | ±70° arc in the x–y stroke plane (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
-| Body-frame van Veen comparison | PASS | CF_normal 2.61 vs van Veen ~2.4 (within tol); CF_chord 0.92 (higher, rotational drag) |
+| Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run is Tier T3 |
 
@@ -282,13 +292,16 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Re (midspan) | ~100 | 100–500 | MATCH |
 | Peak-lift phase | mid-stroke (t≈0.5, φ̇ max) | mid-stroke | MATCH |
 | **Body-frame CF_normal** | **2.61** | ~2.4 (`C_Fz,transl`) | within tol (gap +0.21) |
-| Body-frame CF_chord | 0.92 | ~0.3 (`C_Fx,transl`) | higher (rotational drag) |
+| Body-frame CF_chord | 0.92 | ~0.3 (`C_Fx,transl`) | above target (hypothesis; #40) |
 
-The faithful **body-frame per-component** comparison (issue #1 / T2a) is **delivered**: `CF_normal`
-matches van Veen's normal coefficient within tolerance, and the peak-lift phase is now at mid-stroke
-(the correct translational-stroke signature). Both `CF_*` compare our **total** `ib_force` to van
-Veen's **translational-only** coefficients (see the body-frame section above). Only the **time-resolved**
-curve match vs van Veen Fig 3–4 (**T4**) and medium-grid LEV convergence (**T3**) remain.
+The faithful **body-frame per-component** comparison (issue #1 / T2a) is **delivered** (the machinery,
+not a full pass): `CF_normal` matches van Veen's normal coefficient within tolerance, and the peak-lift
+phase is now at mid-stroke (the correct translational-stroke signature). `CF_chord` sits ~3× the
+translational target — an unverified total-vs-translational/coarse-grid hypothesis, tracked in
+**[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. Both `CF_*` compare our **total**
+`ib_force` to van Veen's **translational-only** coefficients (see the body-frame section above). The
+per-component **decomposition** (#40 / **T4**), the time-resolved curve match vs van Veen Fig 3–4
+(**T4**), and medium-grid LEV convergence (**T3**) remain.
 
 ---
 
