@@ -12,7 +12,7 @@ This document describes the methodology for GPU-accelerated CFD benchmarks used 
 
 | Component | Version | Source |
 |-----------|---------|--------|
-| IAMReX | commit c5f8e2a | https://github.com/ruohai0925/IAMReX |
+| IAMReX | commit f93dc794 | https://github.com/talmolab/IAMReX |
 | AMReX | 24.11 | https://github.com/AMReX-Codes/amrex |
 | CUDA | 12.4 | NVIDIA |
 | GCC | 11.4 | Ubuntu 22.04 |
@@ -21,7 +21,7 @@ This document describes the methodology for GPU-accelerated CFD benchmarks used 
 
 ### Precision Decision
 
-All benchmarks use **double precision (FP64)**. The IAMReX maintainer [does not test single precision](https://github.com/ruohai0925/IAMReX/issues/59), and preliminary testing showed numerical instabilities with FP32 builds.
+All benchmarks use **double precision (FP64)**. The upstream IAMReX maintainer [does not test single precision](https://github.com/ruohai0925/IAMReX/issues/59) (this is an *upstream* tracking issue; the solver actually built here is the **`talmolab/IAMReX` fork** pinned above), and preliminary testing showed numerical instabilities with FP32 builds.
 
 ## Hardware
 
@@ -77,7 +77,7 @@ CFD solvers are typically **memory-bandwidth limited** due to the stencil operat
 | Coarse (128×64×64) | 524,288 | 129 | 0.30 s | 679 MB |
 | Medium (256×128×128) | 4,194,304 | 515 | 1.76 s | 3,837 MB |
 
-**Validation**: Literature Cd = 1.087 (Johnson & Patel 1999). See RESULTS.md for computed values and discrepancy investigation.
+**Validation**: Literature Cd = 1.087 (Johnson & Patel 1999). See [`flow_past_sphere/RESULTS.md`](../examples/flow_past_sphere/RESULTS.md) for the computed control-volume Cd and the **H1′ confinement-corrected literature grade** (T2b).
 
 ### Case 2: Heaving Ellipsoid (Re=100)
 
@@ -171,7 +171,7 @@ All simulations use the verified FP64 Docker image:
 docker pull ghcr.io/talmolab/mosquito-cfd:fp64
 ```
 
-The image is built from `docker/Dockerfile.iamrex` in this repository.
+The image is built from `docker/Dockerfile.fp64` in this repository (IAMReX pinned at `talmolab/IAMReX @ f93dc794` via `docker/build-args.env`; guarded by `test_iamrex_pin_consistent` and `test_methods_pin_consistent`).
 
 ### Run Commands
 
@@ -203,6 +203,12 @@ runai workspace submit heaving-ellipsoid \
     max_step=1000"
 ```
 
+> **T2b re-run (van Veen pin `talmolab/IAMReX @ f93dc794`).** The heaving ellipsoid is re-run on the
+> pinned `:fp64` image with the **byte-unchanged** deck to emit the 29-column IB-particle output (with the
+> `SumU*` added-mass columns), committed as `examples/heaving_ellipsoid/forces_t2b_ib.csv` alongside
+> `run_metadata_t2b.json` (image digest + `iamrex_commit` + inputs hash + caller-supplied timestamp). See
+> `examples/heaving_ellipsoid/RESULTS.md` for the self-consistency + added-mass-fraction verdicts.
+
 ### Analysis Scripts
 
 Force extraction and visualization:
@@ -210,8 +216,8 @@ Force extraction and visualization:
 ```python
 from mosquito_cfd.benchmarks.analyze_sphere import extract_sphere_cd
 
-# Extract drag coefficient from plotfile
-result = extract_sphere_cd('path/to/plt10000')
+# Extract drag coefficient from plotfile (T1b control-volume method; the marker default is superseded)
+result = extract_sphere_cd('path/to/plt10000', method="cv")
 print(f"Cd = {result['cd']:.4f}")
 ```
 
@@ -223,8 +229,9 @@ Each benchmark run produces `run_metadata.json`:
 {
   "run_id": "uuid",
   "timestamp": "ISO8601",
-  "git_commit": "sha256",
+  "git_commit": "<40-hex git SHA>",
   "docker_image": "ghcr.io/talmolab/mosquito-cfd:fp64@sha256:...",
+  "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
   "hardware": {
     "gpu_model": "NVIDIA A40",
     "cuda_version": "12.4"
@@ -239,7 +246,7 @@ Each benchmark run produces `run_metadata.json`:
 
 ## Known Limitations
 
-1. **Force coefficient discrepancy (RESOLVED — force-extraction bug, T1a/T1b).** The IB-marker Cd was ~60% low because it summed only the last multidirect sub-iteration's force (`loop_ns=2`; the accumulated force was never persisted). The corrected drag, read from the Eulerian fields via a periodic-duct control-volume balance (`extract_sphere_cd(method="cv")`), is **2.64× the marker value** and converges toward literature (medium Cd 1.18, Richardson-extrapolated 1.13 vs 1.087; the residual is the confined-array offset). See [`docs/aerodynamics_validation/t1a-findings.md` §8](../docs/aerodynamics_validation/t1a-findings.md). No re-run was needed.
+1. **Force coefficient discrepancy (RESOLVED — force-extraction bug, T1a/T1b).** The IB-marker Cd was ~60% low because it summed only the last multidirect sub-iteration's force (`loop_ns=2`; the accumulated force was never persisted). The corrected drag, read from the Eulerian fields via a periodic-duct control-volume balance (`extract_sphere_cd(method="cv")`), is **2.64× the marker value** and converges toward literature (medium Cd 1.18, Richardson-extrapolated 1.13 vs 1.087; the residual is the confined-array offset). **T2b grades this as H1′** — the Richardson value divided by the +3–6% confinement offset brackets 1.087 within ±5% (see [`flow_past_sphere/RESULTS.md`](../examples/flow_past_sphere/RESULTS.md)). See [`docs/aerodynamics_validation/t1a-findings.md` §8](../docs/aerodynamics_validation/t1a-findings.md). No re-run was needed.
 
 2. **Geometry constraints**: IAMReX only supports sphere, ellipsoid, and cylinder. Realistic wing shapes require geometry extension or alternative solver.
 
