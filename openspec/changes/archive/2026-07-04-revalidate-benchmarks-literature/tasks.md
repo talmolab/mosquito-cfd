@@ -84,7 +84,11 @@ context)` trailer.
 - [x] **2.5 (impl)** Implement `src/mosquito_cfd/benchmarks/heaving_ellipsoid.py`: self-consistency grader
   (named `STEADY_WINDOW_T0=7`, `SELF_CONSISTENCY_TOL=0.01`), added-mass fraction (reusing `added_mass_force`),
   van-Veen-ballpark reporting. Make 2.1–2.4 green on the synthetic fixture + skips.
-- [ ] **2.6 (operator re-run, cluster)** Run the **byte-unchanged** `inputs.3d.heaving_ellipsoid` on the
+> **2.6 / 2.7 are DEFERRED to the operator A40 re-run — tracked in [#43](https://github.com/talmolab/mosquito-cfd/issues/43).**
+> PR #42 landed the graders + cluster-free numerics; the ellipsoid `SumU` capture + real-data verdicts
+> land via #43 (like T2a's #40). The artifact-dependent tests auto-activate when the CSV/metadata land.
+
+- [ ] **2.6 (operator re-run, cluster) — deferred to [#43](https://github.com/talmolab/mosquito-cfd/issues/43)** Run the **byte-unchanged** `inputs.3d.heaving_ellipsoid` on the
   pinned `:fp64` image (IAMReX `f93dc794`) via the RunAI/WSL pattern (CLAUDE.md), 29-col IB output enabled,
   plotfiles to `MOSQUITO_CFD_PLOTFILE_ROOT`. **Grade the fresh CSV locally (task 5.2) BEFORE `git add`** —
   commit `examples/heaving_ellipsoid/{forces_t2b_ib.csv, run_metadata_t2b.json}` (via
