@@ -156,6 +156,9 @@ def test_headline_tables_enumeration_complete():
     extracted: set[float] = set()
     for header in _HEADLINE_TABLES:
         extracted |= _table_numbers(doc, header)
+    # Limitation: this is a magnitude-set comparison, so a newly added headline whose magnitude
+    # collides with an already-enumerated value (e.g. a second 0.6) would be absorbed silently. A
+    # new *distinct* headline number fails here (verified by injecting a spurious value in review).
     known = _HEADLINE_VERIFIED | _HEADLINE_REFERENCE
     assert extracted == known, (
         f"headline-table numbers changed — unexpected {sorted(extracted - known)}, "

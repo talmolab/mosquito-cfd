@@ -203,11 +203,13 @@ runai workspace submit heaving-ellipsoid \
     max_step=1000"
 ```
 
-> **T2b re-run (van Veen pin `talmolab/IAMReX @ f93dc794`).** The heaving ellipsoid is re-run on the
-> pinned `:fp64` image with the **byte-unchanged** deck to emit the 29-column IB-particle output (with the
-> `SumU*` added-mass columns), committed as `examples/heaving_ellipsoid/forces_t2b_ib.csv` alongside
-> `run_metadata_t2b.json` (image digest + `iamrex_commit` + inputs hash + caller-supplied timestamp). See
-> `examples/heaving_ellipsoid/RESULTS.md` for the self-consistency + added-mass-fraction verdicts.
+> **T2b re-run (van Veen pin `talmolab/IAMReX @ f93dc794`) — pending operator run.** The heaving ellipsoid
+> **will be** re-run on the pinned `:fp64` image with the **byte-unchanged** deck to emit the 29-column
+> IB-particle output (with the `SumU*` added-mass columns), **to be committed** as
+> `examples/heaving_ellipsoid/forces_t2b_ib.csv` alongside `run_metadata_t2b.json` (image digest +
+> `iamrex_commit` + inputs hash + caller-supplied timestamp) once the operator re-run lands. The
+> self-consistency + added-mass-fraction graders (`mosquito_cfd.benchmarks.heaving_ellipsoid`) and their
+> tests are already in place; the artifact-dependent tests auto-activate when those files are committed.
 
 ### Analysis Scripts
 

@@ -87,12 +87,16 @@ def ellipsoid_self_consistency(
             f"self-consistency declines: only {t_w.size} sample(s) in the steady window "
             f"t >= {window_t0}; need >= 3 to resolve a consecutive-sample change"
         )
-    median_dt = float(np.median(np.diff(t_w)))
-    if not np.isfinite(median_dt) or median_dt <= 0:
+    dts = np.diff(t_w)
+    # Strictly-increasing time is a real contract: the consecutive-sample metric below walks rows in
+    # file order, so a backward step (a concatenated/shuffled export) would make the verdict
+    # order-dependent. Enforce it directly rather than only checking the median.
+    if not (np.all(np.isfinite(dts)) and np.all(dts > 0)):
         raise ValueError(
-            "self-consistency declines: non-increasing/degenerate steady-window timestamps "
-            f"(median dt = {median_dt:g}); time must be strictly increasing"
+            "self-consistency declines: steady-window timestamps are not strictly increasing "
+            "(a backward/duplicate/non-finite step makes the consecutive-change metric order-dependent)"
         )
+    median_dt = float(np.median(dts))
     if median_dt > MAX_SAMPLE_DT:
         raise ValueError(
             f"self-consistency declines: steady-window sampling is too coarse "
@@ -128,7 +132,10 @@ def ellipsoid_added_mass_fraction(
 
     The **steady-window** fraction is the physically-meaningful quantity: for a constant-velocity heave
     it is ~0 (near-zero steady added mass), well **bounded** below 1, and **decays** from the impulsive
-    start. The **per-timestep** ``frac_*`` arrays carry ``NaN`` at an ib-force zero-crossing (where the
+    start. NB the ``0 <= steady_frac < 1`` bound is a **property of this constant-velocity case** (steady
+    ``Fy`` settles to a non-zero value, so there is no steady-window zero-crossing) — it is **not** a
+    grader invariant, and would not hold for an oscillatory (flapping) ``ib_force`` whose steady force
+    crosses zero. The **per-timestep** ``frac_*`` arrays carry ``NaN`` at an ib-force zero-crossing (where the
     ratio is undefined — NOT a fabricated 0), so a real heave-lift ``Fy`` crossing zero legitimately
     yields NaN there; means are taken with ``nanmean``. The van Veen 15%/31% ballpark is a REPORTED
     order-of-magnitude sanity, **not** matched (CC-V2), and is returned as a COPY so callers cannot

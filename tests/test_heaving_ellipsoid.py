@@ -159,6 +159,23 @@ def test_self_consistency_rejects_nonfinite_forces():
         ellipsoid_self_consistency(df)
 
 
+def test_self_consistency_rejects_non_monotonic_time():
+    """A backward time step (positive median dt, but out-of-order rows) is rejected, not graded.
+
+    The consecutive-change metric walks rows in file order, so a non-monotonic time column (a
+    concatenated/shuffled export) would make the verdict order-dependent — the guard forbids it.
+    """
+    df = _synthetic_ib()
+    t = df["time"].to_numpy().copy()
+    k = int(np.where(t >= STEADY_WINDOW_T0 + 0.5)[0][0])
+    t[k] = (
+        t[k - 1] - 0.005
+    )  # backward step inside the steady window (median dt stays > 0)
+    df["time"] = t
+    with pytest.raises(ValueError, match="strictly increasing"):
+        ellipsoid_self_consistency(df)
+
+
 def test_heave_channel_nonzero():
     """The graded heave-lift Fy channel is non-zero, so the lift-side gate is not a degenerate 0/0."""
     df = _synthetic_ib()

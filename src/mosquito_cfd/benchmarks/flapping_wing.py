@@ -464,7 +464,9 @@ def body_frame_overall_match(
         "cf_chord_in_band": lo <= peak_chord <= hi,
         "cf_normal_in_band": lo <= peak_normal <= hi,
         "window_t0": window_t0,
-        "targets": targets,
+        # Copy so a caller mutating result["targets"] cannot corrupt a shared module constant
+        # (e.g. VAN_VEEN_CF_TARGETS) passed in by reference.
+        "targets": dict(targets) if targets is not None else None,
     }
     if targets is None:
         result["cf_chord_gap"] = None
