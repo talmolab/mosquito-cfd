@@ -203,13 +203,13 @@ runai workspace submit heaving-ellipsoid \
     max_step=1000"
 ```
 
-> **T2b re-run (van Veen pin `talmolab/IAMReX @ f93dc794`) — pending operator run.** The heaving ellipsoid
-> **will be** re-run on the pinned `:fp64` image with the **byte-unchanged** deck to emit the 29-column
-> IB-particle output (with the `SumU*` added-mass columns), **to be committed** as
-> `examples/heaving_ellipsoid/forces_t2b_ib.csv` alongside `run_metadata_t2b.json` (image digest +
-> `iamrex_commit` + inputs hash + caller-supplied timestamp) once the operator re-run lands. The
-> self-consistency + added-mass-fraction graders (`mosquito_cfd.benchmarks.heaving_ellipsoid`) and their
-> tests are already in place; the artifact-dependent tests auto-activate when those files are committed.
+> **T2b re-run (van Veen pin `talmolab/IAMReX @ f93dc794`).** The heaving ellipsoid was re-run on the pinned
+> `:fp64` image (`@sha256:a6431ef4…`) with the **byte-unchanged** deck, emitting the 29-column IB-particle
+> output (with the `SumU*` added-mass columns), committed as `examples/heaving_ellipsoid/forces_t2b_ib.csv`
+> alongside `run_metadata_t2b.json` (image digest + `iamrex_commit` + inputs hash + caller-supplied
+> timestamp). Graded by `mosquito_cfd.benchmarks.heaving_ellipsoid`: **self-consistency PASS** (drag/lift Δ
+> < 1% after t=7) **+ added-mass-fraction sanity** (steady share ≪ van Veen's 15%/31% wing ballpark, as
+> expected for a constant-velocity heave). See `examples/heaving_ellipsoid/RESULTS.md`.
 
 ### Analysis Scripts
 

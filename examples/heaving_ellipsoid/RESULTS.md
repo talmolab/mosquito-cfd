@@ -88,7 +88,31 @@ Reference areas for thin ellipsoid (a=0.5, b=0.02, c=1.5):
 | CL | 0.085 | Planform (2.36) | Heaving-induced lift |
 | L/D | 0.53 | - | Lift-to-drag ratio |
 
-**Note**: Force extraction uses `particle_real_comp3/4/5`. Same ~60% discrepancy observed for FlowPastSphere Cd suggests systematic calibration needed.
+**Note**: Force extraction uses `particle_real_comp3/4/5`. Same ~60% discrepancy observed for FlowPastSphere Cd suggests systematic calibration needed. *(The "~60% discrepancy" framing here is the pre-T1b narrative and is left for the docs-only CC-V5 cleanup, [#29](https://github.com/talmolab/mosquito-cfd/issues/29); T2b does not touch it.)*
+
+## T2b re-validation — self-consistency + added-mass sanity (van Veen convention)
+
+**Oracle** (roadmap Tier T2b): self-consistency (forces Δ<1% after t=7) **+** added-mass-fraction sanity vs
+van Veen (15% lift / 31% drag). **Not** a literature Cd point.
+
+Re-run on the pinned `:fp64` image (`ghcr.io/talmolab/mosquito-cfd@sha256:a6431ef4…`, IAMReX
+`talmolab/IAMReX @ f93dc794`) with the **byte-unchanged** deck, emitting the 29-column IB-particle output
+(`forces_t2b_ib.csv`, `SumUx/SumUy/SumUz`; provenance `run_metadata_t2b.json`). Graded by
+`mosquito_cfd.benchmarks.heaving_ellipsoid` (1000 steps, dt=0.01, 300 samples in the steady window).
+
+| Check | Result | Verdict |
+|---|---|---|
+| **Self-consistency** (max consecutive Δ over t≥7) | drag `Fx` **0.16%**, heave-lift `Fy` **0.15%** | **PASS** (< 1%) |
+| **Added-mass fraction** (`ρ_f·SumU` / `ib_force`, steady) | drag **1.1%**, lift **0.5%** (peaks ~5–6% at the impulsive start, decays to steady) | **sanity holds** |
+| vs van Veen ballpark (15% lift / 31% drag) | ellipsoid share is **well below** the wing's | expected |
+
+The added-mass fraction sits **far below** van Veen's flapping-wing 15%/31% — the physically-expected
+sanity: a **constant-velocity** heave has near-zero *steady* added mass (acceleration ≈ 0), so its
+added-mass share is much smaller than an accelerating wing's. The van Veen 15%/31% figure is a **reported**
+order-of-magnitude ballpark (cited to the roadmap oracle row / van Veen 2022), **not** a matched target
+(CC-V2). The spanwise `Fz` (≈0 by symmetry, `max|Fz| < 5e-4` steady) is not graded; drag `Fx` and
+heave-lift `Fy` settle to non-zero steady values (`Fx ≈ −0.49`, `Fy ≈ +0.26`), so the fraction has no
+zero-crossings.
 
 ## Limitations Observed
 
