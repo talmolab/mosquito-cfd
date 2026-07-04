@@ -81,10 +81,30 @@ The ~60%-low Cd was **not** under-resolution and **not** a missing kernel weight
 - The corrected pair **converges toward literature** from above (1.342 → 1.184). The residual +4–9% is the
   **confined-array setup offset** (the run is periodic in y,z = an infinite array at pitch 10 D, +3–6%) plus
   incomplete grid convergence. Dividing out the confinement offset puts the isolated-equivalent in the
-  bracket **≈1.00–1.11** (the absolute value carries a ~1–5% viscous-omission error bar plus an unfitted
-  convergence order, so it is not pinned tighter than that — see t1a-findings §8).
+  wider bracket **≈1.00–1.11** (this figure additionally carries a ~1–5% viscous-omission error bar plus an
+  unfitted convergence order, so it is not pinned tighter than that — see t1a-findings §8).
 
-To land the literal 1.087 ± 5% on a single grid, T2b refines the grid / applies the confinement correction.
+### T2b literature grade: H1′ (confinement-corrected, no re-run)
+
+Tier T2b grades the corrected Cd against the literature point **Cd = 1.087** via
+`grade_sphere_cd_confinement_corrected` (`mosquito_cfd.benchmarks.analyze_sphere`; the grader unit test
+`tests/test_sphere_confinement_grade.py` is the **source of truth** for the numbers below — no doc-reading
+guard, so they are computed, not transcribed). The grade takes the **Richardson-extrapolated** value
+`1.131` (the two-grid converged estimate) and divides out the pinned **+3–6%** confinement offset:
+
+| Quantity | Value |
+|----------|-------|
+| Confined Richardson Cd | 1.131 |
+| Isolated-equivalent bracket `1.131/(1+[0.03,0.06])` | **[1.067, 1.098]** |
+| Literature ±5% window | [1.033, 1.141] |
+| **Verdict** | **H1′** — bracket ⊂ window; residual = confined-array offset |
+
+This `[1.067, 1.098]` is the **pure-confinement** bracket (it isolates *only* the array offset) and so
+sits *inside* the wider `≈1.00–1.11` figure above, which additionally budgets the viscous-omission and
+unfitted-order uncertainty. The verdict rests on the **Richardson** value, not a single grid: the medium
+grid alone (`1.184/(1+[0.03,0.06]) = [1.117,1.150]`) exceeds the window and would grade *not H1′* — a
+two-grid extrapolation is required. **No re-run was needed**; T2b documents the residual as the
+confined-array offset rather than refining/de-confining the array.
 
 ## Performance Data for APEX Proposal
 
