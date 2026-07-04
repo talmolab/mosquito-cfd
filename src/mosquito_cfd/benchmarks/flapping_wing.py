@@ -172,22 +172,38 @@ def plausibility_gate(
 ) -> dict:
     """Grade the O(1) magnitude plausibility gate on ``ib_force`` ALONE over the steady window.
 
+    The ``VAN_VEEN_BAND`` ``(0.5, 1.5)`` is graded as a **lower-bound O(1) sanity floor** (T2b):
+    the graded verdict is ``floor_pass`` — each peak ``|CF|`` clears the floor ``0.5`` (this caught
+    the old peak-tip normalization at ``CF_z ~0.22 < 0.5``). The **ceiling** ``1.5`` is **reported,
+    not gated** (``cf_*_in_band``, ``cf_x_ceiling_margin``): a per-component peak above ``1.5`` is
+    expected under the corrected motion (van Veen's own body-frame normal ~2.4 also exceeds 1.5), not
+    a failure. The band *value* is unchanged — this is a grading-role change, not a loosening. The
+    faithful per-component van Veen comparison is the body-frame decomposition, not this lab band.
+
     The verdict is a function of ``ib_force`` only — the added-mass term cannot flip it. The
-    rotation-invariant resultant ``|CF| = sqrt(CF_x^2 + CF_z^2)`` is reported as the
-    frame-honest companion.
+    rotation-invariant resultant ``|CF| = sqrt(CF_x^2 + CF_z^2)`` is reported as the frame-honest
+    companion.
     """
     lo, hi = VAN_VEEN_BAND
     m = _steady_mask(decomp, window_t0)
     max_cf_x = float(np.abs(decomp.cf_x_ib[m]).max())
     max_cf_z = float(np.abs(decomp.cf_z_ib[m]).max())
     resultant = np.sqrt(decomp.cf_x_ib[m] ** 2 + decomp.cf_z_ib[m] ** 2)
+    cf_x_above_floor = max_cf_x >= lo
+    cf_z_above_floor = max_cf_z >= lo
     return {
         "max_cf_x": max_cf_x,
         "max_cf_z": max_cf_z,
+        # Graded floor (lower bound) — the T2b verdict.
+        "cf_x_above_floor": cf_x_above_floor,
+        "cf_z_above_floor": cf_z_above_floor,
+        "floor_pass": cf_x_above_floor and cf_z_above_floor,
+        # Reported ceiling companions (two-sided, NOT gated) + resultant.
         "cf_x_in_band": lo <= max_cf_x <= hi,
         "cf_z_in_band": lo <= max_cf_z <= hi,
         "max_resultant": float(resultant.max()),
-        "cf_x_ceiling_margin": hi - max_cf_x,  # tighter edge near the transient cutoff
+        "cf_x_ceiling_margin": hi
+        - max_cf_x,  # reported; negative when the peak exceeds the ceiling
         "cf_z_floor_margin": max_cf_z - lo,
         "window_t0": window_t0,
     }
@@ -448,7 +464,9 @@ def body_frame_overall_match(
         "cf_chord_in_band": lo <= peak_chord <= hi,
         "cf_normal_in_band": lo <= peak_normal <= hi,
         "window_t0": window_t0,
-        "targets": targets,
+        # Copy so a caller mutating result["targets"] cannot corrupt a shared module constant
+        # (e.g. VAN_VEEN_CF_TARGETS) passed in by reference.
+        "targets": dict(targets) if targets is not None else None,
     }
     if targets is None:
         result["cf_chord_gap"] = None

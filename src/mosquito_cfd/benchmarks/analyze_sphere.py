@@ -22,6 +22,13 @@ LITERATURE_CD = 1.087  # Johnson & Patel (1999)
 LITERATURE_CD_RANGE = (1.087, 1.10)  # Range from various sources
 ACCEPTANCE_TOLERANCE = 0.05  # 5% acceptance
 
+# T2b confinement-corrected literature grade (H1'). The committed sphere run is a transversely
+# periodic ARRAY (pitch 10 D, 5 D upstream), so its Cd carries an estimated +3-6% confinement offset
+# above the isolated value; dividing it out yields the isolated-equivalent bracket graded against
+# LITERATURE_CD. These are pinned and NOT loosened to make a grade pass (CC-V2).
+SPHERE_CONFINEMENT_OFFSET_BAND = (0.03, 0.06)  # (+3%, +6%) transverse-array confinement
+SPHERE_LITERATURE_TOL = ACCEPTANCE_TOLERANCE  # +/-5% of LITERATURE_CD
+
 
 def load_plotfile(plotfile_path: str | Path) -> Any:
     """Load an AMReX plot file using yt.
@@ -326,6 +333,77 @@ def grid_convergence_analysis(
         "cd_coarse": cd_coarse,
         "cd_medium": cd_medium,
         "cd_fine": cd_fine,
+    }
+
+
+def grade_sphere_cd_confinement_corrected(
+    cd_confined: float,
+    *,
+    offset_band: tuple[float, float] = SPHERE_CONFINEMENT_OFFSET_BAND,
+    literature_cd: float = LITERATURE_CD,
+    tol: float = SPHERE_LITERATURE_TOL,
+) -> dict[str, Any]:
+    """Grade a confined control-volume Cd against literature by removing the confinement offset (H1').
+
+    The committed sphere run is a transversely-periodic array whose Cd sits an estimated
+    ``offset_band`` (+3-6%) above the isolated value. The isolated-equivalent bracket is obtained by
+    **dividing** the confined Cd by ``(1 + offset)`` — NOT ``cd * (1 - offset)``. Because a larger
+    offset yields a *smaller* isolated value, the bracket is taken as ``min``/``max`` over both offset
+    endpoints (do not assume ``offset_band[0]`` maps to the lower bracket end). The verdict is **H1'**
+    when the whole bracket lies within ``+/- tol`` of ``literature_cd`` (edges **inclusive**).
+
+    This takes Cd *values* only — it does not read plotfiles or touch the extractor internals (CC-V4).
+    The H1' verdict is intended for the two-grid Richardson value (1.131); a single grid (e.g. the
+    medium CV 1.18) legitimately grades ``not H1'``.
+
+    Args:
+        cd_confined: The confined-array control-volume Cd (a single grid or the Richardson value).
+        offset_band: ``(lo, hi)`` fractional confinement offsets, ``0 <= lo <= hi``.
+        literature_cd: The literature target (Johnson & Patel 1999 = 1.087).
+        tol: Fractional tolerance on ``literature_cd`` (0.05 = +/-5%).
+
+    Returns:
+        Dict with ``cd_confined``, ``isolated_bracket`` (lo, hi), ``tol_range`` (lo, hi),
+        ``literature_cd``, ``within`` (bool), and ``verdict`` ("H1'" | "not H1'").
+
+    Raises:
+        ValueError: for a non-positive Cd, a misordered/negative offset band, or a negative tol.
+    """
+    if not np.isfinite(cd_confined) or cd_confined <= 0:
+        raise ValueError(f"cd_confined must be finite and positive, got {cd_confined}")
+    if not np.isfinite(literature_cd) or literature_cd <= 0:
+        raise ValueError(
+            f"literature_cd must be finite and positive, got {literature_cd}"
+        )
+    lo_off, hi_off = offset_band
+    if (
+        not (0 <= lo_off <= hi_off)
+        or not np.isfinite(lo_off)
+        or not np.isfinite(hi_off)
+    ):
+        raise ValueError(
+            f"offset_band must be finite with 0 <= lo <= hi, got {offset_band}"
+        )
+    if not np.isfinite(tol) or tol < 0:
+        raise ValueError(f"tol must be finite and non-negative, got {tol}")
+
+    # Divide out the confinement offset; min/max because a larger offset -> smaller isolated value.
+    iso_a = cd_confined / (1 + lo_off)
+    iso_b = cd_confined / (1 + hi_off)
+    bracket = (min(iso_a, iso_b), max(iso_a, iso_b))
+
+    tol_range = (literature_cd * (1 - tol), literature_cd * (1 + tol))
+    within = (
+        tol_range[0] <= bracket[0] and bracket[1] <= tol_range[1]
+    )  # inclusive edges
+
+    return {
+        "cd_confined": cd_confined,
+        "isolated_bracket": bracket,
+        "tol_range": tol_range,
+        "literature_cd": literature_cd,
+        "within": within,
+        "verdict": "H1'" if within else "not H1'",
     }
 
 

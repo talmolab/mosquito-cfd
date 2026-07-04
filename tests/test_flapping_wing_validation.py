@@ -203,6 +203,8 @@ def test_results_doc_delivers_body_frame_and_defers_t4():
     # Lab-frame magnitudes still disclosed as an O(1) plausibility range (not the gate).
     assert "lab-frame" in low or "lab frame" in low
     assert "plausibility" in low
+    # T2b: the band is disclosed as a lower-bound FLOOR, not the van Veen per-component gate.
+    assert "floor" in low
     # Time-resolved curve match is the remaining deferral (T4).
     assert "t4" in low
     assert "200.27" in text or "200.3" in text  # van Veen F_ref
