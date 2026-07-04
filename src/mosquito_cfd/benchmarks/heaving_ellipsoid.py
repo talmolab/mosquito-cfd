@@ -47,11 +47,15 @@ def _require(df: pd.DataFrame, columns: tuple[str, ...]) -> None:
 
 
 def _max_consecutive_rel_change(x: np.ndarray) -> float:
-    """Max |x[i+1]-x[i]| / |x[i]| over consecutive samples (denominator guarded)."""
+    """Max |x[i+1]-x[i]| / |x[i]| over consecutive samples (denominator guarded).
+
+    Returns ``inf`` (fails safe) if no consecutive pair has a finite relative change (e.g. an
+    all-near-zero series), avoiding a spurious ``All-NaN slice`` warning.
+    """
     prev, nxt = x[:-1], x[1:]
     denom = np.where(np.abs(prev) > 1e-12, np.abs(prev), np.nan)
     rel = np.abs(nxt - prev) / denom
-    return float(np.nanmax(rel))
+    return float(np.nanmax(rel)) if np.any(np.isfinite(rel)) else float("inf")
 
 
 def ellipsoid_self_consistency(
@@ -70,7 +74,8 @@ def ellipsoid_self_consistency(
     error** — a single deterministic branch — rather than being mis-graded.
 
     Raises:
-        ValueError: too few steady-window samples, or a steady sampling too coarse to resolve the gate.
+        ValueError: too few steady-window samples; degenerate/too-coarse sampling; or non-finite
+            steady-window forces (an all-NaN series must not silently grade ``converged=False``).
     """
     df = _as_df(data)
     _require(df, _REQUIRED_FORCE_COLUMNS)
@@ -83,14 +88,26 @@ def ellipsoid_self_consistency(
             f"t >= {window_t0}; need >= 3 to resolve a consecutive-sample change"
         )
     median_dt = float(np.median(np.diff(t_w)))
+    if not np.isfinite(median_dt) or median_dt <= 0:
+        raise ValueError(
+            "self-consistency declines: non-increasing/degenerate steady-window timestamps "
+            f"(median dt = {median_dt:g}); time must be strictly increasing"
+        )
     if median_dt > MAX_SAMPLE_DT:
         raise ValueError(
             f"self-consistency declines: steady-window sampling is too coarse "
             f"(median dt = {median_dt:g} > {MAX_SAMPLE_DT}); cannot resolve per-step steadiness — "
             "grade a finer re-run series, not the coarse committed forces.csv"
         )
-    drag = _max_consecutive_rel_change(df["Fx"].to_numpy(float)[m])
-    lift = _max_consecutive_rel_change(df["Fy"].to_numpy(float)[m])
+    drag_w = df["Fx"].to_numpy(float)[m]
+    lift_w = df["Fy"].to_numpy(float)[m]
+    if not (np.all(np.isfinite(drag_w)) and np.all(np.isfinite(lift_w))):
+        raise ValueError(
+            "self-consistency declines: steady-window Fx/Fy contain non-finite values — "
+            "cannot grade convergence on NaN/inf forces (this would silently read as not-converged)"
+        )
+    drag = _max_consecutive_rel_change(drag_w)
+    lift = _max_consecutive_rel_change(lift_w)
     return {
         "max_rel_change_drag": drag,
         "max_rel_change_lift": lift,
@@ -109,32 +126,48 @@ def ellipsoid_added_mass_fraction(
 ) -> dict:
     """Report the added-mass fraction (``rho_f*SumU`` relative to ib_force) for drag and lift.
 
-    The fraction is expected to be **bounded** (0 <= f < 1) and to **decay** after the impulsive start
-    (a constant-velocity heave has ~zero *steady* added mass). The result carries the van Veen 15%/31%
-    ballpark for a REPORTED order-of-magnitude sanity — it is **not** matched (CC-V2).
+    The **steady-window** fraction is the physically-meaningful quantity: for a constant-velocity heave
+    it is ~0 (near-zero steady added mass), well **bounded** below 1, and **decays** from the impulsive
+    start. The **per-timestep** ``frac_*`` arrays carry ``NaN`` at an ib-force zero-crossing (where the
+    ratio is undefined — NOT a fabricated 0), so a real heave-lift ``Fy`` crossing zero legitimately
+    yields NaN there; means are taken with ``nanmean``. The van Veen 15%/31% ballpark is a REPORTED
+    order-of-magnitude sanity, **not** matched (CC-V2), and is returned as a COPY so callers cannot
+    mutate the module constant.
 
-    Returns per-timestep ``frac_drag``/``frac_lift`` arrays, ``decays_*`` booleans (early-window mean
-    exceeds steady-window mean), the ``early_frac_*``/``steady_frac_*`` means, and the ballpark.
+    Returns per-timestep ``frac_drag``/``frac_lift`` arrays (NaN at zero-crossings), ``decays_*``
+    booleans (early-window mean > steady-window mean), the ``early_frac_*``/``steady_frac_*`` nanmeans,
+    and a copy of the ballpark.
+
+    Raises:
+        ValueError: no samples, or no steady-window (``t >= window_t0``) samples to characterize.
     """
     df = _as_df(data)
     _require(df, _REQUIRED_SUMU_COLUMNS)
     t = df["time"].to_numpy(float)
+    steady = t >= window_t0
+    early = t < window_t0
+    if t.size == 0 or not steady.any():
+        raise ValueError(
+            f"added-mass fraction: no samples in the steady window t >= {window_t0} "
+            f"(data time range covers {t.size} sample(s)); cannot characterize the fraction"
+        )
     am_x = added_mass_force(df["SumUx"].to_numpy(float), rho_f)
     am_y = added_mass_force(df["SumUy"].to_numpy(float), rho_f)
 
     def frac(added: np.ndarray, ib: np.ndarray) -> np.ndarray:
+        # NaN (kept, not fabricated 0) where ib passes through zero — the ratio is undefined there.
         denom = np.where(np.abs(ib) > 1e-12, np.abs(ib), np.nan)
         return np.abs(added) / denom
 
-    frac_drag = np.nan_to_num(frac(am_x, df["Fx"].to_numpy(float)))
-    frac_lift = np.nan_to_num(frac(am_y, df["Fy"].to_numpy(float)))
+    frac_drag = frac(am_x, df["Fx"].to_numpy(float))
+    frac_lift = frac(am_y, df["Fy"].to_numpy(float))
 
-    early = t < window_t0
-    steady = t >= window_t0
-    early_drag = float(np.mean(frac_drag[early])) if early.any() else float("nan")
-    steady_drag = float(np.mean(frac_drag[steady])) if steady.any() else float("nan")
-    early_lift = float(np.mean(frac_lift[early])) if early.any() else float("nan")
-    steady_lift = float(np.mean(frac_lift[steady])) if steady.any() else float("nan")
+    def _nanmean(a: np.ndarray, mask: np.ndarray) -> float:
+        sel = a[mask]
+        return float(np.nanmean(sel)) if np.any(np.isfinite(sel)) else float("nan")
+
+    early_drag, steady_drag = _nanmean(frac_drag, early), _nanmean(frac_drag, steady)
+    early_lift, steady_lift = _nanmean(frac_lift, early), _nanmean(frac_lift, steady)
     return {
         "frac_drag": frac_drag,
         "frac_lift": frac_lift,
@@ -144,5 +177,5 @@ def ellipsoid_added_mass_fraction(
         "steady_frac_lift": steady_lift,
         "decays_drag": steady_drag < early_drag,
         "decays_lift": steady_lift < early_lift,
-        "van_veen_ballpark": VAN_VEEN_ADDED_MASS_BALLPARK,
+        "van_veen_ballpark": dict(VAN_VEEN_ADDED_MASS_BALLPARK),
     }

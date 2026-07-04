@@ -5,6 +5,7 @@ from mosquito_cfd.benchmarks.analyze_sphere import (
     check_steady_state,
     extract_sphere_cd,
     generate_convergence_report,
+    grade_sphere_cd_confinement_corrected,
     grid_convergence_analysis,
 )
 from mosquito_cfd.benchmarks.metadata import (
@@ -28,6 +29,7 @@ __all__ = [
     "check_steady_state",
     "grid_convergence_analysis",
     "generate_convergence_report",
+    "grade_sphere_cd_confinement_corrected",
     "capture_run_metadata",
     "get_git_info",
     "get_hardware_info",

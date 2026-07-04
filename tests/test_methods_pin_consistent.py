@@ -90,3 +90,11 @@ def test_methods_has_no_stale_provenance():
     assert _EXAMPLE_BARE not in text, (
         'the bare-default sphere example (marker path) must be replaced with the method="cv" call'
     )
+    # The illustrative run_metadata.json block records iamrex_commit and does NOT mislabel a git
+    # commit as a sha256 (the pre-change block had `"git_commit": "sha256"`).
+    assert '"iamrex_commit"' in text, (
+        "illustrative run_metadata.json must record iamrex_commit"
+    )
+    assert '"git_commit": "sha256"' not in text, (
+        "a git commit is a 40-hex SHA, not a sha256 digest — the illustrative block must not mislabel it"
+    )

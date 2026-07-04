@@ -55,17 +55,17 @@ def test_tolerance_and_offset_not_loosened():
     assert SPHERE_LITERATURE_TOL == 0.05
     assert LITERATURE_CD == 1.087
 
-    # The single medium-grid CV Cd 1.18 does NOT grade H1' (bracket [1.113, 1.146], 1.146 > 1.141).
-    medium = grade_sphere_cd_confinement_corrected(1.18)
+    # The single medium-grid CV Cd 1.184 does NOT grade H1' (bracket [1.117, 1.150], 1.150 > 1.141).
+    medium = grade_sphere_cd_confinement_corrected(1.184)
     assert medium["verdict"] == "not H1'"
     assert medium["within"] is False
 
     # A clearly-high confined Cd is also rejected.
     assert grade_sphere_cd_confinement_corrected(1.30)["verdict"] == "not H1'"
 
-    # The guard has teeth: loosening the tolerance to +/-10% WOULD admit 1.18 -> so the pinned
+    # The guard has teeth: loosening the tolerance to +/-10% WOULD admit 1.184 -> so the pinned
     # 5% must not be widened (this demonstrates the not-loosened invariant, it does not change it).
-    loosened = grade_sphere_cd_confinement_corrected(1.18, tol=0.10)
+    loosened = grade_sphere_cd_confinement_corrected(1.184, tol=0.10)
     assert loosened["verdict"] == "H1'"
 
 

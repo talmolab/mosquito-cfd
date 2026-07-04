@@ -371,6 +371,10 @@ def grade_sphere_cd_confinement_corrected(
     """
     if not np.isfinite(cd_confined) or cd_confined <= 0:
         raise ValueError(f"cd_confined must be finite and positive, got {cd_confined}")
+    if not np.isfinite(literature_cd) or literature_cd <= 0:
+        raise ValueError(
+            f"literature_cd must be finite and positive, got {literature_cd}"
+        )
     lo_off, hi_off = offset_band
     if (
         not (0 <= lo_off <= hi_off)

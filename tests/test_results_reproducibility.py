@@ -10,6 +10,7 @@ the data, fails-closed here. It runs (and must pass) BEFORE any RESULTS.md edit.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +37,37 @@ _KIN = {"f_star": 1.0, "phi_amp_deg": 70.0}
 
 def _doc() -> str:
     return _RESULTS.read_text(encoding="utf-8")
+
+
+_NUM_RE = re.compile(r"[−+\-]?\d+\.\d+")
+
+# The two headline coefficient TABLES, by their `### ` header substring.
+_HEADLINE_TABLES = (
+    "lab-frame magnitudes",
+    "Body-frame per-component van Veen comparison",
+)
+# Magnitudes recomputed from the committed CSVs by the tests above.
+_HEADLINE_VERIFIED = {0.03, 1.46, 2.35, 2.37, 2.61, 0.92, 1.06, 0.52}
+# van Veen reference targets + derived gap/tol carried in the tables (NOT our data, not recomputed).
+_HEADLINE_REFERENCE = {2.4, 0.3, 0.21, 0.6}
+
+
+def _table_numbers(doc: str, header_sub: str) -> set[float]:
+    """Magnitudes of the numeric cells in the markdown table under a `### <header_sub>` heading."""
+    lines = doc.splitlines()
+    start = next(
+        k for k, ln in enumerate(lines) if ln.startswith("### ") and header_sub in ln
+    )
+    nums: set[float] = set()
+    in_table = False
+    for ln in lines[start + 1 :]:
+        if ln.lstrip().startswith("|"):
+            in_table = True
+            for tok in _NUM_RE.findall(ln):
+                nums.add(round(abs(float(tok.replace("−", "-"))), 4))
+        elif in_table:
+            break
+    return nums
 
 
 def test_lab_frame_ranges_recompute():
@@ -109,7 +141,26 @@ def test_added_mass_fractions_are_rms(_kin=_KIN):
     assert frac["stroke"] == pytest.approx(0.37, abs=0.02)
     assert frac["lift"] == pytest.approx(0.29, abs=0.02)
     doc = _doc()
-    assert "37" in doc and "29" in doc
+    # Load-bearing doc linkage (not the near-ubiquitous bare "37"/"29" substrings).
+    assert "stroke 37" in doc and "lift 29" in doc
+
+
+def test_headline_tables_enumeration_complete():
+    """Every numeric cell in the two headline tables is enumerated (verified-from-data or reference).
+
+    'Asserted complete' guard for issue #3: a headline number appearing in the lab-frame or body-frame
+    table that is in NEITHER the verified nor the reference set fails here — forcing the author to
+    classify + verify a newly added headline, the exact regression #3's guard is meant to close.
+    """
+    doc = _doc()
+    extracted: set[float] = set()
+    for header in _HEADLINE_TABLES:
+        extracted |= _table_numbers(doc, header)
+    known = _HEADLINE_VERIFIED | _HEADLINE_REFERENCE
+    assert extracted == known, (
+        f"headline-table numbers changed — unexpected {sorted(extracted - known)}, "
+        f"missing {sorted(known - extracted)}; update the enumeration + verify reproducibility"
+    )
 
 
 def test_contrast_baseline_recomputes():
