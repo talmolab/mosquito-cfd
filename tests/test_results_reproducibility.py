@@ -256,9 +256,11 @@ def test_interim_framing_is_honest_and_disambiguated():
     assert ("~2×" in section) or ("~2x" in section) or ("2×" in section)
     assert "0.3" in section
     assert "t4" in section and "#40" in section
-    # Metric-type caveat: the -29% is a peak-to-peak ratio at different phases, not per-instant.
+    # Metric-type caveat: the -29% is a peak-to-peak ratio at different phases, not per-instant,
+    # and distinct from the ~47% instantaneous drop at the total peak (pinned in test_wing_body_frame).
     assert "peak-to-peak" in section
     assert "different phase" in section or "different phases" in section
+    assert "47 %" in section
     # Disambiguation: body-frame shares vs lab-frame fractions — different frame + axis pairing.
     assert "stroke 37" in section and "lift 29" in section
     assert "different frame" in section

@@ -561,7 +561,8 @@ def body_frame_added_mass_subtracted(
         phi_amp_deg: Stroke amplitude [deg].
         pitch_amp_deg: Pitch amplitude [deg].
         deviation_amp_deg: Deviation amplitude [deg]; default 0.
-        rho_f: Fluid density for the added-mass term (``rho_f*SumU``); default ``RHO``.
+        rho_f: Fluid density for the added-mass term (``rho_f*SumU``); default ``RHO``. Passed through
+            to :func:`added_mass_force` unvalidated (a physical parameter, linear in the result).
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
 
     Returns:
@@ -569,8 +570,12 @@ def body_frame_added_mass_subtracted(
         ``{chord,normal}_drop_frac``, ``am_rms_share_{chord,normal}``, ``window_t0``.
 
     Raises:
-        ValueError: if a required column is missing, a force/``SumU`` row is non-finite, ``f_ref`` is not
-            finite and positive, or ``window_t0`` selects no timesteps.
+        ValueError: if a required column is missing; the CSV has no rows; a force/``SumU`` row is
+            non-finite **anywhere in the series** (checked over the whole record, not just the window,
+            so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
+            not finite and positive; ``window_t0`` selects no timesteps; or a **total** body-frame peak
+            (``|CF_chord|``/``|CF_normal|``) is zero over the window (the drop fraction and RMS share are
+            undefined for a degenerate zero component — never returned as a silent ``nan``/``inf``).
     """
     df = pd.read_csv(csv_path)
     missing = [c for c in _REQUIRED_SUBTRACTED_CSV_COLUMNS if c not in df.columns]
@@ -588,6 +593,8 @@ def body_frame_added_mass_subtracted(
             f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg"
         )
     time = df["time"].to_numpy(float)
+    if time.size == 0:
+        raise ValueError(f"IB-particle CSV {csv_path} has no data rows")
     mask = time >= window_t0
     if not mask.any():
         raise ValueError(
@@ -633,6 +640,20 @@ def body_frame_added_mass_subtracted(
     peak_normal_total = peak(cf_ib, "cf_normal")
     peak_chord_sub = peak(cf_sub, "cf_chord")
     peak_normal_sub = peak(cf_sub, "cf_normal")
+    # Guard the denominators: a zero total-component peak makes the drop fraction (a Python-float
+    # division -> ZeroDivisionError) and the RMS share (0/0 -> silent nan) undefined. Raise the
+    # module's loud, named ValueError rather than emit a ZeroDivisionError or a silent nan. A peak > 0
+    # also guarantees rms(ib) > 0 for that component (both taken over the same window).
+    for _name, _peak_total in (
+        ("chord", peak_chord_total),
+        ("normal", peak_normal_total),
+    ):
+        if _peak_total == 0.0:
+            raise ValueError(
+                f"peak |CF_{_name}| of the total ib_force is zero over the window; the {_name} "
+                "drop fraction and RMS share are undefined for a degenerate zero component "
+                "(check the input run)"
+            )
     return {
         "peak_cf_chord_total": peak_chord_total,
         "peak_cf_normal_total": peak_normal_total,

@@ -550,6 +550,30 @@ def test_added_mass_subtracted_nonfinite_and_empty_window_raise(tmp_path):
         )
 
 
+def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
+    """A zero total-component peak and an empty CSV raise a clear ValueError (never a silent nan).
+
+    Guards the module's no-silent-NaN posture: `drop_frac = 1 - sub/total` would ZeroDivisionError and
+    `am_rms_share` would emit a silent nan if a total body-frame component is identically zero; both are
+    replaced by a loud, named ValueError. (Cannot occur on the committed run — degenerate input only.)
+    """
+    # An identically-zero force record -> peak |CF_chord| total == 0 exactly (the ZeroDivisionError /
+    # 0-0-nan path) -> a clear ValueError, not a ZeroDivisionError or a silent nan.
+    cols = ["time", "Fx", "Fy", "Fz", "SumUx", "SumUy", "SumUz"]
+    times = np.linspace(0.1, 0.9, 40)
+    zero = {c: np.zeros_like(times) for c in cols}
+    zero["time"] = times
+    zero_csv = tmp_path / "zero_force.csv"
+    pd.DataFrame(zero).to_csv(zero_csv, index=False)
+    with pytest.raises(ValueError, match=r"CF_chord.*zero"):
+        body_frame_added_mass_subtracted(zero_csv, **_SUBTRACTED_KIN)
+    # An empty (header-only) CSV raises a clear "no data rows", not a cryptic numpy reduction error.
+    empty = tmp_path / "empty.csv"
+    pd.DataFrame({c: [] for c in cols}).to_csv(empty, index=False)
+    with pytest.raises(ValueError, match="no data rows"):
+        body_frame_added_mass_subtracted(empty, **_SUBTRACTED_KIN)
+
+
 @pytest.mark.skipif(
     not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
 )
@@ -612,6 +636,12 @@ def test_peak_migration_and_signed_drop(tmp_path):
     assert out["peak_cf_chord_subtracted"] != pytest.approx(
         float(chord_sub[i_total]), abs=1e-3
     )
+    # The INSTANTANEOUS added-mass drop AT the total-chord peak is ~47% — the third metric named in
+    # the RESULTS.md caveat (distinct from the 84% RMS energy share and the -29% peak-to-peak drop).
+    inst_drop_at_total_peak = 1.0 - float(chord_sub[i_total]) / float(
+        chord_total[i_total]
+    )
+    assert inst_drop_at_total_peak == pytest.approx(0.47, abs=0.02)
 
     # (b) Synthetic case where subtraction RAISES the chord peak (am anti-aligned) -> drop_frac < 0.
     times = np.linspace(0.1, 0.9, 40)
