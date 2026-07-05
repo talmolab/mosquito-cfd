@@ -96,33 +96,44 @@ Reference areas for thin ellipsoid (a=0.5, b=0.02, c=1.5):
 van Veen (15% lift / 31% drag). **Not** a literature Cd point.
 
 Re-run on the pinned `:fp64` image (`ghcr.io/talmolab/mosquito-cfd@sha256:a6431ef4…`, IAMReX
-`talmolab/IAMReX @ f93dc794`) with the **byte-unchanged** deck, emitting the 29-column IB-particle output
-(`forces_t2b_ib.csv`, `SumUx/SumUy/SumUz`; provenance `run_metadata_t2b.json`). Graded by
-`mosquito_cfd.benchmarks.heaving_ellipsoid` (1000 steps, dt=0.01, 300 samples in the steady window).
+`talmolab/IAMReX @ f93dc794`) on a **RunAI talmo-lab preemptible A40** with the **byte-unchanged** deck,
+emitting the 29-column IB-particle output (`forces_t2b_ib.csv`, `SumUx/SumUy/SumUz`; provenance
+`run_metadata_t2b.json`). Graded by `mosquito_cfd.benchmarks.heaving_ellipsoid` (1000 steps, dt=0.01, 300
+samples in the steady window). The deck is a **constant-velocity heave** (`Vy=0.5`) in a **freestream**
+(`Vx=1.0`), so steady `Fx ≈ −0.49` is freestream drag and `Fy ≈ +0.26` is the heave-direction force.
 
 | Check | Result | Verdict |
 |---|---|---|
 | **Self-consistency** (max consecutive Δ over t≥7) | drag `Fx` **0.16%**, heave-lift `Fy` **0.15%** | **PASS** (< 1%) |
-| **Added-mass fraction** (`ρ_f·SumU` / `ib_force`, steady) | drag **1.1%**, lift **0.5%** (peaks ~5–6% at the impulsive start, decays to steady) | **sanity holds** |
+| **Added-mass fraction** (`ρ_f·SumU` / `ib_force`, steady mean) | drag **1.1%**, lift **0.5%** | **sanity holds** |
 | vs van Veen ballpark (15% lift / 31% drag) | ellipsoid share is **well below** the wing's | expected |
 
-The added-mass fraction sits **far below** van Veen's flapping-wing 15%/31% — the physically-expected
-sanity: a **constant-velocity** heave has near-zero *steady* added mass (acceleration ≈ 0), so its
-added-mass share is much smaller than an accelerating wing's.
+**Added-mass characterization (honest details).** The fraction is a brief **numerical startup spike**
+(~5–6% at t≤0.03) then **flat at ~1% steady** — it does **not** decay from a physical transient (the
+grader's mean-based `decays` flag is in fact `False`: the early-window and steady means are both ~1%).
+About **49% of the steady-window `SumU` samples are exactly 0** (an IAMReX sub-iteration write artifact —
+the accumulator only fires on some steps), so the reported fraction is the mean over *all* steps; the
+**non-zero-only** steady share is ~**2.0% / 1.0%**. Either way it is far below van Veen's 15%/31%.
 
 > **The van Veen 15%/31% is an *upper reference the ellipsoid is expected to sit far below*, not a match
-> target.** Added-mass force = (added-mass tensor)·(**acceleration**); van Veen's 15%/31% is for an
-> *accelerating, rotating* wing, whereas this deck is a *constant-velocity* heave whose steady acceleration
-> ≈ 0 — so potential-flow (Lamb) theory predicts a steady added-mass force ≈ 0, and the measured ~1% is
-> that near-zero residual. A result *near* 15%/31% would have been the red flag. Accordingly the comparison
-> is **reported, not graded** (CC-V2): the real graded oracle here is the **self-consistency** gate (Δ<1%
-> after t=7, which passes with margin) plus the added-mass fraction being **bounded and decaying** (peak
-> ~5–6% at the impulsive start → ~1% steady) — the correct signature of a constant-velocity body. The
-> ellipsoid's own Lamb added-mass, not van Veen's wing, is the apt tight reference (deferred; the roadmap
-> pinned van Veen as the in-repo anchor).
+> target.** Added-mass force scales with **acceleration**; van Veen's 15%/31% is for an *accelerating,
+> rotating* wing, whereas this deck is *constant-velocity* (steady acceleration ≈ 0). The IAMReX `SumU`
+> term is the rate of change of fluid momentum in the IB support region, so the small ~1% is **consistent
+> with the near-zero fluid-momentum rate expected at zero body acceleration** — a result *near* 15%/31%
+> would have been the red flag. Accordingly the comparison is **reported, not graded** (CC-V2): the graded
+> oracle is the **self-consistency** gate (passes with margin) plus the added-mass fraction being
+> **bounded** and small. A tight reference would be the ellipsoid's own potential-flow added mass
+> (deferred; the roadmap pinned van Veen as the in-repo anchor).
 
-The spanwise `Fz` (≈0 by symmetry, `max|Fz| < 5e-4` steady) is not graded; drag `Fx` and heave-lift `Fy`
-settle to non-zero steady values (`Fx ≈ −0.49`, `Fy ≈ +0.26`), so the fraction has no zero-crossings.
+The spanwise `Fz` is ≈0 by symmetry (`max|Fz| = 4.6e-4` steady) and is not graded; `Fx`/`Fy` stay non-zero
+at steady state, so the added-mass fraction has no zero-crossings.
+
+> **NB — two force files, different extraction.** The older committed `forces.csv` (4-col) reads the
+> `particle_real_comp3/4/5` marker last-sub-iteration values (steady `Fx −0.19 / Fy +0.10`); this run's
+> `forces_t2b_ib.csv` reads `kernel.ib_force` (the accumulated IB force) and gives `−0.49 / +0.26`, ~**2.6×**
+> larger. That is the accumulated-vs-last-pass extraction difference behind T1a/T1b — a solver-bookkeeping
+> factor (`loop_ns=2` accumulation), **consistent in magnitude** with the sphere's 2.64× field-vs-marker
+> gap but a **distinct mechanism** (not independently cross-validated).
 
 ## Limitations Observed
 
