@@ -140,8 +140,10 @@ constants (`_NEWCONV_CSV` / `_NEWCONV`) rather than fresh hard-coded paths (cros
     interim is **delivered** (cluster-free) — `CF_chord 0.923→0.652`, added mass 84 % of the chord RMS,
     **isolates the added-mass share, does not resolve the PARTIAL** — while the full curve-match +
     per-component decomposition remain. Do not restructure the tier or use a `#40`-closing phrase.
-- [ ] 6.2 **Check off #40's *cheap-interim* checkbox** with the finding (via `gh issue edit`), at PR time.
+- [x] 6.2 **Check off #40's *cheap-interim* checkbox** with the finding (via `gh issue edit`), at PR time.
     **Do NOT close #40** — full T4 remains. Verify the edit preserves the other checklist items.
+    **DONE** post-merge: #40's first checkbox ticked + finding table posted as a comment; other checklist
+    items preserved; #40 confirmed OPEN.
 
 ## 7. Verification
 
@@ -164,10 +166,14 @@ constants (`_NEWCONV_CSV` / `_NEWCONV`) rather than fresh hard-coded paths (cros
       — the §5 doc-guard tests (5.1/5.2 in `tests/test_results_reproducibility.py`) **and** the RESULTS.md
       edit (5.3) **and** the roadmap note (6.1) in **one** commit (5.1/5.2 are red until 5.3 lands the
       literals — G-2).
-- [ ] 8.2 **#40 must NOT auto-close (G-1):** no commit message, PR title, or PR body may place a closing
+- [x] 8.2 **#40 must NOT auto-close (G-1):** no commit message, PR title, or PR body may place a closing
     keyword (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`) adjacent to
-    `#40` — **avoid even the `close #40` bigram in a negated sentence** (GitHub's parser can trip on it).
-    PR title e.g. `T4: added-mass-subtracted body-frame CF (cheap interim, advances #40) (#<PR>)`; PR body
-    phrased to avoid the bigram, e.g. *"this PR does **not resolve** #40 (full T4 remains open); it ticks the
-    cheap-interim checkbox only (task 6.2)"*, and includes the finding table. Each commit carries the
-    `Co-Authored-By` trailer.
+    `#40` — **avoid even the `resolve #40` bigram in a negated sentence** (GitHub's parser matches the
+    bigram and ignores the negation). PR title e.g. `T4: added-mass-subtracted body-frame CF (cheap interim,
+    advances #40) (#<PR>)`. Each commit carries the `Co-Authored-By` trailer.
+    > ⚠ **OUTCOME — the guard FAILED once and was remediated.** The PR body used the phrasing *"does not
+    > resolve #40"* (which this task's own earlier example unfortunately suggested), and the merge
+    > **auto-closed #40** anyway — GitHub keyed on the `resolve #40` bigram and ignored the "does not". #40
+    > was immediately **reopened**, the checkbox ticked, and the PR body corrected. **Lesson:** never place
+    > a closing keyword next to `#40` even in a negated clause; phrase it with **no** keyword adjacent, e.g.
+    > *"#40 stays open — full T4 (per-component decomposition + Fig 3–4 curve match) remains."*
