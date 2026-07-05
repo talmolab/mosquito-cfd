@@ -111,9 +111,16 @@ samples in the steady window). The deck is a **constant-velocity heave** (`Vy=0.
 **Added-mass characterization (honest details).** The fraction is a brief **numerical startup spike**
 (~5–6% at t≤0.03) then **flat at ~1% steady** — it does **not** decay from a physical transient (the
 grader's mean-based `decays` flag is in fact `False`: the early-window and steady means are both ~1%).
-About **49% of the steady-window `SumU` samples are exactly 0** (an IAMReX sub-iteration write artifact —
-the accumulator only fires on some steps), so the reported fraction is the mean over *all* steps; the
-**non-zero-only** steady share is ~**2.0% / 1.0%**. Either way it is far below van Veen's 15%/31%.
+About **49% of the `SumU` samples are exactly 0**, in a regular **~15.6-step sawtooth** — a
+**sub-cell-translation discretization artifact**, not a solver bug: the body heaves at `Vy·dt = 0.005`
+per step, far below the heave-direction cell size `dy = 10/128 = 0.078`, so between grid-cell crossings
+the diffused-IB support's summed velocity `sum_u` is unchanged and `SumU = (sum_u_new − sum_u_old)/dt` is
+**bit-exact 0**; it becomes non-zero only as the body crosses a cell — every `dy/(Vy·dt) ≈ 15.6` steps,
+which matches the observed period (15/16). The forces `Fx/Fy` themselves are smooth and unaffected (the
+self-consistency gate is unbothered). The **flapping wing shows no such zeros** — its markers sweep
+continuously, so `sum_u` changes every step. Consequently the reported added-mass fraction is the mean
+over *all* steps (diluted by the zeros); the **non-zero-only** (active-phase) steady share is ~**2.0% /
+1.0%**. Either way it is far below van Veen's 15%/31%, so the sanity conclusion is unchanged.
 
 > **The van Veen 15%/31% is an *upper reference the ellipsoid is expected to sit far below*, not a match
 > target.** Added-mass force scales with **acceleration**; van Veen's 15%/31% is for an *accelerating,
