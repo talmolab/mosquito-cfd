@@ -218,15 +218,48 @@ def test_run_metadata_records_pinned_provenance():
     not _T2B_CSV.exists(), reason="ellipsoid T2b re-run artifact not committed yet"
 )
 def test_real_run_self_consistency_and_added_mass():
-    """On the committed re-run CSV: self-consistency holds and added-mass is bounded (loaded here)."""
+    """On the committed re-run CSV: self-consistency PASSES and the forces are physical, not flat/garbage.
+
+    Guards the steady force MAGNITUDES + a non-trivial SumU channel so a mocked/flat/degenerate artifact
+    (which would trivially satisfy converged + bounded) cannot pass.
+    """
     df = pd.read_csv(_T2B_CSV)  # loaded INSIDE the test body (never at module import)
+    m = df["time"].to_numpy() >= STEADY_WINDOW_T0
     sc = ellipsoid_self_consistency(df)
     assert sc["converged"] is True
+    assert sc["n_samples"] == 300
+    # Steady freestream-drag Fx + heave-lift Fy magnitudes (settle non-zero; no zero-crossing).
+    assert df["Fx"].to_numpy()[m].mean() == pytest.approx(-0.49, abs=0.02)
+    assert df["Fy"].to_numpy()[m].mean() == pytest.approx(+0.26, abs=0.02)
+    # The SumU channel must be non-trivial (some non-zero) or the added-mass grade is vacuous.
+    assert np.count_nonzero(df[["SumUx", "SumUy"]].to_numpy()) > 0
     am = ellipsoid_added_mass_fraction(df)
-    # Real heave-lift Fy crosses zero -> per-timestep frac has NaN there; grade the STEADY window,
-    # where the constant-velocity added-mass share is ~0 and well below 1.
     assert 0.0 <= am["steady_frac_drag"] < 1.0
     assert 0.0 <= am["steady_frac_lift"] < 1.0
+
+
+@pytest.mark.skipif(
+    not _T2B_CSV.exists(), reason="ellipsoid T2b re-run artifact not committed yet"
+)
+def test_results_doc_numbers_recompute():
+    """RESULTS.md T2b headline numbers recompute from the committed CSV (drift guard; cf. flapping #3)."""
+    df = pd.read_csv(_T2B_CSV)
+    m = df["time"].to_numpy() >= STEADY_WINDOW_T0
+    sc = ellipsoid_self_consistency(df)
+    am = ellipsoid_added_mass_fraction(df)
+    doc = Path("examples/heaving_ellipsoid/RESULTS.md").read_text(encoding="utf-8")
+    # self-consistency 0.16% / 0.15%
+    assert sc["max_rel_change_drag"] == pytest.approx(0.0016, abs=3e-4)
+    assert sc["max_rel_change_lift"] == pytest.approx(0.0015, abs=3e-4)
+    assert "0.16%" in doc and "0.15%" in doc
+    # added-mass steady 1.1% / 0.5%
+    assert am["steady_frac_drag"] == pytest.approx(0.011, abs=0.003)
+    assert am["steady_frac_lift"] == pytest.approx(0.005, abs=0.003)
+    assert "1.1%" in doc and "0.5%" in doc
+    # steady forces -0.49 / +0.26 (doc uses the U+2212 minus)
+    assert df["Fx"].to_numpy()[m].mean() == pytest.approx(-0.49, abs=0.02)
+    assert df["Fy"].to_numpy()[m].mean() == pytest.approx(0.26, abs=0.02)
+    assert "−0.49" in doc and "+0.26" in doc
 
 
 @pytest.mark.skipif(

@@ -1,0 +1,39 @@
+{
+  "run_id": "5fd69865-1c1b-4b41-b1bf-6cbcd8e70934",
+  "timestamp": "2026-07-04T21:14:00+00:00",
+  "git": {
+    "commit": "a13258db67b0e6f0e94ba1ed686164ebcfd321e2",
+    "branch": "main",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "gpu_model": "NVIDIA A40",
+    "memory_mb": 45403,
+    "source": "RunAI talmo-lab cluster, preemptible; exact node not auto-captured. The co-submitted smoke run on the same fleet reported 45403 MB total GPU memory (A40/48GB signature) and the talmo-lab GPU fleet is A40."
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:a6431ef4ab00394bd985487c3dd64ce8c6d975d87e44d00510df55167e380648",
+  "inputs": {
+    "file": "examples/heaving_ellipsoid/inputs.3d.heaving_ellipsoid",
+    "hash": "be589d7c6d2307b5db0cb9600b97f52cfeabad78b3761005fef66248a0280023"
+  },
+  "timing": {
+    "timesteps": 1000,
+    "max_step": 1000,
+    "fixed_dt": 0.01
+  },
+  "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
+  "note": "T2b operator ellipsoid re-run: CFD ran on a RunAI talmo-lab preemptible A40 (see hardware); geometry_type=2, byte-unchanged deck. run_metadata was assembled on the local analysis box (see analysis_host).",
+  "analysis_host": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1,
+    "note": "local box where run_metadata was assembled post-hoc (nvidia-smi captured the analysis workstation) \u2014 NOT the CFD run node"
+  }
+}
