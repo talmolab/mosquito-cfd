@@ -108,11 +108,21 @@ Re-run on the pinned `:fp64` image (`ghcr.io/talmolab/mosquito-cfd@sha256:a6431e
 
 The added-mass fraction sits **far below** van Veen's flapping-wing 15%/31% — the physically-expected
 sanity: a **constant-velocity** heave has near-zero *steady* added mass (acceleration ≈ 0), so its
-added-mass share is much smaller than an accelerating wing's. The van Veen 15%/31% figure is a **reported**
-order-of-magnitude ballpark (cited to the roadmap oracle row / van Veen 2022), **not** a matched target
-(CC-V2). The spanwise `Fz` (≈0 by symmetry, `max|Fz| < 5e-4` steady) is not graded; drag `Fx` and
-heave-lift `Fy` settle to non-zero steady values (`Fx ≈ −0.49`, `Fy ≈ +0.26`), so the fraction has no
-zero-crossings.
+added-mass share is much smaller than an accelerating wing's.
+
+> **The van Veen 15%/31% is an *upper reference the ellipsoid is expected to sit far below*, not a match
+> target.** Added-mass force = (added-mass tensor)·(**acceleration**); van Veen's 15%/31% is for an
+> *accelerating, rotating* wing, whereas this deck is a *constant-velocity* heave whose steady acceleration
+> ≈ 0 — so potential-flow (Lamb) theory predicts a steady added-mass force ≈ 0, and the measured ~1% is
+> that near-zero residual. A result *near* 15%/31% would have been the red flag. Accordingly the comparison
+> is **reported, not graded** (CC-V2): the real graded oracle here is the **self-consistency** gate (Δ<1%
+> after t=7, which passes with margin) plus the added-mass fraction being **bounded and decaying** (peak
+> ~5–6% at the impulsive start → ~1% steady) — the correct signature of a constant-velocity body. The
+> ellipsoid's own Lamb added-mass, not van Veen's wing, is the apt tight reference (deferred; the roadmap
+> pinned van Veen as the in-repo anchor).
+
+The spanwise `Fz` (≈0 by symmetry, `max|Fz| < 5e-4` steady) is not graded; drag `Fx` and heave-lift `Fy`
+settle to non-zero steady values (`Fx ≈ −0.49`, `Fy ≈ +0.26`), so the fraction has no zero-crossings.
 
 ## Limitations Observed
 
