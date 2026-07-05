@@ -59,10 +59,12 @@ added-mass-subtracted, `CF_chord ≈ 0.652` is still ~2× van Veen's 0.3 (0.652/
   `Body-frame per-component van Veen comparison`) and **not** touch a numeric cell in those two tables, so
   the existing `test_headline_tables_enumeration_complete` still passes; and (e) carry a **metric-type
   caveat** that the −29 % chord drop is a **peak-to-peak ratio of window maxima at *different* phases** (not
-  a per-instant subtraction, and distinct from the 84 % RMS energy share). The `### Body-frame per-component`
-  table gains the interim numbers; the unguarded `## Comparison with van Veen` table gets a bare
-  **cross-reference** to the interim subsection (no re-transcribed number — it is outside the enumeration
-  guard, so a number copy there could drift); the Validation-Status row references the interim (still PARTIAL).
+  a per-instant subtraction, and distinct from the 84 % RMS energy share). Every interim **number** lives
+  only in this new guarded subsection; the two enumeration-guarded tables (`### lab-frame magnitudes`,
+  `### Body-frame per-component`) and the unguarded `## Comparison with van Veen` table get a **bare
+  cross-reference** (no re-transcribed number — a number in the guarded tables would break the enumeration
+  guard, and an unguarded copy could drift); the Validation-Status row references the interim (still
+  PARTIAL, still `#40`).
 - **Reproducibility guard**: mirroring `tests/test_results_reproducibility.py`, a new test recomputes the
   interim numbers from `forces_t2a_newconv.csv` **and** asserts they appear in `RESULTS.md`, with the
   interim subsection's numbers **enumerated / asserted-complete** (set-equality scan of the subsection),
