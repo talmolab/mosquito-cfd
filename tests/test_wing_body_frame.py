@@ -551,25 +551,35 @@ def test_added_mass_subtracted_nonfinite_and_empty_window_raise(tmp_path):
 
 
 def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
-    """A zero total-component peak and an empty CSV raise a clear ValueError (never a silent nan).
+    """A (near-)zero total-component peak and an empty CSV raise a clear ValueError (never silent garbage).
 
     Guards the module's no-silent-NaN posture: `drop_frac = 1 - sub/total` would ZeroDivisionError and
-    `am_rms_share` would emit a silent nan if a total body-frame component is identically zero; both are
-    replaced by a loud, named ValueError. (Cannot occur on the committed run — degenerate input only.)
+    `am_rms_share` would emit a silent nan (exactly zero) or huge finite garbage (roundoff-scale) if a
+    total body-frame component is degenerate; both are replaced by a loud, named ValueError against the
+    numerical degeneracy floor. (Cannot occur on the committed run — degenerate input only.)
     """
-    # An identically-zero force record -> peak |CF_chord| total == 0 exactly (the ZeroDivisionError /
-    # 0-0-nan path) -> a clear ValueError, not a ZeroDivisionError or a silent nan.
     cols = ["time", "Fx", "Fy", "Fz", "SumUx", "SumUy", "SumUz"]
     times = np.linspace(0.1, 0.9, 40)
-    zero = {c: np.zeros_like(times) for c in cols}
+    # (a) chord branch: an identically-zero force record -> peak |CF_chord| total == 0 (the exact
+    # ZeroDivisionError / 0-0-nan corner) -> clear ValueError.
+    zero = {col: np.zeros_like(times) for col in cols}
     zero["time"] = times
     zero_csv = tmp_path / "zero_force.csv"
     pd.DataFrame(zero).to_csv(zero_csv, index=False)
-    with pytest.raises(ValueError, match=r"CF_chord.*zero"):
+    with pytest.raises(ValueError, match=r"CF_chord.*degenerate"):
         body_frame_added_mass_subtracted(zero_csv, **_SUBTRACTED_KIN)
-    # An empty (header-only) CSV raises a clear "no data rows", not a cryptic numpy reduction error.
+    # (b) normal branch: a pure-chord wing -> peak |CF_normal| total is roundoff-scale (~1e-13, below
+    # the floor) -> clear ValueError. This exercises the guard's second branch, which an exact ==0.0
+    # check could never reach (rotation roundoff never yields bit-exact zero for the normal component).
+    pure_chord = np.tile([150.0, 0.0, 0.0], (times.size, 1))
+    chord_csv = _write_body_frame_csv(
+        tmp_path / "pure_chord.csv", times, pure_chord, np.zeros((times.size, 3))
+    )
+    with pytest.raises(ValueError, match=r"CF_normal.*degenerate"):
+        body_frame_added_mass_subtracted(chord_csv, **_SUBTRACTED_KIN)
+    # (c) empty (header-only) CSV -> clear "no data rows", not a cryptic numpy reduction error.
     empty = tmp_path / "empty.csv"
-    pd.DataFrame({c: [] for c in cols}).to_csv(empty, index=False)
+    pd.DataFrame({col: [] for col in cols}).to_csv(empty, index=False)
     with pytest.raises(ValueError, match="no data rows"):
         body_frame_added_mass_subtracted(empty, **_SUBTRACTED_KIN)
 
@@ -644,12 +654,13 @@ def test_peak_migration_and_signed_drop(tmp_path):
     assert inst_drop_at_total_peak == pytest.approx(0.47, abs=0.02)
 
     # (b) Synthetic case where subtraction RAISES the chord peak (am anti-aligned) -> drop_frac < 0.
+    # A nonzero normal keeps peak_cf_normal_total above the degeneracy floor (only chord is exercised).
     times = np.linspace(0.1, 0.9, 40)
-    c = 150.0
-    ib_body = np.tile([c, 0.0, 0.0], (times.size, 1))
+    c, n = 150.0, 400.0
+    ib_body = np.tile([c, 0.0, n], (times.size, 1))
     am_body = np.tile(
         [-c, 0.0, 0.0], (times.size, 1)
-    )  # anti-aligned -> sub = [2c, 0, 0]
+    )  # anti-aligned chord -> sub_chord = 2c
     csv = _write_body_frame_csv(tmp_path / "raise.csv", times, ib_body, am_body)
     raised = body_frame_added_mass_subtracted(csv, **_SUBTRACTED_KIN)
     assert raised["chord_drop_frac"] == pytest.approx(-1.0, abs=1e-9)  # 1 - 2c/c = -1

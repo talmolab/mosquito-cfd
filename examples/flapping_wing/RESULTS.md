@@ -228,10 +228,10 @@ CF_chord PARTIAL — it is **not** a re-grade of van Veen and introduces no new 
 Body-frame added-mass RMS share (whole-window energy): **chord 84 %**, **normal 13 %**.
 
 **Metric-type caveat (chord).** The **84 %** is an RMS *energy* share over the window; the **−29 %** is a
-**peak-to-peak** ratio of two window maxima that fall at **different phases** (the total-chord peak near a
-stroke reversal, the subtracted-chord peak mid-stroke) — **not** a per-instant subtraction (the
-instantaneous drop at the total peak is ~47 %). So the 84 % does not "cause" the 29 %; both independently
-show added mass dominates the chord, by different measures.
+**peak-to-peak** ratio of two window maxima that fall at **different phases** (the total-chord and
+subtracted-chord peaks occur at different points in the stroke cycle, ~1094 timesteps apart) — **not** a
+per-instant subtraction (the instantaneous drop at the total peak is ~47 %). So the 84 % does not "cause"
+the 29 %; both independently show added mass dominates the chord, by different measures.
 
 **Frame/definition disambiguation.** These body-frame shares (**chord 84 %**, **normal 13 %**) are the
 wing-frame analog of the lab-frame added-mass RMS fractions just above (**stroke 37 %**, **lift 29 %**) — a

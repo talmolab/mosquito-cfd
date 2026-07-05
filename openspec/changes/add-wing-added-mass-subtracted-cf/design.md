@@ -151,3 +151,11 @@ T2a rotation, don't re-derive). A `rho_f=0` check (subtracted peaks == total pea
   does not touch those graders' outputs.
 - **Doc number drifts from data** → D6 reproducibility guard (recompute + assert-present + asserted-complete)
   runs before the edit.
+- **Degenerate denominator (PR-review hardening)** → the drop fraction (`1 − sub/total`) and RMS share
+  (`rms(added)/rms(ib)`) are ill-conditioned when a total-component peak is (near-)zero: exactly 0 →
+  `ZeroDivisionError`/`0-0` nan; a roundoff-scale residual → a huge, finite, silently-propagating garbage
+  ratio. Both are caught by a named `ValueError` against a numerical-degeneracy floor
+  `_DEGENERATE_CF_FLOOR = 1e-9` — a **tolerance** guard (consistent with the module's `atol=1e-8` rotation
+  check), NOT an exact `== 0.0` that misses the roundoff-scale case and leaves the normal-component branch
+  untestable. The floor sits ~8 orders below any physical CF (`O(0.1–10)`) and ~4 above roundoff, so it
+  never fires on a real run. Unreachable on the committed data; a robustness/contract guarantee only.

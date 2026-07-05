@@ -514,6 +514,15 @@ _REQUIRED_SUBTRACTED_CSV_COLUMNS = (
     "SumUz",
 )
 
+# Numerical-degeneracy floor for a body-frame TOTAL-component CF peak. Below it, the drop fraction
+# (1 - sub/total) and the RMS share (rms(added)/rms(ib)) are ill-conditioned: exactly 0 -> a
+# ZeroDivisionError / 0-0 nan; a roundoff-scale denominator -> a huge, FINITE, silently-propagating
+# garbage ratio. The floor sits ~8 orders below any physical normalized coefficient (real insect-wing
+# body-frame CF peaks are O(0.1-10)) and ~4 orders above rotation roundoff, so it fires only on genuine
+# degeneracy and never on a real run. Tolerance-based (cf. the module's atol=1e-8 rotation check), NOT
+# an exact ==0.0 that would miss a roundoff-scale peak and leave its guard branch untestable.
+_DEGENERATE_CF_FLOOR = 1e-9
+
 
 def _body_frame_rms_share(
     added_body: NDArray[np.floating], ib_body: NDArray[np.floating]
@@ -574,8 +583,9 @@ def body_frame_added_mass_subtracted(
             non-finite **anywhere in the series** (checked over the whole record, not just the window,
             so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
             not finite and positive; ``window_t0`` selects no timesteps; or a **total** body-frame peak
-            (``|CF_chord|``/``|CF_normal|``) is zero over the window (the drop fraction and RMS share are
-            undefined for a degenerate zero component — never returned as a silent ``nan``/``inf``).
+            (``|CF_chord|``/``|CF_normal|``) falls below the numerical degeneracy floor
+            (``_DEGENERATE_CF_FLOOR``) over the window (the drop fraction and RMS share are undefined for
+            a (near-)zero component — never returned as a silent ``nan``/``inf`` or huge finite garbage).
     """
     df = pd.read_csv(csv_path)
     missing = [c for c in _REQUIRED_SUBTRACTED_CSV_COLUMNS if c not in df.columns]
@@ -640,19 +650,20 @@ def body_frame_added_mass_subtracted(
     peak_normal_total = peak(cf_ib, "cf_normal")
     peak_chord_sub = peak(cf_sub, "cf_chord")
     peak_normal_sub = peak(cf_sub, "cf_normal")
-    # Guard the denominators: a zero total-component peak makes the drop fraction (a Python-float
-    # division -> ZeroDivisionError) and the RMS share (0/0 -> silent nan) undefined. Raise the
-    # module's loud, named ValueError rather than emit a ZeroDivisionError or a silent nan. A peak > 0
-    # also guarantees rms(ib) > 0 for that component (both taken over the same window).
+    # Guard the ratio denominators: a total-component peak that is zero — or a roundoff-scale
+    # residual below _DEGENERATE_CF_FLOOR — makes the drop fraction (1 - sub/total) and the RMS
+    # share (rms(added)/rms(ib)) ill-conditioned (a ZeroDivisionError, a silent nan, or huge finite
+    # garbage). Raise the module's loud, named ValueError instead. A peak above the floor also
+    # guarantees rms(ib) > 0 for that component (both taken over the same window).
     for _name, _peak_total in (
         ("chord", peak_chord_total),
         ("normal", peak_normal_total),
     ):
-        if _peak_total == 0.0:
+        if _peak_total < _DEGENERATE_CF_FLOOR:
             raise ValueError(
-                f"peak |CF_{_name}| of the total ib_force is zero over the window; the {_name} "
-                "drop fraction and RMS share are undefined for a degenerate zero component "
-                "(check the input run)"
+                f"peak |CF_{_name}| of the total ib_force is {_peak_total:.3g}, below the numerical "
+                f"degeneracy floor {_DEGENERATE_CF_FLOOR:g}; the {_name} drop fraction and RMS share "
+                "are undefined for a (near-)zero degenerate component (check the input run)"
             )
     return {
         "peak_cf_chord_total": peak_chord_total,
