@@ -147,6 +147,13 @@ at steady state, so the added-mass fraction has no zero-crossings.
 1. **Constant velocity only**: IAMReX only supports constant prescribed velocities, not time-varying kinematics like sinusoidal heaving
 2. **No rotation**: Full 3-angle flapping (φ, α, θ) requires IAMReX code modification
 3. **Approximate geometry**: Ellipsoid is not a true flat plate; expect differences in force coefficients
+4. **`SumU` added-mass proxy is unreliable at sub-cell translation (T2b)**: because the body moves
+   `Vy·dt = 0.005` per step, far below the cell size `dy = 0.078`, the diffused-IB `SumU` term is a
+   ~15.6-step sawtooth (bit-exact 0 between grid-cell crossings; see the T2b section) — so the reported
+   added-mass fraction is a diluted mean, reliable only to an order of magnitude. It suffices for the
+   "≪ van Veen 15%/31%" sanity but not for a precise added-mass number; a finer grid, or the ellipsoid's
+   own potential-flow (Lamb) added mass, would be the fix. Does **not** affect the graded self-consistency
+   verdict (which is on the smooth `Fx`/`Fy`).
 
 ## Next Steps
 
