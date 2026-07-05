@@ -10,18 +10,24 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from mosquito_cfd.benchmarks.flapping_wing import (
+    STEADY_WINDOW_T0,
     VAN_VEEN_BAND,
     VAN_VEEN_CF_TARGETS,
     VAN_VEEN_MATCH_TOL,
     WingBodyFrameDecomposition,
+    added_mass_force,
+    body_frame_added_mass_subtracted,
     body_frame_coefficients,
     body_frame_overall_match,
     reconstruct_wing_body_forces,
 )
-from mosquito_cfd.benchmarks.wing_kinematics import rotation_matrix
+from mosquito_cfd.benchmarks.wing_kinematics import euler_angles, rotation_matrix
+from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 
 _FORCES_CSV = Path("examples/flapping_wing/forces.csv")
 _F_REF = 200.27
@@ -277,3 +283,384 @@ def test_body_frame_reports_dropped_spanwise():
     )
     assert hasattr(decomp, "cf_span")
     assert decomp.cf_span.shape == decomp.cf_chord.shape
+
+
+# --- Added-mass-subtracted body-frame diagnostic (#40 cheap interim) -------------------------
+#
+# Reported (not graded) diagnostic: subtract the logged added-mass rho_f*SumU from ib_force, rotate
+# the remainder into the wing body frame with the SAME R(t)/body_frame_coefficients as T2a, and report
+# peak |CF_chord|/|CF_normal| for total vs subtracted plus the body-frame added-mass RMS shares. These
+# tests reuse the module-level path constants and mirror the existing body-frame test conventions.
+
+_SUBTRACTED_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}
+
+
+def _f_ref(f_star: float = 1.0, phi_amp_deg: float = 70.0) -> float:
+    """The single-source van Veen F_ref at the given kinematics (matches the diagnostic)."""
+    return compute_force_reference(
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
+    ).f_ref
+
+
+def _write_body_frame_csv(
+    path: Path,
+    times: np.ndarray,
+    ib_body: np.ndarray,
+    am_body: np.ndarray,
+    *,
+    f_star: float = 1.0,
+    phi_amp_deg: float = 70.0,
+    pitch_amp_deg: float = 45.0,
+) -> Path:
+    """Write a synthetic 7-column IB CSV whose per-timestep body-frame ib/added-mass are prescribed.
+
+    For each time ``t`` the lab force is ``R(t) @ ib_body[i]`` and the ``SumU`` row is
+    ``R(t) @ am_body[i]`` (so with ``rho_f = 1`` the added-mass ``rho_f*SumU`` decodes back to
+    ``am_body`` in the wing frame). This lets a test pin the body-frame subtracted result exactly.
+    """
+    f_lab, sum_u = [], []
+    for i, t in enumerate(times):
+        rot = rotation_matrix(
+            *euler_angles(
+                float(t),
+                frequency=f_star,
+                stroke_amp_rad=np.radians(phi_amp_deg),
+                pitch_amp_rad=np.radians(pitch_amp_deg),
+                deviation_amp_rad=0.0,
+            )
+        )
+        f_lab.append(rot @ ib_body[i])
+        sum_u.append(
+            rot @ am_body[i]
+        )  # rho_f = 1 -> SumU == added-mass in the lab frame
+    f_lab = np.asarray(f_lab)
+    sum_u = np.asarray(sum_u)
+    pd.DataFrame(
+        {
+            "time": times,
+            "Fx": f_lab[:, 0],
+            "Fy": f_lab[:, 1],
+            "Fz": f_lab[:, 2],
+            "SumUx": sum_u[:, 0],
+            "SumUy": sum_u[:, 1],
+            "SumUz": sum_u[:, 2],
+        }
+    ).to_csv(path, index=False)
+    return path
+
+
+def test_added_mass_subtracted_linearity_and_reuse(tmp_path):
+    """Rotation linearity holds, and a pure-chord added-mass cancels the chord while sparing the normal.
+
+    Scenario: Reuses the T2a rotation and #36 added-mass, not a re-derivation (D2 linearity).
+    """
+    # (A) Linearity of the lab->body rotation: R^T(F - am) == R^T F - R^T am, componentwise.
+    rot = rotation_matrix(0.3, 0.6, 0.9)
+    f_lab = np.array([12.0, -5.0, 8.0])
+    am_lab = np.array([3.0, 2.0, -4.0])
+    f_ref = _f_ref()
+    both = body_frame_coefficients(f_lab - am_lab, rot, f_ref)
+    f_only = body_frame_coefficients(f_lab, rot, f_ref)
+    am_only = body_frame_coefficients(am_lab, rot, f_ref)
+    for k in ("cf_chord", "cf_normal", "cf_span"):
+        assert both[k] == pytest.approx(f_only[k] - am_only[k], abs=1e-12)
+
+    # (B) Through the function: a pure-chord added-mass exactly cancels the chord (subtracted ~ 0)
+    # and leaves the normal untouched. ib_body = [c, 0, n]; am_body = [c, 0, 0] -> sub = [0, 0, n].
+    times = np.linspace(0.1, 0.9, 60)
+    c, n = 150.0, 400.0
+    ib_body = np.tile([c, 0.0, n], (times.size, 1))
+    am_body = np.tile([c, 0.0, 0.0], (times.size, 1))
+    csv = _write_body_frame_csv(tmp_path / "cancel.csv", times, ib_body, am_body)
+    out = body_frame_added_mass_subtracted(csv, **_SUBTRACTED_KIN)
+    assert out["peak_cf_chord_total"] == pytest.approx(c / f_ref, abs=1e-9)
+    assert out["peak_cf_chord_subtracted"] == pytest.approx(0.0, abs=1e-9)
+    assert out["peak_cf_normal_subtracted"] == pytest.approx(n / f_ref, abs=1e-9)
+    assert out["chord_drop_frac"] == pytest.approx(1.0, abs=1e-9)  # fully cancelled
+    assert out["am_rms_share_chord"] == pytest.approx(
+        1.0, abs=1e-9
+    )  # am chord == ib chord
+    assert out["am_rms_share_normal"] == pytest.approx(
+        0.0, abs=1e-9
+    )  # no am in the normal
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_subtracted_equals_manual_reuse_pipeline():
+    """The subtracted peaks equal an independent added_mass_force + body_frame_coefficients pipeline.
+
+    Scenario: Reuses #36 added_mass_force and the T2a rotation, not a re-derivation (CC-V4). A
+    divergent re-implementation of the added-mass magnitude or the rotation would fail this identity.
+    """
+    df = pd.read_csv(_NEWCONV_CSV)
+    ib = np.column_stack([df["Fx"], df["Fy"], df["Fz"]]).astype(float)
+    sum_u = np.column_stack([df["SumUx"], df["SumUy"], df["SumUz"]]).astype(float)
+    time = df["time"].to_numpy(float)
+    sub = ib - added_mass_force(sum_u, 1.0)  # reuse #36
+    f_ref = _f_ref()
+    rots = np.stack(
+        [
+            rotation_matrix(
+                *euler_angles(
+                    t,
+                    frequency=1.0,
+                    stroke_amp_rad=np.radians(70.0),
+                    pitch_amp_rad=np.radians(45.0),
+                    deviation_amp_rad=0.0,
+                )
+            )
+            for t in time
+        ]
+    )
+    cf_sub = body_frame_coefficients(sub, rots, f_ref)
+    mask = time >= STEADY_WINDOW_T0
+    manual_chord = float(np.abs(cf_sub["cf_chord"][mask]).max())
+    manual_normal = float(np.abs(cf_sub["cf_normal"][mask]).max())
+    out = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    assert out["peak_cf_chord_subtracted"] == pytest.approx(manual_chord, abs=1e-9)
+    assert out["peak_cf_normal_subtracted"] == pytest.approx(manual_normal, abs=1e-9)
+
+
+_EXPECTED_SUBTRACTED_KEYS = {
+    "peak_cf_chord_total",
+    "peak_cf_normal_total",
+    "peak_cf_chord_subtracted",
+    "peak_cf_normal_subtracted",
+    "chord_drop_frac",
+    "normal_drop_frac",
+    "am_rms_share_chord",
+    "am_rms_share_normal",
+    "window_t0",
+}
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_added_mass_subtracted_reproduces_interim():
+    """The #40 interim peaks recompute from the committed CSV: 0.923->0.652, 2.606->2.285.
+
+    Scenario: Added-mass subtracted then rotated reproduces the interim peaks (committed data), and the
+    total peaks equal the existing body-frame grader (the "same peaks" identity underwriting the doc).
+    """
+    out = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    assert out["peak_cf_chord_total"] == pytest.approx(0.923, abs=0.02)
+    assert out["peak_cf_chord_subtracted"] == pytest.approx(0.652, abs=0.02)
+    assert out["chord_drop_frac"] == pytest.approx(0.29, abs=0.01)
+    assert out["peak_cf_normal_total"] == pytest.approx(2.606, abs=0.02)
+    assert out["peak_cf_normal_subtracted"] == pytest.approx(2.285, abs=0.02)
+    assert out["normal_drop_frac"] == pytest.approx(0.12, abs=0.01)
+    # "Same peaks" identity: the total peaks are the existing grader's peaks to machine precision
+    # (both traverse the identical body_frame_coefficients path at identical kinematics/window).
+    grader = body_frame_overall_match(
+        reconstruct_wing_body_forces(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    )
+    assert out["peak_cf_chord_total"] == pytest.approx(
+        grader["peak_cf_chord"], abs=1e-9
+    )
+    assert out["peak_cf_normal_total"] == pytest.approx(
+        grader["peak_cf_normal"], abs=1e-9
+    )
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_added_mass_body_frame_rms_shares():
+    """Body-frame added-mass RMS shares are ~84% chord / ~13% normal, and pinned to the added/ib defn.
+
+    Scenario: Body-frame added-mass RMS shares are reported (rms(added_body)/rms(ib_body), the body-frame
+    analog of the lab-frame added_mass_fraction — not a subtracted-ratio, not a peak-ratio).
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import _body_frame_rms_share
+
+    out = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    assert out["am_rms_share_chord"] == pytest.approx(0.84, abs=0.02)
+    assert out["am_rms_share_normal"] == pytest.approx(0.13, abs=0.02)
+    # Structural definition guard: share(k*ib, ib) == |k|, and NOT rms(ib - added)/rms(ib) = |1 - k|.
+    rng = np.linspace(-1.0, 1.0, 101)
+    ib = np.cos(3.0 * rng)  # arbitrary nonzero body-frame ib component
+    k = 0.84
+    added = k * ib
+    assert _body_frame_rms_share(added, ib) == pytest.approx(k, abs=1e-9)
+    subtracted_ratio = float(
+        np.sqrt(np.mean((ib - added) ** 2)) / np.sqrt(np.mean(ib**2))
+    )
+    assert subtracted_ratio == pytest.approx(abs(1.0 - k), abs=1e-9)
+    assert _body_frame_rms_share(added, ib) != pytest.approx(subtracted_ratio)
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_diagnostic_is_reported_not_graded():
+    """The diagnostic is REPORTED, not graded: no verdict key, and it leaves the graders unchanged.
+
+    Scenario: Reported only — no new van Veen pass/fail; a subtracted value cannot flip any gate (CC-V2).
+    """
+    out = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    # Exact reported key set — catches ANY later-added key (verdict or not), not just named ones.
+    assert set(out) == _EXPECTED_SUBTRACTED_KEYS
+    for verdict_key in (
+        "match",
+        "cf_chord_match",
+        "cf_normal_match",
+        "pass",
+        "floor_pass",
+        "in_band",
+    ):
+        assert verdict_key not in out
+    # The existing graders return their unchanged T2a verdicts — the subtracted value cannot re-grade.
+    decomp = reconstruct_wing_body_forces(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    body = body_frame_overall_match(decomp, targets=VAN_VEEN_CF_TARGETS)
+    assert body["cf_normal_match"] is True
+    assert body["cf_chord_match"] is False
+    assert body["match"] is False
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+@pytest.mark.parametrize("dropped", ["Fy", "SumUx", "SumUy", "SumUz"])
+def test_added_mass_subtracted_missing_column_raises(tmp_path, dropped):
+    """Dropping ANY required column (incl. Fy/SumUy, which no single existing tuple covers) raises."""
+    df = pd.read_csv(_NEWCONV_CSV).drop(columns=[dropped])
+    bad = tmp_path / f"drop_{dropped}.csv"
+    df.to_csv(bad, index=False)
+    with pytest.raises(ValueError, match="missing required column"):
+        body_frame_added_mass_subtracted(bad, **_SUBTRACTED_KIN)
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_added_mass_subtracted_nonfinite_and_empty_window_raise(tmp_path):
+    """A non-finite force/SumU row raises (never a silent NaN); an empty steady window raises."""
+    df = pd.read_csv(_NEWCONV_CSV)
+    df.loc[100, "SumUy"] = np.inf
+    bad = tmp_path / "nonfinite.csv"
+    df.to_csv(bad, index=False)
+    with pytest.raises(ValueError, match="non-finite"):
+        body_frame_added_mass_subtracted(bad, **_SUBTRACTED_KIN)
+    with pytest.raises(ValueError, match="selects no timesteps"):
+        body_frame_added_mass_subtracted(
+            _NEWCONV_CSV, window_t0=100.0, **_SUBTRACTED_KIN
+        )
+
+
+def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
+    """A (near-)zero total-component peak and an empty CSV raise a clear ValueError (never silent garbage).
+
+    Guards the module's no-silent-NaN posture: `drop_frac = 1 - sub/total` would ZeroDivisionError and
+    `am_rms_share` would emit a silent nan (exactly zero) or huge finite garbage (roundoff-scale) if a
+    total body-frame component is degenerate; both are replaced by a loud, named ValueError against the
+    numerical degeneracy floor. (Cannot occur on the committed run — degenerate input only.)
+    """
+    cols = ["time", "Fx", "Fy", "Fz", "SumUx", "SumUy", "SumUz"]
+    times = np.linspace(0.1, 0.9, 40)
+    # (a) chord branch: an identically-zero force record -> peak |CF_chord| total == 0 (the exact
+    # ZeroDivisionError / 0-0-nan corner) -> clear ValueError.
+    zero = {col: np.zeros_like(times) for col in cols}
+    zero["time"] = times
+    zero_csv = tmp_path / "zero_force.csv"
+    pd.DataFrame(zero).to_csv(zero_csv, index=False)
+    with pytest.raises(ValueError, match=r"CF_chord.*degenerate"):
+        body_frame_added_mass_subtracted(zero_csv, **_SUBTRACTED_KIN)
+    # (b) normal branch: a pure-chord wing -> peak |CF_normal| total is roundoff-scale (~1e-13, below
+    # the floor) -> clear ValueError. This exercises the guard's second branch, which an exact ==0.0
+    # check could never reach (rotation roundoff never yields bit-exact zero for the normal component).
+    pure_chord = np.tile([150.0, 0.0, 0.0], (times.size, 1))
+    chord_csv = _write_body_frame_csv(
+        tmp_path / "pure_chord.csv", times, pure_chord, np.zeros((times.size, 3))
+    )
+    with pytest.raises(ValueError, match=r"CF_normal.*degenerate"):
+        body_frame_added_mass_subtracted(chord_csv, **_SUBTRACTED_KIN)
+    # (c) empty (header-only) CSV -> clear "no data rows", not a cryptic numpy reduction error.
+    empty = tmp_path / "empty.csv"
+    pd.DataFrame({col: [] for col in cols}).to_csv(empty, index=False)
+    with pytest.raises(ValueError, match="no data rows"):
+        body_frame_added_mass_subtracted(empty, **_SUBTRACTED_KIN)
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_window_t0_and_rho_f_plumbing():
+    """`window_t0` echoes + changes the window; `rho_f=0` leaves the total unchanged (share 0)."""
+    default = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    assert default["window_t0"] == STEADY_WINDOW_T0
+    # A late window (t>=0.9) excludes the chord total peak (~t=0.897), so the reported peak changes.
+    later = body_frame_added_mass_subtracted(
+        _NEWCONV_CSV, window_t0=0.9, **_SUBTRACTED_KIN
+    )
+    assert later["window_t0"] == 0.9
+    assert later["peak_cf_chord_total"] != pytest.approx(default["peak_cf_chord_total"])
+    # rho_f = 0 -> no added mass to subtract: subtracted == total, share == 0 (plumbs rho_f through).
+    zero = body_frame_added_mass_subtracted(_NEWCONV_CSV, rho_f=0.0, **_SUBTRACTED_KIN)
+    assert zero["peak_cf_chord_subtracted"] == pytest.approx(
+        zero["peak_cf_chord_total"], abs=1e-12
+    )
+    assert zero["am_rms_share_chord"] == pytest.approx(0.0, abs=1e-12)
+    assert zero["chord_drop_frac"] == pytest.approx(0.0, abs=1e-12)
+
+
+@pytest.mark.skipif(
+    not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
+)
+def test_peak_migration_and_signed_drop(tmp_path):
+    """Chord total/subtracted peaks fall at DIFFERENT phases; drop_frac is signed (can go negative)."""
+    # (a) On the committed run the chord peaks migrate: peak_subtracted is the independent window-max,
+    # NOT the subtracted value at the total's argmax.
+    df = pd.read_csv(_NEWCONV_CSV)
+    ib = np.column_stack([df["Fx"], df["Fy"], df["Fz"]]).astype(float)
+    sum_u = np.column_stack([df["SumUx"], df["SumUy"], df["SumUz"]]).astype(float)
+    time = df["time"].to_numpy(float)
+    sub = ib - added_mass_force(sum_u, 1.0)
+    f_ref = _f_ref()
+    rots = np.stack(
+        [
+            rotation_matrix(
+                *euler_angles(
+                    t,
+                    frequency=1.0,
+                    stroke_amp_rad=np.radians(70.0),
+                    pitch_amp_rad=np.radians(45.0),
+                    deviation_amp_rad=0.0,
+                )
+            )
+            for t in time
+        ]
+    )
+    m = time >= STEADY_WINDOW_T0
+    chord_total = np.abs(body_frame_coefficients(ib, rots, f_ref)["cf_chord"][m])
+    chord_sub = np.abs(body_frame_coefficients(sub, rots, f_ref)["cf_chord"][m])
+    i_total, i_sub = int(np.argmax(chord_total)), int(np.argmax(chord_sub))
+    assert i_total != i_sub  # the two chord peaks are at different timesteps (phases)
+    out = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
+    # The reported subtracted peak is the independent max (~0.652), NOT the value at the total's argmax.
+    assert out["peak_cf_chord_subtracted"] == pytest.approx(
+        float(chord_sub[i_sub]), abs=1e-9
+    )
+    assert out["peak_cf_chord_subtracted"] != pytest.approx(
+        float(chord_sub[i_total]), abs=1e-3
+    )
+    # The INSTANTANEOUS added-mass drop AT the total-chord peak is ~47% — the third metric named in
+    # the RESULTS.md caveat (distinct from the 84% RMS energy share and the -29% peak-to-peak drop).
+    inst_drop_at_total_peak = 1.0 - float(chord_sub[i_total]) / float(
+        chord_total[i_total]
+    )
+    assert inst_drop_at_total_peak == pytest.approx(0.47, abs=0.02)
+
+    # (b) Synthetic case where subtraction RAISES the chord peak (am anti-aligned) -> drop_frac < 0.
+    # A nonzero normal keeps peak_cf_normal_total above the degeneracy floor (only chord is exercised).
+    times = np.linspace(0.1, 0.9, 40)
+    c, n = 150.0, 400.0
+    ib_body = np.tile([c, 0.0, n], (times.size, 1))
+    am_body = np.tile(
+        [-c, 0.0, 0.0], (times.size, 1)
+    )  # anti-aligned chord -> sub_chord = 2c
+    csv = _write_body_frame_csv(tmp_path / "raise.csv", times, ib_body, am_body)
+    raised = body_frame_added_mass_subtracted(csv, **_SUBTRACTED_KIN)
+    assert raised["chord_drop_frac"] == pytest.approx(-1.0, abs=1e-9)  # 1 - 2c/c = -1

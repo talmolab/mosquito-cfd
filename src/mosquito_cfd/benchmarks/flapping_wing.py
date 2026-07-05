@@ -488,3 +488,196 @@ def body_frame_overall_match(
         }
     )
     return result
+
+
+# --- Added-mass-subtracted body-frame CF diagnostic (#40 cheap interim) -----------------------
+#
+# A REPORTED (not graded) diagnostic: subtract the logged added-mass rho_f*SumU (via added_mass_force,
+# #36) from the total ib_force, rotate the remainder into the wing body frame with the SAME analytic
+# R(t) / body_frame_coefficients the T2a decomposition uses (CC-V4 — reused, not re-derived; the two
+# defect classes stay separate), and report peak |CF_chord|/|CF_normal| for total vs subtracted plus
+# the body-frame added-mass RMS share. It isolates the added-mass share of the T2a CF_chord PARTIAL
+# (0.923 -> 0.652); it does NOT re-grade van Veen (CC-V2 — no *_match/pass field) and does NOT resolve
+# the PARTIAL (0.652 is still ~2x van Veen's translational ~0.3 — the residual is the full T4).
+
+# Columns the added-mass-subtracted diagnostic reads. It rotates the FULL 3-D force and added-mass
+# vectors, so it needs Fy AND SumU{x,y,z}. No single existing tuple covers all seven:
+# _REQUIRED_CSV_COLUMNS lacks Fy and SumUy; _REQUIRED_BODY_CSV_COLUMNS lacks the SumU* columns
+# (SumUy is in neither) — hence this own set.
+_REQUIRED_SUBTRACTED_CSV_COLUMNS = (
+    "time",
+    "Fx",
+    "Fy",
+    "Fz",
+    "SumUx",
+    "SumUy",
+    "SumUz",
+)
+
+# Numerical-degeneracy floor for a body-frame TOTAL-component CF peak. Below it, the drop fraction
+# (1 - sub/total) and the RMS share (rms(added)/rms(ib)) are ill-conditioned: exactly 0 -> a
+# ZeroDivisionError / 0-0 nan; a roundoff-scale denominator -> a huge, FINITE, silently-propagating
+# garbage ratio. The floor sits ~8 orders below any physical normalized coefficient (real insect-wing
+# body-frame CF peaks are O(0.1-10)) and ~4 orders above rotation roundoff, so it fires only on genuine
+# degeneracy and never on a real run. Tolerance-based (cf. the module's atol=1e-8 rotation check), NOT
+# an exact ==0.0 that would miss a roundoff-scale peak and leave its guard branch untestable.
+_DEGENERATE_CF_FLOOR = 1e-9
+
+
+def _body_frame_rms_share(
+    added_body: NDArray[np.floating], ib_body: NDArray[np.floating]
+) -> float:
+    """Body-frame added-mass RMS share ``rms(added_body)/rms(ib_body)`` (reported, not gated).
+
+    The body-frame analog of the lab-frame :func:`added_mass_fraction` (``rms(added)/rms(ib)``),
+    exposed as a seam so the definition can be pinned on synthetic arrays. NOT ``rms(subtracted)`` and
+    NOT a peak ratio. Inputs are the already-windowed body-frame component series.
+    """
+    added = np.asarray(added_body, dtype=float)
+    ib = np.asarray(ib_body, dtype=float)
+    return float(np.sqrt(np.mean(added**2)) / np.sqrt(np.mean(ib**2)))
+
+
+def body_frame_added_mass_subtracted(
+    csv_path: str | Path,
+    *,
+    f_star: float,
+    phi_amp_deg: float,
+    pitch_amp_deg: float,
+    deviation_amp_deg: float = 0.0,
+    rho_f: float = RHO,
+    window_t0: float = STEADY_WINDOW_T0,
+) -> dict:
+    """Reported #40 cheap interim: body-frame peaks for ``ib_force`` vs ``ib_force - rho_f*SumU``.
+
+    Subtracts the logged added-mass ``rho_f*SumU`` (via :func:`added_mass_force`, #36) from the total
+    lab-frame ``ib_force``, rotates **both** the total and the subtracted force into the wing body frame
+    with the analytic ``R(t)`` from :mod:`mosquito_cfd.benchmarks.wing_kinematics` and
+    :func:`body_frame_coefficients` (the same composition T2a applies — reused, not re-derived), and
+    reports, over the pinned steady window, peak ``|CF_chord|``/``|CF_normal|`` for total and subtracted,
+    the **signed** peak-to-peak drop fraction, and the body-frame added-mass RMS share per component.
+
+    Because the total and subtracted peaks can fall at **different phases**, each ``peak_*`` is the
+    independent window argmax of ``|series|`` (the subtracted peak is NOT the subtracted value at the
+    total's argmax). ``*_drop_frac = 1 - peak_subtracted/peak_total`` is therefore a peak-to-peak ratio,
+    **signed** (negative if subtraction raises a peak) — not a per-instant reduction. This is **reported,
+    not graded**: the return dict carries NO ``*_match``/``pass`` verdict field (CC-V2), and the existing
+    graders (:func:`plausibility_gate`, :func:`body_frame_overall_match`) are untouched.
+
+    Args:
+        csv_path: Committed IB-particle CSV; must carry ``time, Fx, Fy, Fz, SumU{x,y,z}``.
+        f_star: Dimensionless flap frequency.
+        phi_amp_deg: Stroke amplitude [deg].
+        pitch_amp_deg: Pitch amplitude [deg].
+        deviation_amp_deg: Deviation amplitude [deg]; default 0.
+        rho_f: Fluid density for the added-mass term (``rho_f*SumU``); default ``RHO``. Passed through
+            to :func:`added_mass_force` unvalidated (a physical parameter, linear in the result).
+        window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
+
+    Returns:
+        Dict of reported (never graded) quantities: ``peak_cf_{chord,normal}_{total,subtracted}``,
+        ``{chord,normal}_drop_frac``, ``am_rms_share_{chord,normal}``, ``window_t0``.
+
+    Raises:
+        ValueError: if a required column is missing; the CSV has no rows; a force/``SumU`` row is
+            non-finite **anywhere in the series** (checked over the whole record, not just the window,
+            so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
+            not finite and positive; ``window_t0`` selects no timesteps; or a **total** body-frame peak
+            (``|CF_chord|``/``|CF_normal|``) falls below the numerical degeneracy floor
+            (``_DEGENERATE_CF_FLOOR``) over the window (the drop fraction and RMS share are undefined for
+            a (near-)zero component — never returned as a silent ``nan``/``inf`` or huge finite garbage).
+    """
+    df = pd.read_csv(csv_path)
+    missing = [c for c in _REQUIRED_SUBTRACTED_CSV_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"IB-particle CSV {csv_path} is missing required column(s) {missing}; the "
+            f"added-mass-subtracted diagnostic needs {list(_REQUIRED_SUBTRACTED_CSV_COLUMNS)} "
+            "(it rotates the full 3-D force and added-mass vectors)"
+        )
+    f_ref = compute_force_reference(
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
+    ).f_ref
+    if not (np.isfinite(f_ref) and f_ref > 0):
+        raise ValueError(
+            f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg"
+        )
+    time = df["time"].to_numpy(float)
+    if time.size == 0:
+        raise ValueError(f"IB-particle CSV {csv_path} has no data rows")
+    mask = time >= window_t0
+    if not mask.any():
+        raise ValueError(
+            f"steady window_t0={window_t0} selects no timesteps; data range "
+            f"[{time.min():.4g}, {time.max():.4g}]"
+        )
+    ib = np.column_stack(
+        [df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)]
+    )
+    sum_u = np.column_stack(
+        [
+            df["SumUx"].to_numpy(float),
+            df["SumUy"].to_numpy(float),
+            df["SumUz"].to_numpy(float),
+        ]
+    )
+    added = added_mass_force(sum_u, rho_f)  # rho_f * SumU (#36); reused, not re-derived
+    subtracted = ib - added
+    rots = np.stack(
+        [
+            rotation_matrix(
+                *euler_angles(
+                    t,
+                    frequency=f_star,
+                    stroke_amp_rad=np.radians(phi_amp_deg),
+                    pitch_amp_rad=np.radians(pitch_amp_deg),
+                    deviation_amp_rad=np.radians(deviation_amp_deg),
+                )
+            )
+            for t in time
+        ]
+    )
+    # body_frame_coefficients raises on any non-finite force row, so a NaN/inf in ib or SumU
+    # surfaces here rather than as a silent coefficient.
+    cf_ib = body_frame_coefficients(ib, rots, f_ref)
+    cf_added = body_frame_coefficients(added, rots, f_ref)
+    cf_sub = body_frame_coefficients(subtracted, rots, f_ref)
+
+    def peak(cf: dict[str, NDArray[np.floating]], key: str) -> float:
+        return float(np.abs(cf[key][mask]).max())
+
+    peak_chord_total = peak(cf_ib, "cf_chord")
+    peak_normal_total = peak(cf_ib, "cf_normal")
+    peak_chord_sub = peak(cf_sub, "cf_chord")
+    peak_normal_sub = peak(cf_sub, "cf_normal")
+    # Guard the ratio denominators: a total-component peak that is zero — or a roundoff-scale
+    # residual below _DEGENERATE_CF_FLOOR — makes the drop fraction (1 - sub/total) and the RMS
+    # share (rms(added)/rms(ib)) ill-conditioned (a ZeroDivisionError, a silent nan, or huge finite
+    # garbage). Raise the module's loud, named ValueError instead. A peak above the floor also
+    # guarantees rms(ib) > 0 for that component (both taken over the same window).
+    for _name, _peak_total in (
+        ("chord", peak_chord_total),
+        ("normal", peak_normal_total),
+    ):
+        if _peak_total < _DEGENERATE_CF_FLOOR:
+            raise ValueError(
+                f"peak |CF_{_name}| of the total ib_force is {_peak_total:.3g}, below the numerical "
+                f"degeneracy floor {_DEGENERATE_CF_FLOOR:g}; the {_name} drop fraction and RMS share "
+                "are undefined for a (near-)zero degenerate component (check the input run)"
+            )
+    return {
+        "peak_cf_chord_total": peak_chord_total,
+        "peak_cf_normal_total": peak_normal_total,
+        "peak_cf_chord_subtracted": peak_chord_sub,
+        "peak_cf_normal_subtracted": peak_normal_sub,
+        # Signed peak-to-peak fraction (peaks may fall at different phases); NOT per-instant.
+        "chord_drop_frac": 1.0 - peak_chord_sub / peak_chord_total,
+        "normal_drop_frac": 1.0 - peak_normal_sub / peak_normal_total,
+        "am_rms_share_chord": _body_frame_rms_share(
+            cf_added["cf_chord"][mask], cf_ib["cf_chord"][mask]
+        ),
+        "am_rms_share_normal": _body_frame_rms_share(
+            cf_added["cf_normal"][mask], cf_ib["cf_normal"][mask]
+        ),
+        "window_t0": window_t0,
+    }

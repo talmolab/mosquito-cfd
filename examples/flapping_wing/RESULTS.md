@@ -212,6 +212,38 @@ Per IAMReX `WriteIBForceAndMoment`, the added-mass term `ρ_f·SumU` RMS fractio
 
 See **fig_forces.pdf** for the full force time series.
 
+### Added-mass-subtracted body-frame diagnostic (#40 cheap interim)
+
+Cluster-free **reported** diagnostic (`body_frame_added_mass_subtracted` on the committed
+`forces_t2a_newconv.csv`, steady window t ≥ 0.05, ρ_f = 1.0): subtract the logged added-mass `ρ_f·SumU`
+from the total `ib_force`, rotate the remainder into the wing body frame by the same analytic `R(t)` the
+T2a decomposition uses, and re-report the body-frame peaks. This **isolates the added-mass share** of the
+CF_chord PARTIAL — it is **not** a re-grade of van Veen and introduces no new pass/fail.
+
+| body-frame peak | total `ib_force` | subtracted `ib − ρ_f·SumU` | van Veen (transl.) |
+|---|---|---|---|
+| **CF_chord** | 0.923 | **0.652** (−29 %) | ~0.3 |
+| **CF_normal** | 2.606 | **2.285** (−12 %) | ~2.4 |
+
+Body-frame added-mass RMS share (whole-window energy): **chord 84 %**, **normal 13 %**.
+
+**Metric-type caveat (chord).** The **84 %** is an RMS *energy* share over the window; the **−29 %** is a
+**peak-to-peak** ratio of two window maxima that fall at **different phases** (the total-chord and
+subtracted-chord peaks occur at different points in the stroke cycle, ~1094 timesteps apart) — **not** a
+per-instant subtraction (the instantaneous drop at the total peak is ~47 %). So the 84 % does not "cause"
+the 29 %; both independently show added mass dominates the chord, by different measures.
+
+**Frame/definition disambiguation.** These body-frame shares (**chord 84 %**, **normal 13 %**) are the
+wing-frame analog of the lab-frame added-mass RMS fractions just above (**stroke 37 %**, **lift 29 %**) — a
+**different frame** and axis pairing (stroke ≠ chord, lift ≠ normal after the `R(t)` rotation), **not** a
+correction of them; neither supersedes the other.
+
+**Honest framing.** This **isolates the added-mass share** (84 % of the chord RMS) but **does not resolve**
+the CF_chord PARTIAL: even added-mass-subtracted, CF_chord ≈ 0.652 is still **~2×** van Veen's translational
+**~0.3** (0.652 / 0.3 ≈ 2.17). The residual (rotational drag + coarse grid + total-vs-translational) is the
+**full T4**; **#40** remains open (only its cheap-interim checkbox is ticked). The totals `0.923` / `2.606`
+are the **same peaks** as the body-frame table's `0.92` / `2.61` above, shown to an extra significant figure.
+
 ### Force at key phases (new-convention run)
 
 CF_z below is the lab-frame `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27`). Note **t = 0.25 /
@@ -281,7 +313,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Marker motion (span-tip sweeps) | PASS | ±70° arc in the x–y stroke plane (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
-| Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40 |
+| Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40; added-mass-subtracted interim delivered (see the diagnostic subsection above — still PARTIAL) |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run is Tier T3 |
 
@@ -304,8 +336,11 @@ phase is now at mid-stroke (the correct translational-stroke signature). `CF_cho
 translational target — an unverified total-vs-translational/coarse-grid hypothesis, tracked in
 **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)**. Both `CF_*` compare our **total**
 `ib_force` to van Veen's **translational-only** coefficients (see the body-frame section above). The
-per-component **decomposition** (#40 / **T4**), the time-resolved curve match vs van Veen Fig 3–4
-(**T4**), and medium-grid LEV convergence (**T3**) remain.
+#40 *cheap interim* — subtracting the logged added-mass and re-reporting the body-frame peaks — is
+delivered in the [added-mass-subtracted diagnostic subsection](#added-mass-subtracted-body-frame-diagnostic-40-cheap-interim)
+above (it isolates the added-mass share but leaves the chord PARTIAL open). The full per-component
+**decomposition** (#40 / **T4**), the time-resolved curve match vs van Veen Fig 3–4 (**T4**), and
+medium-grid LEV convergence (**T3**) remain.
 
 ---
 
