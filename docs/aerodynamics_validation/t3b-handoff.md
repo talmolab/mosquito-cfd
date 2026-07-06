@@ -24,10 +24,20 @@ section (same container, same `mpirun … amr3d.gnu.MPI.CUDA.ex` invocation, sam
 1. **Deck:** swap `inputs.3d.validation` → **`inputs.3d.convergence_medium`**.
 2. **Pin:** unchanged — same `ghcr.io/talmolab/mosquito-cfd:fp64` image at **IAMReX `f93dc794`** (grid
    refinement needs no solver change; FP64 throughout).
-3. **Provenance:** capture `run_metadata_t3b.json` via `mosquito_cfd.benchmarks.metadata.capture_run_metadata`
+3. **⚠ Plotfiles — DROP the `amr.plot_int=-1 amr.check_int=-1` overrides** from the RESULTS Run-Commands
+   line. Those overrides suppress *all* plotfiles, but the **LEV half of T3b needs the `t ≈ 0.5` velocity
+   field**. The medium deck sets `amr.plot_int = 100`, so simply omitting the `-1` override writes plotfiles;
+   write them into a run dir named **`t3b-medium`** (recorded as `plotfile_dir` in the metadata, so the LEV
+   test can find them — the coarse side is the existing `t2a-newconv4`). **Before tearing down the ~hours-long
+   job, confirm the `t ≈ 0.5` plotfile exists** (`plt01000` at the held `dt = 5e-4`, or the plt nearest
+   `current_time ≈ 0.5`). If you must reduce `dt` for stability (design D4), reduce it only to a value that
+   **keeps a plotfile landing exactly on `t = 0.5`** (raise `amr.plot_int` proportionally), and record
+   `fixed_dt`/`max_step`/`dt_reduced` in the metadata.
+4. **Provenance:** capture `run_metadata_t3b.json` via `mosquito_cfd.benchmarks.metadata.capture_run_metadata`
    (image digest, IAMReX commit `f93dc794`, **inputs hash of `inputs.3d.convergence_medium`**, git SHA,
-   hardware, timing) — the same helper T2a used for `run_metadata_t2a.json`.
-4. **Commit** the medium `forces_medium.csv` (the 29-column IB-particle write-out) + `run_metadata_t3b.json`.
+   hardware, timing, plus the named `extra` fields `fixed_dt`/`max_step`/`dt_reduced`/`plotfile_dir`) — the
+   same helper T2a used for `run_metadata_t2a.json`.
+5. **Commit** the medium `forces_medium.csv` (the 29-column IB-particle write-out) + `run_metadata_t3b.json`.
 
 ## Cost / stability expectations
 
@@ -55,11 +65,16 @@ section (same container, same `mpirun … amr3d.gnu.MPI.CUDA.ex` invocation, sam
     (`stop_time = 1.0`). The grader compares each CSV's independent window-max peak, so it will
     *silently* return a plausible number if you accidentally pair the wrong two runs or a truncated
     write-out; and a header-only (0-row) CSV surfaces a low-level `ValueError` from the reused
-    reconstruction, not a self-describing one — sanity-check row counts first.
-- LEV: once the medium plotfile is on the Z: drive, extract the velocity field (reuse the T1b
-  `load_plotfile` / `generate_all_figures.py` slice reader — the T3b wiring), pass it to
-  `lev.vorticity_magnitude` / `lev.q_criterion` (per-axis spacing; the medium grid is isotropic
-  Δx = Δy = Δz = 0.0625), and **report** LEV present at medium vs weak/absent at coarse — not a gate.
+    reconstruction, not a self-describing one — the T3b `assert_gradeable_pair` guard enforces this
+    (non-empty + `max(time)≈1.0` + matching unique-`iStep` time grids + deck `fixed_dt` equality).
+- LEV (the T3b wiring): at **mid-stroke `t ≈ 0.5`** (the `plt01000`-phase plotfile, max stroke velocity —
+  the most LEV-discriminating phase; **not** `t = 0.25` stroke reversal), extract the velocity field by
+  **reusing `mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box`** (verified: wing plotfiles carry
+  all six `('boxlib', …)` fields it needs) over a **wing near-field box derived from the plotfile's
+  `particle_position_*` bbox + margin**, pass `u,v,w` + per-axis `dx` to `lev.vorticity_magnitude` /
+  `lev.q_criterion` (medium is isotropic Δx = 0.0625), and **report** the resolution-fair `q_pos_vol`
+  (integrated positive Q) coarse-vs-medium contrast (peak Q is resolution-biased — secondary) — a reported
+  present/absent reading, **not** a gate.
 - Add the RESULTS convergence section + a reproducibility guard (the T2b
   `tests/test_results_reproducibility.py` pattern: recompute the reported numbers from the committed
   coarse + medium CSVs).
