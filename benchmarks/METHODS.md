@@ -113,6 +113,27 @@ At t=10, the body reaches y=10.0 (the periodic boundary), and the wake begins wr
 
 **Validation**: Quasi-steady state reached by t=7.0 (forces change <1% thereafter).
 
+### Case 3: Flapping-wing grid convergence (Tier T3)
+
+**Purpose**: Quantify how the body-frame van Veen wing coefficients (`CF_chord`, `CF_normal`) move under a 2× grid refinement — the CFD-fidelity check for the `CF_chord` PARTIAL ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)). **Report-only**: no pass/fail bar.
+
+| Parameter | Coarse | Medium |
+|-----------|--------|--------|
+| Geometry | External vertex file (IAMReX type 4), 908 markers | same |
+| Grid (`amr.n_cell`) | 64×32×64 | **128×64×128** (only this changes) |
+| Δx | 0.125 | 0.0625 |
+| Domain | 8 × 4 × 8 | same |
+| Kinematics | f\*=1.0, φ=70°, α=45° (van Veen) | same |
+| `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) |
+| Steps / stop_time | 2000 / 1.0 | same |
+| Deck | `inputs.3d.validation` | `inputs.3d.convergence_medium` |
+
+Holding `fixed_dt` fixed makes the temporal discretization error identical in both runs, isolating the coarse↔medium difference from temporal error (the difference reflects combined spatial + grid-tied IB-regularization refinement, so the study is report-only — no Richardson extrapolant).
+
+**Method**: `benchmarks/wing_convergence.py` reports the coarse→medium relative change + a 2-grid GCI band (orders p = 1..2); `benchmarks/wing_lev.py` (reusing `extract_eulerian_box` + `benchmarks/lev.py`) reports the leading-edge-vortex vorticity/Q over a wing near-field box at mid-stroke. Both runs use the same `:fp64 @ f93dc794` image (grid refinement needs no solver change); provenance in `run_metadata_t3b.json`.
+
+**Validation**: See [`flapping_wing/RESULTS.md` → "Grid convergence (T3b)"](../examples/flapping_wing/RESULTS.md) for the reported relative change, GCI band, and LEV numbers. Summary: peak `CF_chord` drops materially under refinement (toward van Veen), supporting the coarse-grid diffused-IB hypothesis for the #40 chord excess; `CF_chord` is not yet grid-converged at medium (a rigorous verdict needs a 3rd 256³ grid, deferred to H100/grant). #40 remains open.
+
 ## Measured Performance
 
 ### Throughput

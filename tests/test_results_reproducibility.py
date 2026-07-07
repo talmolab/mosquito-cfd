@@ -27,6 +27,10 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     reconstruct_wing_body_forces,
     reconstruct_wing_forces,
 )
+from mosquito_cfd.benchmarks.wing_convergence import (
+    assert_gradeable_pair,
+    wing_grid_convergence_from_body_forces,
+)
 
 _NEWCONV = (
     "examples/flapping_wing/forces_t2a_newconv.csv"  # van Veen convention (headline)
@@ -269,3 +273,70 @@ def test_interim_framing_is_honest_and_disambiguated():
     assert "0.92" in section and "2.61" in section
     # The Validation-Status row is unchanged: body-frame verdict still PARTIAL, still references #40.
     assert "| Body-frame van Veen comparison | PARTIAL |" in doc
+
+
+# --- Tier T3b: grid-convergence numbers recompute from the committed coarse + medium CSVs ------
+
+_MEDIUM = "examples/flapping_wing/forces_medium.csv"
+_COARSE_DECK = "examples/flapping_wing/inputs.3d.validation"
+_MEDIUM_DECK = "examples/flapping_wing/inputs.3d.convergence_medium"
+_T2A_META = Path("examples/flapping_wing/run_metadata_t2a.json")
+_T3B_META = Path("examples/flapping_wing/run_metadata_t3b.json")
+_T3B_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}
+
+
+@pytest.mark.skipif(
+    not Path(_MEDIUM).exists(), reason="medium forces CSV not present (T3b run)"
+)
+def test_grid_convergence_recomputes_from_committed_csvs():
+    """The RESULTS T3b convergence headline recomputes from the committed CSVs; both decks are pinned.
+
+    The LEV numbers are plotfile-derived (plt*/ is gitignored) and are deliberately NOT recomputed
+    here — they are covered by the requires_plotfile real-data test + the synthetic-fixture CI check.
+    """
+    import hashlib
+    import json
+
+    # Pre-grade guard first (same non-empty / same-window / same-time-grid contract RESULTS relies on).
+    assert_gradeable_pair(
+        _NEWCONV, _MEDIUM, coarse_deck=_COARSE_DECK, medium_deck=_MEDIUM_DECK
+    )
+    out = wing_grid_convergence_from_body_forces(_NEWCONV, _MEDIUM, **_T3B_KIN)
+    doc = _doc()
+
+    # Recompute -> RESULTS literal, per component. Each recomputed number is asserted present in the doc,
+    # so a doc edit that drifts a headline off the data fails closed (the T2b pattern).
+    chord, normal = out["cf_chord"], out["cf_normal"]
+    assert chord["cf_medium"] == pytest.approx(0.554, abs=0.02)
+    assert chord["relative_change"] == pytest.approx(-0.665, abs=0.02)
+    assert chord["gci_p1"] == pytest.approx(0.83, abs=0.02)
+    assert chord["gci_p2"] == pytest.approx(0.28, abs=0.02)
+    assert normal["cf_medium"] == pytest.approx(2.333, abs=0.02)
+    assert normal["relative_change"] == pytest.approx(-0.117, abs=0.02)
+    assert normal["gci_p1"] == pytest.approx(0.15, abs=0.02)
+    assert normal["gci_p2"] == pytest.approx(0.05, abs=0.02)
+    # r=2 fixed by the deck pair; both GCI orders load-bearing (p1 = 3*p2).
+    assert chord["r"] == 2.0 and chord["gci_p1"] == pytest.approx(3.0 * chord["gci_p2"])
+
+    for lit in (
+        f"{chord['cf_medium']:.3f}",  # 0.554
+        f"{normal['cf_medium']:.3f}",  # 2.333
+        f"{abs(chord['relative_change']) * 100:.1f}",  # 66.5
+        f"{abs(normal['relative_change']) * 100:.1f}",  # 11.7
+        f"{chord['gci_p1']:.2f}",  # 0.83
+        f"{chord['gci_p2']:.2f}",  # 0.28
+        f"{normal['gci_p1']:.2f}",  # 0.15
+        f"{normal['gci_p2']:.2f}",  # 0.05
+    ):
+        assert lit in doc, (
+            f"headline {lit!r} not found in RESULTS.md convergence section"
+        )
+
+    # Both decks of the graded pair are cryptographically pinned to their committed metadata.
+    def _sha(p: str) -> str:
+        return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+    assert json.loads(_T2A_META.read_text())["inputs"]["hash"] == _sha(_COARSE_DECK)
+    assert json.loads(_T3B_META.read_text())["inputs"]["hash"] == _sha(_MEDIUM_DECK)
+    # #40 stays open in the convergence section (a CF_chord drop is not misread as resolving it).
+    assert "#40 remains open" in doc

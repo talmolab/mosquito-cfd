@@ -244,6 +244,49 @@ the CF_chord PARTIAL: even added-mass-subtracted, CF_chord ≈ 0.652 is still **
 **full T4**; **#40** remains open (only its cheap-interim checkbox is ticked). The totals `0.923` / `2.606`
 are the **same peaks** as the body-frame table's `0.92` / `2.61` above, shown to an extra significant figure.
 
+### Grid convergence (T3b, medium 128³ — reported, not gated)
+
+Tier **T3b** ([#46](https://github.com/talmolab/mosquito-cfd/issues/46)) re-ran the wing on a **medium
+128×64×128** grid (`inputs.3d.convergence_medium`; only `amr.n_cell` changes vs the confirmed coarse
+`inputs.3d.validation`, `ns.fixed_dt = 5e-4` **held** so temporal error is identical), same
+`:fp64 @ f93dc794` image, provenance in `run_metadata_t3b.json`. Both runs cover the same
+`stop_time = 1.0` window on the same unique-`iStep` time grid (no dt reduction). The
+`benchmarks/wing_convergence.py` grader reports, per body-frame component, the coarse→medium **relative
+change** and a **2-grid GCI band** (orders p = 1..2, `r = 2` fixed by the 2×2×2 deck pair). This is
+**report-only** — no pass bar, no tolerance; `gci_p1` is the reported band edge, **not** a rigorous upper
+bound; "not converged at coarse" is a valid, informative outcome.
+
+| peak body-frame CF | coarse 64³ | medium 128³ | relative change | GCI band (p₂ … p₁) |
+|---|---|---|---|---|
+| **CF_chord** | 0.923 | **0.554** | **−66.5 %** | 0.28 … 0.83 |
+| **CF_normal** | 2.606 | **2.333** | −11.7 % | 0.05 … 0.15 |
+
+**The #40 signal.** Peak **CF_chord drops 66.5 %** under refinement (0.923 → 0.554, toward van Veen's
+translational ~0.3) — **strong support for the coarse-grid hypothesis** for the CF_chord excess: the
+coarse Δx = 0.125 under-resolves the immersed-boundary tangential boundary layer, so refining the grid
+(and, with it, the grid-tied IB regularization) moves the chord force toward the reference. CF_normal is
+far more grid-settled (−11.7 %, consistent with its good T2a agreement). But the large chord `gci_p1 = 0.83`
+honestly says CF_chord is **still not grid-converged at medium** — the medium 0.554 is itself ~1.8× van
+Veen's 0.3, so grid refinement explains *part*, not all, of the excess (the rest is the
+total-vs-translational + rotational/added-mass decomposition of T4). A rigorous "converged" verdict needs
+a 3rd grid (256³, deferred to H100/grant). **#40 remains open regardless of this reading** — T3b advances
+it, does not resolve it.
+
+**LEV (plotfile-derived, mid-stroke t ≈ 0.5 / `plt01000`; not CSV-reproducible).** LEV vorticity/Q
+(`benchmarks/wing_lev.py`, reusing `extract_eulerian_box` + `benchmarks/lev.py`) over a wing near-field box
+`lo=(2.5, 0, 3)`, `hi=(5.5, 4, 5)` (bounds the swept mid-stroke wing; a downstream-offset box
+`lo=(3.5, 0, 3)`, `hi=(6.5, 4, 5)` isolates the shed vorticity from the IB shell). A coherent leading-edge
+vortex (positive-Q core) is **resolved on both grids**; the resolution-fair integrated positive-Q rises
+modestly under refinement (near-field ∫Q⁺ 1098 → 1195, +9 %; shed-region 797 → 993, +25 %), i.e. the medium
+resolves a **sharper, modestly stronger** LEV — **not** an "absent at coarse → present at medium" gate. The
+pointwise **peak Q inflates ~3×** (3491 → 10942); that is **partly a resolution artifact** (peak `Q ~ (U/Δx)²`
+grows with resolution for the same physical vortex), so peak Q is reported only secondarily and a
+coarse→medium `q_pos_vol` increase is a **lower bound on LEV growth, not proof of presence/absence**.
+
+The convergence numbers above recompute from the committed coarse + medium CSVs
+(`tests/test_results_reproducibility.py`); the LEV numbers are plotfile-derived (`plt*/` is gitignored) and
+are covered instead by the `requires_plotfile` real-data test + the committed synthetic-fixture CI check.
+
 ### Force at key phases (new-convention run)
 
 CF_z below is the lab-frame `ib_force` coefficient (`Fz / F_ref`, `F_ref = 200.27`). Note **t = 0.25 /
@@ -302,6 +345,8 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | [figures/fig_velocity.pdf](figures/fig_velocity.pdf) / [.png](figures/fig_velocity.png) | V1: x-velocity, top-down z-slice at the wing/stroke plane (z=4), t=0.25 (φ=+70°, the stroke extreme), from the new-convention run; u ∈ [−9.98, +1.90] |
 | `forces_t2a_newconv.csv` | Validated new-convention force series (2000 steps, 29-col IAMReX schema) |
 | `run_metadata_t2a.json` | Provenance (image digest, IAMReX commit, inputs hash) |
+| `forces_medium.csv` | T3b medium-grid (128³) force series (2000 steps, 29-col IAMReX schema) |
+| `run_metadata_t3b.json` | T3b provenance (image digest, IAMReX commit, medium-deck inputs hash, fixed_dt/plotfile_dir) |
 
 ---
 
@@ -314,6 +359,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
 | Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40; added-mass-subtracted interim delivered (see the diagnostic subsection above — still PARTIAL) |
+| Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run is Tier T3 |
 
