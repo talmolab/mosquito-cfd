@@ -45,6 +45,12 @@ README text eol=lf
 *.ckpt binary
 *.csv text eol=lf
 
+# T3b synthetic boxlib plotfile fixture (extension-less AMReX files). The Cell_D FAB is raw binary
+# float64 — autocrlf / `* text=auto` would corrupt it and desync the Cell_H byte-offsets, so treat the
+# whole fixture as binary (no EOL normalization; byte-identical across platforms for the regenerability
+# test). yt still parses the LF-authored Header/Cell_H via universal newlines.
+tests/fixtures/lev_boxlib_plt/** -text
+
 # Windows specific files can use CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
