@@ -249,3 +249,39 @@ grep -Eiq 'clos[a-z]*:?[[:space:]]+#?46' <pr-body>   # required
 ```
 `closes #46` / `closes #33` are the only expected closing directives; a body that *forgot* `Closes #46`
 must fail the positive check (else the EPIC silently stays open on merge).
+
+## D9 — Implementation reconciliation (Session B): what deviated from the approved proposal
+
+The medium run completed cleanly on the A40 (762 s, DONE_EXIT=0, `dt_reduced=false`) and the change was
+implemented TDD as designed. Three minor, honest deviations from the approved text:
+
+1. **`extract_eulerian_box` gained an additive `current_time` return key.** D1 listed its return as
+   `{u,v,w,gradp*,x,y,z,dx}`. `wing_lev_report` needs the plotfile phase for the same-phase guard; rather
+   than a second `yt.load`, `extract_eulerian_box` now also returns `current_time = float(ds.current_time)`
+   — one additive line, backward-compatible (existing sphere callers ignore it; the 25 sphere adapter tests,
+   incl. `requires_plotfile`, still pass). This keeps the composition a **single-reader** and is why the
+   in-memory monkeypatch in `test_wing_lev_report_reduction` returns a box dict carrying `current_time`.
+
+2. **The near-field box is the D2 *illustrative* fixed box, recorded in RESULTS + a marker-fits assertion —
+   not a per-run marker-derived box.** The `requires_plotfile` test uses `lo=(2.5,0,3)`, `hi=(5.5,4,5)`
+   (pre-computed offline to bound the mid-stroke wing) and **asserts the plotfile's `particle_position_*`
+   marker bbox fits inside it** — the exact anti-clip guard the marker-derivation was meant to provide, with
+   a fixed box being more reproducible (and recorded verbatim in RESULTS). Functionally equivalent to
+   "derive lo/hi from the markers + margin"; the fit-assertion would fail a stale/clipping box.
+
+3. **RESULTS phrases the #40 hypothesis without the literal string "diffused-IB".** A pre-existing #32 guard
+   (`test_no_false_diffused_ib_claim`) blanket-forbids "diffused-ib" in `examples/flapping_wing/RESULTS.md`
+   (to keep a *retired false ~2.4× force-deficit claim* out). T3b's use is the legitimate grid-convergence
+   hypothesis, but to respect the guard unchanged, RESULTS says "coarse-grid under-resolution of the
+   immersed-boundary tangential boundary layer" instead. The precise term is still used in `benchmarks/METHODS.md`,
+   the roadmap, the spec, and this proposal (none of which the guard covers).
+
+**Fixture spike (D3) SUCCEEDED**, so `#33` is closed: the committed `tests/fixtures/lev_boxlib_plt/` (8-field,
+`Cell_D_00000`, little-endian `<f8` matching AMReX's actual byte order under the real `(8 7 6 5 4 3 2 1)`
+descriptor, `.gitattributes` `-text` binary rule) loads via `yt` and gives the exact `2Ω`/`Ω²` known answer
+cluster-free. No fallback taken; the `force-extraction` delta and `Closes #33` stand.
+
+**Headline result:** peak `CF_chord` **0.923 → 0.554 (−66.5 %)** under refinement (`gci` band 0.28–0.83),
+`CF_normal` −11.7 %; LEV present on both grids (∫Q⁺ +9 %; peak Q ×3 = resolution artifact). Strong support
+for the coarse-grid boundary-layer hypothesis for #40, not grid-converged at medium — #40 advanced, not
+resolved.

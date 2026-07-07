@@ -17,7 +17,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
 
 ## 0. Pre-flight (operator, before committing data) — [Session B: needs-run]
 
-- [ ] 0.1 Run the medium sim per the handoff **delta**: deck `inputs.3d.convergence_medium`, same
+- [x] 0.1 Run the medium sim per the handoff **delta**: deck `inputs.3d.convergence_medium`, same
   `:fp64 @ f93dc794`, same `mpirun … amr3d.gnu.MPI.CUDA.ex`; capture `run_metadata_t3b.json` via
   `capture_run_metadata(inputs_file=inputs.3d.convergence_medium, output_dir=<run>, docker_image=<:fp64
   digest>, timing=…, extra={"iamrex_commit": "f93dc794…", "tier": "T3b", "image_digest": "<sha256>",
@@ -26,7 +26,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
   value, and `"dt_reduced": true` — **named fields, not prose** — and reduce dt only to a value that **keeps
   a plotfile landing exactly on `t = 0.5`** on both grids (raise `amr.plot_int` proportionally if needed), so
   the LEV same-phase guard can pair the grids; **not** baked into the deck.
-- [ ] 0.2 **ENABLE PLOTFILE OUTPUT (run-plan gap — the committed-forces run command forces
+- [x] 0.2 **ENABLE PLOTFILE OUTPUT (run-plan gap — the committed-forces run command forces
   `amr.plot_int=-1`).** The medium deck sets `amr.plot_int = 100`, but the RESULTS "Run Commands" the handoff
   points to end with `amr.plot_int=-1 amr.check_int=-1` (CLI overrides the deck) → **zero plotfiles**. You
   MUST **drop the `amr.plot_int=-1` override** so plotfiles are written, and **confirm the `t ≈ 0.5`
@@ -34,7 +34,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
   dir **before tearing down the ~hours-long job** — otherwise the LEV half of T3b has no field. Write the
   medium plotfiles into a dir named per `run_metadata_t3b.json["plotfile_dir"]` (default `t3b-medium`) so the
   `requires_plotfile` LEV test (§3) can find it (coarse side is the existing `t2a-newconv4`).
-- [ ] 0.3 **Sanity before grading** — confirm `forces_medium.csv` and the committed `forces_t2a_newconv.csv`
+- [x] 0.3 **Sanity before grading** — confirm `forces_medium.csv` and the committed `forces_t2a_newconv.csv`
   are **non-empty**, both reach `max(time) ≈ stop_time = 1.0`, share the **same time grid** (matching
   **unique-`iStep`** sets + sample times — deduplicated, since the coarse CSV has 3 `init_iter=2` duplicate
   `t=0` rows), and that `forces_medium.csv` is **not byte-identical** to the coarse CSV and came from the
@@ -42,25 +42,25 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
 
 ## 1. Commit medium data + provenance (schema + plausibility + inputs-hash pinned) — [Session B: needs-run]
 
-- [ ] 1.1 **Test first (schema pin + physical plausibility):** in `tests/test_wing_body_frame.py` (beside
+- [x] 1.1 **Test first (schema pin + physical plausibility):** in `tests/test_wing_body_frame.py` (beside
   `test_newconv_csv_matches_ib_particle_contract`), add `test_medium_csv_matches_ib_particle_contract` —
   assert `list(pd.read_csv(forces_medium.csv).columns)` equals the pinned 29-column `_IB_PARTICLE_29_COLS`
   in exact order; assert `df["time"].max() == pytest.approx(1.0, abs=1e-3)` and `len(df) > 1900` (a
   truncated/diverged run that wrote only a few finite rows must fail here, not silently feed the grader);
   assert `reconstruct_wing_body_forces(forces_medium.csv, f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)`
   yields finite `cf_chord`/`cf_normal` of equal length. Fails: file missing.
-- [ ] 1.2 **Test first (provenance pins the medium deck):** add
+- [x] 1.2 **Test first (provenance pins the medium deck):** add
   `test_run_metadata_t3b_inputs_hash_matches_medium_deck` — load `run_metadata_t3b.json`, compute
   `sha256(examples/flapping_wing/inputs.3d.convergence_medium)`, assert it equals
   `metadata["inputs"]["hash"]`; assert `metadata["iamrex_commit"].startswith("f93dc794")`,
   `metadata["tier"] == "T3b"`, and `metadata` carries a `docker_image`/`image_digest` + a `fixed_dt` field.
   Fails: file missing.
-- [ ] 1.3 **Commit** `examples/flapping_wing/forces_medium.csv` + `examples/flapping_wing/run_metadata_t3b.json`
+- [x] 1.3 **Commit** `examples/flapping_wing/forces_medium.csv` + `examples/flapping_wing/run_metadata_t3b.json`
   beside the coarse pair. 1.1 + 1.2 pass.
 
 ## 2. Grade convergence (apply the merged grader — report-only) + the pre-grade guard — [Session B: needs-run]
 
-- [ ] 2.1 **Test first (the pre-grade guard, unit-level):** in `tests/test_wing_convergence_medium.py`, add
+- [x] 2.1 **Test first (the pre-grade guard, unit-level):** in `tests/test_wing_convergence_medium.py`, add
   `test_assert_gradeable_pair_guards` on a new helper `assert_gradeable_pair(coarse_csv, medium_csv)`:
   (a) a header-only CSV → `ValueError(match="no data rows")`; (b) a medium CSV truncated to `max(time)=0.5`
   → `ValueError(match="window")`; (c) a **dt-halved** medium CSV (twice as many unique `iStep` values, same
@@ -69,7 +69,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
   `iStep=0` thrice — the coarse CSV is 2002 rows, not 2000). The `match=` substrings are exactly
   `"no data rows"`, `"window"`, `"time-grid"` (the step-count-mismatch branch MUST emit `"time-grid"`).
   Fails: helper missing.
-- [ ] 2.2 **Implement** `assert_gradeable_pair` — compare on the **deduplicated, monotone** time array / the
+- [x] 2.2 **Implement** `assert_gradeable_pair` — compare on the **deduplicated, monotone** time array / the
   **set of unique `iStep` values** (NOT raw equal-row-count + `np.allclose`, which the `init_iter=2`
   triple-zero-row artifact would false-reject): non-empty + `max(time)≈1.0` within a few `dt` + equal
   unique-`iStep` count + matching unique sample times. The authoritative dt-equality check reads
@@ -77,7 +77,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
   **NOT** from `run_metadata_t2a.json`, which carries **no `fixed_dt` field** (a `KeyError` trap); a run-time
   reduction is cross-checked against `run_metadata_t3b.json["fixed_dt"]` when present. Self-describing errors.
   2.1 passes.
-- [ ] 2.3 **Test first (real coarse↔medium report):** add `test_medium_convergence_reports_from_committed_csvs`
+- [x] 2.3 **Test first (real coarse↔medium report):** add `test_medium_convergence_reports_from_committed_csvs`
   — call `assert_gradeable_pair(forces_t2a_newconv.csv, forces_medium.csv)` then
   `wing_grid_convergence_from_body_forces(forces_t2a_newconv.csv, forces_medium.csv, f_star=1.0,
   phi_amp_deg=70.0, pitch_amp_deg=45.0)`. Assert the return is exactly `{"cf_chord": {...}, "cf_normal":
@@ -85,7 +85,7 @@ hard-coded `Z:\...` or drive letter (plotfiles are reached only via `MOSQUITO_CF
   **no** `*_pass`/`*_match`/`converged`/`in_band`/`cf_exact` key; assert `r == 2.0` and `gci_p1 ==
   pytest.approx(3 * gci_p2)` (r=2 is fixed by the 2×2×2 deck pair — both orders load-bearing); assert all
   values finite. Fails: no numbers yet.
-- [ ] 2.4 **No grader code changes** — T3a delivered + TDD'd the grader math; T3b only **applies** it. 2.3
+- [x] 2.4 **No grader code changes** — T3a delivered + TDD'd the grader math; T3b only **applies** it. 2.3
   passes once the data is committed. **Record** the per-component `relative_change` + `gci_p1`/`gci_p2` for
   peak `CF_chord`/`CF_normal` (the headline numbers §4 and §5 assert; the coarse column is the grader's
   recomputed value, not the `run_metadata_t2a.json` literal).
@@ -98,7 +98,7 @@ the committed boxlib fixture; the committed boxlib fixture (the #33-specific yt-
 **sequenced LAST** with a hard tripwire, so a fixture problem never blocks the graded-run / RESULTS EPIC
 closers.
 
-- [ ] 3.1 **Test first (composition known-answer + report-only, CI cluster-free, in-memory) — [Session B:
+- [x] 3.1 **Test first (composition known-answer + report-only, CI cluster-free, in-memory) — [Session B:
   cluster-free]:** in a new `tests/test_wing_lev.py`, add `test_wing_lev_report_reduction` — **monkeypatch
   `extract_eulerian_box`** to return an analytic solid-body-rotation box dict (`(−Ω·y, Ω·x, 0)`, box **≥ 5³**
   so ≥ 3 interior points/axis, per-axis `dx`, a `phase_time`) — no plotfile, no cluster. Assert the interior
@@ -107,13 +107,13 @@ closers.
   exact value pins the `·dx·dy·dz` volume Jacobian a bare `> 0` would miss), and the returned dict carries
   **no** `*_pass`/`converged`/`present` verdict key. (Solid-body rotation is linear, so `np.gradient` is
   exact at edges too — interior and full-box coincide.) Fails: composition missing.
-- [ ] 3.2 **Implement** `wing_lev_report(plotfile_path, *, lo, hi) -> dict` (thin composition in a new
+- [x] 3.2 **Implement** `wing_lev_report(plotfile_path, *, lo, hi) -> dict` (thin composition in a new
   `src/mosquito_cfd/benchmarks/wing_lev.py`): call `extract_eulerian_box` (reused) over the **required**
   near-field box, then `vorticity_magnitude`/`q_criterion` with the adapter's per-axis `dx`, reduce over the
   box **interior** to `{peak_vorticity, peak_q, q_pos_vol = Σ max(Q,0)·dx·dy·dz, q_pos_frac, dx,
   phase_time = current_time}`. Report-only, no gate, `lo/hi` required (no full-domain default — dominated by
   far-field + IB-marker shell, per design D2). 3.1 passes.
-- [ ] 3.3 **Test first (real coarse↔medium, resolution-fair, report-only) — [Session B: needs-run]:** add
+- [x] 3.3 **Test first (real coarse↔medium, resolution-fair, report-only) — [Session B: needs-run]:** add
   `test_wing_lev_medium_vs_coarse` marked `@pytest.mark.requires_plotfile` — via a `_wing_plt(grid)` helper
   mirroring `test_stress_integral._sphere_plt`, map **coarse → `t2a-newconv4`, medium →
   `run_metadata_t3b.json["plotfile_dir"]` (default `t3b-medium`)** under `MOSQUITO_CFD_PLOTFILE_ROOT`, and
@@ -135,7 +135,7 @@ closers.
   lower bound on LEV growth), interpreted in RESULTS prose, not gated. Auto-skips in CI (no env var); verify
   it reports **SKIPPED** (not ERROR) with the var unset, and (§7.3) actually **runs** on Z: (a subdir-name
   mismatch would silently skip).
-- [ ] 3.4 **(LAST, de-risked) Committed synthetic boxlib fixture — the #33 yt-read CI coverage — [Session B:
+- [x] 3.4 **(LAST, de-risked) Committed synthetic boxlib fixture — the #33 yt-read CI coverage — [Session B:
   cluster-free]:** author a deterministic generator `tests/fixtures/make_lev_boxlib_fixture.py` that writes a
   single-level boxlib plotfile (`Header` + `Level_0/{Cell_H, Cell_D_00000}` — **5-digit** FAB filename, per
   the real `Cell_H`) carrying the **eight fields the wing plotfiles actually write**
@@ -159,7 +159,7 @@ closers.
 
 ## 4. RESULTS convergence section + METHODS.md case — [Session B: needs-run]
 
-- [ ] 4.1 **Add** a `### Grid convergence (T3b, medium 128³)` subsection to
+- [x] 4.1 **Add** a `### Grid convergence (T3b, medium 128³)` subsection to
   `examples/flapping_wing/RESULTS.md` under `## Aerodynamic Forces` (after
   `### Added-mass-subtracted body-frame diagnostic (#40 cheap interim)`, before `### Force at key phases`):
   a per-component table (coarse peak, medium peak, `relative_change`, `gci_p1`/`gci_p2` band) for
@@ -178,12 +178,12 @@ closers.
   spatial-vs-IB effects a 2-grid study can't separate; **state explicitly that #40 remains open regardless of
   the reading**. State `gci_p1` is a reported band edge, not a rigorous bound, and `r = 2` is fixed by the
   deck pair.
-- [ ] 4.2 **Add** a `### Case 3: Flapping-wing grid convergence` subsection to `benchmarks/METHODS.md`
+- [x] 4.2 **Add** a `### Case 3: Flapping-wing grid convergence` subsection to `benchmarks/METHODS.md`
   `## Benchmark Cases` (mirroring Cases 1–2) — the T3a-deferred writeup: coarse 64×32×64 vs medium
   128×64×128, held `fixed_dt`/`radius`, report-only 2-grid GCI band + LEV, and a **cross-reference** to
   `examples/flapping_wing/RESULTS.md` for the numbers (do NOT restate them — DRY). T3b changes **no** IAMReX
   pin, so the existing `test_methods_pin_consistent` guard is untouched (prose-only addition).
-- [ ] 4.3 **Update** the RESULTS Validation-Status / Output-Files rows to list `forces_medium.csv` +
+- [x] 4.3 **Update** the RESULTS Validation-Status / Output-Files rows to list `forces_medium.csv` +
   `run_metadata_t3b.json`, keeping the T2a **PARTIAL** verdict language intact — **#40 stays open; T3b is
   report-only** (deliberately *no* `resolve`/`close` keyword adjacent to `#40` anywhere in-repo, so a
   Session-B author cannot copy such a phrase into a commit/PR body — the phrasing that auto-closed the T4
@@ -191,7 +191,7 @@ closers.
 
 ## 5. Reproducibility guard (T2b pattern) — [Session B: needs-run]
 
-- [ ] 5.1 **Test first (recompute from committed CSVs + pin both deck hashes):** extend
+- [x] 5.1 **Test first (recompute from committed CSVs + pin both deck hashes):** extend
   `tests/test_results_reproducibility.py` with `test_grid_convergence_recomputes_from_committed_csvs` —
   call `assert_gradeable_pair` then recompute `relative_change`/`gci_p1`/`gci_p2` per component from the
   committed coarse + medium CSVs, assert they match the RESULTS §4 headline **literal strings** (present in
@@ -199,13 +199,13 @@ closers.
   run_metadata_t2a.json["inputs"]["hash"]` **and** `sha256(inputs.3d.convergence_medium) ==
   run_metadata_t3b.json["inputs"]["hash"]` (both decks of the graded pair pinned). Do **not** recompute LEV
   numbers (plotfile-derived, not committed). Fails until RESULTS carries the numbers.
-- [ ] 5.2 Respect the T2b enumeration/magnitude-set guard style — every new headline number in the
+- [x] 5.2 Respect the T2b enumeration/magnitude-set guard style — every new headline number in the
   convergence table is recomputed-from-data (or explicitly a reference), so a non-reproducible edit fails
   closed. 5.1 passes.
 
 ## 6. Roadmap traceability — [Session B: cluster-free]
 
-- [ ] 6.1 **Edit `docs/aerodynamics_validation/roadmap.md` (all four loci in one commit):** flip the **T3b**
+- [x] 6.1 **Edit `docs/aerodynamics_validation/roadmap.md` (all four loci in one commit):** flip the **T3b**
   row `⬜ → ✅` (add the T3b PR ref); correct the **stale T3a** row `🟡 → ✅` (T3a merged in PR #47 but was
   left `🟡` at PR-creation time — a status-correction, called out as such); update the **Sequencing** line
   (~99–100) so both T3a and T3b read complete (not "T3a in flight, T3b follows"); add a **one-line** note
@@ -214,20 +214,20 @@ closers.
 
 ## 7. Verification — [Session B]
 
-- [ ] 7.1 `uv run ruff check .` and `uv run ruff format --check .` clean.
-- [ ] 7.2 `uv run pytest` — full suite green. The `requires_plotfile` LEV test (§3.3) **auto-skips**
+- [x] 7.1 `uv run ruff check .` and `uv run ruff format --check .` clean.
+- [x] 7.2 `uv run pytest` — full suite green. The `requires_plotfile` LEV test (§3.3) **auto-skips**
   off-cluster; verify with `uv run pytest tests/test_wing_lev.py -v` that it reports **SKIPPED** (not
   ERROR/PASSED) with `MOSQUITO_CFD_PLOTFILE_ROOT` unset. The in-memory composition test (§3.1), the
   fixture/#33 tests (§3.4), and the reproducibility guard (§5.1) run everywhere.
-- [ ] 7.3 Run once **on the Z: drive** with `MOSQUITO_CFD_PLOTFILE_ROOT` set so §3.3 actually **executes**
+- [x] 7.3 Run once **on the Z: drive** with `MOSQUITO_CFD_PLOTFILE_ROOT` set so §3.3 actually **executes**
   (reports PASS, not SKIPPED) against the real coarse (`t2a-newconv4`) + medium (`t3b-medium`) plotfiles — a
   subdir-name mismatch would silently skip, leaving the LEV real-data path unexercised.
-- [ ] 7.4 `openspec validate grade-wing-grid-convergence-medium --strict` passes (re-run after any
+- [x] 7.4 `openspec validate grade-wing-grid-convergence-medium --strict` passes (re-run after any
   fixture-fallback `git rm` of the `force-extraction` delta).
 
 ## 8. Commit & PR discipline — [Session B: cluster-free]
 
-- [ ] 8.1 **Commit grouping (Session B, atomic + CI-green each; fixture LAST so it never blocks the EPIC
+- [x] 8.1 **Commit grouping (Session B, atomic + CI-green each; fixture LAST so it never blocks the EPIC
   closers — round-3 red-team):**
   1. `feat(flapping-wing)` — the `wing_lev.py` composition + its **in-memory** cluster-free test (§3.1, §3.2:
      `wing_lev.py`, `test_wing_lev_report_reduction`). No data, no fixture → green everywhere.
@@ -245,7 +245,7 @@ closers.
      tripwire fires** (then #33 stays open). → green.
   `ruff format` before each `src/`/`tests/` commit. **Every commit carries `Co-Authored-By: Claude Opus 4.8
   (1M context) <noreply@anthropic.com>`.** (Session A already committed the OpenSpec change dir, §9.1.)
-- [ ] 8.2 **Auto-close discipline — negative AND positive checks.** The PR body carries `Closes #46` (T3
+- [x] 8.2 **Auto-close discipline — negative AND positive checks.** The PR body carries `Closes #46` (T3
   EPIC, both halves done) and `Closes #33` (**only if** the §3.4 fixture landed — write that clause only
   after the tripwire verdict is known; if the PR is opened earlier, omit and add on success). Reference `#40`
   **keyword-free** ("advances #40") with **no** closing keyword adjacent to `#40` **even in a negated
@@ -256,12 +256,12 @@ closers.
   - POSITIVE (must match): the PR body closes `#46` (`grep -Eiq 'clos[a-z]*:?[[:space:]]+#?46'`) — else the
     EPIC silently stays open on merge. Confirm `closes #46` / `closes #33` are the **only** closing
     directives.
-- [ ] 8.3 **Rollback:** the Session-B commits are effect-layered but the docs commit's guard reads the data
+- [x] 8.3 **Rollback:** the Session-B commits are effect-layered but the docs commit's guard reads the data
   commit's CSV, so **revert the `docs` commit (3) before the `feat` data commit (2)** — a naive
   `git revert <feat>` alone leaves the guard red (it reads the now-removed CSV). Reverting `docs` backs out
   RESULTS/METHODS/roadmap/guard without touching data; the composition commit (1) and the fixture commit (4)
   are independent.
-- [ ] 8.4 **PR strategy:** single PR, opened in Session B **after** commit 3 (so it is never left
+- [x] 8.4 **PR strategy:** single PR, opened in Session B **after** commit 3 (so it is never left
   red/incomplete). The layered commits are individually green and reviewable openspec→fixtures→data→docs.
 
 ## 9. Session A (this session) — proposal only — [done on approval]
