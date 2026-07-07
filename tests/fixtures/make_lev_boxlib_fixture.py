@@ -6,10 +6,13 @@ which ``extract_eulerian_box`` reads the six it requires. The velocity field is 
 rotation** ``(-Omega*y, Omega*x, 0)`` so ``extract_eulerian_box -> lev`` yields the known ``||omega|| =
 2*Omega``, ``Q = Omega^2`` on the interior.
 
-The FAB is written **big-endian** (``>f8``) with a descriptor matching the real plotfiles'
-``(8, (8 7 6 5 4 3 2 1))`` byte order, so the fixture exercises the exact same yt read path. yt cannot
-*write* boxlib, so this is hand-authored; committing the generator (not just the bytes) keeps the fixture
-auditable and regenerable. Run: ``uv run python tests/fixtures/make_lev_boxlib_fixture.py``.
+The FAB body is written **little-endian** (``<f8``) — AMReX writes native little-endian doubles even
+though its RealDescriptor labels the byte order ``(8, (8 7 6 5 4 3 2 1))`` (verified by decoding a real
+plotfile FAB; see the inline note in ``write_fixture``). The descriptor is copied verbatim so the fixture
+exercises the exact same yt read path. yt cannot *write* boxlib, so this is hand-authored; committing the
+generator (not just the bytes) keeps the fixture auditable and regenerable — text files are written with
+explicit LF so a Windows regeneration is byte-identical to Linux/CI. Run:
+``uv run python tests/fixtures/make_lev_boxlib_fixture.py``.
 
 This closes the #33 CI-coverage gap for the yt Eulerian-box adapter.
 """
@@ -57,6 +60,7 @@ def _fields() -> list[np.ndarray]:
 
 def write_fixture(root: Path = FIXTURE_DIR) -> Path:
     """Write the fixture plotfile under ``root`` and return the path."""
+    root = Path(root)  # accept a str root too
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
     fields = _fields()
@@ -96,7 +100,9 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
             "",
         ]
     )
-    (lev / "Cell_H").write_text(cell_h)
+    (lev / "Cell_H").write_text(
+        cell_h, newline="\n"
+    )  # explicit LF: byte-identical on Windows + CI
 
     hi = N * DX
     header = "\n".join(
@@ -124,7 +130,9 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
             "",
         ]
     )
-    (root / "Header").write_text(header)
+    (root / "Header").write_text(
+        header, newline="\n"
+    )  # explicit LF: byte-identical on Windows + CI
     return root
 
 

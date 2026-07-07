@@ -58,6 +58,30 @@ def test_wing_lev_report_reduction(monkeypatch):
     assert not any(k in rep for k in _VERDICT_KEYS)
 
 
+def test_wing_lev_report_rejects_degenerate_box(monkeypatch):
+    """A NaN field or a <3-point box surfaces a clear error through the composition, not a silent value."""
+    # NaN in the field -> lev._validate_field raises (no silent NaN peak).
+    nan_box = _solid_body_rotation_box(1.3, 6, 0.0625)
+    nan_box["u"] = nan_box["u"].copy()
+    nan_box["u"][0, 0, 0] = np.nan
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.wing_lev.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi: nan_box,
+    )
+    with pytest.raises(ValueError, match="finite"):
+        wing_lev_report("ignored", lo=(0.0, 0.0, 0.0), hi=(1.0, 1.0, 1.0))
+
+    # A box with only 2 points on an axis -> the centred-gradient >=3 guard raises.
+    tiny = _solid_body_rotation_box(1.3, 6, 0.0625)
+    tiny = {**tiny, "u": tiny["u"][:2], "v": tiny["v"][:2], "w": tiny["w"][:2]}
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.wing_lev.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi: tiny,
+    )
+    with pytest.raises(ValueError, match="at least 3 points"):
+        wing_lev_report("ignored", lo=(0.0, 0.0, 0.0), hi=(1.0, 1.0, 1.0))
+
+
 # --- real coarse<->medium comparison (cluster/Z: data; auto-skips in CI) ----------------------
 
 # Mid-stroke near-field box (t ~ 0.5): contains the full swept wing (tip y ~ 3.475) + near wake,

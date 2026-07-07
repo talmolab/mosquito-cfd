@@ -52,7 +52,9 @@ def _plotfile_root_available() -> bool:
     No Windows path is ever hard-coded into collection.
     """
     root = os.environ.get("MOSQUITO_CFD_PLOTFILE_ROOT")
-    return root is not None and Path(root).is_dir()
+    # `root` truthiness (not just `is not None`) treats an empty-string VAR= as absent — otherwise
+    # Path("").is_dir() is True (cwd) and the requires_plotfile tests would ERROR instead of skip.
+    return bool(root) and Path(root).is_dir()
 
 
 def pytest_collection_modifyitems(

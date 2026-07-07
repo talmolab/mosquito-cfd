@@ -7,17 +7,6 @@
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
-  "hardware": {
-    "hostname": "talmo-lab-02",
-    "gpus": [
-      {
-        "model": "NVIDIA RTX A5000",
-        "memory_mb": 24564,
-        "driver_version": "552.86"
-      }
-    ],
-    "gpu_count": 1
-  },
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:7f826102695c1217b4d9011fc63f1cf33753298085687020af2507470270afee",
   "inputs": {
     "file": "examples\\flapping_wing\\inputs.3d.convergence_medium",
@@ -71,5 +60,17 @@
   "plotfile_dir": "t3b-medium",
   "grid": "128 64 128 (medium; dx=0.0625)",
   "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
-  "run_platform": "Salk RunAI cluster GPU (talmo-lab), A40 gpu-node3, preemptible; medium 128x64x128 grid-convergence run"
+  "run_platform": "Salk RunAI cluster GPU (talmo-lab), A40 gpu-node3, preemptible; medium 128x64x128 grid-convergence run; run GPU ~45.4 GB total (A40), per sim.log",
+  "analysis_host": {
+    "note": "metadata assembled on the local analysis box (NOT the CFD run node)",
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  }
 }

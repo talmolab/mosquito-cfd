@@ -1,4 +1,4 @@
-"""Report-only 2-grid grid-convergence grader for the flapping wing (Tier T3a), analysis-only.
+"""Report-only 2-grid grid-convergence grader for the flapping wing (Tiers T3a/T3b), analysis-only.
 
 Quantifies how the peak body-frame van Veen coefficients (``CF_chord``, ``CF_normal``) move under a
 2x grid refinement (coarse 64x32x64 -> medium 128x64x128), for the "coarse-grid diffused-IB error"
