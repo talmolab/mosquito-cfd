@@ -262,15 +262,24 @@ bound; "not converged at coarse" is a valid, informative outcome.
 | **CF_normal** | 2.606 | **2.333** | −11.7 % | 0.05 … 0.15 |
 
 **The #40 signal.** Peak **CF_chord drops 66.5 %** under refinement (0.923 → 0.554, toward van Veen's
-translational ~0.3) — **strong support for the coarse-grid hypothesis** for the CF_chord excess: the
-coarse Δx = 0.125 under-resolves the immersed-boundary tangential boundary layer, so refining the grid
-(and, with it, the grid-tied IB regularization) moves the chord force toward the reference. CF_normal is
-far more grid-settled (−11.7 %, consistent with its good T2a agreement). But the large chord `gci_p1 = 0.83`
-honestly says CF_chord is **still not grid-converged at medium** — the medium 0.554 is itself ~1.8× van
-Veen's 0.3, so grid refinement explains *part*, not all, of the excess (the rest is the
-total-vs-translational + rotational/added-mass decomposition of T4). A rigorous "converged" verdict needs
-a 3rd grid (256³, deferred to H100/grant). **#40 remains open regardless of this reading** — T3b advances
-it, does not resolve it.
+translational ~0.3) — **strong evidence that coarse-grid under-resolution was a major contributor** to the
+CF_chord excess: the coarse Δx = 0.125 under-resolves the immersed-boundary tangential boundary layer, so
+refining the grid (and, with it, the grid-tied IB regularization) moves the chord force toward the
+reference. CF_normal is far more grid-settled (−11.7 %, consistent with its good T2a agreement).
+
+What two grids **cannot** settle is whether further refinement would close the *remaining* gap to ~0.3
+(grid error explaining **all** of the excess) or leave a physical residual — because the medium value is
+**not grid-converged**. The chord GCI band (`gci_p2 = 0.28`, `gci_p1 = 0.83`) means the grid-independent
+value could still lie anywhere in `0.554·(1 ± GCI)`: van Veen's 0.3 falls **inside** that band under a
+~1st-order convergence assumption (`[0.09, 1.01]`) but **outside** it under ~2nd order (`[0.40, 0.71]`), and
+the convergence order is **unobservable from two grids** — so which case holds is genuinely undetermined,
+and a rigorous verdict needs a 3rd grid (256³, deferred to H100/grant). It is therefore **not** claimed here
+that grid explains only "part" and the decomposition the "rest": the residual apportionment is exactly what
+2 grids cannot do. The total-vs-translational force decomposition (**T4**) is a **separate,
+independently-motivated** line — we compare our *total* `ib_force` to van Veen's *translational-only*
+coefficient, and the added-mass-subtracted interim already showed added mass is a large share of the chord —
+not merely "whatever grid refinement leaves behind". **#40 remains open** — T3b advances it, does not
+resolve it.
 
 **LEV (plotfile-derived, mid-stroke t ≈ 0.5 / `plt01000`; not CSV-reproducible).** LEV vorticity/Q
 (`benchmarks/wing_lev.py`, reusing `extract_eulerian_box` + `benchmarks/lev.py`) over a wing near-field box
@@ -347,6 +356,8 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | `run_metadata_t2a.json` | Provenance (image digest, IAMReX commit, inputs hash) |
 | `forces_medium.csv` | T3b medium-grid (128³) force series (2000 steps, 29-col IAMReX schema) |
 | `run_metadata_t3b.json` | T3b provenance (image digest, IAMReX commit, medium-deck inputs hash, fixed_dt/plotfile_dir) |
+| [figures/fig_grid_convergence.pdf](figures/fig_grid_convergence.pdf) / [.png](figures/fig_grid_convergence.png) | T3b: peak CF_chord/CF_normal coarse→medium vs van Veen (cluster-free, from committed CSVs) |
+| [figures/fig_lev_coarse_vs_medium.pdf](figures/fig_lev_coarse_vs_medium.pdf) / [.png](figures/fig_lev_coarse_vs_medium.png) | T3b: LEV vorticity slice at mid-stroke, coarse vs medium (from Z: plotfiles) |
 
 ---
 
@@ -361,7 +372,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Body-frame van Veen comparison | PARTIAL | CF_normal 2.61 vs ~2.4 → `cf_normal_match=True`; CF_chord 0.92 vs ~0.3 → `cf_chord_match=False` (gap 0.62 > tol 0.6), decomposition tracked in #40; added-mass-subtracted interim delivered (see the diagnostic subsection above — still PARTIAL) |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
-| LEV structure | NOT CHECKED | Coarse grid under-resolves the LEV; medium-res run is Tier T3 |
+| LEV structure | REPORTED (T3b) | Resolved on both grids at mid-stroke; medium sharper (resolution-fair ∫Q⁺ +9 %, peak vorticity ~×1.8) — see the "Grid convergence (T3b)" section + `fig_lev_coarse_vs_medium` |
 
 ---
 
