@@ -258,6 +258,9 @@ def extract_eulerian_box(
     out["y"] = (dle[1] + (np.arange(ddims[1]) + 0.5) * dx[1])[sl[1]]
     out["z"] = (dle[2] + (np.arange(ddims[2]) + 0.5) * dx[2])[sl[2]]
     out["dx"] = dx
+    # Physical simulation time of the plotfile (the phase). Additive: existing callers ignore it; the
+    # T3b LEV composition uses it to guard that coarse and medium are compared at the same phase.
+    out["current_time"] = float(ds.current_time)
     return out
 
 

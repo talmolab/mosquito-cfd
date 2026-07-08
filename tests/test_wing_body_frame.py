@@ -136,6 +136,58 @@ def test_newconv_csv_matches_ib_particle_contract():
     assert np.isfinite(decomp.cf_normal).all()
 
 
+_MEDIUM_CSV = Path("examples/flapping_wing/forces_medium.csv")
+_MEDIUM_DECK = Path("examples/flapping_wing/inputs.3d.convergence_medium")
+_T3B_META = Path("examples/flapping_wing/run_metadata_t3b.json")
+
+
+@pytest.mark.skipif(
+    not _MEDIUM_CSV.exists(), reason="medium forces CSV not present (T3b run)"
+)
+def test_medium_csv_matches_ib_particle_contract():
+    """forces_medium.csv (T3b) keeps the 29-column schema AND is a plausible full-window run.
+
+    Mirrors the coarse pin, plus a physical-plausibility guard: a truncated or diverged medium run
+    that wrote only a few finite rows (or stopped short of stop_time = 1.0) must fail here rather than
+    silently feed a wrong-but-plausible peak into the convergence grader.
+    """
+    df = pd.read_csv(_MEDIUM_CSV)
+    assert list(df.columns) == _IB_PARTICLE_29_COLS
+    # Physical plausibility: reaches the stop_time window and is not a truncated write-out.
+    assert df["time"].max() == pytest.approx(1.0, abs=1e-3)
+    assert len(df) > 1900
+    # The decomposition consumes it end-to-end to a finite per-component series.
+    decomp = reconstruct_wing_body_forces(
+        _MEDIUM_CSV, f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0
+    )
+    assert decomp.cf_chord.shape == decomp.cf_normal.shape == (len(df),)
+    assert np.isfinite(decomp.cf_chord).all() and np.isfinite(decomp.cf_normal).all()
+
+
+@pytest.mark.skipif(
+    not (_T3B_META.exists() and _MEDIUM_DECK.exists()),
+    reason="T3b run metadata / medium deck not present",
+)
+def test_run_metadata_t3b_inputs_hash_matches_medium_deck():
+    """run_metadata_t3b.json pins the MEDIUM deck (inputs hash) + the :fp64 @ f93dc794 provenance.
+
+    The inputs-hash link is load-bearing: it ties the committed convergence data to the exact
+    deck-invariance-guarded medium deck. A silent drift (wrong deck hashed) would make the deck
+    guarantee vacuous, so pin it cryptographically here.
+    """
+    import hashlib
+    import json
+
+    meta = json.loads(_T3B_META.read_text())
+    deck_sha = hashlib.sha256(_MEDIUM_DECK.read_bytes()).hexdigest()
+    assert meta["inputs"]["hash"] == deck_sha
+    assert meta["iamrex_commit"].startswith("f93dc794")
+    assert meta["tier"] == "T3b"
+    # Same :fp64 pin (digest present) and a machine-readable dt record for the grading guard.
+    assert "docker_image" in meta and meta.get("image_digest", "").startswith("sha256:")
+    assert float(meta["fixed_dt"]) == pytest.approx(5e-4)
+
+
 @pytest.mark.skipif(
     not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
 )

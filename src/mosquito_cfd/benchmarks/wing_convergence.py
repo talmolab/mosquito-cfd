@@ -1,4 +1,4 @@
-"""Report-only 2-grid grid-convergence grader for the flapping wing (Tier T3a), analysis-only.
+"""Report-only 2-grid grid-convergence grader for the flapping wing (Tiers T3a/T3b), analysis-only.
 
 Quantifies how the peak body-frame van Veen coefficients (``CF_chord``, ``CF_normal``) move under a
 2x grid refinement (coarse 64x32x64 -> medium 128x64x128), for the "coarse-grid diffused-IB error"
@@ -37,6 +37,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     _DEGENERATE_CF_FLOOR,
@@ -44,6 +45,100 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     body_frame_overall_match,
     reconstruct_wing_body_forces,
 )
+
+# Stop time (physical) both convergence decks reach; the grading window endpoint.
+_STOP_TIME = 1.0
+
+
+def _deck_float(deck_path: str | Path, key: str) -> float:
+    """Read a single scalar ParmParse value (e.g. ``ns.fixed_dt``) from an IAMReX inputs deck."""
+    for line in Path(deck_path).read_text().splitlines():
+        stripped = line.split("#", 1)[0].strip()
+        if stripped.startswith(key) and "=" in stripped:
+            lhs, rhs = stripped.split("=", 1)
+            if lhs.strip() == key:
+                return float(rhs.split()[0])
+    raise ValueError(f"key {key!r} not found in deck {deck_path}")
+
+
+def assert_gradeable_pair(
+    coarse_csv: str | Path,
+    medium_csv: str | Path,
+    *,
+    coarse_deck: str | Path | None = None,
+    medium_deck: str | Path | None = None,
+    stop_time: float = _STOP_TIME,
+) -> None:
+    """Guard that a coarse+medium IB-particle CSV pair is safely gradeable, else raise loudly.
+
+    The grader compares each CSV's **independent** window-max peak, so a wrong-pair, truncated, or
+    run-time-dt-reduced write-out would silently return a plausible-but-wrong convergence number. This
+    pre-flight check fails loudly instead. It asserts (self-describing ``ValueError`` on each):
+
+      1. **non-empty** — a header-only CSV raises ``"no data rows"`` (not a low-level error from the
+         reused reconstruction downstream);
+      2. **covers the window** — each ``max(time)`` is within a few ``dt`` of ``stop_time`` (a truncated
+         write-out raises ``"window"``);
+      3. **same time grid** — the two CSVs share the same **set of unique ``iStep`` values** and matching
+         unique sample times (compared deduplicated, since ``ns.init_iter = 2`` writes duplicate ``t=0``
+         rows, so a raw row-count/``allclose`` check would false-reject a valid same-dt run). A run-time
+         ``dt`` reduction (twice as many distinct steps) raises ``"time-grid"`` — this is the temporal
+         confound the deck-invariance requirement forbids, caught at the data level.
+
+    When both decks are supplied, it also asserts ``ns.fixed_dt`` is equal between them (the
+    hash-pinned decks are the authoritative dt source; ``run_metadata_t2a.json`` carries no ``fixed_dt``
+    field, so the guard never reads it from there).
+
+    Args:
+        coarse_csv: Coarse-grid IB-particle CSV.
+        medium_csv: Medium-grid IB-particle CSV.
+        coarse_deck: Optional coarse deck path for the ``ns.fixed_dt`` equality check.
+        medium_deck: Optional medium deck path for the ``ns.fixed_dt`` equality check.
+        stop_time: Physical window endpoint both runs must reach (default 1.0).
+
+    Raises:
+        ValueError: with a ``"no data rows"`` / ``"window"`` / ``"time-grid"`` / ``"fixed_dt"`` substring
+            identifying which gradeability precondition failed.
+    """
+    dc = pd.read_csv(coarse_csv)
+    dm = pd.read_csv(medium_csv)
+    for tag, d in (("coarse", dc), ("medium", dm)):
+        if len(d) == 0:
+            raise ValueError(
+                f"{tag} CSV has no data rows (header-only or empty write-out)"
+            )
+    # A few dt of slack: the last written sample sits one dt short of stop_time (t = 0.9995).
+    for tag, d in (("coarse", dc), ("medium", dm)):
+        t_max = float(d["time"].max())
+        if abs(t_max - stop_time) > 5e-3:
+            raise ValueError(
+                f"{tag} CSV does not cover the stop_time={stop_time} window "
+                f"(max time {t_max:.4g}); a truncated write-out is not gradeable"
+            )
+    # Same time grid, deduplicated (init_iter=2 writes duplicate t=0 rows).
+    steps_c = np.unique(dc["iStep"].to_numpy())
+    steps_m = np.unique(dm["iStep"].to_numpy())
+    if steps_c.shape != steps_m.shape or not np.array_equal(steps_c, steps_m):
+        raise ValueError(
+            "time-grid mismatch: coarse and medium have different unique iStep sets "
+            f"({steps_c.size} vs {steps_m.size} distinct steps) — a run-time dt reduction or a "
+            "wrong-pair; the coarse<->medium peaks would be sampled on incongruent time grids"
+        )
+    times_c = np.unique(dc["time"].to_numpy())
+    times_m = np.unique(dm["time"].to_numpy())
+    if times_c.shape != times_m.shape or not np.allclose(times_c, times_m):
+        raise ValueError(
+            "time-grid mismatch: coarse and medium unique sample times differ (same step count but "
+            "different dt) — not gradeable without a common time grid"
+        )
+    if coarse_deck is not None and medium_deck is not None:
+        dt_c = _deck_float(coarse_deck, "ns.fixed_dt")
+        dt_m = _deck_float(medium_deck, "ns.fixed_dt")
+        if dt_c != dt_m:
+            raise ValueError(
+                f"deck ns.fixed_dt mismatch: coarse {dt_c} vs medium {dt_m}; holding dt fixed is what "
+                "isolates the spatial convergence delta from temporal error"
+            )
 
 
 def wing_grid_convergence(

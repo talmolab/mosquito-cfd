@@ -1,0 +1,27 @@
+NavierStokes-V1.1
+8
+x_velocity
+y_velocity
+z_velocity
+density
+tracer
+gradpx
+gradpy
+gradpz
+3
+0.5
+0
+0 0 0 
+6.0 6.0 6.0 
+
+((0,0,0) (5,5,5) (0,0,0)) 
+0 
+1.0 1.0 1.0 
+0
+0
+0 1 0.5
+0
+0 6.0
+0 6.0
+0 6.0
+Level_0/Cell

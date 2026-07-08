@@ -428,3 +428,44 @@ def test_steadiness_fraction_zero_drag_is_inf(monkeypatch):
     )
     assert s["drag"] == pytest.approx(0.0)
     assert s["fraction"] == float("inf")
+
+
+# --- T3b: committed synthetic boxlib plotfile fixture (closes the #33 yt-read CI gap) ----------
+
+_LEV_FIXTURE = Path("tests/fixtures/lev_boxlib_plt")
+_FULL = (-np.inf, -np.inf, -np.inf), (np.inf, np.inf, np.inf)
+
+
+def test_synthetic_fixture_reads_through_eulerian_box():
+    """The committed synthetic boxlib plotfile exercises the extract_eulerian_box yt read in CI.
+
+    Before #33 the adapter's actual yt read (covering_grid, ('boxlib', ...) field tuples, FP64 unwrap,
+    max_level == 0) was covered ONLY by requires_plotfile tests that auto-skip in CI. This committed
+    fixture closes that gap cluster-free — a regression in the yt-reading layer now fails in CI.
+    """
+    box = extract_eulerian_box(str(_LEV_FIXTURE), lo=_FULL[0], hi=_FULL[1])
+    for key in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
+        assert isinstance(box[key], np.ndarray)  # bare numpy, not unyt_array
+        assert box[key].dtype == np.float64  # FP64 (the fp32-build catch is exercised)
+        assert box[key].ndim == 3  # [ix, iy, iz]
+    np.testing.assert_allclose(box["dx"], [1.0, 1.0, 1.0])
+    for a in ("x", "y", "z"):
+        assert box[a].ndim == 1
+    assert box["current_time"] == pytest.approx(0.5)
+
+
+def test_fixture_is_regenerable(tmp_path):
+    """The committed fixture matches a fresh generator run — auditable + regenerable, not an opaque blob."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_make_lev_fixture", "tests/fixtures/make_lev_boxlib_fixture.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    regenerated = mod.write_fixture(tmp_path / "lev_boxlib_plt")
+
+    committed = extract_eulerian_box(str(_LEV_FIXTURE), lo=_FULL[0], hi=_FULL[1])
+    fresh = extract_eulerian_box(str(regenerated), lo=_FULL[0], hi=_FULL[1])
+    for key in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
+        np.testing.assert_array_equal(committed[key], fresh[key])
