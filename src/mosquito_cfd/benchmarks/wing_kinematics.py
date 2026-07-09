@@ -103,3 +103,31 @@ def euler_angles(
     alpha = pitch_amp_rad * np.cos(omega * time)
     theta = deviation_amp_rad * np.sin(2.0 * omega * time)
     return float(phi), float(alpha), float(theta)
+
+
+def stroke_rate(
+    time: float,
+    *,
+    frequency: float,
+    stroke_amp_rad: float,
+) -> tuple[float, float]:
+    """Stroke angular velocity and acceleration ``(omega, omega_dot) = (phi_dot, phi_ddot)``.
+
+    Analytic derivatives of the single-source stroke ``phi(t) = phi_amp*sin(2*pi*f*t)`` (the same
+    ``phi`` :func:`euler_angles` prescribes), for the van Veen quasi-steady model (T4):
+    ``omega = phi_dot = phi_amp*(2*pi*f)*cos(2*pi*f*t)`` and
+    ``omega_dot = phi_ddot = -phi_amp*(2*pi*f)**2*sin(2*pi*f*t)``. At ``t = 0``,
+    ``omega = omega_ref = phi_amp*2*pi*f`` (the peak stroke rate) and ``omega_dot = 0``.
+
+    Args:
+        time: Simulation time [dimensionless].
+        frequency: Flap frequency ``f*`` (wingbeats per time unit).
+        stroke_amp_rad: Stroke amplitude [rad].
+
+    Returns:
+        ``(omega, omega_dot)`` in rad/time and rad/time**2.
+    """
+    w = 2.0 * np.pi * frequency
+    omega = stroke_amp_rad * w * np.cos(w * time)
+    omega_dot = -stroke_amp_rad * w**2 * np.sin(w * time)
+    return float(omega), float(omega_dot)

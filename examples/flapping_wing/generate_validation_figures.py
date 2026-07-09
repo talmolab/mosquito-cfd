@@ -29,6 +29,7 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     added_mass_fraction,
     reconstruct_wing_forces,
 )
+from mosquito_cfd.benchmarks.van_veen_model import compute_wing_area_moments
 from mosquito_cfd.force_surrogate import compute_force_reference
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, R_TIP, RHO, SPAN
 from mosquito_cfd.force_surrogate.train import _r2
@@ -80,8 +81,8 @@ def fig_v2_second_moment(out_dir: Path) -> dict:
     span = verts[:, int(np.argmax(np.ptp(verts, axis=0)))]
     r = span + (R_TIP - span.max())
     r_gyr = float(np.sqrt(np.mean(r**2)))
-    s_planform = np.pi / 4.0 * SPAN * CHORD
-    s_yy = r_gyr**2 * s_planform
+    # S_yy from the single-source moment helper (one moment code path, CC-V4) — R_GYRATION**2*area.
+    s_yy = compute_wing_area_moments().s_yy
     nb = 30
     edges = np.linspace(r.min(), r.max(), nb + 1)
     ctr = 0.5 * (edges[:-1] + edges[1:])

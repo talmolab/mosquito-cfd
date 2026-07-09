@@ -16,7 +16,24 @@ from mosquito_cfd.benchmarks.wing_kinematics import (
     euler_angles,
     rotation_matrix,
     rotation_matrix_legacy,
+    stroke_rate,
 )
+
+
+def test_stroke_rate_matches_analytic_derivatives():
+    """stroke_rate returns the analytic (phi_dot, phi_ddot) of phi(t)=phi_amp*sin(2*pi*f*t)."""
+    f_star, phi_amp = 1.0, np.radians(70.0)
+    w = 2.0 * np.pi * f_star
+    omega_ref = phi_amp * w  # peak stroke rate
+    for t in (0.0, 0.1, 0.37, 0.5, 0.9):
+        omega, omega_dot = stroke_rate(t, frequency=f_star, stroke_amp_rad=phi_amp)
+        assert omega == pytest.approx(phi_amp * w * np.cos(w * t))
+        assert omega_dot == pytest.approx(-phi_amp * w**2 * np.sin(w * t))
+    omega0, omega_dot0 = stroke_rate(0.0, frequency=f_star, stroke_amp_rad=phi_amp)
+    assert omega0 == pytest.approx(omega_ref)  # peak rate at midstroke
+    assert omega_dot0 == pytest.approx(0.0)
+    # Degenerate frequency=0 -> stationary wing, no error.
+    assert stroke_rate(0.3, frequency=0.0, stroke_amp_rad=phi_amp) == (0.0, 0.0)
 
 
 # Independent primitive rotations (hand-written, NOT imported from the module under test).
