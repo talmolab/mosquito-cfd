@@ -53,3 +53,30 @@ def test_force_surrogate_roadmap_has_no_affirmative_underestimate_claim():
         assert phrase not in text, f"roadmap still affirms: {phrase!r}"
     # the legitimate CFD-cost reference (~2.4 min/wingbeat) must survive
     assert "2.4 min" in text
+
+
+def test_roadmap_t4_row_flipped_and_reframed():
+    """Tier T4 is marked done, its body carries the {transl, AM, Wagner} / Fig 13 reframe, and no
+    stale {rotational} / bare-"validated" / "digitize Fig 3–4" / "T4 is next" claim survives (T4)."""
+    text = (REPO / "docs/aerodynamics_validation/roadmap.md").read_text(
+        encoding="utf-8"
+    )
+    lines = text.splitlines()
+    # The T4 row is marked ✅ and references its PR.
+    t4_row = next(ln for ln in lines if ln.startswith("| ✅ **T4**"))
+    assert "PR [#" in t4_row, "T4 row missing a PR reference"
+    # Reframe present (van Veen's actual components + the correct figures).
+    assert "translational + added-mass + Wagner" in text
+    assert "Fig 13" in text
+    # Stale framing gone: the old component list, the bare "earns the word validated", the
+    # affirmative "digitize van Veen Fig 3–4", and "T4 … is next" must all be absent.
+    assert "translational + rotational + added-mass" not in text
+    assert "earns the word" not in text
+    assert (
+        "digitize van Veen Fig 3–4" not in text
+    )  # negated "not a digitized Fig 3–4" is fine
+    assert "#40) is next" not in text and "T4 … is next" not in text
+    # The only new reconciliation-log entry is the phase-reported note (an evidence-based scoping
+    # decision, NOT a loosened-tolerance relaxation).
+    assert "peak-PHASE reported, not gated" in text
+    assert "NOT a loosened tolerance" in text

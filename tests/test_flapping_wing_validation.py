@@ -183,12 +183,13 @@ def test_decomposition_is_six_dof_momentum_balance():
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---
 
 
-def test_results_doc_delivers_body_frame_and_defers_t4():
-    """RESULTS.md delivers the body-frame per-component van Veen comparison (T2a) and defers T4.
+def test_results_doc_delivers_body_frame_and_t4_decomposition():
+    """RESULTS.md delivers the body-frame comparison (T2a) AND the T4 per-component decomposition.
 
-    Scenario (task 5.5): the faithful body-frame CF_chord/CF_normal comparison #36 deferred is now
-    DELIVERED here; only the time-resolved curve match (T4) remains deferred. The lab-frame band is
-    still disclosed as an O(1) plausibility range, not the body-frame gate.
+    Post-T4: the faithful body-frame CF_chord/CF_normal comparison (T2a) is delivered, and the T4
+    per-component decomposition is now DELIVERED (no longer deferred) — validated against van Veen's
+    quasi-steady model in magnitude. The lab-frame band is still disclosed as an O(1) plausibility
+    range, not the body-frame gate.
     """
     from pathlib import Path
 
@@ -205,7 +206,8 @@ def test_results_doc_delivers_body_frame_and_defers_t4():
     assert "plausibility" in low
     # T2b: the band is disclosed as a lower-bound FLOOR, not the van Veen per-component gate.
     assert "floor" in low
-    # Time-resolved curve match is the remaining deferral (T4).
-    assert "t4" in low
+    # T4 per-component decomposition is DELIVERED (not a remaining deferral) — validated vs the QS model.
+    assert "t4 per-component decomposition" in low
+    assert "validated against van veen" in low
     assert "200.27" in text or "200.3" in text  # van Veen F_ref
     assert "2.64" not in text  # no sphere extraction-factor conflation

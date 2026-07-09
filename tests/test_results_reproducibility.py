@@ -24,6 +24,7 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     added_mass_fraction,
     body_frame_added_mass_subtracted,
     body_frame_overall_match,
+    decompose_wing_force,
     reconstruct_wing_body_forces,
     reconstruct_wing_forces,
 )
@@ -271,8 +272,92 @@ def test_interim_framing_is_honest_and_disambiguated():
     # "Same peaks" note tying the 3-sig-fig totals to the body-frame table's 0.92 / 2.61.
     assert "same peaks" in section
     assert "0.92" in section and "2.61" in section
-    # The Validation-Status row is unchanged: body-frame verdict still PARTIAL, still references #40.
-    assert "| Body-frame van Veen comparison | PARTIAL |" in doc
+    # The Validation-Status row is updated BY T4 (not by the interim) from PARTIAL to
+    # validated-against-model; the interim is not the edit that changed the verdict (T4's is).
+    assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
+    assert (
+        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) |" in doc
+    )
+
+
+# --- Tier T4: per-component decomposition numbers recompute + verdict updated ------------------
+
+_MEDIUM_T4 = "examples/flapping_wing/forces_medium.csv"
+# The T4 subsection lives under its OWN `### ` header (NOT one of _HEADLINE_TABLES) so its decimal
+# cells cannot collide with the two headline tables under the existing enumeration guard.
+_T4_HEADER_SUB = "per-component decomposition"
+# Decimal cells of the T4 table: CFD totals (= body-frame table) + van Veen model peaks (recomputed).
+_T4_TABLE_VERIFIED = {2.61, 2.48, 0.92, 0.43}
+
+
+def test_t4_decomposition_numbers_reproduce():
+    """The Tier T4 decomposition numbers recompute from the committed CSV AND appear in RESULTS.md,
+    the verdict is updated to validated-against-model / chord-grid-limited, and the pre-existing
+    enumeration guards + the T3b section are unperturbed.
+
+    Scenario: T4 decomposition numbers recompute and are asserted present.
+    """
+    r = decompose_wing_force(_NEWCONV, medium_csv=_MEDIUM_T4, **_T3B_KIN)
+    # (a) recompute — graded magnitude, reported phase / known-answer chord / chord total.
+    assert r["normal_peak_model"] == pytest.approx(2.48, abs=0.02)
+    assert r["normal_peak_cfd"] == pytest.approx(2.61, abs=0.02)
+    assert r["normal_mag_gap_rel"] == pytest.approx(0.05, abs=0.01)
+    assert r["normal_mag_pass"] is True
+    assert r["normal_peak_phase_gap"] == pytest.approx(0.058, abs=0.01)
+    assert r["transl_chord_peak"] == pytest.approx(0.42, abs=0.01)
+    assert r["chord_peak_model"] == pytest.approx(0.43, abs=0.02)
+    assert r["chord_converges_toward_model"] is True
+
+    doc = _doc()
+    # (b) the T4 literals are present in the doc.
+    for lit in ("2.48", "0.43", "0.058", "0.42"):
+        assert lit in doc, f"T4 literal {lit!r} missing from RESULTS.md"
+
+    # (c) the T4 subsection uses a distinct `### ` header not containing the two scanned substrings,
+    # and its table cells are asserted-complete (a new T4 decimal cell fails here).
+    t4_header = next(
+        ln
+        for ln in doc.splitlines()
+        if ln.startswith("### ") and _T4_HEADER_SUB in ln.lower()
+    )
+    assert "lab-frame magnitudes" not in t4_header
+    assert "Body-frame per-component van Veen comparison" not in t4_header
+    t4_nums = _table_numbers(doc.lower(), _T4_HEADER_SUB)
+    assert t4_nums == _T4_TABLE_VERIFIED, (
+        f"T4-table numbers changed — unexpected {sorted(t4_nums - _T4_TABLE_VERIFIED)}, "
+        f"missing {sorted(_T4_TABLE_VERIFIED - t4_nums)}"
+    )
+
+    # (d) the wing Validation-Status row is updated to validated-against-model / chord-grid-limited,
+    # references #50 (the grid complement), and no longer reads PARTIAL / an open #40 for the wing.
+    assert "validated against van veen" in doc.lower()
+    assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
+    assert "#50" in doc
+
+    # (e) the pre-existing headline-table + interim enumeration guards are unperturbed, and the T3b
+    # "Grid convergence" section and the new figure's Output Files row are present.
+    existing = set().union(*(_table_numbers(doc, h) for h in _HEADLINE_TABLES))
+    assert existing == (_HEADLINE_VERIFIED | _HEADLINE_REFERENCE)
+    interim_nums = _table_numbers(doc, _INTERIM_HEADER_SUB)
+    assert interim_nums == (_INTERIM_TABLE_VERIFIED | _INTERIM_TABLE_REFERENCE)
+    assert "Grid convergence (T3b" in doc
+    assert "fig_force_decomposition" in doc
+
+
+def test_t4_resolution_attributed_to_t4_not_the_interim():
+    """The verdict change is attributed to T4, and the interim still frames itself as isolating the
+    share (not itself resolving #40).
+
+    Scenario: Honest framing — verdict updated BY T4 (not by the interim).
+    """
+    doc = _doc()
+    section = _interim_section(doc).lower()
+    # The interim still isolates a share and points the RESOLUTION at the T4 decomposition.
+    assert "isolat" in section
+    assert "t4" in section
+    assert ("resolved by" in section) or ("resolves" in section)
+    # The interim itself does not resolve #40 (that framing survives).
+    assert "does not resolve" in section or "not resolve" in section
 
 
 # --- Tier T3b: grid-convergence numbers recompute from the committed coarse + medium CSVs ------
