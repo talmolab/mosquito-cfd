@@ -8,17 +8,62 @@ free, committed-data only.
 import importlib.util
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")  # headless-safe: force Agg before importing pyplot
+import matplotlib.pyplot as plt
+import numpy as np
 import pytest
+
+from mosquito_cfd.benchmarks.flapping_wing import decompose_wing_force
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "examples" / "flapping_wing" / "generate_validation_figures.py"
+_DECOMP_SCRIPT = (
+    REPO / "examples" / "flapping_wing" / "make_force_decomposition_figure.py"
+)
 
 
-def _load():
-    spec = importlib.util.spec_from_file_location("gen_validation_figs", SCRIPT)
+def _load(script: Path = SCRIPT, name: str = "gen_validation_figs"):
+    spec = importlib.util.spec_from_file_location(name, script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_fig_force_decomposition_regenerates(tmp_path):
+    """T4: fig_force_decomposition writes .png+.pdf cluster-free, and its plotted lines equal the
+    decompose_wing_force arrays (the figure cannot drift from the graded math)."""
+    mod = _load(_DECOMP_SCRIPT, "make_force_decomp_fig")
+    out = tmp_path / "fig_force_decomposition.png"
+    out_path, fig, result = mod.make_figure(out, return_artifacts=True)
+    try:
+        assert out_path.exists() and out_path.with_suffix(".pdf").exists()
+        # The normal panel's "model total" line ydata equals result["series"]["model_normal"].
+        normal_ax = fig.axes[1]
+        model_total = next(
+            ln for ln in normal_ax.lines if ln.get_label() == "model total"
+        )
+        np.testing.assert_allclose(
+            model_total.get_ydata(), result["series"]["model_normal"]
+        )
+        cfd_total = next(
+            ln for ln in normal_ax.lines if ln.get_label() == "CFD total (ib_force)"
+        )
+        np.testing.assert_allclose(
+            cfd_total.get_ydata(), result["series"]["cfd_normal"]
+        )
+    finally:
+        plt.close(fig)
+    # Cross-check the plotted numbers come from a fresh decomposition (no cluster/plotfile dep).
+    fresh = decompose_wing_force(
+        REPO / "examples/flapping_wing/forces_t2a_newconv.csv",
+        medium_csv=REPO / "examples/flapping_wing/forces_medium.csv",
+        f_star=1.0,
+        phi_amp_deg=70.0,
+        pitch_amp_deg=45.0,
+    )
+    assert fresh["normal_peak_cfd"] == pytest.approx(result["normal_peak_cfd"])
 
 
 def test_validation_figures_generate_with_tested_numbers(tmp_path):

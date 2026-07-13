@@ -28,8 +28,10 @@ figure (vertical `w`-velocity, chord-normal slice, at a lift-relevant phase) is 
 
 > **Fidelity caveat:** the coarse 64×32×64 grid (Δx = 0.125) **under-resolves** the leading-edge
 > vortex — these are plausibility/pedagogy figures. The **Tier T3b grid-convergence comparison below**
-> (`fig_lev_coarse_vs_medium`) shows the LEV on the coarse vs medium 128³ grid; time-resolved force-curve
-> validation vs van Veen fig 3–4 is Tier T4.
+> (`fig_lev_coarse_vs_medium`) shows the LEV on the coarse vs medium 128³ grid; the **Tier T4
+> per-component decomposition** (`fig_force_decomposition` below) compares van Veen's quasi-steady model
+> (transl + added-mass + Wagner, replotted at our kinematics — Fig 4 polars, not a digitized Fig 3–4) to
+> the CFD total (normal peak magnitude graded; phase/curve reported).
 
 ## Force-normalization figures (V1–V5) — `generate_validation_figures.py`
 
@@ -55,6 +57,16 @@ quantifies grid sensitivity, does not gate.
 | `fig_grid_convergence` | Peak body-frame `CF_chord` / `CF_normal`, coarse → medium, vs the van Veen reference — recomputed from the committed CSVs. **CF_chord drops 66.5 %** (0.923 → 0.554, toward ~0.3): coarse-grid under-resolution was a major contributor to the #40 chord excess. But it is **not grid-converged** (GCI band 0.28–0.83), so whether the residual gap is more grid error or physical is undetermined from 2 grids. `CF_normal` is grid-settled (−11.7 %). **Cluster-free.** |
 | `fig_lev_coarse_vs_medium` | Vorticity magnitude at mid-stroke (t ≈ 0.5, stroke-plane slice z = 4), coarse vs medium. The leading-edge / tip vortex is **resolved on both grids**, visibly **sharper on the medium** — the qualitative view behind "peak vorticity ×1.8, resolution-fair ∫Q⁺ +9 %". *The bright band on the wing markers is partly the immersed-boundary regularization layer, not pure shed vorticity.* **Needs the plotfiles on the Z: drive.** |
 
+## Per-component decomposition (T4) — `make_force_decomposition_figure.py`
+
+Tier **T4** ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)): van Veen's quasi-steady model
+(translational + added-mass + Wagner) built from published coefficients and **replotted at our
+kinematics** (not a digitized figure), vs the CFD total. **Cluster-free.**
+
+| File | Shows |
+|------|-------|
+| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD total `ib_force`, for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.61 — graded); the CFD peak **leads** the model in **phase** (~0.058 cycle — reported, the expected quasi-steady-vs-unsteady discrepancy); the model chord (~0.43) is ≪ the CFD total 0.92 and is what the CFD chord converges toward under grid refinement. Resolves the #40 CF_chord PARTIAL. **Cluster-free.** |
+
 ## Regenerate
 
 ```bash
@@ -67,6 +79,9 @@ uv run python examples/flapping_wing/generate_validation_figures.py
 
 # T3b grid-convergence bar chart (cluster-free, from the committed CSVs):
 uv run python examples/flapping_wing/make_grid_convergence_figure.py
+
+# T4 per-component decomposition (cluster-free, from the committed CSVs):
+uv run python examples/flapping_wing/make_force_decomposition_figure.py
 
 # T3b LEV vorticity comparison (needs the coarse t2a-newconv4 + medium t3b-medium plotfiles on Z:):
 MOSQUITO_CFD_PLOTFILE_ROOT=Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing \

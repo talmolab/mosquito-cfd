@@ -9,6 +9,7 @@ convention). See openspec/changes/standardize-force-normalization.
 import numpy as np
 import pytest
 
+from mosquito_cfd.benchmarks.van_veen_model import compute_wing_area_moments
 from mosquito_cfd.force_surrogate import (
     compute_force_coefficients,
     compute_force_reference,
@@ -79,9 +80,9 @@ def test_compute_force_reference_matches_validated():
     assert ref.q_ref == pytest.approx(85.0, rel=1e-3)
     assert ref.area == pytest.approx(2.3562, rel=1e-3)
     assert ref.f_ref == pytest.approx(200.27, rel=1e-3)
-    # f_ref == 0.5*rho*omega_peak^2 * S_yy, S_yy = r_gyr^2 * area
+    # f_ref == 0.5*rho*omega_peak^2 * S_yy, S_yy from the single-source moment helper (CC-V4).
     omega_peak = 2.0 * np.pi * 1.0 * np.radians(70.0)
-    s_yy = R_GYRATION**2 * ref.area
+    s_yy = compute_wing_area_moments().s_yy
     assert ref.f_ref == pytest.approx(0.5 * 1.0 * omega_peak**2 * s_yy, rel=1e-9)
     assert s_yy == pytest.approx(6.797, rel=1e-3)
 

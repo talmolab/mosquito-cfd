@@ -81,7 +81,9 @@ computed by the single-source `mosquito_cfd.force_surrogate.compute_force_refere
 [`docs/force_surrogate`](force_surrogate/) and the `standardize-force-normalization` change). The
 body-frame per-component comparison against van Veen's fitted coefficients is delivered by
 `mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_body_forces` /
-`body_frame_overall_match`; the time-resolved curve match vs van Veen fig 3–4 is deferred to Tier T4.
+`body_frame_overall_match`; the per-component decomposition against van Veen's quasi-steady model
+(translational + added-mass + Wagner; Fig 4 polars / the time-resolved mosquito curves are Fig 13) is
+delivered by `decompose_wing_force` (Tier T4 — normal peak magnitude graded, phase/RMSE reported).
 
 ## Simulation deck mapping
 
