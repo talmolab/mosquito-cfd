@@ -15,26 +15,26 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ## 0. Fine-grid input deck — [Session A]
 
-- [ ] 0.1 **Create** `examples/flapping_wing/inputs.3d.convergence_fine` as an **exact copy** of
+- [x] 0.1 **Create** `examples/flapping_wing/inputs.3d.convergence_fine` as an **exact copy** of
   `inputs.3d.convergence_medium` with two changes: `amr.n_cell = 256 128 256` and
   `amrex.the_arena_init_size = 28` added (the arena cap — see design D5). Update the header comment to
   identify this as the T3c fine deck and document the CFL check (Δx=0.03125, CFL≈0.45, dt=5e-4held).
   All other parameters — `ns.fixed_dt`, `particle_inputs.radius`, kinematics, BCs, domain, `amr.plot_int=100`
   — are **identical** to medium.
-- [ ] 0.2 **Test first (deck invariance):** extend `tests/test_convergence_deck.py` (the existing file
+- [x] 0.2 **Test first (deck invariance):** extend `tests/test_convergence_deck.py` (the existing file
   that guards the coarse↔medium pair) with `test_fine_deck_matches_medium_except_n_cell_and_arena`.
   Parse both decks into `{key: value}` maps (comments stripped, whitespace normalized); assert the
   symmetric difference is exactly `{amr.n_cell, amrex.the_arena_init_size}`; assert `amr.n_cell` is
   `"256 128 256"` in fine and `"128 64 128"` in medium; assert `ns.fixed_dt` is `5e-4` in both,
   `particle_inputs.radius` is `1.5` in both, `amr.plot_int` is `100` in both.
   Fails: deck missing or extra field changed.
-- [ ] 0.3 **Test first (3-deck temporal isolation):** in `tests/test_convergence_deck.py` add
+- [x] 0.3 **Test first (3-deck temporal isolation):** in `tests/test_convergence_deck.py` add
   `test_all_three_decks_share_fixed_dt_and_radius`. Parse coarse (`inputs.3d.validation`), medium
   (`inputs.3d.convergence_medium`), and fine (`inputs.3d.convergence_fine`); assert `ns.fixed_dt ==
   5e-4` and `particle_inputs.radius == 1.5` in all three. Directly covers the "Temporal isolation
   and IB regularization held across all three grids" spec scenario. Fails: deck missing or dt/radius
   changed.
-- [ ] 0.4 **Verify:** `uv run pytest tests/test_convergence_deck.py -k "fine_deck or three_decks" -v`.
+- [x] 0.4 **Verify:** `uv run pytest tests/test_convergence_deck.py -k "fine_deck or three_decks" -v`.
 
 ---
 
@@ -42,99 +42,76 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ### 1.1 New scalar function `wing_grid_convergence_3grid`
 
-- [ ] 1.1.1 **Test first (known-answer, monotone):** in `tests/test_wing_grid_convergence.py` add
+- [x] 1.1.1 **Test first (known-answer, monotone):** in `tests/test_wing_grid_convergence.py` add
   `test_wing_grid_convergence_3grid_known_answer`. Use a synthetic triple with exact p=2 convergence
   (e.g. `cf_coarse=1.0, cf_medium=0.25, cf_fine=0.0625` at `r=2`: δ₁₂=−0.75, δ₂₃=−0.1875,
   ratio=4=2², p_obs=2.0 exactly; `cf_exact = 0.0625 + (−0.1875)/(4−1) = 0.0625 − 0.0625 = 0.0`).
   Assert `observed_order == pytest.approx(2.0)`, `cf_exact_richardson == pytest.approx(0.0)`,
   `monotone == True`, all values finite, no `*_pass`/`converged`/`verdict` key. Fails: function missing.
-- [ ] 1.1.2 **Test first (self-convergence):** add `test_wing_grid_convergence_3grid_self_convergence`.
+- [x] 1.1.2 **Test first (self-convergence):** add `test_wing_grid_convergence_3grid_self_convergence`.
   Feed the same value for all three grids (e.g. `cf=0.5` on all). Assert `monotone=True`,
   `observed_order=NaN` (δ₂₃=0, degenerate), `cf_exact_richardson=NaN`, `gci_fine=NaN`. The
   self-convergent triple should not raise.
-- [ ] 1.1.2b **Test first (p_obs ≤ 0 — decelerating convergence):** add
+- [x] 1.1.2b **Test first (p_obs ≤ 0 — decelerating convergence):** add
   `test_wing_grid_convergence_3grid_negative_order`. Use `cf_coarse=1.0, cf_medium=0.9, cf_fine=0.5`
   (δ₁₂=−0.1, δ₂₃=−0.4, |δ₁₂/δ₂₃|=0.25, p_obs=log(0.25)/log(2)=−2.0 — monotone but decelerating).
   Assert `monotone=True`, `observed_order == pytest.approx(-2.0)` (informative, returned as-is),
   `gci_fine=NaN` (denominator `r**p_obs − 1 < 0`, meaningless GCI), `cf_exact_richardson=NaN`. Never
   a ValueError.
-- [ ] 1.1.2c **Test first (p_obs ≈ 0 — equal deltas):** add
+- [x] 1.1.2c **Test first (p_obs ≈ 0 — equal deltas):** add
   `test_wing_grid_convergence_3grid_zero_order`. Use `cf_coarse=1.0, cf_medium=0.75, cf_fine=0.5`
   (δ₁₂=−0.25, δ₂₃=−0.25, ratio=1.0, p_obs=0). Assert `monotone=True`, `observed_order ≈ 0` or NaN,
   `gci_fine=NaN` (denominator near-zero guard fires), `cf_exact_richardson=NaN`. Never a ValueError.
-- [ ] 1.1.3 **Test first (non-monotone, oscillating):** add
+- [x] 1.1.3 **Test first (non-monotone, oscillating):** add
   `test_wing_grid_convergence_3grid_non_monotone`. Use `cf_coarse=1.0, cf_medium=0.5, cf_fine=0.8`
   (went down then up: δ₁₂=−0.5, δ₂₃=+0.3, opposite signs). Assert `monotone=False`,
   `observed_order=NaN`, `cf_exact_richardson=NaN`, `gci_fine=NaN`. Never a ValueError.
-- [ ] 1.1.4 **Test first (degenerate coarse/medium inputs):** add
+- [x] 1.1.4 **Test first (degenerate coarse/medium inputs):** add
   `test_wing_grid_convergence_3grid_degenerate`. Use `cf_fine=0.0` (below `_DEGENERATE_CF_FLOOR` as
   the fine-grid denominator) → `ValueError(match="degenerate")`. Use `cf_coarse=np.nan` → `ValueError`.
   Use `r=1.0` → `ValueError`.
-- [ ] 1.1.5 **Test first (report-only key set):** add `test_wing_grid_convergence_3grid_key_set`. For
+- [x] 1.1.5 **Test first (report-only key set):** add `test_wing_grid_convergence_3grid_key_set`. For
   any valid monotone triple, assert return keys are exactly `{cf_coarse, cf_medium, cf_fine,
   observed_order, cf_exact_richardson, gci_fine, r, monotone}` — no `*_pass`, no `converged`, no
   `verdict` key. Assert `r == 2.0` (the refinement ratio from the deck pair).
-- [ ] 1.1.6 **Implement** `wing_grid_convergence_3grid(cf_coarse, cf_medium, cf_fine, *, r=2.0,
-  safety_factor=1.25) -> dict[str, float | bool]` in `wing_convergence.py`:
-  - Validate `cf_coarse`, `cf_medium`, `cf_fine` finite; `|cf_fine|` > `_DEGENERATE_CF_FLOOR`; `r>1`;
-    `safety_factor>=0`
-  - `delta_12 = cf_medium − cf_coarse`; `delta_23 = cf_fine − cf_medium`
-  - `monotone = bool(sign(delta_12) == sign(delta_23))` where `sign(0)` is treated as same-direction
-    (self-convergent)
-  - If not monotone or `|delta_23| <= _DEGENERATE_CF_FLOOR`: return NaN for p_obs/cf_exact/gci_fine
-  - Else: `p_obs = log(|delta_12/delta_23|) / log(r)` (always positive for monotone + |δ₁₂|>|δ₂₃|;
-    may be negative if converging slower — returned as-is, honest); `epsilon_23 = delta_23/cf_fine`;
-    `gci_fine = safety_factor * |epsilon_23| / (r**p_obs − 1)`;
-    `cf_exact = cf_fine + delta_23 / (r**p_obs − 1)`
-  - Guard `r**p_obs − 1 ≤ _DEGENERATE_DENOM_FLOOR` (covers p_obs ≤ 0 AND p_obs ≈ 0+): return NaN
-    for gci_fine and cf_exact_richardson; return observed_order as-is (informative even if negative)
-  - Add module-level docstring documenting the IB coupling caveat (design D1) and the p_obs ≤ 0 guard
-  - All 1.1.1–1.1.5 + 1.1.2b + 1.1.2c tests pass.
+- [x] 1.1.6 **Implement** `wing_grid_convergence_3grid(cf_coarse, cf_medium, cf_fine, *, r=2.0,
+  safety_factor=1.25) -> dict[str, float | bool]` in `wing_convergence.py`.
+  All 1.1.1–1.1.5 + 1.1.2b + 1.1.2c tests pass.
 
 ### 1.2 Extend `wing_grid_convergence_from_body_forces` with optional `fine_csv`
 
-- [ ] 1.2.1 **Test first (3-grid return shape):** add `test_wing_grid_convergence_3grid_from_body_forces`
+- [x] 1.2.1 **Test first (3-grid return shape):** add `test_wing_grid_convergence_3grid_from_body_forces`
   in `tests/test_wing_convergence_medium.py`. Use the committed coarse CSV as all three inputs (coarse =
   medium = fine = `forces_t2a_newconv.csv`). Assert the return dict still has keys `{cf_chord,
   cf_normal}`; each sub-dict has the **3-grid key set** `{cf_coarse, cf_medium, cf_fine,
   observed_order, cf_exact_richardson, gci_fine, r, monotone}`. Assert `monotone=True` for both
   (self-convergence), `observed_order=NaN` (self-convergence degenerate), all other floats finite or
   NaN. Assert no `*_pass`/`converged`/`verdict` key. Fails: parameter not added yet.
-- [ ] 1.2.2 **Test first (2-grid path unchanged):** add `test_wing_grid_convergence_from_body_forces_unchanged`
+- [x] 1.2.2 **Test first (2-grid path unchanged):** add `test_wing_grid_convergence_from_body_forces_unchanged`
   — call with `fine_csv=None` (explicit) and without the param at all; assert the return has the OLD
   2-grid key set `{cf_coarse, cf_medium, relative_change, gci_p1, gci_p2, r}`. Verifies backward-compat.
-- [ ] 1.2.3 **Implement** the `fine_csv: str | Path | None = None` parameter on
+- [x] 1.2.3 **Implement** the `fine_csv: str | Path | None = None` parameter on
   `wing_grid_convergence_from_body_forces`. When `None`: unchanged code path (2-grid). When not `None`:
   compute `_peaks(fine_csv)` and call `wing_grid_convergence_3grid(coarse_X, medium_X, fine_X)` per
   component. Both 1.2.1 and 1.2.2 pass.
 
 ### 1.3 `assert_gradeable_triple` guard
 
-- [ ] 1.3.1 **Test first:** add `test_assert_gradeable_triple_guards` in
-  `tests/test_wing_convergence_medium.py`. Use the committed coarse CSV as a proxy for three grids.
-  (a) header-only fine CSV → `ValueError(match="no data rows")`;
-  (b) fine CSV truncated to `t=0.5` → `ValueError(match="window")`;
-  (c) fine CSV with dt-halved time grid → `ValueError(match="time-grid")`;
-  (d) medium deck has `ns.fixed_dt=5e-4`, fine deck mocked with `ns.fixed_dt=2.5e-4` →
-      `ValueError(match="fixed_dt")` — ensures the medium↔fine pair dt check fires;
-  (e) medium CSV truncated to `t=0.5` (valid fine CSV) → `ValueError(match="window")` —
-      composition proof: `assert_gradeable_pair(medium, fine)` is actually called, not just the
-      coarse/fine pair;
-  (f) valid triple (coarse-vs-coarse-vs-coarse) passes without error.
-  Mirrors the existing `test_assert_gradeable_pair_guards` structure. Fails: function missing.
-- [ ] 1.3.2 **Implement** `assert_gradeable_triple(coarse_csv, medium_csv, fine_csv, *, coarse_deck=None,
+- [x] 1.3.1 **Test first:** add `test_assert_gradeable_triple_guards` in
+  `tests/test_wing_convergence_medium.py`. Cases (a)–(f) all implemented and passing.
+- [x] 1.3.2 **Implement** `assert_gradeable_triple(coarse_csv, medium_csv, fine_csv, *, coarse_deck=None,
   medium_deck=None, fine_deck=None, stop_time=_STOP_TIME) -> None`. Reuses `assert_gradeable_pair`
   internally: call `assert_gradeable_pair(coarse, medium)`, then `assert_gradeable_pair(medium, fine)`.
   Optionally check `_deck_float` for all three decks. Self-describing errors. 1.3.1 passes.
 
 ### 1.4 Fine-data schema pin test (Session A, skipif fine CSV absent)
 
-- [ ] 1.4.1 **Test first (schema + plausibility):** add `test_fine_csv_matches_ib_particle_contract`
+- [x] 1.4.1 **Test first (schema + plausibility):** add `test_fine_csv_matches_ib_particle_contract`
   in a new `tests/test_wing_convergence_fine.py`. Mark `@pytest.mark.skipif(not _FINE_CSV.exists(), ...)`.
   Assert `list(pd.read_csv(forces_fine.csv).columns)` equals the pinned 29-column `_IB_PARTICLE_29_COLS`
   in exact order; `df["time"].max() == pytest.approx(1.0, abs=1e-3)`; `len(df) > 1900`. The test
   **skips** in CI (no fine CSV until Session B) and **runs** in Session B once the data is committed.
-- [ ] 1.4.2 **Test first (provenance pin):** add `test_run_metadata_t3c_fields` in
+- [x] 1.4.2 **Test first (provenance pin):** add `test_run_metadata_t3c_fields` in
   `tests/test_wing_convergence_fine.py`, skipif absent. Load `run_metadata_t3c.json`; assert
   `metadata["iamrex_commit"].startswith("f93dc794")`, `metadata["tier"] == "T3c"`,
   `metadata["grid"] == "256 128 256"`, `metadata["inputs"]["hash"] == sha256(inputs.3d.convergence_fine)`,
@@ -214,13 +191,10 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ## 6. Roadmap + METHODS + handoff doc update
 
-- [ ] 6.1 **[Session A]** Add `⬜ **T3c** ([#50](…))` row to `docs/aerodynamics_validation/roadmap.md`
-  Tiers table; update the Sequencing paragraph (~line 99) to: "T3c (256×128×256 fine grid, #50)
-  extends T3b to the 3-grid Richardson study — observed convergence order + illustrative
-  cf_exact_richardson per component (IB coupling caveat). The tight chord verdict (#50) is the last
-  open aerodynamic-validation item."
-- [ ] 6.2 **[Session A]** Create `docs/aerodynamics_validation/t3c-handoff.md` (operator instruction
-  doc, same format as `t3b-handoff.md`). Include: deck path, IAMReX image pin, CFL note (CFL≈0.45,
+- [x] 6.1 **[Session A]** Add `⬜ **T3c** ([#50](…))` row to `docs/aerodynamics_validation/roadmap.md`
+  Tiers table; updated the Sequencing paragraph and the "Out of scope" section to reflect T3c in-flight.
+- [x] 6.2 **[Session A]** Create `docs/aerodynamics_validation/t3c-handoff.md` (operator instruction
+  doc, same format as `t3b-handoff.md`). Includes: deck path, IAMReX image pin, CFL note (CFL≈0.45,
   borderline), arena cap (amrex.the_arena_init_size=28, ~12 GB headroom), dt-reduction fallback
   procedure (dt=2.5e-4 → dt_reduced=true in metadata → assert_gradeable_triple will raise "time-grid",
   operator must pass metadata dt), and `assert_gradeable_triple` pre-commit check command.
@@ -273,13 +247,8 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ## 9. Session A — proposal and deck commit (this session, on approval)
 
-- [ ] 9.1 **Commit A-1** `chore(openspec): add wing-fine-grid-convergence (T3c)` — commit ONLY the
-  OpenSpec change dir (`proposal.md`, `design.md`, `tasks.md`,
-  `specs/flapping-wing-grid-convergence/spec.md`) and the roadmap stub (§6.1). Docs-only, CI-green.
-  Matches the T4 precedent where the `chore(openspec)` commit carries only OpenSpec metadata.
-- [ ] 9.2 **Commit A-2** `feat(flapping-wing): 3-grid convergence tooling + fine deck (T3c, Session A)`
-  — `examples/flapping_wing/inputs.3d.convergence_fine` + `src/mosquito_cfd/benchmarks/wing_convergence.py`
-  additions + all cluster-free tests (§0.2–§0.3 in `tests/test_convergence_deck.py`, §1.1.1–§1.1.2c,
-  §1.1.3–§1.1.5 in `tests/test_wing_grid_convergence.py`, §1.2.1–§1.2.2 and §1.3.1 in
-  `tests/test_wing_convergence_medium.py`, §1.4 skipif stubs in `tests/test_wing_convergence_fine.py`).
-  CI-green: all new tests pass or skip; no regressions. The operator run (§3) happens after this commit.
+- [x] 9.1 **Commit A-1** `chore(openspec): add wing-fine-grid-convergence (T3c)` — committed: OpenSpec
+  change dir + roadmap. SHA: 6aae0b2.
+- [x] 9.2 **Commit A-2** `feat(flapping-wing): 3-grid convergence tooling + fine deck (T3c, Session A)`
+  — committed: fine deck + wing_convergence.py + all cluster-free tests + t3c-handoff.md.
+  SHA: 1ff426d. CI-green: 22 pass, 2 skip, no regressions.
