@@ -19,7 +19,7 @@ Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
 >
 > **Body-frame per-component van Veen comparison (delivered here, deferred by #36) — steady window t≥0.05:**
 >
- | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
+> | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
 > |---|---|---|---|
 > | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
 > | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target → `cf_chord_match=False` (#40) |
@@ -421,10 +421,10 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | GPU | NVIDIA A40 |
 | Grid cells | 131,072 (64×32×64) |
 | Timesteps | 2000 |
-| Wall time | 146 seconds (2.4 min) | Second run via `run.sh` with readwrite NFS mount |
-| Time per step | 0.073 s | |
-| Throughput | 1.8M cells/step | |
-| GPU memory | ~500 MB (estimated) | |
+| Wall time | 146 seconds (2.4 min) |
+| Time per step | 0.073 s |
+| Throughput | 1.8M cells/step |
+| GPU memory | ~500 MB (estimated) |
 
 *First run (February 26): 295 s (4.9 min) — /tmp workaround, different node.*
 *Second run (February 27): 146 s (2.4 min) — via run.sh with readwrite NFS mount on gpu-node14.*
