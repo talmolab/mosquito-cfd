@@ -449,9 +449,7 @@ def test_3grid_convergence_recomputes_from_committed_csvs():
     import json
     import math
 
-    out = wing_grid_convergence_from_body_forces(
-        _NEWCONV, _MEDIUM, _FINE, **_T3C_KIN
-    )
+    out = wing_grid_convergence_from_body_forces(_NEWCONV, _MEDIUM, _FINE, **_T3C_KIN)
     doc = _doc()
 
     chord, normal = out["cf_chord"], out["cf_normal"]
@@ -471,9 +469,9 @@ def test_3grid_convergence_recomputes_from_committed_csvs():
 
     # Headline literals present in RESULTS.md (so a drift edit fails closed).
     for lit in (
-        "1.38",       # p_obs CF_normal
-        "2.162",      # Richardson extrapolant CF_normal
-        "3.7 %",      # GCI_fine — "3.7 %" is specific; bare "3.7" would match "3.71" etc.
+        "1.38",  # p_obs CF_normal
+        "2.162",  # Richardson extrapolant CF_normal
+        "3.7 %",  # GCI_fine — "3.7 %" is specific; bare "3.7" would match "3.71" etc.
         "non-monotone",  # CF_chord characterisation
     ):
         assert lit in doc, f"T3c headline {lit!r} not found in RESULTS.md"
