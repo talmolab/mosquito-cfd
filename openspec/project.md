@@ -152,9 +152,45 @@ uv run generate-wing-planform --output wing.vertex
 ```
 
 ### Running Simulations
+
+#### Cluster (RunAI / A40)
+
+Submit via the WSL + `runai` pattern documented in `CLAUDE.md`. Run scripts and
+Argo workflow templates live in `cluster/argo/`.
+
+#### Local Docker (A5000, skip RunAI queue)
+
+The dev box has an **RTX A5000 (24 GB, sm_86)** with Docker Desktop GPU passthrough.
+Use this for validation / convergence runs without waiting for cluster quota.
+
+**Always use PowerShell** — git-bash (MSYS) mangles `/opt/...` paths to
+`C:/Program Files/Git/opt/...`.
+
+```powershell
+docker run --rm --gpus all `
+  -v "c:/repos/mosquito-cfd/examples/flapping_wing:/workspace" `
+  ghcr.io/talmolab/mosquito-cfd:fp64 `
+  bash /workspace/<run_script>.sh 2>&1 | tee examples/flapping_wing/sim-<label>.log
+```
+
+**A5000 arena cap** — always pass `amrex.the_arena_init_size=18` (value is in GiB).
+AMReX defaults to ¾ × VRAM = 18 GiB on a 24 GB card, but set it explicitly so a
+future AMReX version can't silently change the default. A40 (40 GB) uses 28.
+
+**CFL at fine 256³ grid** — `inputs.3d.convergence_fine` sets `ns.fixed_dt=0.0005`
+(CFL ≈ 0.45, unstable). Use `ns.fixed_dt=0.00025` + `max_step=4000` for a stable
+1-wingbeat run. See `examples/flapping_wing/t3c_run_local.sh` for the full override set.
+
+**Image staleness check** — the local fp64 image must be at IAMReX commit `f93dc794`
+(T2a 3D d_nn fix). Verify before a long run:
+```powershell
+docker run --rm ghcr.io/talmolab/mosquito-cfd:fp64 git -C /opt/cfd/IAMReX log --oneline -1
+```
+If stale, rebuild: `docker build -f docker/Dockerfile.fp64 -t ghcr.io/talmolab/mosquito-cfd:fp64 .`
+
+#### Quick validation example (Docker)
 ```bash
-# Using Docker (recommended)
-docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp64
+# Inside container (bash)
 cd /opt/cfd/IAMReX/Tutorials/FlowPastSphere
 mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sphere max_step=100
 
