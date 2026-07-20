@@ -124,13 +124,13 @@ At t=10, the body reaches y=10.0 (the periodic boundary), and the wake begins wr
 | Δx | 0.125 | 0.0625 | 0.03125 |
 | Domain | 8 × 4 × 8 | same | same |
 | Kinematics | f\*=1.0, φ=70°, α=45° (van Veen) | same | same |
-| `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) | 5e-4 (**held**) |
-| Steps / stop_time | 2000 / 1.0 | same | same |
+| `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) | **2.5×10⁻⁴ (D6 fallback)** |
+| Steps / stop_time | 2000 / 1.0 | same | **4000 / 1.0** |
 | Deck | `inputs.3d.validation` | `inputs.3d.convergence_medium` | `inputs.3d.convergence_fine` |
 
-Holding `fixed_dt` fixed makes the temporal discretization error identical in all runs, isolating the coarse↔medium↔fine difference from temporal error (the difference reflects combined spatial + grid-tied IB-regularization refinement, so the study is report-only — see the IB coupling caveat below).
+The coarse and medium runs hold `fixed_dt = 5e-4`, so their temporal discretization error is identical and their 2-grid GCI (T3b) is temporally isolated. The fine run required a D6 CFL-fallback to `dt = 2.5×10⁻⁴` for stability at Δx = 0.03125 (CFL ≈ 0.45 at the nominal dt); this breaks the temporal isolation for the fine grid — the 3-grid Richardson order and extrapolant reflect **combined spatial + temporal + IB-model refinement**, not purely spatial error.
 
-**IB coupling caveat**: because the marker volume `dv = h·d_nn²` and the kernel support scale with the grid spacing `h`, refining the grid also sharpens the IB-regularization model — the coarse↔medium↔fine delta reflects **combined spatial + IB-model refinement**, not purely discretization error. Consequently `cf_exact_richardson` (from the 3-grid Richardson extrapolation, Tier T3c) is an *illustrative* estimate, not a definitive h→0 limit, and is never gated in a verdict.
+**IB coupling caveat**: because the marker volume `dv = h·d_nn²` and the kernel support scale with the grid spacing `h`, refining the grid also sharpens the IB-regularization model — each delta reflects **combined spatial + IB-model refinement**. Consequently `cf_exact_richardson` (Tier T3c) is an *illustrative* estimate, not a definitive h→0 limit, and is never gated in a verdict.
 
 **Method**: `benchmarks/wing_convergence.py` reports per-component GCI bands (2-grid, T3b) and the 3-grid observed order + Richardson estimate (T3c); `benchmarks/wing_lev.py` (reusing `extract_eulerian_box` + `benchmarks/lev.py`) reports the leading-edge-vortex vorticity/Q over a wing near-field box at mid-stroke. All runs use the same `:fp64 @ f93dc794` image (grid refinement needs no solver change); provenance in `run_metadata_t3b.json` (medium) and `run_metadata_t3c.json` (fine).
 

@@ -69,9 +69,7 @@ def test_run_metadata_t3c_fields():
 
     # Required provenance fields.
     assert "docker_image" in metadata
-    assert (
-        "image_digest" in metadata or "docker_image" in metadata
-    )  # image digest may be nested
+    assert "image_digest" in metadata
 
     # Named extra fields for temporal-confounding bookkeeping.
     assert "fixed_dt" in metadata
@@ -161,6 +159,10 @@ def test_fine_3grid_reports_from_committed_csvs():
         phi_amp_deg=70.0,
         pitch_amp_deg=45.0,
     )
+
+    # Monotone state is a structural property that must survive any peak-extraction change.
+    assert out["cf_normal"]["monotone"] is True
+    assert out["cf_chord"]["monotone"] is False
 
     # 3-grid path returns the expected key set for each component.
     _3GRID_KEYS = {

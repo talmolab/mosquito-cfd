@@ -345,10 +345,12 @@ to complete the 3-grid Richardson analysis.  Run on the local RTX A5000 (24 GB) 
 | `ns.fixed_dt` | 5×10⁻⁴ | 5×10⁻⁴ | **2.5×10⁻⁴ (D6 fallback)** |
 | Steps | 2000 | 2000 | **4000** |
 
-**IB-coupling caveat**: `dv = h · d_nn²` and the kernel support both scale with `h`, so grid refinement
-simultaneously sharpens the IB-regularization model.  The 3-grid delta reflects **combined spatial +
-IB-model refinement**, not purely discretization error.  `cf_exact_richardson` is therefore an
-*illustrative* estimate only — not a defensible h → 0 limit.
+**IB-coupling + temporal caveat**: `dv = h · d_nn²` and the kernel support both scale with `h`, so grid
+refinement simultaneously sharpens the IB-regularization model.  Additionally, the fine run used
+`dt = 2.5×10⁻⁴` (D6 CFL-fallback) while coarse and medium used `dt = 5×10⁻⁴`, so the observed order
+`p_obs` and Richardson extrapolant reflect **combined spatial + temporal + IB-model refinement**, not
+purely spatial error.  `cf_exact_richardson` is an *illustrative* estimate only — not a defensible
+h → 0 limit.
 
 **CF_normal (z, lift)** — **monotone**, observed order **p_obs = 1.38** (super-first-order):
 

@@ -13,7 +13,7 @@
   "image_build": "local docker commit — base pulled from ghcr.io, DiffusedIB.cpp + WingKinematics.H patched to f93dc794, CUDA binary rebuilt in-container",
   "inputs": {
     "file": "examples/flapping_wing/inputs.3d.convergence_fine",
-    "hash": "5c1790433b85aa275898979ee6d2a219ae92b54745559d35efd6dfa52ee033d9"
+    "hash": "c4f0db57e041d80f4f05d034d82737158a790be7504bbb0feec79680e701ced4"
   },
   "timing": {
     "wall_time_s": 31634.40636,

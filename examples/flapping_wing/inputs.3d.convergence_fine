@@ -41,6 +41,11 @@
 #       isolated"
 #
 # NOT for publication until the operator fine run (T3c) is graded.
+#
+# *** IMPORTANT: THE COMMITTED forces_fine.csv WAS PRODUCED WITH A RUNTIME OVERRIDE ***
+#   ns.fixed_dt=0.00025  max_step=4000  (D6 CFL fallback — see run_metadata_t3c.json)
+# Re-running from this deck (ns.fixed_dt=5e-4, max_step=2000) will NOT reproduce the
+# committed CSV.  Use t3c_run_local.sh (or the metadata recorded overrides) to reproduce.
 #*******************************************************************************
 
 # Simulation control
