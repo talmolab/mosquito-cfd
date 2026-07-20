@@ -145,18 +145,34 @@ mosquito-cfd/
 - Lint Dockerfiles with hadolint (failure-threshold: error)
 - Tag format: `{precision}`, `latest-{precision}`, `{precision}-{sha}`
 
-### CLI Tools
+### Python (uv)
+Use `uv` for all Python operations:
 ```bash
-# Generate wing vertex file from parametric planform
+uv run python script.py
+uv run pytest
+uv run ruff check .
 uv run generate-wing-planform --output wing.vertex
 ```
+
+### Cluster Path Mappings
+| Context | Path |
+|---------|------|
+| Windows (Z: drive) | `Z:\users\eberrigan\...` |
+| WSL | `/mnt/hpi_dev/users/eberrigan/...` |
+| Cluster | `/hpi/hpi_dev/users/eberrigan/...` |
+
+`Z:` = `\\multilab-na.ad.salk.edu\hpi_dev` (mapped network drive, Salk VPN required).
+Cluster data mounted on Windows via `Z:` is accessible for local Python analysis.
 
 ### Running Simulations
 
 #### Cluster (RunAI / A40)
 
-Submit via the WSL + `runai` pattern documented in `CLAUDE.md`. Run scripts and
-Argo workflow templates live in `cluster/argo/`.
+Use WSL with the documented pattern:
+```bash
+wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml && /home/elizabeth/.runai/bin/runai <command>"
+```
+Run scripts and Argo workflow templates live in `cluster/argo/`.
 
 #### Local Docker (A5000, skip RunAI queue)
 
