@@ -1,0 +1,49 @@
+{
+  "run_id": "7c33d369-6ba9-4d15-9fc1-64c0fd2dbaa7",
+  "timestamp": "2026-07-18T13:20:02+00:00",
+  "git": {
+    "commit": "81d6306",
+    "branch": "add-wing-fine-grid-convergence-t3c",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd:fp64",
+  "image_digest": "sha256:416f71d22fec3dc219095d30860446727d61b178f40290994d55c506b4d3d05a",
+  "image_tag": "ghcr.io/talmolab/mosquito-cfd:fp64 (local build patched to f93dc794)",
+  "image_build": "local docker commit — base pulled from ghcr.io, DiffusedIB.cpp + WingKinematics.H patched to f93dc794, CUDA binary rebuilt in-container",
+  "inputs": {
+    "file": "examples/flapping_wing/inputs.3d.convergence_fine",
+    "hash": "5c1790433b85aa275898979ee6d2a219ae92b54745559d35efd6dfa52ee033d9"
+  },
+  "timing": {
+    "wall_time_s": 31634.40636,
+    "timesteps": 4000,
+    "s_per_step": 7.909,
+    "final_time": 1.0
+  },
+  "outputs": {
+    "directory": "examples/flapping_wing",
+    "plot_files": [],
+    "checkpoint_files": [],
+    "note": "plotfiles and checkpoints suppressed (amr.plot_int=9999, amr.check_int=9999); forces CSV only"
+  },
+  "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
+  "tier": "T3c",
+  "grid": "256 128 256",
+  "fixed_dt": 0.00025,
+  "dt_reduced": true,
+  "max_step": 4000,
+  "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
+  "run_platform": "local dev box, NVIDIA RTX A5000 24 GB, Docker Desktop GPU passthrough; fine 256x128x256 grid-convergence run; amrex.the_arena_init_size=18 GiB; dt=0.00025 (D6 fallback, CFL=0.224 at dx=0.03125)",
+  "analysis_host": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24563,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  }
+}
