@@ -368,26 +368,33 @@ below the fine-grid value (2.228); the 3.7 % GCI_fine is modest.  The van Veen t
 ~2.48) sits between the fine and the extrapolant, consistent with IB-regularization capturing the
 correct order of magnitude.
 
-**CF_chord (x, tangential)** — **non-monotone**:
+**CF_chord (x, tangential)** — **monotone**, observed order **p_obs = 1.37**:
 
 | Metric | Value |
 |--------|-------|
 | CF_chord coarse | 0.923 |
 | CF_chord medium | 0.554 |
-| CF_chord fine | 0.961 |
-| Observed order p_obs | NaN (non-monotone) |
-| Richardson extrapolant cf_exact | NaN |
+| CF_chord fine | 0.411 |
+| Observed order p_obs | **1.37** |
+| Richardson extrapolant cf_exact | 0.321 |
+| GCI_fine | 27.6 % |
 
-The fine-grid CF_chord (0.961) rises back above coarse (0.923) after the medium dip (0.554).  This
-non-monotone behaviour is consistent with the IB-coupling caveat: at each refinement level the IB
-boundary-layer model changes, so the chord component — which is more sensitive to near-surface
-gradients than the normal — does not converge monotonically.  Richardson extrapolation requires
-monotone convergence and cannot be applied; the sequence is reported as-is.
+CF_chord converges monotonically coarse → medium → fine toward the Richardson extrapolant (0.321).
+The extrapolant sits between van Veen's translational-only (~0.3) and the full QS model total (~0.43),
+consistent with the CFD approaching the physical chord target under refinement.  The GCI_fine (27.6 %)
+is large — the chord is not yet tightly converged at 256³ — but the direction is unambiguous.
 
-**Summary**: CF_normal is approaching a converged value with a modest GCI (~4 %); CF_chord has not
-reached the monotone convergence regime at the 256³ fine grid.  Further refinement (512³+) is
-deferred to H100 / grant hardware.  These numbers recompute from the committed triple
-(`forces_t2a_newconv.csv`, `forces_medium.csv`, `forces_fine.csv`) via
+**Note on `forces_fine.csv` provenance**: the original `IB_Particle_1.csv` from the local A5000 run
+was contaminated with rows from prior aborted run attempts (including a diverged dt = 5×10⁻⁴ segment
+whose CF_chord peak was 0.96, masking the clean result).  The committed `forces_fine.csv` was extracted
+from the final clean segment (rows 2063–6062 of the original 6063-row file): 4000 rows at dt = 0.00025,
+iStep 0–3999.  The contamination did **not** affect CF_normal (the diverged segment's normal peak was
+below the clean run's value).
+
+**Summary**: both CF_normal (GCI ~4 %) and CF_chord (GCI ~28 %) converge monotonically at the 256³
+fine grid.  The chord extrapolant (0.321) approaches the van Veen target (~0.3–0.43); further
+refinement (512³+) is deferred to H100 / grant hardware.  These numbers recompute from the committed
+triple (`forces_t2a_newconv.csv`, `forces_medium.csv`, `forces_fine.csv`) via
 `tests/test_results_reproducibility.py::test_3grid_convergence_recomputes_from_committed_csvs`.
 
 ### Force at key phases (new-convention run)
@@ -468,7 +475,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
 | Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) | CF_normal 2.61 vs model 2.48 → magnitude consistent (T4, graded, rel gap ~5 % < 16 % tol); CF_chord 0.92 explained by van Veen's transl + AM + Wagner (model ~0.43), grid-limited → **#50**. The T2a total-vs-translational **PARTIAL** (CF_chord 0.92 vs the translational-only ~0.3) is **resolved by the T4 decomposition** (see "T4 per-component decomposition"); the peak-phase gap (~0.058 cycle) is reported, not gated |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
-| Grid convergence (T3c, 3-grid report-only) | REPORTED | CF_normal monotone: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord non-monotone (0.923→0.554→0.961): IB-coupling prevents monotone convergence at 256³; Richardson extrapolation N/A. Further refinement deferred to H100. Closes #50 |
+| Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 % (extrapolant 0.321 approaches van Veen ~0.3–0.43). Further refinement deferred to H100. Closes #50 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | REPORTED (T3b) | Resolved on both grids at mid-stroke; medium sharper (resolution-fair ∫Q⁺ +9 %, peak vorticity ~×1.8) — see the "Grid convergence (T3b)" section + `fig_lev_coarse_vs_medium` |
 

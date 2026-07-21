@@ -38,6 +38,10 @@ def test_fine_csv_matches_ib_particle_contract():
     assert list(df.columns) == _IB_PARTICLE_29_COLS
     assert df["time"].max() == pytest.approx(1.0, abs=1e-3)
     assert len(df) > 1900
+    assert df["iStep"].nunique() == len(df), (
+        "forces_fine.csv has duplicate iStep rows — likely contaminated with rows from a prior "
+        "run attempt; extract the clean segment before committing"
+    )
 
 
 @pytest.mark.skipif(
@@ -162,7 +166,7 @@ def test_fine_3grid_reports_from_committed_csvs():
 
     # Monotone state is a structural property that must survive any peak-extraction change.
     assert out["cf_normal"]["monotone"] is True
-    assert out["cf_chord"]["monotone"] is False
+    assert out["cf_chord"]["monotone"] is True
 
     # 3-grid path returns the expected key set for each component.
     _3GRID_KEYS = {

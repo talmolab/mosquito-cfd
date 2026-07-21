@@ -462,17 +462,21 @@ def test_3grid_convergence_recomputes_from_committed_csvs():
     assert normal["cf_exact_richardson"] == pytest.approx(2.1619, abs=1e-4)
     assert normal["gci_fine"] == pytest.approx(0.03692, abs=1e-4)
 
-    # CF_chord: non-monotone, NaN observed order.
-    assert chord["monotone"] is False
-    assert math.isnan(chord["observed_order"])
-    assert chord["cf_fine"] == pytest.approx(0.9605, abs=1e-4)
+    # CF_chord: monotone, finite observed order and Richardson extrapolant.
+    assert chord["monotone"] is True
+    assert chord["cf_fine"] == pytest.approx(0.4114, abs=1e-4)
+    assert chord["observed_order"] == pytest.approx(1.3655, abs=1e-4)
+    assert chord["cf_exact_richardson"] == pytest.approx(0.3206, abs=1e-4)
+    assert chord["gci_fine"] == pytest.approx(0.2758, abs=1e-4)
 
     # Headline literals present in RESULTS.md (so a drift edit fails closed).
     for lit in (
-        "1.38",  # p_obs CF_normal
-        "2.162",  # Richardson extrapolant CF_normal
-        "3.7 %",  # GCI_fine — "3.7 %" is specific; bare "3.7" would match "3.71" etc.
-        "non-monotone",  # CF_chord characterisation
+        "1.38",    # p_obs CF_normal
+        "2.162",   # Richardson extrapolant CF_normal
+        "3.7 %",   # GCI_fine CF_normal — "3.7 %" is specific; bare "3.7" would match "3.71" etc.
+        "1.37",    # p_obs CF_chord
+        "0.321",   # Richardson extrapolant CF_chord
+        "27.6 %",  # GCI_fine CF_chord
     ):
         assert lit in doc, f"T3c headline {lit!r} not found in RESULTS.md"
 

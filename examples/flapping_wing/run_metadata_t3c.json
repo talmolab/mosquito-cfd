@@ -25,7 +25,13 @@
     "directory": "examples/flapping_wing",
     "plot_files": [],
     "checkpoint_files": [],
-    "note": "plotfiles and checkpoints suppressed (amr.plot_int=9999, amr.check_int=9999); forces CSV only"
+    "note": "plotfiles and checkpoints suppressed (amr.plot_int=9999, amr.check_int=9999); forces CSV only",
+    "csv_extraction": {
+      "original_rows": 6063,
+      "clean_rows": 4000,
+      "extracted_row_range": "iloc[2063:6063]",
+      "reason": "IB_Particle_1.csv contained rows from prior aborted run attempts (including a diverged dt=0.0005 segment). Clean segment: rows 2063-6062, dt=0.00025, iStep 0-3999, t=0-0.9998."
+    }
   },
   "iamrex_commit": "f93dc794ed9d8b8ae58b3f5719f485ca7d79c8da",
   "tier": "T3c",
