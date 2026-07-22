@@ -27,10 +27,13 @@ _GRIDS = [
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _WINDOW_T0 = 0.05
 
-# Van Veen reference bands: (label, ymin, ymax, color, alpha, text_y_frac)
+# Van Veen reference bands — show on the dominant (positive-peak) half of each stroke.
+# CF_chord: translational→QS model peak range (0.30–0.43).
+# CF_normal: Richardson→van Veen QS target range (2.16–2.48); negative mirror added for
+# the return stroke so the band is visible on both sides.
 _VV_BANDS = {
-    "cf_chord":  ("van Veen QS range 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
-    "cf_normal": ("van Veen target range 2.16–2.48", 2.16, 2.48, "#2ca02c", 0.15),
+    "cf_chord":  ("van Veen QS 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
+    "cf_normal": ("van Veen target ±[2.16–2.48]", 2.16, 2.48, "#2ca02c", 0.15),
 }
 
 
@@ -46,13 +49,16 @@ def make_figure(
     for label, csv, color, lw in _GRIDS:
         d = reconstruct_wing_body_forces(csv, **_KIN)
         mask = d.time >= _WINDOW_T0
-        series.append((label, d.time[mask], d.cf_chord[mask], np.abs(d.cf_normal[mask]), color, lw))
+        series.append((label, d.time[mask], d.cf_chord[mask], d.cf_normal[mask], color, lw))
 
     # Plot van Veen bands FIRST (so they sit behind data and their handles enter the legend)
     for ax, comp in [(ax_chord, "cf_chord"), (ax_normal, "cf_normal")]:
         lbl, ymin, ymax, color, alpha = _VV_BANDS[comp]
-        ax.axhspan(ymin, ymax, color=color, alpha=alpha, label=lbl, zorder=1)
-        # Direct text annotation at right edge of band (avoids cluttering the legend)
+        ax.axhspan(ymin, ymax, color=color, alpha=alpha, zorder=1)
+        if comp == "cf_normal":
+            # Mirror band for the return stroke (negative side)
+            ax.axhspan(-ymax, -ymin, color=color, alpha=alpha, zorder=1)
+        # Direct text annotation at right edge of band
         ax.annotate(
             lbl,
             xy=(0.99, (ymin + ymax) / 2),
@@ -61,7 +67,7 @@ def make_figure(
             bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7),
         )
 
-    # Plot CFD data lines
+    # Plot CFD data lines (signed CF_normal — consistent with T4 decomposition figure)
     for label, t, cf_chord, cf_normal, color, lw in series:
         ax_chord.plot(t, cf_chord, color=color, lw=lw, label=label, alpha=0.92, zorder=3)
         ax_normal.plot(t, cf_normal, color=color, lw=lw, label=label, alpha=0.92, zorder=3)
@@ -69,7 +75,7 @@ def make_figure(
     # Styling — draw legend AFTER all artists are added
     for ax, ylabel, title in [
         (ax_chord,  "CF_chord  (tangential)",  "CF_chord — body-frame tangential force"),
-        (ax_normal, "|CF_normal|  (lift)",      "|CF_normal| — body-frame lift force"),
+        (ax_normal, "CF_normal  (lift)",        "CF_normal — body-frame lift force  (signed)"),
     ]:
         ax.set_ylabel(ylabel, fontsize=10)
         ax.set_title(title, fontsize=11, fontweight="bold")
