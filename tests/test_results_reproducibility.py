@@ -425,3 +425,62 @@ def test_grid_convergence_recomputes_from_committed_csvs():
     assert json.loads(_T3B_META.read_text())["inputs"]["hash"] == _sha(_MEDIUM_DECK)
     # #40 stays open in the convergence section (a CF_chord drop is not misread as resolving it).
     assert "#40 remains open" in doc
+
+
+# --- Tier T3c: 3-grid numbers recompute from the committed coarse + medium + fine CSVs -----------
+
+_FINE = "examples/flapping_wing/forces_fine.csv"
+_T3C_META = Path("examples/flapping_wing/run_metadata_t3c.json")
+_FINE_DECK = "examples/flapping_wing/inputs.3d.convergence_fine"
+_T3C_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}
+
+
+@pytest.mark.skipif(
+    not Path(_FINE).exists(), reason="fine forces CSV not present (T3c run)"
+)
+def test_3grid_convergence_recomputes_from_committed_csvs():
+    """The RESULTS T3c convergence headlines recompute from the committed coarse+medium+fine CSVs.
+
+    CF_normal is monotone → assert p_obs, Richardson extrapolant, and GCI_fine are present in the doc.
+    CF_chord is non-monotone → assert the non-monotone call-out is in the doc and observed_order is NaN.
+    The fine deck is cryptographically pinned via run_metadata_t3c.json.
+    """
+    import hashlib
+    import json
+
+    out = wing_grid_convergence_from_body_forces(_NEWCONV, _MEDIUM, _FINE, **_T3C_KIN)
+    doc = _doc()
+
+    chord, normal = out["cf_chord"], out["cf_normal"]
+
+    # CF_normal: monotone, finite observed order and Richardson extrapolant.
+    # Tolerances are tight (abs=1e-4) — the CSVs are committed and the computation is
+    # fully deterministic; loose tolerances would miss real regressions.
+    assert normal["monotone"] is True
+    assert normal["observed_order"] == pytest.approx(1.3773, abs=1e-4)
+    assert normal["cf_exact_richardson"] == pytest.approx(2.1619, abs=1e-4)
+    assert normal["gci_fine"] == pytest.approx(0.03692, abs=1e-4)
+
+    # CF_chord: monotone, finite observed order and Richardson extrapolant.
+    assert chord["monotone"] is True
+    assert chord["cf_fine"] == pytest.approx(0.4114, abs=1e-4)
+    assert chord["observed_order"] == pytest.approx(1.3655, abs=1e-4)
+    assert chord["cf_exact_richardson"] == pytest.approx(0.3206, abs=1e-4)
+    assert chord["gci_fine"] == pytest.approx(0.2758, abs=1e-4)
+
+    # Headline literals present in RESULTS.md (so a drift edit fails closed).
+    for lit in (
+        "1.38",  # p_obs CF_normal
+        "2.162",  # Richardson extrapolant CF_normal
+        "3.7 %",  # GCI_fine CF_normal — "3.7 %" is specific; bare "3.7" would match "3.71" etc.
+        "1.37",  # p_obs CF_chord
+        "0.321",  # Richardson extrapolant CF_chord
+        "27.6 %",  # GCI_fine CF_chord
+    ):
+        assert lit in doc, f"T3c headline {lit!r} not found in RESULTS.md"
+
+    # Fine deck cryptographically pinned.
+    def _sha(p: str) -> str:
+        return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+    assert json.loads(_T3C_META.read_text())["inputs"]["hash"] == _sha(_FINE_DECK)

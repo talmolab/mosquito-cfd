@@ -117,22 +117,24 @@ At t=10, the body reaches y=10.0 (the periodic boundary), and the wake begins wr
 
 **Purpose**: Quantify how the body-frame van Veen wing coefficients (`CF_chord`, `CF_normal`) move under a 2× grid refinement — the CFD-fidelity check for the `CF_chord` PARTIAL ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)). **Report-only**: no pass/fail bar.
 
-| Parameter | Coarse | Medium |
-|-----------|--------|--------|
-| Geometry | External vertex file (IAMReX type 4), 908 markers | same |
-| Grid (`amr.n_cell`) | 64×32×64 | **128×64×128** (only this changes) |
-| Δx | 0.125 | 0.0625 |
-| Domain | 8 × 4 × 8 | same |
-| Kinematics | f\*=1.0, φ=70°, α=45° (van Veen) | same |
-| `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) |
-| Steps / stop_time | 2000 / 1.0 | same |
-| Deck | `inputs.3d.validation` | `inputs.3d.convergence_medium` |
+| Parameter | Coarse | Medium | Fine |
+|-----------|--------|--------|------|
+| Geometry | External vertex file (IAMReX type 4), 908 markers | same | same |
+| Grid (`amr.n_cell`) | 64×32×64 | **128×64×128** | **256×128×256** |
+| Δx | 0.125 | 0.0625 | 0.03125 |
+| Domain | 8 × 4 × 8 | same | same |
+| Kinematics | f\*=1.0, φ=70°, α=45° (van Veen) | same | same |
+| `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) | **2.5×10⁻⁴ (D6 fallback)** |
+| Steps / stop_time | 2000 / 1.0 | same | **4000 / 1.0** |
+| Deck | `inputs.3d.validation` | `inputs.3d.convergence_medium` | `inputs.3d.convergence_fine` |
 
-Holding `fixed_dt` fixed makes the temporal discretization error identical in both runs, isolating the coarse↔medium difference from temporal error (the difference reflects combined spatial + grid-tied IB-regularization refinement, so the study is report-only — no Richardson extrapolant).
+The coarse and medium runs hold `fixed_dt = 5e-4`, so their temporal discretization error is identical and their 2-grid GCI (T3b) is temporally isolated. The fine run required a D6 CFL-fallback to `dt = 2.5×10⁻⁴` for stability at Δx = 0.03125 (CFL ≈ 0.45 at the nominal dt); this breaks the temporal isolation for the fine grid — the 3-grid Richardson order and extrapolant reflect **combined spatial + temporal + IB-model refinement**, not purely spatial error.
 
-**Method**: `benchmarks/wing_convergence.py` reports the coarse→medium relative change + a 2-grid GCI band (orders p = 1..2); `benchmarks/wing_lev.py` (reusing `extract_eulerian_box` + `benchmarks/lev.py`) reports the leading-edge-vortex vorticity/Q over a wing near-field box at mid-stroke. Both runs use the same `:fp64 @ f93dc794` image (grid refinement needs no solver change); provenance in `run_metadata_t3b.json`.
+**IB coupling caveat**: because the marker volume `dv = h·d_nn²` and the kernel support scale with the grid spacing `h`, refining the grid also sharpens the IB-regularization model — each delta reflects **combined spatial + IB-model refinement**. Consequently `cf_exact_richardson` (Tier T3c) is an *illustrative* estimate, not a definitive h→0 limit, and is never gated in a verdict.
 
-**Validation**: See [`flapping_wing/RESULTS.md` → "Grid convergence (T3b)"](../examples/flapping_wing/RESULTS.md) for the reported relative change, GCI band, and LEV numbers. Summary: peak `CF_chord` drops materially under refinement (toward van Veen), supporting the coarse-grid diffused-IB hypothesis for the #40 chord excess; `CF_chord` is not yet grid-converged at medium (a rigorous verdict needs a 3rd 256³ grid, deferred to H100/grant). #40 remains open.
+**Method**: `benchmarks/wing_convergence.py` reports per-component GCI bands (2-grid, T3b) and the 3-grid observed order + Richardson estimate (T3c); `benchmarks/wing_lev.py` (reusing `extract_eulerian_box` + `benchmarks/lev.py`) reports the leading-edge-vortex vorticity/Q over a wing near-field box at mid-stroke. All runs use the same `:fp64 @ f93dc794` image (grid refinement needs no solver change); provenance in `run_metadata_t3b.json` (medium) and `run_metadata_t3c.json` (fine).
+
+**Validation**: See [`flapping_wing/RESULTS.md` → "Grid convergence (T3b)"](../examples/flapping_wing/RESULTS.md) for the coarse↔medium reported relative change, GCI band, and LEV numbers, and ["Grid convergence (T3c)"](../examples/flapping_wing/RESULTS.md) for the 3-grid observed order + Richardson estimate at the fine 256³ grid. Summary: peak `CF_chord` drops materially under refinement (toward van Veen), supporting the coarse-grid diffused-IB hypothesis for the #40 chord excess; the 3-grid analysis provides the observed convergence order and a Richardson estimate with the IB coupling caveat stated above.
 
 ## Measured Performance
 

@@ -1,0 +1,198 @@
+#*******************************************************************************
+# INPUTS.3D.CONVERGENCE_FINE  (FINE grid — Tier T3c convergence)
+#
+# EXACT copy of inputs.3d.convergence_medium (the confirmed canonical MEDIUM deck)
+# changing ONLY:
+#   amr.n_cell: 128 64 128 -> 256 128 256  (2x medium in all directions, 4x coarse)
+#   amrex.the_arena_init_size = 28 ADDED   (proactive GPU-memory cap — see CFL note)
+#
+# Same van Veen / Bomphrey axis convention:
+#   x = chord (streamwise), y = span (periodic, infinite-span), z = vertical / lift.
+# See docs/coordinate-convention.md for the canonical convention.
+#
+# ONLY the spatial resolution Δx changes here. ns.fixed_dt = 5e-4 is HELD (so the
+# temporal discretization error is IDENTICAL across all three grids — the coarse↔medium
+# ↔fine difference is isolated from temporal error), and particle_inputs.radius = 1.5
+# is HELD (the dimensionless IB regularization length is kept constant against the
+# changing grid spacing h). Note the comparison is NOT purely spatial: the diffused-IB
+# regularization is grid-tied (dv = h·d_nn² and the kernel support scale with h), so
+# refining the grid also sharpens the IB model — the coarse↔medium↔fine delta reflects
+# combined SPATIAL + IB-REGULARIZATION refinement (a reason the T3 grid-convergence
+# study is REPORT-ONLY; Richardson estimate is ILLUSTRATIVE, not a definitive h→0 limit).
+#
+# CFL check (Δx = 0.03125, same u_max ≈ 28 peak wingtip speed all three grids):
+#   CFL = 28·5e-4/0.03125 ≈ 0.45  -- borderline but stable in principle.
+#   (coarse ≈ 0.11 at Δx=0.125; medium ≈ 0.22 at Δx=0.0625)
+#
+# amrex.the_arena_init_size = 28  [GiB]
+#   AMReX default arena = 3/4 × 40 GB A40 = 30 GB. The fine grid (8.4M cells FP64) is
+#   8× the medium; proactive cap at 28 GB leaves ~12 GB for OS/MPI/CUDA driver overhead.
+#   If the run OOMs despite the cap, document as oom_blocker=true in run_metadata_t3c.json
+#   and #50 stays open. 28 is confirmed by the user (design D5).
+#
+# CFL fallback (dt reduction — runtime, NOT a deck change):
+#   If the fine run diverges at dt=5e-4, the operator MAY reduce to ns.fixed_dt=2.5e-4
+#   at runtime. If reduced:
+#     - record dt_reduced=true and fixed_dt=2.5e-4 in run_metadata_t3c.json
+#     - assert_gradeable_triple will raise "time-grid" (step count doubles); pass
+#       metadata dt explicitly
+#     - RESULTS must flag: "fine run used dt=2.5e-4 for stability; temporal confounding
+#       introduced; coarse/medium 2-grid comparison (same dt=5e-4) remains temporally
+#       isolated"
+#
+# NOT for publication until the operator fine run (T3c) is graded.
+#
+# *** IMPORTANT: THE COMMITTED forces_fine.csv WAS PRODUCED WITH A RUNTIME OVERRIDE ***
+#   ns.fixed_dt=0.00025  max_step=4000  (D6 CFL fallback — see run_metadata_t3c.json)
+# Re-running from this deck (ns.fixed_dt=5e-4, max_step=2000) will NOT reproduce the
+# committed CSV.  Use t3c_run_local.sh (or the metadata recorded overrides) to reproduce.
+#*******************************************************************************
+
+# Simulation control
+# 1 wingbeat = 1 time unit, need ~2000 steps for CFL safety
+max_step        = 2000
+stop_time       = 1.0
+
+ns.fixed_dt     = 0.0005
+ns.cfl          = 0.3
+# init_iter = 2 persists the induced velocity field to the plotfiles (the v2 fix); init_iter = 0
+# writes x_velocity = 0 to every plotfile (see RESULTS.md / flapping-wing-velocity-v2 note).
+ns.init_iter    = 2
+
+# Diffused IB input file
+particle.input  = particle_inputs
+
+# AMR settings - FINE grid (Tier T3c convergence; the ONLY change vs inputs.3d.convergence_medium)
+amr.max_level       = 0
+amr.n_cell          = 256 128 256
+amr.max_grid_size   = 32
+amr.regrid_int      = 1
+amr.ref_ratio       = 2 2 2 2
+
+# AMReX GPU arena cap (fine-grid only — not in coarse/medium decks; pure memory management,
+# not a physics parameter). 28 GiB caps AMReX's arena, leaving ~12 GB headroom on the A40.
+amrex.the_arena_init_size = 28
+
+#*******************************************************************************
+# Verbosity
+#*******************************************************************************
+ns.v                    = 1
+nodal_proj.verbose      = 0
+mac_proj.verbose        = 0
+amr.v                   = 1
+
+#*******************************************************************************
+# I/O - frequent output for validation (plotfiles carry the induced velocity field)
+#*******************************************************************************
+amr.check_int       = 1000
+amr.plot_int        = 100
+
+#*******************************************************************************
+# Physics
+#*******************************************************************************
+
+# Viscosity scaling for f*=1.0 (unchanged from the legacy deck: the hinge-to-midspan arm is
+# still r_mid = 1.5, now along y — span root at y=0.5, wing centre at y=2.0):
+#   V_mid* = 2 pi * 1.0 * 1.22 rad * 1.5 ~= 11.5
+#   For Re_eff = 100: nu* = V_mid* / Re = 11.5 / 100 = 0.115
+ns.vel_visc_coef    = 0.115
+
+# No scalar diffusion
+ns.scal_diff_coefs  = 0.0
+
+# No gravity
+ns.gravity          = 0.0
+
+# Subcycling
+amr.subcycling_mode = None
+ns.skip_level_projector = 0
+
+#*******************************************************************************
+# Domain geometry (x = chord/streamwise, y = span, z = vertical/lift)
+#*******************************************************************************
+
+geometry.coord_sys  = 0
+
+# Domain: 8 (chord/streamwise) x 4 (span, periodic) x 8 (vertical/lift)
+geometry.prob_lo    = 0. 0. 0.
+geometry.prob_hi    = 8. 4. 8.
+
+# Periodic in y (span) — the infinite-span model; the periodic axis now coincides with the span.
+geometry.is_periodic = 0 1 0
+
+# Boundary conditions: x pressure-outflow (2), y periodic (0), z pressure-outflow (2).
+# NB the z wall (4) of the legacy deck becomes OUTFLOW here because z is now vertical/lift, not
+# span — so the span-tip is no longer adjacent to a wall (issue #1). (Not "z wall -> periodic".)
+ns.lo_bc            = 2 0 2
+ns.hi_bc            = 2 0 2
+
+#*******************************************************************************
+# Problem type
+#*******************************************************************************
+prob.probtype       = 1
+
+#*******************************************************************************
+# Immersed Boundary settings
+#*******************************************************************************
+ns.isolver          = 1
+ns.do_diffused_ib   = 1
+ns.fluid_rho        = 1.0
+
+particles.do_nspc_particles = 0
+
+# Projection solver tolerances
+nodal_proj.proj_tol     = 1.e-8
+nodal_proj.proj_abs_tol = 1.e-9
+nodal_proj.maxiter      = 200
+nodal_proj.bottom_maxiter = 200
+
+mac_proj.mac_tol        = 1.e-8
+mac_proj.mac_abs_tol    = 1.e-9
+
+#*******************************************************************************
+#  Particle inputs - VALIDATION (van Veen convention: span along y)
+#*******************************************************************************
+
+# Wing centre (midspan): x = chord centre, y = span centre, z = vertical centre.
+particle_inputs.x = 4.0
+particle_inputs.y = 2.0
+particle_inputs.z = 4.0
+
+particle_inputs.rho = 1.0
+
+# Characteristic length for the diffused IB regularization kernel
+particle_inputs.radius = 1.5
+
+particle_inputs.geometry_type = 4
+particle_inputs.geometry_file = wing.vertex
+
+# Hinge (wing root): chord centre (x=4), span root (y=0.5, the low-y end of the span 0.5..3.5),
+# vertical centre (z=4). Stroke Rz(phi) sweeps the wing about this hinge in the x-y plane.
+particle_inputs.hinge_x = 4.0
+particle_inputs.hinge_y = 0.5
+particle_inputs.hinge_z = 4.0
+
+particle_inputs.do_prescribed_motion = 1
+
+# f* = 1.0: 1 wingbeat per time unit (fast validation)
+particle_inputs.kinematics_frequency = 1.0
+particle_inputs.kinematics_stroke_amp = 70.0
+particle_inputs.kinematics_pitch_amp = 45.0
+particle_inputs.kinematics_deviation_amp = 0.0
+
+particle_inputs.velocity_x = 0.0
+particle_inputs.velocity_y = 0.0
+particle_inputs.velocity_z = 0.0
+
+particle_inputs.omega_x = 0.0
+particle_inputs.omega_y = 0.0
+particle_inputs.omega_z = 0.0
+
+particle_inputs.TLX = 1
+particle_inputs.TLY = 1
+particle_inputs.TLZ = 1
+particle_inputs.RLX = 1
+particle_inputs.RLY = 1
+particle_inputs.RLZ = 1
+
+particle_inputs.verbose = 1
