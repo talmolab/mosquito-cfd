@@ -14,9 +14,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
 
-from mosquito_cfd.benchmarks.wing_convergence import reconstruct_wing_body_forces
+from mosquito_cfd.benchmarks.flapping_wing import (
+    STEADY_WINDOW_T0,
+    reconstruct_wing_body_forces,
+)
 
 _HERE = Path(__file__).parent
 _GRIDS = [
@@ -25,7 +27,7 @@ _GRIDS = [
     ("Fine 256×128×256",   _HERE / "forces_fine.csv",        "#08306b", 2.2),
 ]
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
-_WINDOW_T0 = 0.05
+_WINDOW_T0 = STEADY_WINDOW_T0
 
 # Van Veen reference bands — show on the dominant (positive-peak) half of each stroke.
 # CF_chord: translational→QS model peak range (0.30–0.43).
@@ -85,7 +87,7 @@ def make_figure(
         ax.spines["right"].set_visible(False)
         # Grid-only legend (exclude the van Veen band handle from the legend)
         handles, labels = ax.get_legend_handles_labels()
-        grid_handles = [(h, l) for h, l in zip(handles, labels) if "van Veen" not in l]
+        grid_handles = [(h, lb) for h, lb in zip(handles, labels) if "van Veen" not in lb]
         if grid_handles:
             hs, ls = zip(*grid_handles)
             ax.legend(hs, ls, fontsize=9, loc="upper right", framealpha=0.85)

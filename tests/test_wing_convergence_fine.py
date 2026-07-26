@@ -3,9 +3,9 @@
 These tests gate on the existence of the fine-grid operator run artifacts:
   ``examples/flapping_wing/forces_fine.csv`` and ``examples/flapping_wing/run_metadata_t3c.json``.
 
-They **skip** in Session A / CI (no fine CSV until after the operator A40 run in Session B)
-and **run** in Session B once the data is committed alongside the tests (tasks 1.4.1–1.4.2).
-Nothing here runs the solver; all checks are pure file-read assertions.
+Both artifacts are committed — these tests run in CI. The ``skipif`` decorators are retained as
+guards against accidental data removal, not as a CI-skip. Nothing here runs the solver; all checks
+are pure file-read assertions.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def test_run_metadata_t3c_fields():
 
     # Required provenance fields.
     assert "docker_image" in metadata
-    assert "image_digest" in metadata
+    assert metadata.get("image_digest", "").startswith("sha256:")
 
     # Named extra fields for temporal-confounding bookkeeping.
     assert "fixed_dt" in metadata

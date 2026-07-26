@@ -441,8 +441,9 @@ _T3C_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}
 def test_3grid_convergence_recomputes_from_committed_csvs():
     """The RESULTS T3c convergence headlines recompute from the committed coarse+medium+fine CSVs.
 
-    CF_normal is monotone → assert p_obs, Richardson extrapolant, and GCI_fine are present in the doc.
-    CF_chord is non-monotone → assert the non-monotone call-out is in the doc and observed_order is NaN.
+    Both CF_normal and CF_chord are monotone (post-contamination-fix, forces_fine.csv clean segment
+    rows 2063–6062). Asserts finite p_obs, Richardson extrapolant, and GCI_fine for both components,
+    and that the RESULTS.md headline literals match the computed values to 2 decimal places.
     The fine deck is cryptographically pinned via run_metadata_t3c.json.
     """
     import hashlib

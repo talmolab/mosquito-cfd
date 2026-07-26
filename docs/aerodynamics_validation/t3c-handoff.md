@@ -64,8 +64,11 @@ section (same container, same `mpirun … amr3d.gnu.MPI.CUDA.ex` invocation, sam
   - Raise `max_step = 4000` to reach `stop_time = 1.0` at the reduced dt.
   - Confirm plotfiles still land near `t ≈ 0.5` (e.g. `plt02000` at `dt = 2.5e-4`).
   - Record `dt_reduced = true` and `fixed_dt = 2.5e-4` in `run_metadata_t3c.json`.
-  - **⚠ `assert_gradeable_triple` will raise `"time-grid"`** if called with the default deck-based
-    dt; pass the actual `fixed_dt = 2.5e-4` from metadata, not the deck, when confirming the triple.
+  - **⚠ `assert_gradeable_triple` will raise `"time-grid"`** — the check compares iStep sets in
+    the CSVs (medium: ~2000 unique steps, fine: ~4000), a data-level comparison with no parameter
+    to override. Instead, call `assert_gradeable_pair(coarse, medium, ...)` to confirm the
+    dt-isolated coarse/medium pair, then call `wing_grid_convergence_from_body_forces` directly
+    (peaks are extracted independently; no shared-time-grid requirement).
   - RESULTS must flag: "Note: fine run used `dt = 2.5e-4` for stability; temporal confounding
     introduced; the medium→fine delta reflects both spatial and temporal refinement; the
     coarse/medium 2-grid comparison (same `dt = 5e-4`) remains temporally isolated."
@@ -86,8 +89,9 @@ assert_gradeable_triple(
 ```
 
 This confirms the triple is non-empty, covers `stop_time = 1.0`, shares the same iStep time grid,
-and all three decks carry the same `ns.fixed_dt`. If `dt` was reduced, the time-grid check will
-raise — see the fallback procedure above.
+and all three decks carry the same `ns.fixed_dt`. **Only applicable when `dt_reduced=False`** (the
+nominal case). If `dt` was reduced (D6 fallback), this call raises `"time-grid"` as designed —
+use `assert_gradeable_pair(coarse, medium, ...)` and skip the full-triple guard (see above).
 
 ## Grading (report-only, no verdict)
 

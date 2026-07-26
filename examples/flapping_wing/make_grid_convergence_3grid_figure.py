@@ -8,6 +8,7 @@ Run: ``uv run python examples/flapping_wing/make_grid_convergence_3grid_figure.p
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import matplotlib
@@ -62,34 +63,34 @@ def make_figure(
             color=_VV_COLOR, fontsize=8, va="center",
         )
 
-        # Richardson extrapolant
-        ax.axhline(h0, ls="--", lw=1.6, color=color, alpha=0.55, zorder=2)
-        ax.axhspan(h0 * (1 - gci), h0 * (1 + gci), color=color, alpha=0.08, zorder=1)
+        # Richardson extrapolant (only when monotone / p_obs > 0)
+        if math.isfinite(h0) and math.isfinite(gci):
+            ax.axhline(h0, ls="--", lw=1.6, color=color, alpha=0.55, zorder=2)
+            ax.axhspan(h0 * (1 - gci), h0 * (1 + gci), color=color, alpha=0.08, zorder=1)
+            ax.text(
+                2.08, h0,
+                f"Richardson\n{h0:.3f}",
+                color=color, fontsize=8, va="center", alpha=0.8,
+            )
 
         # CFD data line
         ax.plot(_XTICKS, vals, "o-", color=color, lw=2.2, ms=9, zorder=4)
 
         # Value labels above each point
-        offsets = [12, 12, 12]
-        for x, v, dy in zip(_XTICKS, vals, offsets):
+        for x, v in zip(_XTICKS, vals):
             ax.annotate(
                 f"{v:.3f}",
-                xy=(x, v), xytext=(0, dy),
+                xy=(x, v), xytext=(0, 12),
                 textcoords="offset points",
                 ha="center", fontsize=10, fontweight="bold", color=color,
             )
 
-        # Richardson extrapolant label on the right
-        ax.text(
-            2.08, h0,
-            f"Richardson\n{h0:.3f}",
-            color=color, fontsize=8, va="center", alpha=0.8,
-        )
-
-        # p_obs + GCI in bottom-right corner
+        # p_obs + GCI in bottom-right corner (show "N/A" for non-monotone)
+        p_str = f"{p_obs:.2f}" if math.isfinite(p_obs) else "N/A"
+        g_str = f"{gci * 100:.0f} %" if math.isfinite(gci) else "N/A"
         ax.text(
             0.97, 0.04,
-            f"p_obs = {p_obs:.2f}     GCI_fine = {gci*100:.0f} %",
+            f"p_obs = {p_str}     GCI_fine = {g_str}",
             transform=ax.transAxes,
             ha="right", va="bottom", fontsize=9,
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#cccccc", alpha=0.9),
