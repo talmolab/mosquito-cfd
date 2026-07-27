@@ -121,44 +121,52 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ## 2. Verification — Session A suite must be green
 
-- [ ] 2.1 `uv run ruff check .` and `uv run ruff format --check .` clean.
-- [ ] 2.2 `uv run pytest tests/test_wing_grid_convergence.py tests/test_wing_convergence_medium.py
+- [x] 2.1 `uv run ruff check .` and `uv run ruff format --check .` clean.
+- [x] 2.2 `uv run pytest tests/test_wing_grid_convergence.py tests/test_wing_convergence_medium.py
   tests/test_convergence_deck.py -v` — all Session A tests pass; §1.4 tests report SKIPPED (not ERROR).
-- [ ] 2.3 The full suite `uv run pytest` is green (no regressions in existing T3a/T3b/T4 tests).
+- [x] 2.3 The full suite `uv run pytest` is green (no regressions in existing T3a/T3b/T4 tests).
 
 ---
 
 ## 3. Session B pre-flight (operator, before committing data) — [Session B: needs-run]
 
-- [ ] 3.1 **Submit the fine-grid run** on the A40: deck `inputs.3d.convergence_fine`, same
+- [x] 3.1 **Submit the fine-grid run** on the A40: deck `inputs.3d.convergence_fine`, same
   `:fp64 @ f93dc794`, same `mpirun … amr3d.gnu.MPI.CUDA.ex`. Confirm GPU memory is acceptable
   (`nvidia-smi` shows < 36 GB used with `amrex.the_arena_init_size=28`). Estimated ~2 hr. If OOM
   despite the cap, document as a blocker in `run_metadata_t3c.json["oom_blocker"] = true` and stop.
-- [ ] 3.2 **If run diverges at dt=5e-4:** reduce `ns.fixed_dt = 2.5e-4` at runtime (NOT a deck
+  **Deviation**: run executed on a local RTX A5000 dev box (not the A40 cluster) — see
+  `run_metadata_t3c.json["run_platform"]`; `amrex.the_arena_init_size=18` GiB at runtime vs the
+  committed deck's `28` (physics-neutral). No OOM.
+- [x] 3.2 **If run diverges at dt=5e-4:** reduce `ns.fixed_dt = 2.5e-4` at runtime (NOT a deck
   change), raise `max_step = 4000` (to reach `stop_time=1.0`), confirm plotfiles still land near
   `t = 0.5`. Record `dt_reduced=true` in metadata; flag temporal confounding in RESULTS (see §4.4).
 - [ ] 3.3 **Confirm the `t ≈ 0.5` plotfile exists** (e.g. `plt01000` at dt=5e-4 or `plt02000` at
   dt=2.5e-4) under the fine run dir before tearing down the job. Without it, the fine LEV is absent.
-- [ ] 3.4 **Sanity before grading:** run `assert_gradeable_triple(forces_t2a_newconv.csv, forces_medium.csv,
+  **NOT done** — `run_metadata_t3c.json["outputs"]["note"]` confirms `amr.plot_int=9999,
+  amr.check_int=9999` (plotfiles/checkpoints suppressed, forces CSV only). No plotfile exists for
+  the fine grid; fine-grid LEV (§7) is blocked on a re-run with plotfiles enabled — deferred, not
+  silently dropped (see §7.1).
+- [x] 3.4 **Sanity before grading:** run `assert_gradeable_triple(forces_t2a_newconv.csv, forces_medium.csv,
   forces_fine.csv)` to confirm the triple passes (non-empty, covers 1.0, same time grid at dt=5e-4;
   if dt was reduced, the guard will raise "time-grid" — see §3.2 above for the dt-reduction branch).
+  Exercised by `test_fine_3grid_reports_from_committed_csvs` (§4.3), which calls it before grading.
 
 ---
 
 ## 4. Commit fine data + RESULTS (Session B) — [Session B: needs-run]
 
-- [ ] 4.1 **Commit** `examples/flapping_wing/forces_fine.csv` + `examples/flapping_wing/run_metadata_t3c.json`
+- [x] 4.1 **Commit** `examples/flapping_wing/forces_fine.csv` + `examples/flapping_wing/run_metadata_t3c.json`
   beside coarse/medium. Both §1.4 tests pass. Commit invariant: CSV and schema test in the same commit.
-- [ ] 4.2 **Grade 3-grid convergence:** call `assert_gradeable_triple(coarse, medium, fine)` then
+- [x] 4.2 **Grade 3-grid convergence:** call `assert_gradeable_triple(coarse, medium, fine)` then
   `wing_grid_convergence_from_body_forces(coarse, medium, fine_csv=fine, f_star=1.0, phi_amp_deg=70.0,
   pitch_amp_deg=45.0)`. Record per-component `observed_order`, `cf_exact_richardson`, `gci_fine`,
   `monotone` for the RESULTS section.
-- [ ] 4.3 **Test first (end-to-end real triple):** in `tests/test_wing_convergence_fine.py` add
+- [x] 4.3 **Test first (end-to-end real triple):** in `tests/test_wing_convergence_fine.py` add
   `test_fine_3grid_reports_from_committed_csvs` (skipif fine CSV absent). Call `assert_gradeable_triple`
   then `wing_grid_convergence_from_body_forces(coarse, medium, fine_csv=fine, ...)`. Assert return
   has `{cf_chord, cf_normal}` each with the 3-grid key set; `r == 2.0`; all float values finite or NaN;
   no verdict key; `monotone` present as bool. Does NOT assert a specific observed_order (report-only).
-- [ ] 4.4 **Add** `### Grid convergence (T3c, fine 256³)` subsection to `examples/flapping_wing/RESULTS.md`
+- [x] 4.4 **Add** `### Grid convergence (T3c, fine 256³)` subsection to `examples/flapping_wing/RESULTS.md`
   under `### Grid convergence (T3b, medium 128³)`:
   - A 3-column table: coarse / medium / fine peak CF_chord / CF_normal
   - Observed convergence order p_obs per component (NaN if non-monotone)
@@ -179,13 +187,13 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
 
 ## 5. Reproducibility guard (T2b/T3b pattern) — [Session B: needs-run]
 
-- [ ] 5.1 **Test first:** in `tests/test_results_reproducibility.py` add
+- [x] 5.1 **Test first:** in `tests/test_results_reproducibility.py` add
   `test_3grid_convergence_recomputes_from_committed_csvs` (skipif fine CSV absent). Call
   `assert_gradeable_triple`, then `wing_grid_convergence_from_body_forces(coarse, medium, fine_csv=fine,
   ...)`, assert per-component values match the RESULTS §4.4 headline literals to `abs ≈ 0.02`;
   also assert `sha256(inputs.3d.convergence_fine) == run_metadata_t3c.json["inputs"]["hash"]` (fine
   deck pinned). Fails until RESULTS carries the numbers.
-- [ ] 5.2 5.1 passes once RESULTS + data are committed together.
+- [x] 5.2 5.1 passes once RESULTS + data are committed together.
 
 ---
 
@@ -198,32 +206,41 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
   borderline), arena cap (amrex.the_arena_init_size=28, ~12 GB headroom), dt-reduction fallback
   procedure (dt=2.5e-4 → dt_reduced=true in metadata → assert_gradeable_triple will raise "time-grid",
   operator must pass metadata dt), and `assert_gradeable_triple` pre-commit check command.
-- [ ] 6.3 **[Session B]** Flip `⬜ → ✅` with the PR ref once data + RESULTS are committed.
-- [ ] 6.4 **[Session B]** Update `benchmarks/METHODS.md` Case 3 — the deferral sentence
+- [x] 6.3 **[Session B]** Flip `⬜ → ✅` with the PR ref once data + RESULTS are committed.
+- [x] 6.4 **[Session B]** Update `benchmarks/METHODS.md` Case 3 — the deferral sentence
   ("a rigorous verdict needs a 3rd 256³ grid, deferred to H100/grant") becomes false once T3c lands.
   Update to: "T3c (PR #N) ran the fine 256×128×256 grid; see RESULTS.md § Grid convergence (T3c) for
   the 3-grid observed order and Richardson estimate. IB coupling caveat applies — see design D1." Also
   update the Method sentence to mention `wing_grid_convergence_from_body_forces(..., fine_csv=fine)`.
-- [ ] 6.5 **[Session B]** Add a forward pointer in RESULTS.md T3b prose section (line ~311): after
+  (Landed with equivalent, not verbatim, wording — Case 3's table/method/Validation prose all cover
+  the fine grid and point at RESULTS.md's T3c section.)
+- [x] 6.5 **[Session B]** Add a forward pointer in RESULTS.md T3b prose section (line ~311): after
   the "What two grids cannot settle" paragraph, append: "See Grid convergence (T3c) below for the
-  fine-grid (256³) result."
+  fine-grid (256³) result." (Landed as "The 3-grid observed order and Richardson estimate are in the
+  T3c section below.")
 
 ---
 
 ## 7. LEV (fine grid) — [Session B: needs-run, requires_plotfile]
 
-- [ ] 7.1 **Add** `test_wing_lev_fine_vs_medium` in `tests/test_wing_lev.py` marked
-  `@pytest.mark.requires_plotfile`. Via the `_wing_plt(grid)` helper, map `fine → run_metadata_t3c.json
-  ["plotfile_dir"]` under `MOSQUITO_CFD_PLOTFILE_ROOT`. Select the plotfile by `current_time ≈ 0.5`.
-  Assert finite/positive `peak_vorticity`/`peak_q`/`q_pos_vol`; assert `dx ≈ (0.03125, …)` for fine.
-  Auto-skips in CI; skips gracefully if fine plotfiles are absent. Do NOT assert `Q_fine > Q_medium`.
-  If the fine run used `amr.plot_int = -1`, skip with a note in RESULTS.
+- [ ] 7.1 **NOT DONE — genuinely blocked, not a stale checkbox.** Add `test_wing_lev_fine_vs_medium`
+  in `tests/test_wing_lev.py` marked `@pytest.mark.requires_plotfile`. Via the `_wing_plt(grid)`
+  helper, map `fine → run_metadata_t3c.json["plotfile_dir"]` under `MOSQUITO_CFD_PLOTFILE_ROOT`.
+  Select the plotfile by `current_time ≈ 0.5`. Assert finite/positive
+  `peak_vorticity`/`peak_q`/`q_pos_vol`; assert `dx ≈ (0.03125, …)` for fine. Auto-skips in CI; skips
+  gracefully if fine plotfiles are absent. Do NOT assert `Q_fine > Q_medium`. If the fine run used
+  `amr.plot_int = -1`, skip with a note in RESULTS.
+  **Status**: the committed fine run used `amr.plot_int=9999` (plotfiles suppressed entirely —
+  `run_metadata_t3c.json["outputs"]["note"]`), so there is no fine-grid plotfile to analyze; this
+  test cannot be written against real data yet. Needs a dedicated re-run with plotfiles enabled
+  (deferred to H100/grant hardware, alongside the 512³+ follow-up already noted in RESULTS.md's T3c
+  summary) before this task can close.
 
 ---
 
 ## 8. Commit & PR discipline — [Session B]
 
-- [ ] 8.1 **Commit grouping (Session B, atomic + CI-green each):**
+- [x] 8.1 **Commit grouping (Session B, atomic + CI-green each):**
   1. `feat(flapping-wing): commit fine 256³ run data + end-to-end test (T3c)` —
      `examples/flapping_wing/forces_fine.csv` + `examples/flapping_wing/run_metadata_t3c.json` +
      additions to `tests/test_wing_convergence_fine.py` (§1.4 schema/provenance tests AND
@@ -235,13 +252,18 @@ coarse/medium CSVs; no re-derivation of body-frame or F_ref logic. Test paths ar
      a failing guard between commits. Enforce as a hard constraint, not a parenthetical. → green.
   Every commit carries `Co-Authored-By: <model implementing Session B> <noreply@anthropic.com>`
   (fill with actual implementing model, not hardcoded as Sonnet 4.6).
-- [ ] 8.2 **Auto-close discipline.** PR body: `Closes #50`. Reference open issues keyword-free only.
+  **Actual**: landed as more than 2 commits (a contamination-fix commit, feature commit, several
+  figure/doc-quality follow-up commits), not the exact 2-commit grouping above — but each commit
+  was CI-green and the branch squash-merged cleanly as PR #52 (`463 passed, 14 skipped`).
+- [x] 8.2 **Auto-close discipline.** PR body: `Closes #50`. Reference open issues keyword-free only.
   No accidental closing keywords for any other issue. Pre-merge checks (all mandatory):
   - NEGATIVE commits (must print nothing): `git log main..HEAD --format='%B' | grep -Ei '(clos|fix|resolv)[a-z]*:?[[:space:]]+#[0-9]+'` — review the list; any hit is an accidental closing keyword that will auto-close an unintended issue
   - POSITIVE body (must print `Closes #50`): `gh pr view --json body --jq '.body' | grep 'Closes #50'`
   - POSITIVE title check (must print nothing — no closing keywords in title): `gh pr view --json title --jq '.title' | grep -Ei '(clos|fix|resolv)[a-z]*'`
-- [ ] 8.3 **Single PR**, opened after commit 2 (so CI is green before review). The layered commits
-  are individually green.
+  Verified post-merge on PR #52: title clean, body ends with "## Closes\n\nCloses #50" and no other
+  issue numbers appear in the body.
+- [x] 8.3 **Single PR**, opened after commit 2 (so CI is green before review). The layered commits
+  are individually green. PR #52, merged 2026-07-27.
 
 ---
 
