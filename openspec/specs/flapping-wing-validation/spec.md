@@ -533,21 +533,22 @@ SHALL be exact/enumerated (a later-added chord gate fails a guard).
 
 - **Given** the model-total `CF_normal(t)` and the CFD `CF_normal(t)` over the steady window
 - **When** the normal peak-magnitude grade is computed
-- **Then** the **relative** peak gap `|model_peak − cfd_peak| / cfd_peak` (model ≈2.48 vs CFD ≈2.61, i.e.
-  ≈0.05) is within `T4_NORMAL_MAG_TOL` (a **relative/fractional** tolerance, units-consistent with the
-  grid GCI — see design §D6); the term is `S_WE`-**insensitive** (the `S_WE` uncertainty moves the normal
-  peak by only ~0.001, marker and analytic `S_WE` agreeing to ~0.1 %); a synthetic series offset in
-  magnitude beyond the tolerance **fails** (both directions), and widening `T4_NORMAL_MAG_TOL` flips a
-  not-loosened test
+- **Then** the **relative** peak gap `|model_peak − cfd_peak| / cfd_peak` is within `T4_NORMAL_MAG_TOL` (a
+  **relative/fractional** tolerance, units-consistent with the grid GCI — see design §D6); on the T2a
+  coarse CSV, model ≈2.48 vs CFD ≈2.61 (gap ≈0.05); on the flagship T3c fine-256³ CSV (the current
+  production comparison), model ≈2.48 vs CFD ≈2.23 (gap ≈0.11) — both pass. The term is
+  `S_WE`-**insensitive** (the `S_WE` uncertainty moves the normal peak by only ~0.001, marker and analytic
+  `S_WE` agreeing to ~0.1 %); a synthetic series offset in magnitude beyond the tolerance **fails** (both
+  directions), and widening `T4_NORMAL_MAG_TOL` flips a not-loosened test
 
 #### Scenario: Normal peak phase and curve RMSE are reported, not gated
 
 - **Given** the same normal series
 - **When** the peak-phase gap and curve RMSE are computed
-- **Then** they are **reported** (no pass/fail tolerance): the peak-phase gap (~0.058 cycle, CFD leading) is
-  reported with its confounds (QS-vs-unsteady wake-memory omission + grid non-convergence + single-wingbeat
-  transient), and the curve RMSE (inflated by the phase offset) is reported — neither is gated, so neither
-  can be reverse-fit
+- **Then** they are **reported** (no pass/fail tolerance): the peak-phase gap (~0.058 cycle on the T2a
+  coarse CSV, ~0.055 cycle on the T3c fine-256³ CSV; CFD leading either way) is reported with its confounds
+  (QS-vs-unsteady wake-memory omission + grid non-convergence + single-wingbeat transient), and the curve
+  RMSE (inflated by the phase offset) is reported — neither is gated, so neither can be reverse-fit
 
 #### Scenario: Translational-chord is a known-answer self-consistency check, NOT an identity to 0.30
 
@@ -570,11 +571,23 @@ SHALL be exact/enumerated (a later-added chord gate fails a guard).
 #### Scenario: Chord total curve is reported with the grid band and the convergence direction
 
 - **Given** the model-total `CF_chord(t)` and the CFD `CF_chord(t)` on the coarse **and** medium CSVs
-- **When** the chord comparison is reported
+- **When** `medium_csv` is supplied and the chord comparison is reported
 - **Then** it is emitted **with** `T4_CHORD_GCI_BAND` (asserted **equal** to the committed T3b chord GCI via
   the reused `wing_grid_convergence_from_body_forces`, not a re-typed literal) and **no** chord
   `*_pass`/`*_match` key, and it reports that the CFD chord **converges toward the model** under refinement
   (coarse `≈0.92` → medium `≈0.554` → model `≈0.43`) — the tight chord verdict is deferred to **#50**
+
+  **Caveat (T3c, fine-grid production usage):** `medium_csv` is **optional** and this 2-grid band is
+  **report-only**, exercised directly by the coarse/medium fixture in `test_wing_force_decomposition.py`.
+  `medium_csv` MUST NOT be paired with a `csv_path` that is **finer** than it — `wing_grid_convergence`
+  treats `csv_path`'s role as "coarse" unconditionally, so pairing a finer grid as `csv_path` against a
+  coarser `medium_csv` **inverts** the convergence-direction sign (verified: `chord_converges_toward_model`
+  flips to `False`, the wrong answer). Once the fine 256³ grid (`forces_fine.csv`) became the flagship
+  CFD comparison (T3c, closing #50), the production caller (`make_force_decomposition_figure.py`,
+  `test_t4_decomposition_numbers_reproduce`) stopped passing `medium_csv` for exactly this reason —
+  `chord_gci_band`/`chord_converges_toward_model` are `None` in that call — and RESULTS.md instead reports
+  the separately-computed T3c 3-grid Richardson/`GCI_fine` numbers (`wing_grid_convergence_3grid`) as the
+  authoritative grid-uncertainty figure for the chord (CF_chord fine `≈0.41` vs model `≈0.43`).
 
 #### Scenario: The magnitude tolerance derives from its sourced inputs (not reverse-fit)
 

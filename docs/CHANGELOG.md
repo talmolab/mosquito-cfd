@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CLAUDE.md` stripped to OpenSpec managed block only — all operational docs (Python/uv commands, RunAI pattern, cluster path mappings) moved to `openspec/project.md` (#52)
 - `benchmarks/METHODS.md` fine-grid column corrected: dt=2.5×10⁻⁴ (D6 fallback), 4000 steps; prose updated to document temporal confound in Richardson analysis (#52)
 - `docs/aerodynamics_validation/roadmap.md`: T3c flipped ⬜ → ✅ with results summary (#52)
+- T4 per-component force-decomposition (`make_force_decomposition_figure.py`, `fig_force_decomposition`) now compares the van Veen quasi-steady model against the fine 256³ grid (`forces_fine.csv`, T3c) instead of the coarse 64³ grid: CF_normal 2.23 vs model 2.48 (rel gap ~11%, still within the 16% tolerance); CF_chord 0.41 vs model 0.43 (close agreement, down from the coarse-grid 0.92). `decompose_wing_force` is no longer called with `medium_csv` here — pairing the finest grid as the 2-grid GCI function's "coarse" role inverted the convergence-direction semantics; RESULTS.md's T4 section and Validation Status row now cite the T3c 3-grid Richardson/GCI numbers instead
 
 ### Fixed
 - `inputs.3d.convergence_fine` reproducibility banner added — warns that re-running the deck as committed will not reproduce `forces_fine.csv` (D6 runtime override required) (#52)
 - `test_wing_convergence_fine.py`: strengthened `image_digest` assertion to verify `sha256:` prefix (was vacuous key-presence check); added `cf_normal.monotone=True` and `cf_chord.monotone=True` structural assertions (#52)
+- `test_t4_decomposition_numbers_reproduce` and `test_fig_force_decomposition_regenerates` updated to assert against the fine-grid numbers, replacing the stale coarse-grid pins

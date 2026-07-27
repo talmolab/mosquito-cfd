@@ -187,7 +187,7 @@ section at the end of this file.
 
 `reconstruct_wing_body_forces` rotates `ib_force` into the wing body frame by the analytic `R(t)`:
 
-| Component | T2a run (**total** force) | van Veen (**translational-only**, Fig 4) | note |
+| Component | T2a run, coarse 64³ (**total** force) | van Veen (**translational-only**, Fig 4) | note |
 |---|---|---|---|
 | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
 | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above the **translational-only** target — resolved by the T4 decomposition below |
@@ -251,31 +251,39 @@ building van Veen's *own* quasi-steady model — **translational + added-mass + 
 2.7; the paper's *"rotational"* means rotational **stroke acceleration**, i.e. the added-mass + Wagner
 terms — there is no separate rotational-drag term) — from its published coefficients, applying it to **our**
 measured wing kinematics, and comparing the model total (and components) to the CFD `ib_force` body-frame
-CF over the steady window (`decompose_wing_force`, cluster-free). Both sides share the same kinematics and
+CF over the steady window (`decompose_wing_force`, cluster-free). The comparison uses the **fine 256³
+grid** (`forces_fine.csv`, T3c/[#52](https://github.com/talmolab/mosquito-cfd/pull/52)) — the finest
+grid available, superseding the earlier coarse-grid comparison. Both sides share the same kinematics and
 `F_ref`, so this is **validated against van Veen's quasi-steady model at matched kinematics — in peak
 magnitude** (a consistency result, not an independent measurement of the per-component split; the CFD gives
 only the total).
 
-| body-frame peak | CFD total | van Veen model (transl + AM + Wagner) | verdict |
+| body-frame peak | CFD total (fine 256³) | van Veen model (transl + AM + Wagner) | verdict |
 |---|---|---|---|
-| **CF_normal** (lift) | 2.61 | 2.48 | magnitude consistent (rel gap ~5 %, tol 16 %) — **graded** |
-| **CF_chord** (tangential) | 0.92 | 0.43 | explained + grid-limited (#50) — reported |
+| **CF_normal** (lift) | 2.23 | 2.48 | magnitude consistent (rel gap ~11 %, tol 16 %) — **graded** |
+| **CF_chord** (tangential) | 0.41 | 0.43 | close agreement, grid-limited (#50) — reported |
 
-**Graded (the only pass/fail):** the normal **peak magnitude** — model 2.48 vs CFD 2.61, a relative gap of
-~5 %, well within the sourced `T4_NORMAL_MAG_TOL` (16 %; the tolerance is **grid-dominated** — the grid GCI
-is ~95 % of the budget and the gap is smaller than the grid GCI alone) — plus the decomposition **closure**
-(`model_total ≡ transl + AM + Wagner`).
+**Graded (the only pass/fail):** the normal **peak magnitude** — model 2.48 vs CFD 2.23 (fine grid), a
+relative gap of ~11 %, within the sourced `T4_NORMAL_MAG_TOL` (16 %) — plus the decomposition **closure**
+(`model_total ≡ transl + AM + Wagner`). Unlike the earlier coarse-grid comparison (gap ~5 %, dwarfed by the
+~15 % coarse↔medium GCI band), the fine-grid gap (~11 %) now **exceeds** the fine grid's own discretization
+uncertainty (`GCI_fine = 3.7 %`, see "Grid convergence (T3c)" below) — i.e. a small but genuine
+quasi-steady-vs-unsteady residual, not primarily grid noise, though it remains comfortably inside tolerance.
+The fine-grid CF_normal (2.23) sits between the T3c Richardson-extrapolated grid-independent estimate
+(2.16) and the model (2.48).
 
-**Reported (not gated):** the normal **peak-phase gap** is **0.058** cycle — the CFD peak *leads* the QS
+**Reported (not gated):** the normal **peak-phase gap** is **0.055** cycle — the CFD peak *leads* the QS
 model, the expected quasi-steady-vs-unsteady discrepancy (the QS model omits the Wagner wake-memory /
 added-mass phase *history* the CFD resolves), further confounded by grid non-convergence + the
 single-wingbeat transient; gating it tightly would require reverse-fitting the confounded gap, so it is
 reported. The **curve RMSE** is reported (inflated by that phase offset). The **translational-chord**
-known-answer peak is **0.42** (from van Veen's polynomial at our α) — **O(0.4) ≪ the total 0.92**, the #40
-apples-to-oranges: the total-chord must be compared to `transl + AM + Wagner`, not the translational-only
-~0.3. The **chord total** (model ~0.43) is reported with the coarse↔medium GCI band; the CFD chord
-**converges toward the model** under refinement (0.92 coarse → 0.554 medium → ~0.43 model — the tight chord
-verdict is deferred to **[#50](https://github.com/talmolab/mosquito-cfd/issues/50)**). See
+known-answer peak is **0.42** (from van Veen's polynomial at our α) — the #40 apples-to-oranges: the
+total-chord must be compared to `transl + AM + Wagner` (~0.43), not the translational-only ~0.3. At the
+fine grid, the **chord total** (0.41) now sits very close to the model (0.43, ~5 % gap) — the CFD chord
+**converges toward the model** across all three grids (0.92 coarse → 0.554 medium → 0.41 fine; the T3c
+Richardson extrapolant is 0.32, `GCI_fine = 27.6 %`, see "Grid convergence (T3c)" below). The chord is
+**not yet tightly grid-converged** at 256³, so the tight chord verdict is deferred to further refinement
+(512³+, H100/grant hardware — **[#50](https://github.com/talmolab/mosquito-cfd/issues/50)**). See
 **fig_force_decomposition.pdf**. Van Veen's coefficients were checked against the erratum JFM 956 E1 (2023,
 publisher-introduced — no coefficient change).
 
@@ -473,7 +481,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Marker motion (span-tip sweeps) | PASS | ±70° arc in the x–y stroke plane (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
-| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) | CF_normal 2.61 vs model 2.48 → magnitude consistent (T4, graded, rel gap ~5 % < 16 % tol); CF_chord 0.92 explained by van Veen's transl + AM + Wagner (model ~0.43), grid-limited → **#50**. The T2a total-vs-translational **PARTIAL** (CF_chord 0.92 vs the translational-only ~0.3) is **resolved by the T4 decomposition** (see "T4 per-component decomposition"); the peak-phase gap (~0.058 cycle) is reported, not gated |
+| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) | T4 (fine 256³ grid): CF_normal 2.23 vs model 2.48 → magnitude consistent (graded, rel gap ~11 % < 16 % tol); CF_chord 0.41 vs model 0.43 explained by van Veen's transl + AM + Wagner, grid-limited (GCI_fine 27.6 %) → **#50**. The T2a total-vs-translational **PARTIAL** (coarse-grid CF_chord 0.92 vs the translational-only ~0.3) is **resolved by the T4 decomposition** (see "T4 per-component decomposition"); the peak-phase gap (~0.055 cycle) is reported, not gated |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
 | Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 % (extrapolant 0.321 approaches van Veen ~0.3–0.43). Further refinement deferred to H100. Closes #50 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |

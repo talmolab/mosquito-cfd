@@ -282,35 +282,41 @@ def test_interim_framing_is_honest_and_disambiguated():
 
 # --- Tier T4: per-component decomposition numbers recompute + verdict updated ------------------
 
-_MEDIUM_T4 = "examples/flapping_wing/forces_medium.csv"
+# `_FINE` (the T3c fine-grid CSV) is the single module-level definition, reused below by the T3c
+# section too -- defined here (its first use site) rather than duplicated as a second constant.
+_FINE = "examples/flapping_wing/forces_fine.csv"
 # The T4 subsection lives under its OWN `### ` header (NOT one of _HEADLINE_TABLES) so its decimal
 # cells cannot collide with the two headline tables under the existing enumeration guard.
 _T4_HEADER_SUB = "per-component decomposition"
-# Decimal cells of the T4 table: CFD totals (= body-frame table) + van Veen model peaks (recomputed).
-_T4_TABLE_VERIFIED = {2.61, 2.48, 0.92, 0.43}
+# Decimal cells of the T4 table: CFD totals (fine grid, T3c) + van Veen model peaks (recomputed).
+_T4_TABLE_VERIFIED = {2.23, 2.48, 0.41, 0.43}
 
 
 def test_t4_decomposition_numbers_reproduce():
-    """The Tier T4 decomposition numbers recompute from the committed CSV AND appear in RESULTS.md,
-    the verdict is updated to validated-against-model / chord-grid-limited, and the pre-existing
-    enumeration guards + the T3b section are unperturbed.
+    """The Tier T4 decomposition numbers recompute from the committed FINE-grid CSV (T3c, PR #52)
+    AND appear in RESULTS.md, the verdict is updated to validated-against-model / chord-grid-limited,
+    and the pre-existing enumeration guards + the T3b section are unperturbed.
 
-    Scenario: T4 decomposition numbers recompute and are asserted present.
+    Scenario: T4 decomposition numbers recompute (fine grid) and are asserted present. No
+    ``medium_csv`` is passed — pairing the finest grid as the 2-grid function's "coarse" role would
+    invert the GCI-band semantics; the T3c 3-grid Richardson/GCI numbers are reported separately.
     """
-    r = decompose_wing_force(_NEWCONV, medium_csv=_MEDIUM_T4, **_T3B_KIN)
+    r = decompose_wing_force(_FINE, **_T3B_KIN)
     # (a) recompute — graded magnitude, reported phase / known-answer chord / chord total.
     assert r["normal_peak_model"] == pytest.approx(2.48, abs=0.02)
-    assert r["normal_peak_cfd"] == pytest.approx(2.61, abs=0.02)
-    assert r["normal_mag_gap_rel"] == pytest.approx(0.05, abs=0.01)
+    assert r["normal_peak_cfd"] == pytest.approx(2.23, abs=0.02)
+    assert r["normal_mag_gap_rel"] == pytest.approx(0.11, abs=0.01)
     assert r["normal_mag_pass"] is True
-    assert r["normal_peak_phase_gap"] == pytest.approx(0.058, abs=0.01)
+    assert r["normal_peak_phase_gap"] == pytest.approx(0.055, abs=0.01)
     assert r["transl_chord_peak"] == pytest.approx(0.42, abs=0.01)
     assert r["chord_peak_model"] == pytest.approx(0.43, abs=0.02)
-    assert r["chord_converges_toward_model"] is True
+    assert r["chord_peak_cfd"] == pytest.approx(0.41, abs=0.01)
+    assert r["chord_gci_band"] is None
+    assert r["chord_converges_toward_model"] is None
 
     doc = _doc()
     # (b) the T4 literals are present in the doc.
-    for lit in ("2.48", "0.43", "0.058", "0.42"):
+    for lit in ("2.48", "0.43", "0.055", "0.42", "2.23", "0.41"):
         assert lit in doc, f"T4 literal {lit!r} missing from RESULTS.md"
 
     # (c) the T4 subsection uses a distinct `### ` header not containing the two scanned substrings,
@@ -428,8 +434,8 @@ def test_grid_convergence_recomputes_from_committed_csvs():
 
 
 # --- Tier T3c: 3-grid numbers recompute from the committed coarse + medium + fine CSVs -----------
+# (reuses `_FINE`, defined above in the T4 section)
 
-_FINE = "examples/flapping_wing/forces_fine.csv"
 _T3C_META = Path("examples/flapping_wing/run_metadata_t3c.json")
 _FINE_DECK = "examples/flapping_wing/inputs.3d.convergence_fine"
 _T3C_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}

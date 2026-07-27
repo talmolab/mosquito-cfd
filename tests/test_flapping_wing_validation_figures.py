@@ -57,8 +57,7 @@ def test_fig_force_decomposition_regenerates(tmp_path):
         plt.close(fig)
     # Cross-check the plotted numbers come from a fresh decomposition (no cluster/plotfile dep).
     fresh = decompose_wing_force(
-        REPO / "examples/flapping_wing/forces_t2a_newconv.csv",
-        medium_csv=REPO / "examples/flapping_wing/forces_medium.csv",
+        REPO / "examples/flapping_wing/forces_fine.csv",
         f_star=1.0,
         phi_amp_deg=70.0,
         pitch_amp_deg=45.0,
