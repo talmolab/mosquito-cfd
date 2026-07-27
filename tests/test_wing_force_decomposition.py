@@ -29,6 +29,7 @@ from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 
 _COARSE = "examples/flapping_wing/forces_t2a_newconv.csv"
 _MEDIUM = "examples/flapping_wing/forces_medium.csv"
+_FINE = "examples/flapping_wing/forces_fine.csv"
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 
 
@@ -224,6 +225,37 @@ def test_closure_reported_and_guards(tmp_path):
         df.to_csv(bad, index=False)
         with pytest.raises(ValueError):
             decompose_wing_force(bad, **_KIN)
+
+
+def test_medium_csv_omitted_gives_no_chord_band():
+    """Without ``medium_csv``, ``chord_gci_band``/``chord_converges_toward_model`` default to None
+    (no 2-grid report) — the safe default, used in production (T3c/#52) when ``csv_path`` is the
+    finest grid available and has no genuinely coarser CSV to pair against."""
+    r = decompose_wing_force(_FINE, **_KIN)
+    assert r["chord_gci_band"] is None
+    assert r["chord_converges_toward_model"] is None
+
+
+def test_medium_csv_must_not_pair_a_finer_csv_path():
+    """Regression pin (T3c fine-grid repoint, #52): pairing a FINER ``csv_path`` against a coarser
+    ``medium_csv`` inverts ``wing_grid_convergence``'s coarse/medium role labeling (it treats
+    ``csv_path`` as "coarse" unconditionally) and silently flips ``chord_converges_toward_model``
+    to the WRONG answer.
+
+    The true convergence direction (RESULTS.md, T3c): CF_chord 0.923 coarse -> 0.554 medium ->
+    0.411 fine, monotonically toward the ~0.43 model -- the chord genuinely converges toward the
+    model under refinement. But passing the FINE grid as ``csv_path`` (forced into the "coarse"
+    role) against the MEDIUM grid as ``medium_csv`` inverts that framing and reports the opposite.
+    This is exactly why ``make_force_decomposition_figure.py`` and
+    ``test_t4_decomposition_numbers_reproduce`` deliberately omit ``medium_csv`` now that the
+    production comparison uses the fine grid -- see ``decompose_wing_force``'s ``medium_csv``
+    docstring caveat. If this assertion ever starts failing, it's a live signal that behavior
+    changed; do not "fix" it by asserting True here -- fix the caller instead.
+    """
+    r = decompose_wing_force(_FINE, medium_csv=_MEDIUM, **_KIN)
+    assert (
+        r["chord_converges_toward_model"] is False
+    )  # the WRONG answer -- pinned as a warning
 
 
 def test_degenerate_zero_cfd_force_raises(tmp_path):

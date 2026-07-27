@@ -720,10 +720,12 @@ def body_frame_added_mass_subtracted(
 #
 # GRADED: normal peak MAGNITUDE (the robust, S_WE-insensitive, grid-settled lever; RELATIVE tol
 # T4_NORMAL_MAG_TOL) + decomposition closure (model_total == transl+AM+Wagner). REPORTED (not gated):
-# normal peak PHASE gap (~0.058 cycle, CFD leading — expected QS-vs-unsteady discrepancy, grid +
-# transient confounded), normal curve RMSE, the G2 translational-chord known-answer (~0.42, NOT
-# graded against 0.30 — that is circular), and the grid-unconverged chord total curve (with the
-# coarse<->medium GCI band). The return dict exposes NO chord/phase/RMSE *_pass/*_match verdict key.
+# normal peak PHASE gap (CFD leading — expected QS-vs-unsteady discrepancy, grid + transient
+# confounded; ~0.058 cycle on the T2a coarse CSV, ~0.055 cycle on the T3c fine CSV), normal curve
+# RMSE, the G2 translational-chord known-answer (~0.42, NOT graded against 0.30 — that is
+# circular), and the grid-unconverged chord total curve (with the coarse<->medium GCI band when
+# `medium_csv` is given — see its docstring caveat on grid ordering). The return dict exposes NO
+# chord/phase/RMSE *_pass/*_match verdict key.
 
 # Enumerated return-key set for decompose_wing_force (test_closure_reported_and_guards asserts the
 # EXACT set, so a later-added chord/phase/RMSE gate fails the guard). Graded fields carry _pass;
@@ -786,13 +788,23 @@ def decompose_wing_force(
     the G2 translational-chord known-answer, the chord total + grid band, and the per-component shares.
 
     Args:
-        csv_path: Coarse-grid IB-particle CSV (needs ``time, Fx, Fy, Fz``; the model side is
-            kinematics-driven and reads no ``SumU``).
+        csv_path: IB-particle CSV for the primary CFD comparison grid (needs ``time, Fx, Fy, Fz``;
+            the model side is kinematics-driven and reads no ``SumU``). Any grid may be used (the
+            production comparison has moved from the T2a coarse grid to the T3c fine grid); if
+            ``medium_csv`` is also given, ``csv_path`` is treated as the *coarser* of the pair —
+            see the ``medium_csv`` caveat below.
         f_star: Dimensionless flap frequency.
         phi_amp_deg: Stroke amplitude [deg].
         pitch_amp_deg: Pitch amplitude [deg].
-        medium_csv: Optional medium-grid CSV; when given, the chord GCI band and the
-            coarse->medium->model convergence direction are reported (``chord_gci_band`` else None).
+        medium_csv: Optional coarser-than-``csv_path`` CSV; when given, the chord GCI band and the
+            coarse->medium->model convergence direction are reported (``chord_gci_band`` else
+            None). Do NOT pass this when ``csv_path`` is the finest grid available (e.g. the T3c
+            fine CSV) — ``wing_grid_convergence`` treats ``csv_path`` as "coarse" unconditionally,
+            so pairing a finer ``csv_path`` against a coarser ``medium_csv`` inverts the
+            convergence-direction sign (``chord_converges_toward_model`` silently flips to the
+            wrong answer). Use the separate 3-grid ``wing_grid_convergence_3grid`` /
+            ``wing_grid_convergence_from_body_forces(..., fine_csv=...)`` instead for a 3-grid
+            comparison.
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
         rho: Fluid density for the model; default ``RHO``.
 

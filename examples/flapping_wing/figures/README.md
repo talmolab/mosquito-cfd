@@ -61,11 +61,12 @@ quantifies grid sensitivity, does not gate.
 
 Tier **T4** ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)): van Veen's quasi-steady model
 (translational + added-mass + Wagner) built from published coefficients and **replotted at our
-kinematics** (not a digitized figure), vs the CFD total. **Cluster-free.**
+kinematics** (not a digitized figure), vs the CFD total on the **fine 256³ grid** (`forces_fine.csv`,
+T3c/#52 — the finest grid available). **Cluster-free.**
 
 | File | Shows |
 |------|-------|
-| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD total `ib_force`, for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.61 — graded); the CFD peak **leads** the model in **phase** (~0.058 cycle — reported, the expected quasi-steady-vs-unsteady discrepancy); the model chord (~0.43) is ≪ the CFD total 0.92 and is what the CFD chord converges toward under grid refinement. Resolves the #40 CF_chord PARTIAL. **Cluster-free.** |
+| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD total `ib_force` (fine grid), for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.23 — graded, rel gap ~11 %); the CFD peak **leads** the model in **phase** (~0.055 cycle — reported, the expected quasi-steady-vs-unsteady discrepancy); the model chord (0.43) is now close to the CFD total (0.41), the endpoint of the coarse→medium→fine convergence (0.92 → 0.554 → 0.41) toward the model. Resolves the #40 CF_chord PARTIAL. **Cluster-free.** |
 
 ## Grid convergence (T3c, 3-grid) — `make_grid_convergence_3grid_figure.py` / `make_force_timeseries_3grid_figure.py`
 

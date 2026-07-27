@@ -1,14 +1,17 @@
 """Per-component force-decomposition figure (Tier T4): van Veen model vs CFD, cluster-free.
 
 Replots van Veen's (2022) quasi-steady model — translational / added-mass / Wagner / total — against
-the CFD total ``ib_force`` body-frame coefficients, for the chord and normal separately, over the
-steady window. Everything is recomputed from the committed IB-particle CSVs via
-``decompose_wing_force`` (van Veen's *model* replotted at our operating point — NOT a digitized
-figure; the time-resolved mosquito curves are van Veen Fig 13, not Fig 3-4). Writes
-``figures/fig_force_decomposition.{png,pdf}``.
+the CFD total ``ib_force`` body-frame coefficients (fine 256³ grid, ``forces_fine.csv``, T3c/PR #52),
+for the chord and normal separately, over the steady window. Everything is recomputed from the
+committed IB-particle CSV via ``decompose_wing_force`` (van Veen's *model* replotted at our operating
+point — NOT a digitized figure; the time-resolved mosquito curves are van Veen Fig 13, not Fig 3-4).
+Writes ``figures/fig_force_decomposition.{png,pdf}``.
 
 The plotted series are exactly the ``decompose_wing_force`` arrays (a test asserts the line ydata
-equals them), so the figure can never silently drift from the graded math.
+equals them), so the figure can never silently drift from the graded math. No ``medium_csv`` is
+passed: pairing the finest grid as the 2-grid GCI function's "coarse" role would invert the
+convergence-direction semantics — the T3c 3-grid Richardson/GCI numbers (RESULTS.md) are the
+authoritative grid-uncertainty figures for the chord.
 
 Run: ``uv run python examples/flapping_wing/make_force_decomposition_figure.py``
 """
@@ -25,8 +28,7 @@ import matplotlib.pyplot as plt
 from mosquito_cfd.benchmarks.flapping_wing import decompose_wing_force
 
 _HERE = Path(__file__).parent
-_COARSE = _HERE / "forces_t2a_newconv.csv"
-_MEDIUM = _HERE / "forces_medium.csv"
+_FINE = _HERE / "forces_fine.csv"
 
 
 def make_figure(
@@ -42,8 +44,7 @@ def make_figure(
             test can inspect the plotted line data; otherwise close the figure and return ``out``.
     """
     result = decompose_wing_force(
-        _COARSE,
-        medium_csv=_MEDIUM,
+        _FINE,
         f_star=1.0,
         phi_amp_deg=70.0,
         pitch_amp_deg=45.0,
