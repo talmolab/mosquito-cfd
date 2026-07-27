@@ -21,6 +21,7 @@ from mosquito_cfd.benchmarks.flapping_wing import (
 )
 from mosquito_cfd.benchmarks.wing_convergence import (
     wing_grid_convergence,
+    wing_grid_convergence_3grid,
     wing_grid_convergence_from_body_forces,
 )
 
@@ -200,3 +201,148 @@ def test_from_body_forces_actually_reuses_reconstruct(tmp_path):
     )
     assert out["cf_chord"]["cf_coarse"] == pytest.approx(peak_chord, abs=1e-9)
     assert out["cf_normal"]["cf_coarse"] == pytest.approx(peak_normal, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 3-grid convergence tests (T3c, tasks 1.1.1 – 1.1.5)
+# ---------------------------------------------------------------------------
+
+_3GRID_EXPECTED_KEYS = {
+    "cf_coarse",
+    "cf_medium",
+    "cf_fine",
+    "observed_order",
+    "cf_exact_richardson",
+    "gci_fine",
+    "r",
+    "monotone",
+}
+_3GRID_FORBIDDEN_KEYS = (
+    "verdict",
+    "converged",
+    "in_band",
+    "pass",
+    "cf_pass",
+    "cf_match",
+    "match",
+    "relative_change",
+    "gci_p1",
+    "gci_p2",
+)
+
+
+def test_wing_grid_convergence_3grid_known_answer():
+    """Exact p=2 synthetic triple reproduces the hand-computed order and Richardson extrapolant.
+
+    cf_coarse=1.0, cf_medium=0.25, cf_fine=0.0625 with r=2:
+      δ₁₂ = 0.25 - 1.0 = -0.75, δ₂₃ = 0.0625 - 0.25 = -0.1875
+      |δ₁₂/δ₂₃| = 4 = 2², p_obs = log(4)/log(2) = 2.0 exactly
+      cf_exact = 0.0625 + (-0.1875)/(2²-1) = 0.0625 - 0.0625 = 0.0
+    """
+    out = wing_grid_convergence_3grid(1.0, 0.25, 0.0625, r=2.0)
+
+    assert out["observed_order"] == pytest.approx(2.0)
+    assert out["cf_exact_richardson"] == pytest.approx(0.0)
+    assert out["monotone"] is True
+    assert np.isfinite(out["gci_fine"])
+    assert out["gci_fine"] > 0.0
+    assert out["r"] == 2.0
+    assert out["cf_coarse"] == pytest.approx(1.0)
+    assert out["cf_medium"] == pytest.approx(0.25)
+    assert out["cf_fine"] == pytest.approx(0.0625)
+    # No verdict/pass keys.
+    for forbidden in _3GRID_FORBIDDEN_KEYS:
+        assert forbidden not in out
+
+
+def test_wing_grid_convergence_3grid_self_convergence():
+    """Self-convergent triple (same value on all three grids): monotone=True, NaN outputs.
+
+    δ₂₃ = 0 → degenerate denominator → p_obs=NaN, cf_exact=NaN, gci_fine=NaN.
+    Must not raise.
+    """
+    out = wing_grid_convergence_3grid(0.5, 0.5, 0.5)
+
+    assert out["monotone"] is True
+    assert np.isnan(out["observed_order"])
+    assert np.isnan(out["cf_exact_richardson"])
+    assert np.isnan(out["gci_fine"])
+
+
+def test_wing_grid_convergence_3grid_negative_order():
+    """Monotone but decelerating: p_obs < 0 → observed_order returned as-is, GCI/Richardson NaN.
+
+    cf_coarse=1.0, cf_medium=0.9, cf_fine=0.5:
+      δ₁₂ = -0.1, δ₂₃ = -0.4, |δ₁₂/δ₂₃| = 0.25
+      p_obs = log(0.25)/log(2) = -2.0 — monotone but decelerating.
+      r**p_obs - 1 = 2**(-2) - 1 = -0.75 ≤ 0 → denominator guard fires → NaN.
+    """
+    out = wing_grid_convergence_3grid(1.0, 0.9, 0.5)
+
+    assert out["monotone"] is True
+    assert out["observed_order"] == pytest.approx(-2.0)
+    assert np.isnan(out["gci_fine"])
+    assert np.isnan(out["cf_exact_richardson"])
+
+
+def test_wing_grid_convergence_3grid_zero_order():
+    """Equal deltas → p_obs ≈ 0 → denominator guard fires → GCI/Richardson NaN.
+
+    cf_coarse=1.0, cf_medium=0.75, cf_fine=0.5:
+      δ₁₂ = -0.25, δ₂₃ = -0.25, ratio = 1.0
+      p_obs = log(1.0)/log(2) = 0.0 → r**0 - 1 = 0 → near-zero guard → NaN.
+    Must not raise.
+    """
+    out = wing_grid_convergence_3grid(1.0, 0.75, 0.5)
+
+    assert out["monotone"] is True
+    assert np.isnan(out["gci_fine"])
+    assert np.isnan(out["cf_exact_richardson"])
+
+
+def test_wing_grid_convergence_3grid_non_monotone():
+    """Oscillating triple: went down then up → monotone=False, all NaN, never ValueError.
+
+    cf_coarse=1.0, cf_medium=0.5, cf_fine=0.8:
+      δ₁₂ = -0.5 (negative), δ₂₃ = +0.3 (positive) → opposite signs → non-monotone.
+    """
+    out = wing_grid_convergence_3grid(1.0, 0.5, 0.8)
+
+    assert out["monotone"] is False
+    assert np.isnan(out["observed_order"])
+    assert np.isnan(out["cf_exact_richardson"])
+    assert np.isnan(out["gci_fine"])
+
+
+def test_wing_grid_convergence_3grid_degenerate():
+    """Degenerate inputs raise ValueError, never silent NaN/garbage."""
+    # cf_fine at or below the degeneracy floor → ValueError("degenerate")
+    from mosquito_cfd.benchmarks.flapping_wing import _DEGENERATE_CF_FLOOR
+
+    with pytest.raises(ValueError, match="degenerate"):
+        wing_grid_convergence_3grid(1.0, 0.5, 0.0)
+
+    with pytest.raises(ValueError, match="degenerate"):
+        wing_grid_convergence_3grid(1.0, 0.5, _DEGENERATE_CF_FLOOR)
+
+    # Non-finite inputs → ValueError
+    with pytest.raises(ValueError, match="finite"):
+        wing_grid_convergence_3grid(np.nan, 0.5, 0.25)
+
+    with pytest.raises(ValueError, match="finite"):
+        wing_grid_convergence_3grid(1.0, np.inf, 0.25)
+
+    # r <= 1 → ValueError
+    with pytest.raises(ValueError, match="r must be"):
+        wing_grid_convergence_3grid(1.0, 0.5, 0.25, r=1.0)
+
+
+def test_wing_grid_convergence_3grid_key_set():
+    """Return dict is exactly the report-only key set — no verdict, no 2-grid keys."""
+    out = wing_grid_convergence_3grid(1.0, 0.25, 0.0625)
+
+    assert set(out) == _3GRID_EXPECTED_KEYS
+    for forbidden in _3GRID_FORBIDDEN_KEYS:
+        assert forbidden not in out
+    assert out["r"] == 2.0
+    assert isinstance(out["monotone"], bool)

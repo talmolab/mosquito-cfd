@@ -67,6 +67,15 @@ kinematics** (not a digitized figure), vs the CFD total. **Cluster-free.**
 |------|-------|
 | `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD total `ib_force`, for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.61 — graded); the CFD peak **leads** the model in **phase** (~0.058 cycle — reported, the expected quasi-steady-vs-unsteady discrepancy); the model chord (~0.43) is ≪ the CFD total 0.92 and is what the CFD chord converges toward under grid refinement. Resolves the #40 CF_chord PARTIAL. **Cluster-free.** |
 
+## Grid convergence (T3c, 3-grid) — `make_grid_convergence_3grid_figure.py` / `make_force_timeseries_3grid_figure.py`
+
+Tier **T3c** ([#50](https://github.com/talmolab/mosquito-cfd/issues/50)): 3-grid Richardson analysis adding the fine 256×128×256 grid. Both components converge monotonically. **Cluster-free.**
+
+| File | Shows |
+|------|-------|
+| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal vs grid spacing (Δx), for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded) + van Veen reference lines. CF_chord: converging toward van Veen target range (0.3–0.43), GCI_fine=27.6 %. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
+| `fig_force_timeseries_3grid` | Body-frame CF_chord and \|CF_normal\| time series over one wingbeat, all 3 grids overlaid. Shows where grids agree (normal waveform shape) and where they differ (chord magnitude and late-cycle asymmetry at coarse). Van Veen target bands shaded. |
+
 ## Regenerate
 
 ```bash
@@ -86,6 +95,12 @@ uv run python examples/flapping_wing/make_force_decomposition_figure.py
 # T3b LEV vorticity comparison (needs the coarse t2a-newconv4 + medium t3b-medium plotfiles on Z:):
 MOSQUITO_CFD_PLOTFILE_ROOT=Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing \
     uv run python examples/flapping_wing/make_lev_figure.py
+
+# T3c 3-grid Richardson convergence chart (cluster-free):
+uv run python examples/flapping_wing/make_grid_convergence_3grid_figure.py
+
+# T3c force time-series overlay, all 3 grids (cluster-free):
+uv run python examples/flapping_wing/make_force_timeseries_3grid_figure.py
 ```
 
 Each figure is written as both `.pdf` (vector, for papers) and `.png` (preview).

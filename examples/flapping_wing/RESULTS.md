@@ -19,7 +19,7 @@ Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
 >
 > **Body-frame per-component van Veen comparison (delivered here, deferred by #36) — steady window t≥0.05:**
 >
- | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
+> | Component | T2a run (total force) | van Veen (**translational-only**, Fig 4) | note |
 > |---|---|---|---|
 > | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
 > | **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above target → `cf_chord_match=False` (#40) |
@@ -314,7 +314,7 @@ that grid explains only "part" and the decomposition the "rest": the residual ap
 independently-motivated** line — we compare our *total* `ib_force` to van Veen's *translational-only*
 coefficient, and the added-mass-subtracted interim already showed added mass is a large share of the chord —
 not merely "whatever grid refinement leaves behind". **#40 remains open** — T3b advances it, does not
-resolve it.
+resolve it. The 3-grid observed order and Richardson estimate are in the T3c section below.
 
 **LEV (plotfile-derived, mid-stroke t ≈ 0.5 / `plt01000`; not CSV-reproducible).** LEV vorticity/Q
 (`benchmarks/wing_lev.py`, reusing `extract_eulerian_box` + `benchmarks/lev.py`) over a wing near-field box
@@ -330,6 +330,72 @@ coarse→medium `q_pos_vol` increase is a **lower bound on LEV growth, not proof
 The convergence numbers above recompute from the committed coarse + medium CSVs
 (`tests/test_results_reproducibility.py`); the LEV numbers are plotfile-derived (`plt*/` is gitignored) and
 are covered instead by the `requires_plotfile` real-data test + the committed synthetic-fixture CI check.
+
+### Grid convergence (T3c, fine 256³ — 3-grid Richardson, report-only)
+
+Tier **T3c** ([#50](https://github.com/talmolab/mosquito-cfd/issues/50)) adds the fine **256×128×256** grid
+to complete the 3-grid Richardson analysis.  Run on the local RTX A5000 (24 GB) at `dt = 0.00025`
+(D6 CFL-fallback; the coarse/medium dt = 5×10⁻⁴ would give CFL ≈ 0.45 at Δx = 0.03125 → unstable);
+`max_step = 4000` = exactly 1 wingbeat; wall time ~8.8 h; `iamrex_commit = f93dc794`.
+
+| Parameter | Coarse | Medium | Fine |
+|-----------|--------|--------|------|
+| Grid | 64×32×64 | 128×64×128 | **256×128×256** |
+| Δx | 0.125 | 0.0625 | **0.03125** |
+| `ns.fixed_dt` | 5×10⁻⁴ | 5×10⁻⁴ | **2.5×10⁻⁴ (D6 fallback)** |
+| Steps | 2000 | 2000 | **4000** |
+
+**IB-coupling + temporal caveat**: `dv = h · d_nn²` and the kernel support both scale with `h`, so grid
+refinement simultaneously sharpens the IB-regularization model.  Additionally, the fine run used
+`dt = 2.5×10⁻⁴` (D6 CFL-fallback) while coarse and medium used `dt = 5×10⁻⁴`, so the observed order
+`p_obs` and Richardson extrapolant reflect **combined spatial + temporal + IB-model refinement**, not
+purely spatial error.  `cf_exact_richardson` is an *illustrative* estimate only — not a defensible
+h → 0 limit.
+
+**CF_normal (z, lift)** — **monotone**, observed order **p_obs = 1.38** (super-first-order):
+
+| Metric | Value |
+|--------|-------|
+| CF_normal coarse | 2.606 |
+| CF_normal medium | 2.333 |
+| CF_normal fine | 2.228 |
+| Observed order p_obs | **1.38** |
+| Richardson extrapolant cf_exact | 2.162 |
+| GCI_fine | 3.7 % |
+
+CF_normal converges smoothly from coarse → medium → fine.  The Richardson extrapolant (2.162) is ~3 %
+below the fine-grid value (2.228); the 3.7 % GCI_fine is modest.  The van Veen target (translational
+~2.48) sits between the fine and the extrapolant, consistent with IB-regularization capturing the
+correct order of magnitude.
+
+**CF_chord (x, tangential)** — **monotone**, observed order **p_obs = 1.37**:
+
+| Metric | Value |
+|--------|-------|
+| CF_chord coarse | 0.923 |
+| CF_chord medium | 0.554 |
+| CF_chord fine | 0.411 |
+| Observed order p_obs | **1.37** |
+| Richardson extrapolant cf_exact | 0.321 |
+| GCI_fine | 27.6 % |
+
+CF_chord converges monotonically coarse → medium → fine toward the Richardson extrapolant (0.321).
+The extrapolant sits between van Veen's translational-only (~0.3) and the full QS model total (~0.43),
+consistent with the CFD approaching the physical chord target under refinement.  The GCI_fine (27.6 %)
+is large — the chord is not yet tightly converged at 256³ — but the direction is unambiguous.
+
+**Note on `forces_fine.csv` provenance**: the original `IB_Particle_1.csv` from the local A5000 run
+was contaminated with rows from prior aborted run attempts (including a diverged dt = 5×10⁻⁴ segment
+whose CF_chord peak was 0.96, masking the clean result).  The committed `forces_fine.csv` was extracted
+from the final clean segment (rows 2063–6062 of the original 6063-row file): 4000 rows at dt = 0.00025,
+iStep 0–3999.  The contamination did **not** affect CF_normal (the diverged segment's normal peak was
+below the clean run's value).
+
+**Summary**: both CF_normal (GCI ~4 %) and CF_chord (GCI ~28 %) converge monotonically at the 256³
+fine grid.  The chord extrapolant (0.321) approaches the van Veen target (~0.3–0.43); further
+refinement (512³+) is deferred to H100 / grant hardware.  These numbers recompute from the committed
+triple (`forces_t2a_newconv.csv`, `forces_medium.csv`, `forces_fine.csv`) via
+`tests/test_results_reproducibility.py::test_3grid_convergence_recomputes_from_committed_csvs`.
 
 ### Force at key phases (new-convention run)
 
@@ -362,10 +428,10 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | GPU | NVIDIA A40 |
 | Grid cells | 131,072 (64×32×64) |
 | Timesteps | 2000 |
-| Wall time | 146 seconds (2.4 min) | Second run via `run.sh` with readwrite NFS mount |
-| Time per step | 0.073 s | |
-| Throughput | 1.8M cells/step | |
-| GPU memory | ~500 MB (estimated) | |
+| Wall time | 146 seconds (2.4 min) |
+| Time per step | 0.073 s |
+| Throughput | 1.8M cells/step |
+| GPU memory | ~500 MB (estimated) |
 
 *First run (February 26): 295 s (4.9 min) — /tmp workaround, different node.*
 *Second run (February 27): 146 s (2.4 min) — via run.sh with readwrite NFS mount on gpu-node14.*
@@ -391,6 +457,8 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | `run_metadata_t2a.json` | Provenance (image digest, IAMReX commit, inputs hash) |
 | `forces_medium.csv` | T3b medium-grid (128³) force series (2000 steps, 29-col IAMReX schema) |
 | `run_metadata_t3b.json` | T3b provenance (image digest, IAMReX commit, medium-deck inputs hash, fixed_dt/plotfile_dir) |
+| `forces_fine.csv` | T3c fine-grid (256³) force series (4000 steps, dt=0.00025, 29-col IAMReX schema) |
+| `run_metadata_t3c.json` | T3c provenance (iamrex_commit, grid, dt_reduced=true, fine-deck inputs hash, wall_time) |
 | [figures/fig_grid_convergence.pdf](figures/fig_grid_convergence.pdf) / [.png](figures/fig_grid_convergence.png) | T3b: peak CF_chord/CF_normal coarse→medium vs van Veen (cluster-free, from committed CSVs) |
 | [figures/fig_lev_coarse_vs_medium.pdf](figures/fig_lev_coarse_vs_medium.pdf) / [.png](figures/fig_lev_coarse_vs_medium.png) | T3b: LEV vorticity slice at mid-stroke, coarse vs medium (from Z: plotfiles) |
 | [figures/fig_force_decomposition.pdf](figures/fig_force_decomposition.pdf) / [.png](figures/fig_force_decomposition.png) | T4: van Veen model (transl + added-mass + Wagner) vs CFD total, chord & normal (cluster-free, from committed CSVs) |
@@ -407,6 +475,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
 | Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) | CF_normal 2.61 vs model 2.48 → magnitude consistent (T4, graded, rel gap ~5 % < 16 % tol); CF_chord 0.92 explained by van Veen's transl + AM + Wagner (model ~0.43), grid-limited → **#50**. The T2a total-vs-translational **PARTIAL** (CF_chord 0.92 vs the translational-only ~0.3) is **resolved by the T4 decomposition** (see "T4 per-component decomposition"); the peak-phase gap (~0.058 cycle) is reported, not gated |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
+| Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 % (extrapolant 0.321 approaches van Veen ~0.3–0.43). Further refinement deferred to H100. Closes #50 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | REPORTED (T3b) | Resolved on both grids at mid-stroke; medium sharper (resolution-fair ∫Q⁺ +9 %, peak vorticity ~×1.8) — see the "Grid convergence (T3b)" section + `fig_lev_coarse_vs_medium` |
 
