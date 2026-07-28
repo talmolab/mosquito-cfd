@@ -2,7 +2,7 @@
 
 ### Requirement: Parametric Wing Planform Generator
 
-The system shall provide a Python CLI tool to generate Lagrangian marker files for wing planforms.
+The system SHALL provide a Python CLI tool to generate Lagrangian marker files for wing planforms.
 
 #### Scenario: Generate rectangular flat plate
 
@@ -26,7 +26,7 @@ The system shall provide a Python CLI tool to generate Lagrangian marker files f
 
 ### Requirement: External Geometry Loading in IAMReX
 
-IAMReX shall support loading immersed boundary markers from external `.vertex` files.
+IAMReX SHALL support loading immersed boundary markers from external `.vertex` files.
 
 #### Scenario: Load vertex file
 
@@ -50,7 +50,7 @@ IAMReX shall support loading immersed boundary markers from external `.vertex` f
 
 ### Requirement: Prescribed Sinusoidal Kinematics
 
-IAMReX shall update wing marker positions each timestep according to van Veen et al. (2022) sinusoidal kinematics.
+IAMReX SHALL update wing marker positions each timestep according to van Veen et al. (2022) sinusoidal kinematics.
 
 #### Scenario: Stroke angle varies sinusoidally
 
@@ -80,7 +80,7 @@ IAMReX shall update wing marker positions each timestep according to van Veen et
 
 ### Requirement: Validation Against Van Veen Parameters
 
-The implementation shall reproduce van Veen et al. (2022) simulation parameters.
+The implementation SHALL reproduce van Veen et al. (2022) simulation parameters.
 
 #### Scenario: Frequency matches van Veen
 
@@ -107,7 +107,7 @@ The implementation shall reproduce van Veen et al. (2022) simulation parameters.
 
 ### Requirement: Force Output Compatibility
 
-Force data from moving bodies shall be extractable using the existing analysis pipeline.
+Force data from moving bodies SHALL be extractable using the existing analysis pipeline.
 
 #### Scenario: Force components available in particle data
 
