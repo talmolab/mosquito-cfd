@@ -67,12 +67,16 @@ def plot_forces_convergence(figures_dir: Path, forces_coarse: Path, forces_mediu
     ax.axhline(CD_LITERATURE, color=GREEN, lw=2, ls="-.",
                label=f"Literature Cd={CD_LITERATURE} (Johnson & Patel 1999, Re=100)")
 
-    # Annotate discrepancy
-    y_c = Cd_coarse[-1]
+    # Annotate discrepancy. These are IB-MARKER Cd values (Sigma particle_real_comp3), which
+    # under-report drag by 2.64x due to a force-extraction bug (T1a/T1b, RESOLVED - see
+    # docs/aerodynamics_validation/t1a-findings.md Sec8): IAMReX runs 2 multidirect sub-iterations
+    # but the plotfile persists only the last one's per-marker force. The corrected field-based
+    # (control-volume) Cd converges toward literature - see flow_past_sphere/RESULTS.md.
     y_m = Cd_medium[-1]
     t_ann = t_medium[-1] * 0.6
     ax.annotate(
-        f"~{(CD_LITERATURE / y_m - 1) * 100:.0f}% below literature\n(known diffused-IB scaling)",
+        f"IB-marker Cd, ~{(CD_LITERATURE / y_m - 1) * 100:.0f}% below literature\n"
+        "(force-extraction bug, RESOLVED - see RESULTS.md)",
         xy=(t_ann, (y_m + CD_LITERATURE) / 2),
         fontsize=8, color="gray", ha="center", va="center",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.7),
