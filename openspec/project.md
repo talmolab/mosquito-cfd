@@ -2,7 +2,9 @@
 
 ## Overview
 
-GPU-accelerated CFD simulations of mosquito flight aerodynamics using IAMReX (Immersed-boundary Adaptive Mesh Refinement). This project provides prototype simulations for the [APEX supercomputing proposal](https://www.alcf.anl.gov/science/apex-proposal-requirements-and-submissions-instructions), validating against van Veen et al. (2022) mosquito wing aerodynamics.
+GPU-accelerated CFD simulations of mosquito flight aerodynamics using IAMReX (Immersed-boundary Adaptive Mesh Refinement), validating against van Veen et al. (2022) mosquito wing aerodynamics.
+
+**Grant history**: this project originally targeted the [ALCF APEX supercomputing proposal](https://www.alcf.anl.gov/science/apex-proposal-requirements-and-submissions-instructions) (submitted Feb 27, 2026; **denied**). The target moved to the **NVIDIA Academic Grant Program** (H100, submitted by the June 30, 2026 deadline; decision expected ~Sep 2026) — see `openspec/changes/add-apex-benchmarking/h100_resource_estimate.md`. The rescope is *targets*, not *abandonment*: the underlying validation work (sphere, ellipsoid, flapping wing) is the evidence base for either proposal and continued independent of the grant outcome — see `docs/aerodynamics_validation/roadmap.md` for the current tier-by-tier status.
 
 **Repository**: [talmolab/mosquito-cfd](https://github.com/talmolab/mosquito-cfd)
 
@@ -11,8 +13,8 @@ GPU-accelerated CFD simulations of mosquito flight aerodynamics using IAMReX (Im
 1. **Simulation Accuracy**: Validate CFD results against published experimental data from van Veen et al. (2022) for Aedes aegypti mosquito wing aerodynamics
 2. **GPU Performance**: Leverage NVIDIA A100 GPUs with FP64 for high-throughput simulations
 3. **Reproducibility**: Capture comprehensive metadata for all simulation runs to ensure scientific reproducibility
-4. **Scalability**: Design for eventual deployment on APEX supercomputer for large-scale mosquito swarm simulations
-5. **Proposal Readiness**: Develop benchmarks and scaling studies suitable for ALCF APEX proposal submission
+4. **Scalability**: Design for eventual deployment on large-scale GPU allocations (H100 grant target) for large-scale mosquito swarm simulations
+5. **Grant Readiness**: Develop benchmarks and scaling studies suitable for grant proposal submission (originally ALCF APEX, now the NVIDIA Academic Grant/H100)
 
 ## Architecture
 
@@ -94,16 +96,18 @@ mosquito-cfd/
 ## Constraints
 
 ### Hardware
-- **Development**: NVIDIA A40 (local/Salk cluster)
-- **Target**: NVIDIA A100 (ALCF APEX systems)
-- **CUDA**: Compute capability 8.0+ (A100) or 8.6+ (A40)
+- **Development**: NVIDIA A40 (local/Salk cluster), also RTX A5000 (local dev box)
+- **Target**: NVIDIA H100 (NVIDIA Academic Grant, decision ~Sep 2026); the original ALCF APEX/A100
+  target was denied — see Overview
+- **CUDA**: Compute capability 8.0+ (A100) or 8.6+ (A40/H100)
 - **Driver**: 550.54.14+ (for CUDA 12.4)
-- **Memory**: 40+ GB GPU RAM on A100
+- **Memory**: 40+ GB GPU RAM on A100/H100
 
 ### Precision
 - **FP64 Only**: All benchmarks and simulations use double precision
 - **Rationale**: IAMReX maintainer [does not test single precision](https://github.com/ruohai0925/IAMReX/issues/59); FP64 ensures scientific accuracy
-- **Target Hardware**: NVIDIA A100 (19.5 TFLOPS FP64) on ALCF systems
+- **Target Hardware**: NVIDIA H100 (grant target); A100 (19.5 TFLOPS FP64) was the original
+  ALCF APEX target
 
 ### Dependencies
 - Requires external clones of amrex, AMReX-Hydro, and IAMReX repositories
@@ -117,16 +121,22 @@ mosquito-cfd/
 - [x] Docker infrastructure with FP64 working builds
 - [x] GitHub Actions CI/CD for lint/test/publish
 - [x] Flow past sphere validation example (100 timesteps verified on A40)
+- [x] **APEX benchmarking substance** (sphere Cd, heaving-ellipsoid self-consistency, flapping-wing
+  van Veen validation) - delivered, but under separate, later OpenSpec changes (T1a-T4/T3c, see
+  `docs/aerodynamics_validation/roadmap.md`) rather than under `add-apex-benchmarking` itself; that
+  change's own proposal/tasks describe the pre-submission Feb 2026 state and are kept as a
+  historical record of the (denied) APEX submission - see
+  [add-apex-benchmarking](changes/add-apex-benchmarking/proposal.md)
+- [x] **Arbitrary geometry support** - external vertex file loading + prescribed kinematics for
+  flapping wing validation; archived as `add-arbitrary-geometry` once its foundational scope
+  shipped and was extended by the same T2a-T4/T3c lineage
 
 ### Not Planned
-- FP32 builds - upstream IAMReX does not support; using FP64 on A100 instead
-
-### In Progress
-- [ ] **APEX benchmarking** ([add-apex-benchmarking](changes/add-apex-benchmarking/proposal.md)) - FlowPastSphere and heaving ellipsoid validation cases
-- [ ] **Arbitrary geometry support** ([add-arbitrary-geometry](changes/add-arbitrary-geometry/proposal.md)) - External vertex file loading + prescribed kinematics for flapping wing validation
+- FP32 builds - upstream IAMReX does not support; using FP64 on A100/H100 instead
 
 ### Pending
-- [ ] Scaling benchmarks for APEX proposal
+- [ ] Scaling benchmarks for the NVIDIA Academic Grant (H100) - the current grant target;
+  scaling-benchmark scope originally written for APEX still applies, just against H100 hardware
 - [ ] Multi-GPU / multi-node validation
 
 ## Conventions

@@ -64,6 +64,18 @@ Scientific benchmarking infrastructure for APEX proposal submission, organized a
 
 **Investigation needed**: The force extraction assumes `particle_real_comp3/4/5` are force components. This may require verification against IAMReX source code or consultation with maintainer.
 
+> **RESOLVED (T1a/T1b, [#28](https://github.com/talmolab/mosquito-cfd/pull/28)).** The ~60% low
+> Cd was a force-extraction bug — the IB-marker path summed only the last multidirect
+> sub-iteration's force, never persisting the accumulated force. The corrected drag, read from the
+> Eulerian fields via a periodic-duct control-volume balance, is **2.64× the marker value** and
+> converges toward literature (medium Cd 1.18, Richardson-extrapolated 1.13 vs. 1.087; the residual
+> is the confined-array offset). T2b grades this as **H1′**. See
+> [`docs/aerodynamics_validation/t1a-findings.md` §8](../../../docs/aerodynamics_validation/t1a-findings.md)
+> and [`flow_past_sphere/RESULTS.md`](../../../examples/flow_past_sphere/RESULTS.md). **No re-run
+> was needed.** This proposal's original findings above are retained verbatim as the historical
+> record behind the (already-submitted, immutable) Feb 2026 APEX proposal PDF — the drift between
+> this note and the text above is intentional, not an error ([#29](https://github.com/talmolab/mosquito-cfd/issues/29)).
+
 **Deliverables**:
 - Mesh convergence study (3+ resolutions)
 - Cd vs grid spacing plot with Richardson extrapolation

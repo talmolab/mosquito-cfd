@@ -88,7 +88,15 @@ Reference areas for thin ellipsoid (a=0.5, b=0.02, c=1.5):
 | CL | 0.085 | Planform (2.36) | Heaving-induced lift |
 | L/D | 0.53 | - | Lift-to-drag ratio |
 
-**Note**: Force extraction uses `particle_real_comp3/4/5`. Same ~60% discrepancy observed for FlowPastSphere Cd suggests systematic calibration needed. *(The "~60% discrepancy" framing here is the pre-T1b narrative and is left for the docs-only CC-V5 cleanup, [#29](https://github.com/talmolab/mosquito-cfd/issues/29); T2b does not touch it.)*
+**Note**: Force extraction uses `particle_real_comp3/4/5`. **RESOLVED (T1a/T1b, CC-V5,
+[#29](https://github.com/talmolab/mosquito-cfd/issues/29)):** the "same ~60% discrepancy" this note
+originally flagged was the FlowPastSphere IB-marker force-extraction bug (summing only the last
+multidirect sub-iteration's force), not a systematic calibration issue — see
+[`docs/aerodynamics_validation/t1a-findings.md` §8](../../docs/aerodynamics_validation/t1a-findings.md)
+and [`flow_past_sphere/RESULTS.md`](../flow_past_sphere/RESULTS.md). T2b did not re-run the
+ellipsoid to correct for it (its self-consistency + added-mass-fraction oracle above doesn't depend
+on the absolute Cd/CL magnitudes), so the raw numbers in the table above are unchanged, but the
+"systematic calibration needed" framing is retired.
 
 ## T2b re-validation — self-consistency + added-mass sanity (van Veen convention)
 

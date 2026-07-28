@@ -137,7 +137,7 @@ confined-array offset rather than refining/de-confining the array.
 
 | Figure | File | Description |
 |--------|------|-------------|
-| Grid convergence | [figures/fig_forces_convergence.png](figures/fig_forces_convergence.png) | Cd vs time, coarse + medium vs Johnson & Patel (1999) Cd=1.087 |
+| Grid convergence | [figures/fig_forces_convergence.png](figures/fig_forces_convergence.png) | Cd vs time, coarse + medium vs Johnson & Patel (1999) Cd=1.087. Plots the **IB-marker** Cd (2.64x low, a force-extraction bug — see "Resolved" section above); the corrected field-based Cd converges toward literature. |
 | Velocity field | [figures/fig_velocity.png](figures/fig_velocity.png) | x-velocity field z-slice at steady state (t=100); white circle = sphere |
 
 Generated with:
