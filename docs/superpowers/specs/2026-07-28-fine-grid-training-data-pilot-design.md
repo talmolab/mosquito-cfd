@@ -1,7 +1,15 @@
 # Fine-grid training-data pilot — design
 
 **Date:** 2026-07-28
-**Status:** approved by user, pending implementation plan
+**Status:** SUPERSEDED by `openspec/changes/add-fine-grid-training-pilot/` (or its archived
+location post-merge). This file is historical discussion only — it captures the original
+brainstorming and is retained for that context, but is **not maintained**. Do not update it;
+update the OpenSpec change's `proposal.md`/`design.md`/`tasks.md` instead. A subsequent
+5-agent review of the OpenSpec change found and fixed several errors that were present in this
+document when it was written (an unsourced parallel-execution time estimate, a factual error
+about GPU memory usage on the A5000 vs. A40, and an execution plan that didn't account for
+`argo submit --watch` blocking or for preemptible-pod retry-from-scratch risk) — treat the
+OpenSpec change as authoritative wherever the two disagree.
 
 ## Why
 

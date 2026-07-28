@@ -45,10 +45,22 @@ pilot-specific output directory — no changes to `sweep.py` itself, and no hand
 ### Requirement: Fine-grid pilot artifacts are isolated from the frozen coarse corpus
 
 Nothing generated or submitted for this pilot SHALL write into, modify, or otherwise touch
-`examples/prelim_sweep/` (the frozen, byte-identical 27-config coarse corpus). All pilot
-artifacts (base deck, generated decks, manifests, force CSVs, run metadata, report) SHALL live
-under a separate `examples/prelim_sweep_fine_pilot/` directory, and cluster submission SHALL
-target a pilot-specific `WORKSPACE_HOSTPATH`, never the coarse corpus's path.
+`examples/prelim_sweep/` (the frozen, byte-identical 27-config coarse corpus) — the same
+frozen-artifact guarantee already established elsewhere in this spec for the corpus's raw force
+columns (see "Re-normalization preserves surrogate skill (scale-invariance)"), extended here to
+a sibling pilot process rather than a re-normalization trigger. All pilot artifacts (base deck,
+generated decks, manifests, force CSVs, run metadata, report) SHALL live under a separate
+`examples/prelim_sweep_fine_pilot/` directory, and cluster submission SHALL target a
+pilot-specific `WORKSPACE_HOSTPATH`, never the coarse corpus's path.
+
+#### Scenario: Pilot output directory and workspace path are statically distinct from the coarse corpus's
+
+- **Given** the pilot generation script's output-directory constant and the pilot's configured
+  `WORKSPACE_HOSTPATH`
+- **When** each is compared against `examples/prelim_sweep/` and the coarse corpus's own NFS
+  hostpath, respectively — as a static check, not one that requires actually running generation
+  or submitting a workflow
+- **Then** both are confirmed distinct strings/paths before any generation or submission happens
 
 #### Scenario: Coarse corpus is unperturbed by the pilot
 
@@ -56,26 +68,16 @@ target a pilot-specific `WORKSPACE_HOSTPATH`, never the coarse corpus's path.
   `sweep_manifest.json`, `dataset.parquet`, `run_metadata.json`) before the pilot is run
 - **When** the fine-grid pilot is generated and submitted
 - **Then** every file under `examples/prelim_sweep/` is byte-identical to its pre-pilot state
-  (checked via `sha256`, mirroring the existing frozen-corpus reproducibility tests)
+  (checked via `sha256`, mirroring the existing frozen-corpus reproducibility tests) — this is a
+  passive, one-time confirmation of the static guarantee above, not a repeatable automated test
+  that re-executes generation against the real corpus path on every run
 
-### Requirement: Fine-grid pilot results are committed with provenance and a stability/cost verdict
+### Requirement: Fine-grid pilot per-config run metadata is committed with provenance
 
 Each attempted pilot config's provenance SHALL be committed once its cluster run completes (or
-is abandoned as unstable): `run_metadata_*.json` (git/docker/hardware/timing — the same schema
-as `run_metadata_t3c.json`), and a pilot report documenting, per config, whether it was stable
-at `dt=5e-4`, needed the `2.5e-4` fallback, or was unstable even with the fallback — plus a real
-(measured, not merely estimated) cost projection for the full 27-config regeneration and an
-explicit go/no-go recommendation. An unstable-even-with-fallback config SHALL be recorded as a
-genuine finding, not silently omitted or retried indefinitely.
-
-#### Scenario: Pilot report is present and covers all 3 attempted configs
-
-- **Given** the pilot has been run (fully or partially, including a config that never
-  completes)
-- **When** the pilot report is read
-- **Then** it lists a stability outcome (`stable_at_5e-4` / `stable_at_2.5e-4_fallback` /
-  `unstable`) and a measured wall-time / `s_per_step` for every config that was attempted, and
-  a full 27-config cost projection derived from those measurements
+is abandoned as unstable): `run_metadata_<config-name>.json` with the same schema as
+`run_metadata_t3c.json` (git/docker/hardware/timing), committed incrementally per config as it
+finishes rather than held until all 3 configs are done.
 
 #### Scenario: Per-config run metadata is committed once its run completes (Session B)
 
@@ -83,5 +85,25 @@ genuine finding, not silently omitted or retried indefinitely.
 - **When** `examples/prelim_sweep_fine_pilot/run_metadata_<config-name>.json` is read
 - **Then** it has the same required fields as `run_metadata_t3c.json` (`git`, `docker_image`,
   `image_digest`, `timing.wall_time_s`, `timing.timesteps`, `timing.s_per_step`, `fixed_dt`,
-  `dt_reduced`) — this scenario is skipped (not failed) until that config's run has actually
-  completed, matching the `add-wing-fine-grid-convergence` Session A/Session B pattern
+  `dt_reduced`) — this scenario is checked (and skipped if not yet true) **per config
+  independently**, matching the `add-wing-fine-grid-convergence` Session A/Session B pattern, so
+  a partially-complete pilot (e.g. 1 of 3 configs done) still reports 1 pass + 2 skips rather
+  than one all-or-nothing result
+
+### Requirement: Fine-grid pilot report documents per-config stability and a cost/go-no-go verdict
+
+A pilot report SHALL document, per attempted config, whether it was stable at `dt=5e-4`, needed
+the `2.5e-4` fallback, or was unstable even with the fallback — plus a real (measured, not
+merely estimated) cost projection for the full 27-config regeneration and an explicit go/no-go
+recommendation. An unstable-even-with-fallback config SHALL be recorded as a genuine finding,
+not silently omitted or retried indefinitely, and any partial force-CSV/log artifacts from an
+aborted run SHALL be committed as evidence alongside that finding rather than discarded.
+
+#### Scenario: Pilot report is present and covers all attempted configs
+
+- **Given** the pilot has been run (fully or partially, including a config that never
+  completes or is found unstable)
+- **When** the pilot report is read
+- **Then** it lists a stability outcome (`stable_at_5e-4` / `stable_at_2.5e-4_fallback` /
+  `unstable`) and a measured wall-time / `s_per_step` for every config that was attempted, and
+  a full 27-config cost projection derived from those measurements

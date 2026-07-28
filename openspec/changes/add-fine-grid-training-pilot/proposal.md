@@ -63,8 +63,10 @@ it.
 - Affected specs: `force-surrogate` (adds a small pilot-scoped capability: a fine-grid base
   deck invariant, reproducible pilot-deck generation, and committed pilot results with a
   go/no-go recommendation).
-- Affected code: none (`sweep.py`, the Argo templates, and `submit_workflow.sh` are all reused
-  unmodified).
+- Affected code: none in the tested library — `sweep.py`, the Argo templates, and
+  `submit_workflow.sh` are all reused unmodified. Adds one new one-off script
+  (`examples/prelim_sweep_fine_pilot/generate_pilot.py`, not a permanent library addition) and
+  one new test module (`tests/test_fine_pilot_deck.py`).
 - New data: `examples/prelim_sweep_fine_pilot/` (decks, force CSVs, run metadata, pilot report).
 - Cluster cost: ~27–54 GPU-hours on the Salk RunAI `talmo-lab` project (serial, 1 GPU at a
   time; see `design.md` for the per-config estimate and why the range is wide).
