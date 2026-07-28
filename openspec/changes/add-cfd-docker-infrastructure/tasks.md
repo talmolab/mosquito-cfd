@@ -31,7 +31,10 @@ history; not to be completed under this change.
 - [ ] ~~3.2 Build and test FP32 image locally~~ OBSOLETE (descoped — see status note)
 - [ ] ~~3.3 Verify FlowPastSphere runs on A40 GPU inside container~~ OBSOLETE (descoped)
 - [ ] ~~3.4 Document image size and build time~~ OBSOLETE (descoped)
-- [ ] 3.5 Remove FP32 from `docker.yml` default build matrix + drop the `:fp32` tag from the spec/README (descope follow-up)
+- [x] 3.5 Remove FP32 from `docker.yml` default build matrix + drop the `:fp32` tag from the spec/README (descope follow-up) —
+  `build-fp32`'s `if` condition now requires an explicit `workflow_dispatch` (never runs on
+  automatic push, so it no longer fails on every push to main); README.md and docker/README.md
+  rewritten to drop FP32-as-recommended language and explain the descope
 
 ## 4. FP64 Dockerfile (Validation Image)
 
@@ -55,9 +58,11 @@ history; not to be completed under this change.
 - [x] 6.1 Create `.github/workflows/ci.yml` with:
   - [x] 6.1.1 Trigger on pull_request and push to main
   - [x] 6.1.2 Lint Python with ruff
-  - [x] 6.1.3 Run pytest (currently no tests, but infrastructure ready)
+  - [x] 6.1.3 Run pytest (originally "currently no tests, but infrastructure ready"; now 465+
+    tests collected and run on every CI invocation)
   - [x] 6.1.4 Verify Dockerfiles are syntactically valid (hadolint)
-- [ ] 6.2 Test CI workflow on a feature branch PR
+- [x] 6.2 Test CI workflow on a feature branch PR — happened dozens of times since (e.g.
+  `gh run list --workflow=ci.yml` shows repeated green `pull_request`-triggered runs)
 - [x] 6.3 Add status badge to README.md
 
 ## 7. GitHub Actions Docker Workflow
@@ -90,17 +95,36 @@ history; not to be completed under this change.
 
 ## 9. Integration with cfd-pipeline
 
-- [ ] 9.1 Update `add-iamrex-cfd-prototype` tasks.md to reference container images
-- [ ] 9.2 Create RunAI job template using ghcr.io images
-- [ ] 9.3 Verify metadata capture works inside container
-- [ ] 9.4 Test full Stage 0 (build validation) workflow using container
+- [ ] 9.1 Update `add-iamrex-cfd-prototype` tasks.md to reference container images —
+  AMBIGUOUS/not verifiable from this repo: `add-iamrex-cfd-prototype` doesn't exist under
+  `openspec/changes/` (active or archived); `proposal.md` says it lives in an external,
+  non-repo location ("vaults/openspec"). Needs a human call on whether that doc still exists.
+- [x] 9.2 Create RunAI job template using ghcr.io images — done via Argo, not a literal "RunAI
+  job" YAML, but functionally identical and in production:
+  `cluster/argo/workflow-templates/force-surrogate-single-config.yaml` and
+  `cluster/argo/workflows/force-surrogate-sweep.yaml` pin `image: "ghcr.io/talmolab/mosquito-cfd:latest-fp64"`
+  and run on the RunAI cluster (`namespace: runai-talmo-lab`) — the Track B force-surrogate
+  production pipeline
+- [x] 9.3 Verify metadata capture works inside container — the same Argo workflow stamps
+  `timestamp` into `run_metadata.json` per run and verifies the `IB_Particle_1.csv` 29-column
+  output contract; exercised routinely in production
+- [ ] 9.4 Test full Stage 0 (build validation) workflow using container — AMBIGUOUS, same root
+  cause as 9.1: "Stage 0" is defined in the external `add-iamrex-cfd-prototype` proposal. In
+  practice the pipeline has gone far past a "Stage 0 build validation" (full T2-T4 validation +
+  Track B corpus production runs inside containers on the cluster), so this is likely moot/
+  subsumed, but can't be literally checked off against its original (external) definition.
 
 ## 10. Validation and Release
 
 - [x] 10.1 Manual GPU test on Salk A40 cluster via RunAI (FP64 validated)
-- [ ] 10.2 Compare container vs native build performance (should be equivalent)
-- [ ] 10.3 Tag v0.1.0 release to trigger initial image publication
-- [ ] 10.4 Verify reproducibility: rebuild from Dockerfile, compare checksums
+- [ ] 10.2 Compare container vs native build performance (should be equivalent) — GENUINELY OPEN,
+  no such comparison exists anywhere in the repo
+- [ ] 10.3 Tag v0.1.0 release to trigger initial image publication — BLOCKED on a human
+  versioning-policy decision: `git tag -l` returns no tags at all, and design.md's own "Open
+  Questions" leaves the image-versioning scheme unresolved
+- [ ] 10.4 Verify reproducibility: rebuild from Dockerfile, compare checksums — GENUINELY OPEN, no
+  image-checksum reproducibility check exists (`tests/test_results_reproducibility.py` is about
+  reproducing RESULTS.md's *scientific* numbers from committed CSVs, not Docker image checksums)
 
 ## 11. Upstream Issue: FP32+CUDA Support
 

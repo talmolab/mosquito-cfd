@@ -37,11 +37,14 @@ env:
 
 jobs:
   build-fp32:
-    name: Build FP32 Image (BLOCKED - upstream bug)
+    name: Build FP32 Image (descoped - manual only)
     runs-on: ubuntu-latest
-    # FP32+CUDA has compilation errors in IAMReX - allow failure until upstream fixes
+    # Descoped (add-cfd-docker-infrastructure proposal.md "Descoped: FP32 image (obsolete)"):
+    # blocked by an unresolved upstream IAMReX bug, and the "fast A40 prototyping" motivation no
+    # longer holds now that all validated/Track B work is FP64. Retained for potential future
+    # revival, but no longer built automatically on push - manual workflow_dispatch only.
     continue-on-error: true
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.images == 'all' || inputs.images == 'fp32' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.images == 'all' || inputs.images == 'fp32') }}
     permissions:
       contents: read
       packages: write
