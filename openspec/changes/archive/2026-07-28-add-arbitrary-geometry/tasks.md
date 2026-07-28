@@ -98,7 +98,11 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 #### 3.1.1 Implementation
 - [x] Create `Source/WingKinematics.H` (header-only)
 - [x] Implement `ComputeRotationMatrix()` for ZYX Euler angles
-- [ ] Unit test rotation matrix against known values (deferred to runtime)
+- [x] Unit test rotation matrix against known values (deferred to runtime) — done via
+  `tests/test_wing_kinematics.py` (`test_identity_at_zero`, `test_stroke_is_about_lab_z`,
+  `test_pitch_is_about_span_y`, `test_deviation_is_about_chord_x`, `test_order_locked_Rz_Ry_Rx`,
+  `test_rotation_is_orthonormal`) plus a golden C++-conformance test
+  (`test_cpp_wingkinematics_conforms_to_mirror`, 500 random angle triples vs. `WingKinematics.H`)
 
 ### 3.2 Kinematics Update ✅
 
@@ -116,7 +120,8 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 - [x] Test: At t=0, φ=0 and α=α_amp (TestWingKinematics::test_at_t0_phi_zero, test_at_t0_alpha_max)
 - [x] Test: At t=T/4, stroke angle = +70° (TestWingKinematics::test_at_quarter_period_phi_max)
 - [x] Test: Pitch leads stroke by 90° phase (TestWingKinematics::test_pitch_leads_stroke_by_90_degrees)
-- [ ] Visual test: Markers trace expected arc over one period
+- [x] Visual test: Markers trace expected arc over one period — `fig_wing_phases.pdf`/`.png` (K2);
+  RESULTS.md Validation Status: "Marker motion (span-tip sweeps) — PASS — ±70° arc"
 
 **Validation checkpoint**: ✅ Kinematics code complete. Awaiting Docker rebuild for runtime tests.
 
@@ -162,10 +167,13 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
 **Results**: Stable run, 2000 steps, 4.9 min wall time. Forces periodic. Max |CF_z| = 0.22 (corrected ~0.52 with IAMReX 2.4× underestimate factor — at lower bound of expected [0.5, 1.5]).
 
 #### 4.1.3 Medium Resolution Run
-- [ ] Run 1 wingbeat at medium resolution (Δx = 0.125 mm)
-- [ ] Extract force coefficients (CL, CD) to `forces.csv`
-- [ ] Compare with van Veen expected ranges
-- [ ] Generate `run_metadata.json` with validation results
+- [x] Run 1 wingbeat at medium resolution (Δx = 0.125 mm) — delivered by T3b
+  (`grade-wing-grid-convergence-medium`, PR #48): `forces_medium.csv`, 128×64×128 grid
+- [x] Extract force coefficients (CL, CD) to `forces.csv` — `forces_medium.csv` (2000 steps, 29 cols)
+- [x] Compare with van Veen expected ranges — RESULTS.md "Grid convergence (T3b, medium 128³)":
+  CF_chord −66.5%, CF_normal −11.7%, 2-grid GCI bands
+- [x] Generate `run_metadata.json` with validation results — `run_metadata_t3b.json` (split
+  per-run-tier rather than one singular file, given the multiple grid tiers that followed)
 
 **Validation checkpoint**: Forces are in physically plausible range; LEV visible in vorticity plots.
 
@@ -193,12 +201,10 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
   - Kinematics overlay in top panel
 
 #### 4.2.4 Flow Figures
-- [ ] **V1**: Velocity field at mid-stroke (`fig_velocity_midstroke.png`)
-  - Z-slice through wing center
-  - Requires re-run with amr.plot_int > 0 (deferred)
-- [ ] **V2**: Vorticity at mid-stroke (`fig_vorticity_midstroke.png`)
-  - Z-slice showing LEV structure
-  - Requires re-run with amr.plot_int > 0 (deferred)
+- [x] **V1**: Velocity field at mid-stroke — delivered as `fig_velocity.pdf`/`.png` (different
+  filename, same content: z-slice through wing center at mid-stroke)
+- [x] **V2**: Vorticity at mid-stroke, showing LEV structure — delivered as
+  `fig_lev_coarse_vs_medium.pdf`/`.png` (T3b), z-slice at mid-stroke, coarse vs medium grid
 
 **Reproducibility checkpoint**: G1, K1, K2, F1 regenerable via `uv run python examples/flapping_wing/generate_all_figures.py`
 
@@ -214,20 +220,36 @@ Flapping wing validation results MUST be included in the proposal to demonstrate
   - Figure gallery with interpretations
 
 #### 4.3.2 Comparison with Literature
-- [ ] Compare force magnitudes with van Veen Fig. 3-4
-- [ ] Compare wake structure with van Veen visualizations
-- [ ] Document any discrepancies and hypotheses
+- [x] Compare force magnitudes with van Veen Fig. 3-4 — RESULTS.md "Comparison with van Veen et
+  al. (2022)" table + the full T4 per-component decomposition section
+- [ ] Compare wake structure with van Veen visualizations — PARTIAL: LEV presence/growth is
+  documented coarse-vs-medium (T3b: "a coherent leading-edge vortex is resolved on both grids...
+  resolution-fair ∫Q⁺ +9%"), but that compares our own grids to each other, not a literal
+  figure-to-figure comparison against van Veen's published Fig. 3-4 visualizations. Left
+  unchecked pending a human call on whether the grid-comparison framing satisfies the original
+  intent, or whether a literal side-by-side against van Veen's figures is still wanted.
+- [x] Document any discrepancies and hypotheses — RESULTS.md documents the added-mass share, the
+  ~0.055-cycle phase gap, and the chord-vs-grid hypothesis in detail (T4 + T3b/T3c sections)
 
 #### 4.3.3 Data Outputs
 - [x] `forces.csv` — Force time series with all columns (2000 steps, 29 cols)
-- [ ] `run_metadata.json` — Full provenance record (deferred)
-- [x] `figures/` — G1, K1, K2, F1 generated (V1, V2 deferred pending re-run)
+- [x] `run_metadata.json` — Full provenance record — three exist (`run_metadata_t2a.json`,
+  `run_metadata_t3b.json`, `run_metadata_t3c.json`), each carrying git/docker/hardware/input-hash
+  provenance, split per grid tier rather than one singular file
+- [x] `figures/` — G1, K1, K2, F1, V1, V2 all generated (see 4.2.4 above)
 
 **Documentation checkpoint**: RESULTS.md complete with all figures and interpretations
 
 ---
 
 ## Phase 5: Future Extensions (Post-Award, Weeks 7+)
+
+**Status note (2026-07-27 audit)**: none of Phase 5 is implemented, and none of it is externally
+blocked — it's simply genuinely-future, out-of-scope-for-now work, exactly as originally framed.
+Each item (Bomphrey-parameter kinematics, a time-series kinematics file reader, an MJCF→vertex
+converter, multi-body support) is a substantial standalone capability; if still wanted, it
+deserves its own fresh OpenSpec proposal rather than lingering as stale checkboxes in this
+(archived) Feb-2026 change.
 
 ### 5.1 Input-File Configurable Kinematics ✅ COMPLETE (implemented pre-proposal)
 - [x] Add `ParmParse` queries for frequency, amplitudes, phase (ExternalGeometry.H lines 86-90: `kinematics_frequency`, `kinematics_stroke_amp`, `kinematics_pitch_amp`, `kinematics_deviation_amp`, `kinematics_phase_lead`)
