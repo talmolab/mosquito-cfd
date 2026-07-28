@@ -6,14 +6,13 @@ This directory contains Dockerfiles for building reproducible IAMReX CFD simulat
 
 | Image | Tag | Purpose | Size |
 |-------|-----|---------|------|
-| `ghcr.io/talmolab/mosquito-cfd:fp32` | `fp32`, `latest-fp32` | A40 GPU prototyping (fast) | ~8-10 GB |
-| `ghcr.io/talmolab/mosquito-cfd:fp64` | `fp64`, `latest-fp64` | Validation runs (accurate) | ~8-10 GB |
+| `ghcr.io/talmolab/mosquito-cfd:fp64` | `fp64`, `latest-fp64` | CFD simulation (the only supported precision) | ~8-10 GB |
 | `ghcr.io/talmolab/mosquito-cfd:python` | `python`, `latest-python` | Post-processing only | ~1-2 GB |
 
 ## Quick Start
 
 ```bash
-# Pull the FP64 image (currently recommended - FP32 has upstream build issues)
+# Pull the FP64 image
 docker pull ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Run with GPU support
@@ -23,30 +22,34 @@ docker run --gpus all -it ghcr.io/talmolab/mosquito-cfd:fp64
 docker run --gpus all -it -v $(pwd):/workspace ghcr.io/talmolab/mosquito-cfd:fp64
 ```
 
-**Note**: FP32 image is currently blocked due to [upstream compilation bug](https://github.com/ruohai0925/IAMReX/issues/59). Use FP64 for now.
+## Why FP64 only
 
-## FP32 vs FP64
+An earlier FP32 image existed for fast A40 prototyping (37.4 vs. 0.585 TFLOPS), but it is
+**descoped as obsolete**, not merely blocked:
 
-| Aspect | FP32 | FP64 |
-|--------|------|------|
-| **A40 Performance** | 37.4 TFLOPS | 0.585 TFLOPS (64x slower) |
-| **Use Case** | Development, iteration | Validation, publication |
-| **Memory** | Half of FP64 | Full precision |
-| **Accuracy** | Sufficient for Re < 300 | Reference standard |
+- It's blocked by an unresolved [upstream IAMReX compilation bug](https://github.com/ruohai0925/IAMReX/issues/59)
+- The "fast prototyping" motivation no longer holds: every validated benchmark (sphere, ellipsoid,
+  flapping wing) and the Track B force corpus already run in FP64, and a coarse-grid FP64 wingbeat
+  completes in ~2.4 min on an A40 — the speedup isn't needed
+- FP32 raises pressure-projection accuracy concerns for CFD that produces *training data*; FP64 is
+  the defensible choice end-to-end
 
-**Recommendation**: Use FP32 for daily development. Run FP64 for final validation to verify accuracy.
+The `Dockerfile.fp32` recipe is retained in the repo for history/potential future revival, and can
+still be built manually (`docker build -f docker/Dockerfile.fp32 ...` or via the `docker.yml`
+workflow's manual `workflow_dispatch` trigger), but it is **not** built automatically on push and
+**not** published to `ghcr.io`. If FP32 is ever revived, it should be a new, scoped change.
 
 ## Building Locally
 
 ```bash
-# Build FP32 image
-docker build -f docker/Dockerfile.fp32 -t mosquito-cfd:fp32 .
-
 # Build FP64 image
 docker build -f docker/Dockerfile.fp64 -t mosquito-cfd:fp64 .
 
 # Build Python-only image
 docker build -f docker/Dockerfile.python -t mosquito-cfd:python .
+
+# Build the descoped FP32 image manually (history/future-revival only; not CI-built or published)
+docker build -f docker/Dockerfile.fp32 -t mosquito-cfd:fp32 .
 ```
 
 ### Build Arguments
@@ -54,10 +57,10 @@ docker build -f docker/Dockerfile.python -t mosquito-cfd:python .
 Override pinned commits with `--build-arg`:
 
 ```bash
-docker build -f docker/Dockerfile.fp32 \
+docker build -f docker/Dockerfile.fp64 \
   --build-arg IAMREX_COMMIT=abc123 \
   --build-arg AMREX_COMMIT=def456 \
-  -t mosquito-cfd:fp32-custom .
+  -t mosquito-cfd:fp64-custom .
 ```
 
 | Argument | Default | Description |
@@ -131,10 +134,10 @@ For non-NVIDIA systems, change the build flags:
 
 ```bash
 # Convert Docker image to Apptainer SIF
-apptainer pull mosquito-cfd-fp32.sif docker://ghcr.io/talmolab/mosquito-cfd:fp32
+apptainer pull mosquito-cfd-fp64.sif docker://ghcr.io/talmolab/mosquito-cfd:fp64
 
 # Run with GPU
-apptainer run --nv mosquito-cfd-fp32.sif
+apptainer run --nv mosquito-cfd-fp64.sif
 ```
 
 ## Updating Dependencies

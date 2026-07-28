@@ -26,9 +26,13 @@ mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sph
 ```
 
 Available images:
-- `ghcr.io/talmolab/mosquito-cfd:fp64` - Validation (accurate, currently recommended)
-- `ghcr.io/talmolab/mosquito-cfd:fp32` - A40 prototyping (blocked: [upstream bug](https://github.com/ruohai0925/IAMReX/issues/59))
+- `ghcr.io/talmolab/mosquito-cfd:fp64` - CFD simulation (the only supported precision)
 - `ghcr.io/talmolab/mosquito-cfd:python` - Post-processing only
+
+FP32 is **descoped** (not just blocked): the "fast A40 prototyping" motivation no longer holds now
+that all validated benchmarks and the Track B force corpus run in FP64, and a coarse-grid FP64
+wingbeat already completes in ~2.4 min on an A40. See [docker/README.md](docker/README.md) for
+details; the FP32 Dockerfile is retained in history but no longer built or published.
 
 See [docker/README.md](docker/README.md) for full documentation.
 
@@ -49,7 +53,7 @@ git clone https://github.com/ruohai0925/AMReX-Hydro
 git clone https://github.com/ruohai0925/IAMReX.git -b development
 ```
 
-### Build (A40 GPU, FP32)
+### Build (GPU, FP64)
 
 ```bash
 cd IAMReX/Tutorials/FlowPastSphere
@@ -58,8 +62,8 @@ export AMREX_HYDRO_HOME=/path/to/mosquito-cfd/AMReX-Hydro
 
 # Edit GNUmakefile:
 #   USE_CUDA=TRUE
-#   CUDA_ARCH=86
-#   PRECISION=FLOAT
+#   CUDA_ARCH=86  # or your GPU's compute capability
+#   PRECISION=DOUBLE
 
 make -j$(nproc)
 ```
@@ -87,7 +91,10 @@ mosquito-cfd/
 
 ## Hardware Notes
 
-The NVIDIA A40 has strong FP32 (37.4 TFLOPS) but weak FP64 (0.585 TFLOPS). We use `PRECISION=FLOAT` for development and validate accuracy against FP64 spot-checks.
+The project uses `PRECISION=DOUBLE` (FP64) throughout, a deliberate choice: FP32 raised pressure-
+projection accuracy concerns for CFD that produces training data, and every validated benchmark
+(sphere, ellipsoid, flapping wing) plus the Track B force corpus already runs comfortably in FP64
+on an A40, so the FP32-for-speed tradeoff was never actually needed.
 
 ## References
 
