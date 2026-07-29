@@ -14,18 +14,18 @@ review history for the full findings.
 
 ## 0. Fine-grid base deck — cluster-free
 
-- [ ] 0.1 Create `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` as an exact copy of
+- [x] 0.1 Create `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` as an exact copy of
   `examples/prelim_sweep/base_inputs.3d.validation`, changing only `amr.n_cell` (`64 32 64` →
   `256 128 256`). Header comment documents this is the fine-grid pilot deck and why
   `ns.fixed_dt` is left at `5e-4` (untested-but-plausibly-stable, not pre-emptively dropped).
-- [ ] 0.2 **Test first (deck invariance):** add `tests/test_fine_pilot_deck.py` with
+- [x] 0.2 **Test first (deck invariance):** add `tests/test_fine_pilot_deck.py` with
   `test_fine_pilot_deck_matches_coarse_base_except_n_cell`. Parse both decks into `{key: value}`
   maps (reuse the parsing approach from `tests/test_convergence_deck.py`); assert the symmetric
   difference of keys is empty; assert `amr.n_cell` is `"256 128 256"` in the fine pilot deck and
   `"64 32 64"` in the coarse base; assert every other value is identical. Fails: deck missing or
   an unexpected field changed.
-- [ ] 0.3 **Verify:** `uv run pytest tests/test_fine_pilot_deck.py -v`.
-- [ ] 0.4 Update `docs/force_surrogate/roadmap.md` now (no new information needed — this is
+- [x] 0.3 **Verify:** `uv run pytest tests/test_fine_pilot_deck.py -v`.
+- [x] 0.4 Update `docs/force_surrogate/roadmap.md` now (no new information needed — this is
   already a merged, known fact) with the specific T3c finding: `CF_chord` is +115% off the
   QS-model target at the corpus's current coarse resolution, and a pilot is in flight
   (`add-fine-grid-training-pilot`) to assess fine-grid feasibility before regenerating. Do not
@@ -35,7 +35,7 @@ review history for the full findings.
 
 ## 1. Pilot deck generation (TDD, cluster-free)
 
-- [ ] 1.1 **Test first (byte-reproducibility):** add
+- [x] 1.1 **Test first (byte-reproducibility):** add
   `test_pilot_decks_are_byte_reproducible_from_generate_sweep` to `tests/test_fine_pilot_deck.py`.
   Call `generate_sweep(base_inputs_path=".../base_inputs.3d.fine", output_dir=tmp_path, ...)`
   twice with the 3 pilot configs (`s55_f115_p45`, `s45_f100_p45`, `s35_f085_p45`, each
@@ -46,11 +46,11 @@ review history for the full findings.
   files + `sweep_manifest.json`), and assert the call does not raise. Reuses `generate_sweep()`
   unmodified — this pins the pilot's specific invocation (including the `n_holdout=0`
   requirement), not new code.
-- [ ] 1.2 **Test first (max_step values):** add `test_pilot_max_step_matches_run_duration_formula`.
+- [x] 1.2 **Test first (max_step values):** add `test_pilot_max_step_matches_run_duration_formula`.
   Assert `derive_run_duration(1.15, 2, 5e-4) == (3478, ...)`,
   `derive_run_duration(1.00, 2, 5e-4) == (4000, ...)`,
   `derive_run_duration(0.85, 2, 5e-4) == (4706, ...)`.
-- [ ] 1.3 **Test first (isolation guard, static):** add
+- [x] 1.3 **Test first (isolation guard, static):** add
   `test_pilot_output_dir_and_workspace_path_differ_from_coarse_corpus` to
   `tests/test_fine_pilot_deck.py`. This asserts, **statically** (no execution of
   `generate_sweep()` against a real path, no cluster call):
@@ -66,11 +66,11 @@ review history for the full findings.
   the script's real defaults it risks actually triggering `generate_sweep()`'s stale-deck-pruning
   `unlink()` against the committed 27-config corpus before the test could fail. Replaced with
   this static check + a one-time manual hash sanity-check in 1.5, not a repeatable executed test.)
-- [ ] 1.4 Write a short, one-off pilot-generation script (not a permanent library addition —
+- [x] 1.4 Write a short, one-off pilot-generation script (not a permanent library addition —
   `examples/prelim_sweep_fine_pilot/generate_pilot.py`) that calls `generate_sweep()` with the
   fine base deck, the 3 pilot configs, `n_holdout=0`, `n_wingbeats=2`, `dt=5e-4`, writing into
   `examples/prelim_sweep_fine_pilot/`. Defines the output-directory constant task 1.3 checks.
-- [ ] 1.5 **Verify:** `uv run pytest tests/test_fine_pilot_deck.py -v` (1.3's static guard must
+- [x] 1.5 **Verify:** `uv run pytest tests/test_fine_pilot_deck.py -v` (1.3's static guard must
   already be green). Then run the generation script for real, once, and manually confirm (a) the
   3 decks + manifest land under `examples/prelim_sweep_fine_pilot/inputs/`, and (b) as a one-time
   passive sanity check, `examples/prelim_sweep/`'s committed files are unchanged (`git status`
@@ -186,16 +186,16 @@ later via `monitor_workflow.sh get/logs <name>`.
 
 ## 4. Verification
 
-- [ ] 4.1 `uv run ruff check src/ tests/ examples/prelim_sweep_fine_pilot/` and
+- [x] 4.1 `uv run ruff check src/ tests/ examples/prelim_sweep_fine_pilot/` and
   `uv run ruff format --check` on the same paths — clean. Confirm
   `examples/prelim_sweep_fine_pilot/` is added to CI's lint invocation
   (`.github/workflows/ci.yml`'s ruff steps currently hardcode a directory list — per that file's
   own comment, a new example directory must be added there explicitly, or the new
   `generate_pilot.py` script is silently never linted in CI).
-- [ ] 4.2 `uv run pytest tests/test_fine_pilot_deck.py -v` — Phase 0/1 tests pass; Phase 3 tests
+- [x] 4.2 `uv run pytest tests/test_fine_pilot_deck.py -v` — Phase 0/1 tests pass; Phase 3 tests
   report SKIPPED per-config until that config's data is committed, then PASS once it lands.
-- [ ] 4.3 The full suite `uv run pytest tests/` is green (no regressions).
-- [ ] 4.4 `openspec validate add-fine-grid-training-pilot --strict` passes.
+- [x] 4.3 The full suite `uv run pytest tests/` is green (no regressions).
+- [x] 4.4 `openspec validate add-fine-grid-training-pilot --strict` passes.
 
 **PR strategy**: single PR, opened right after Phase 0/1 commits land (cluster-free, CI-green) —
 do not wait until Phase 2/3 fully complete to open it. Mirrors `add-wing-fine-grid-convergence`
