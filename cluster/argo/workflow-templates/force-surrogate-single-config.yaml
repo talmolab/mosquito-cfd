@@ -127,14 +127,19 @@ spec:
             fieldPath: spec.nodeName
 
       # A full A40: IAMReX FP64 used ~34 GB in the smoke run, so no gpu-fraction sharing (D1).
+      # Host RAM (K8s memory, distinct from the GPU VRAM above) bumped 32Gi/16Gi -> 64Gi/32Gi for
+      # the add-fine-grid-training-pilot 256x128x256 submissions: fine grid is ~64x the coarse
+      # cell count, and AMReX host-side bookkeeping (MultiFab metadata, staging buffers, particle
+      # structures) plausibly scales with it — cheap insurance against a mid-run host-RAM OOMKill
+      # (a different failure mode than GPU OOM), not yet observed at the coarse 32Gi/16Gi setting.
       resources:
         limits:
           nvidia.com/gpu: 1
           cpu: "8"
-          memory: "32Gi"
+          memory: "64Gi"
         requests:
           cpu: "4"
-          memory: "16Gi"
+          memory: "32Gi"
 
       # mpirun --allow-run-as-root needs to BE root; the NVIDIA device plugin injects GPU access
       # without host-device/kernel access, so least-privilege omits the privileged flag (D1).
