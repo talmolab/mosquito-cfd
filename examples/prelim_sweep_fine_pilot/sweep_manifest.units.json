@@ -1,0 +1,8 @@
+{
+  "stroke_amp_deg": "deg",
+  "pitch_amp_deg": "deg",
+  "frequency_fstar": "dimensionless (f*)",
+  "nu_star": "dimensionless",
+  "reynolds": "dimensionless",
+  "stop_time": "dimensionless"
+}

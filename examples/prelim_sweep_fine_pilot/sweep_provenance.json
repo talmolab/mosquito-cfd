@@ -1,0 +1,9 @@
+{
+  "base_inputs": {
+    "path": "examples/prelim_sweep_fine_pilot/base_inputs.3d.fine",
+    "sha256": "5716225bb6875d9f68d940b65547c7742620e89b953a149ecbf75f1e44228ea2"
+  },
+  "generated_at": "2026-07-29T00:00:00+00:00",
+  "git_commit": "565930ed309ea3dffe74fecf0bf3f6c5066b4860",
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
+}
