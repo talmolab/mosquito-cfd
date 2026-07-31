@@ -34,6 +34,11 @@ CSV_NAME="${CSV_NAME:-IB_Particle_1.csv}"
 SMOKE_CONFIG_NAME="${SMOKE_CONFIG_NAME:-s35_f085_p30}"
 SMOKE_INPUT_FILE="${SMOKE_INPUT_FILE:-inputs/inputs.3d.s35_f085_p30}"
 SMOKE_MAX_STEP="${SMOKE_MAX_STEP:-4706}"
+# Per-pod host RAM (K8s memory, distinct from GPU VRAM). Defaults match the
+# add-fine-grid-training-pilot bump; override for a coarse-grid-sized re-run (e.g.
+# POD_MEMORY_LIMIT=32Gi POD_MEMORY_REQUEST=16Gi) without editing the shared WorkflowTemplate.
+POD_MEMORY_LIMIT="${POD_MEMORY_LIMIT:-64Gi}"
+POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -51,6 +56,8 @@ while [[ $# -gt 0 ]]; do
     --timestamp) TIMESTAMP="$2"; shift 2;;
     --csv-name) CSV_NAME="$2"; shift 2;;
     --namespace) NAMESPACE="$2"; shift 2;;
+    --pod-memory-limit) POD_MEMORY_LIMIT="$2"; shift 2;;
+    --pod-memory-request) POD_MEMORY_REQUEST="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
 done
@@ -79,7 +86,9 @@ case "$COMMAND" in
       --parameter config-name="$SMOKE_CONFIG_NAME" \
       --parameter input-file="$SMOKE_INPUT_FILE" \
       --parameter max-step="$SMOKE_MAX_STEP" \
-      --parameter csv-name="$CSV_NAME"
+      --parameter csv-name="$CSV_NAME" \
+      --parameter pod-memory-limit="$POD_MEMORY_LIMIT" \
+      --parameter pod-memory-request="$POD_MEMORY_REQUEST"
     ;;
   full)
     require_image
@@ -89,7 +98,9 @@ case "$COMMAND" in
       --parameter docker-digest="$IMAGE" \
       --parameter timestamp="$TIMESTAMP" \
       --parameter workspace-hostpath="$WORKSPACE_HOSTPATH" \
-      --parameter csv-name="$CSV_NAME"
+      --parameter csv-name="$CSV_NAME" \
+      --parameter pod-memory-limit="$POD_MEMORY_LIMIT" \
+      --parameter pod-memory-request="$POD_MEMORY_REQUEST"
     ;;
   help|--help|-h)
     sed -n '2,22p' "${BASH_SOURCE[0]}"

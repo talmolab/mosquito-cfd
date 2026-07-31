@@ -1,0 +1,60 @@
+{
+  "run_id": "8d72cc85-ae8a-45cb-835f-68074294d710",
+  "timestamp": "2026-07-29T17:57:46+00:00",
+  "git": {
+    "commit": "770847bf3bc71cd139eff932b442034097c19886",
+    "branch": "add-fine-grid-training-pilot",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd:fp64",
+  "image_digest": "sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a",
+  "inputs": {
+    "file": "examples/prelim_sweep_fine_pilot/inputs/inputs.3d.s55_f115_p45",
+    "hash": "128b61cbe190df0ba073bb51df688102a010adf2203ed4bae084f98436c9cb4f"
+  },
+  "timing": {
+    "wall_time_s": 7032.459991,
+    "timesteps": 3478,
+    "s_per_step": 2.021984,
+    "final_time": 1.7385
+  },
+  "outputs": {
+    "directory": "examples/prelim_sweep_fine_pilot",
+    "plot_files": [],
+    "checkpoint_files": [],
+    "note": "plotfiles/checkpoints written on the cluster run dir (runs/s55_f115_p45/) but not committed; forces CSV only"
+  },
+  "config": "s55_f115_p45",
+  "tier": "fine-grid-pilot",
+  "grid": "256 128 256",
+  "kinematics": {
+    "stroke_amp_deg": 55.0,
+    "frequency_fstar": 1.15,
+    "pitch_amp_deg": 45.0,
+    "reynolds": 90.47137367665243
+  },
+  "fixed_dt": 0.0005,
+  "dt_reduced": false,
+  "max_step": 3478,
+  "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
+  "run_platform": "RunAI cluster (talmo-lab), NVIDIA A40 46068 MiB, gpu-node14; add-fine-grid-training-pilot config 1/3 (highest Reynolds); STABLE at the standard dt=5e-4, no CFL fallback needed; AMReX 'The Arena' max used 7998 MiB (well within the 46 GB card)",
+  "analysis_host": {
+    "hostname": "gpu-node14",
+    "gpus": [
+      {
+        "model": "NVIDIA A40",
+        "memory_mb": 46068,
+        "driver_version": "550.90.07"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "orchestration": {
+    "workflow_uid": "7a5402a9-7163-48fe-8dc4-bfc1a98da754",
+    "workflow_name": "force-surrogate-smoke-xvf8q",
+    "pod": "force-surrogate-smoke-xvf8q-run-config-2291620682",
+    "node": "gpu-node14",
+    "retry": "0"
+  }
+}

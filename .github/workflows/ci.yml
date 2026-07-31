@@ -16,14 +16,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      # scripts/ and examples/prelim_sweep/ are load-bearing for this step: ruff errors
-      # (E902) on a missing path, so a rename/move of either dir must update these two run
-      # lines too. (git does not track empty dirs, so each must contain a committed .py.)
+      # scripts/, examples/prelim_sweep/, and examples/prelim_sweep_fine_pilot/ are load-bearing
+      # for this step: ruff errors (E902) on a missing path, so a rename/move of any of these
+      # dirs must update these two run lines too. (git does not track empty dirs, so each must
+      # contain a committed .py.)
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/
+        run: uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check src/ tests/ scripts/ examples/prelim_sweep/
+        run: uv run ruff format --check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/
 
   test:
     name: Test

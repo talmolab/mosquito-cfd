@@ -32,6 +32,19 @@ spec:
       value: "0.99"
     - name: csv-name         # force-CSV name escape hatch (assumed; verify on the first/smoke run)
       value: "IB_Particle_1.csv"
+    # Host RAM (K8s memory, distinct from GPU VRAM) — parameterized (not hardcoded) so a future
+    # coarse-grid re-run isn't silently stuck with the fine-grid-sized request, and vice versa.
+    # Defaults reflect the add-fine-grid-training-pilot bump (32Gi/16Gi -> 64Gi/32Gi): fine
+    # 256x128x256 is ~64x the coarse grid's cell count, and AMReX host-side bookkeeping
+    # (MultiFab metadata, staging buffers, particle structures) plausibly scales with it — cheap
+    # insurance against a mid-run host-RAM OOMKill (a different failure mode than GPU OOM). No
+    # host-RAM high-water-mark has actually been captured for any run (only the GPU-side Arena
+    # stats below), so these defaults have no empirical backing yet — a follow-on should log
+    # host-RAM usage (e.g. /proc/self/status VmHWM) into run_metadata.json before scaling further.
+    - name: pod-memory-limit
+      value: "64Gi"
+    - name: pod-memory-request
+      value: "32Gi"
 
   templates:
   - name: run-config
@@ -43,6 +56,20 @@ spec:
     # preemptible class for GPU pods (relion/cryosparc run with it); the per-pod retryStrategy
     # re-runs any evicted config on a fresh pod.
     priorityClassName: interactive-preemptible
+    # Overrides the container's base resources.limits/requests.memory (below) with the caller's
+    # pod-memory-limit/pod-memory-request inputs.parameters at submit time -- the supported Argo
+    # mechanism for a templated resource.Quantity value, since that field is typed (not a plain
+    # string) and `argo lint` rejects `{{...}}` written directly into resources.limits.memory.
+    # "main" is Argo's fixed name for the pod's single container when using the `container:`
+    # template shorthand (not `containers:`).
+    podSpecPatch: |
+      containers:
+        - name: main
+          resources:
+            limits:
+              memory: "{{inputs.parameters.pod-memory-limit}}"
+            requests:
+              memory: "{{inputs.parameters.pod-memory-request}}"
     inputs:
       parameters:
       - name: image
@@ -51,13 +78,17 @@ spec:
       - name: max-step
       - name: docker-digest
       - name: timestamp
-      # threshold + csv-name carry their own defaults here so a templateRef caller (the smoke /
-      # sweep workflows) may omit them — a WorkflowTemplate's `arguments.parameters` defaults do
-      # NOT apply to templateRef invocations, only to running it directly as a Workflow.
+      # threshold + csv-name + pod-memory-* carry their own defaults here so a templateRef caller
+      # (the smoke / sweep workflows) may omit them — a WorkflowTemplate's `arguments.parameters`
+      # defaults do NOT apply to templateRef invocations, only to running it directly as a Workflow.
       - name: threshold
         value: "0.99"
       - name: csv-name
         value: "IB_Particle_1.csv"
+      - name: pod-memory-limit
+        value: "64Gi"
+      - name: pod-memory-request
+        value: "32Gi"
 
     metadata:
       labels:
@@ -126,7 +157,22 @@ spec:
           fieldRef:
             fieldPath: spec.nodeName
 
-      # A full A40: IAMReX FP64 used ~34 GB in the smoke run, so no gpu-fraction sharing (D1).
+      # A full A40: IAMReX FP64 RESERVED ~34 GB in the smoke run via AMReX's default
+      # the-Arena allocation (~3/4 x the A40's 46 GB VRAM -- a fixed fraction of the card, NOT
+      # grid-resolution-dependent; see project.md's "A5000 arena cap" note), so no gpu-fraction
+      # sharing (D1). The add-fine-grid-training-pilot's 256x128x256 runs reserved the same
+      # ~34 GB (34052 MiB allocated, confirmed via AMReX's end-of-run report) but only ACTUALLY
+      # USED ~8 GB (7998 MiB) of it -- allocated and used are different arena metrics; allocated
+      # tracks the card fraction, used tracks the real per-step working set, which does scale
+      # with grid resolution.
+      #
+      # Host RAM limit/request below are the SAFE, ORIGINAL (pre-fine-grid-pilot) defaults --
+      # overridden per submission by the podSpecPatch below, which applies inputs.parameters
+      # pod-memory-limit/pod-memory-request (Kubernetes resource.Quantity fields are typed, not
+      # plain strings, so `argo lint` rejects a templated `{{...}}` value written directly here;
+      # podSpecPatch is Argo's supported mechanism for a runtime-templated resource value). If the
+      # patch ever failed to apply for any reason, the pod would fall back to this smaller,
+      # previously-proven-safe request rather than silently running with an unvalidated one.
       resources:
         limits:
           nvidia.com/gpu: 1

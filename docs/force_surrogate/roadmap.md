@@ -182,6 +182,26 @@ fixtures **before** the real corpus exists (CC-2), so PR3.5 (cluster) and PR4 (l
 parallel once PR1+PR2 land. PR5 needs PR4's dataset + PR3.5's corpus; PR6 needs PR5's predictions +
 PR1's helpers.
 
+### Grid-resolution finding (post-corpus) and fine-grid pilot
+
+The committed 27-config corpus above was generated entirely on the **coarse 64×32×64 grid**
+(`base_inputs.3d.validation`). Separate, already-merged grid-convergence work (T3b/T3c,
+`add-wing-fine-grid-convergence`) found that this coarse grid badly under-resolves `CF_chord`:
+**+115%** off the van Veen QS-model target (0.923 vs. ~0.43), vs. only ~4–5% at fine 256³.
+`CF_normal` is comparatively well-behaved even at medium resolution. This means the corpus's
+`CF_x`/chord-component training target is trustworthy only in relative/pipeline terms
+(CC-4's "pipeline readiness on coarse-grid forces," not validated aerodynamics), not in absolute
+magnitude.
+
+**Pilot complete — GO recommendation:** `add-fine-grid-training-pilot` ran a 3-config pilot at
+fine 256³ resolution (reusing `generate_sweep()`/`submit_workflow.sh smoke` unmodified, RunAI
+`talmo-lab`). All 3 configs — spanning the sweep's full kinematic range — completed cleanly at
+the standard `dt=5e-4` with **no CFL fallback needed and no preemption**. Measured cost
+(~2.01 s/step, constant across configs) projects the full 27-config regeneration at
+**~61 hours (~2.55 days) of serial single-A40 wall time** — far below the ~20-day worst case
+that motivated the pilot. See `docs/force_surrogate/fine-grid-pilot-report.md` for the full
+per-config breakdown and the follow-on-change caveats (untested pitch levels, quota headroom).
+
 ### Post-corpus follow-up issues (tracked, non-gating)
 
 Spawned by the `/review-pr` of the dataset commit ([PR #18](https://github.com/talmolab/mosquito-cfd/pull/18)) once the real corpus landed. Tech-debt / consistency only — **does not gate** PR5/PR6 or submission.
