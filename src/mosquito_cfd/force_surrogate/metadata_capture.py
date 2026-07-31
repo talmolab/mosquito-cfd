@@ -34,8 +34,14 @@ artifact — nothing is re-typed by a human:
 - ``notes``: optional free-text field for genuinely exceptional commentary; omitted entirely
   (not an empty string) when not supplied.
 
-A pod-reported row count (``rows``) that disagrees with the CSV-derived ``timesteps`` raises,
-rather than silently preferring one value (the exact class of bug this change exists to catch).
+Trust-one-artifact guards (all required, none silently skipped): the pod's reported ``status``
+must be ``"completed"`` (a failed/incomplete run is refused, not silently assembled as if it
+succeeded); the pod's ``deck_sha256`` must match a freshly computed hash of the ``--deck`` file
+actually supplied (an operator pointing ``--deck`` at a stale/wrong file is caught, not silently
+trusted); and the pod-reported row count (``rows``) must be present and must match the
+CSV-derived ``timesteps`` (a missing or disagreeing count raises, never silently skipped or
+preferring one value) — all three are exactly the class of "trust the wrong artifact" bug this
+change exists to catch.
 
 Non-goals: does not modify ``run_one_config.py``'s pod runtime behavior, does not touch the 3
 already-committed ``examples/prelim_sweep_fine_pilot/run_metadata_*.json`` files (see
@@ -54,10 +60,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mosquito_cfd.benchmarks.metadata import hash_file
+from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
 from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-_ARENA_USED_RE = re.compile(r"Arena.*?\bused\b.*?([\d.]+)\s*Mi?B", re.IGNORECASE)
+# Anchored to "[The Arena]" specifically -- a real GPU-build run.log typically also emits
+# "[The Device Arena]"/"[The Managed Arena]"/"[The Pinned Arena]" lines, which report different
+# (and sometimes larger) figures; matching "Arena" unanchored would silently report the wrong
+# arena's peak.
+_ARENA_USED_RE = re.compile(
+    r"\[The Arena\].*?\bused\b.*?([\d.]+)\s*Mi?B", re.IGNORECASE
+)
 
 # The sweep's nominal timestep (matches `sweep_manifest.json`'s top-level "dt" for every config
 # that hasn't needed the CFL fallback).
@@ -222,17 +236,34 @@ def source_config_fields(
             f"config {config_name!r} not found in manifest {manifest_path} "
             f"(available: {available})"
         )
+    deck_path = Path(deck_path)
     deck = parse_deck(deck_path)
+
+    def _entry_field(key: str) -> Any:
+        if key not in entry:
+            raise KeyError(
+                f"manifest entry for config {config_name!r} in {manifest_path} is missing "
+                f"required field {key!r}"
+            )
+        return entry[key]
+
+    def _deck_field(key: str) -> str:
+        if key not in deck:
+            raise KeyError(
+                f"deck {deck_path} for config {config_name!r} is missing required key {key!r}"
+            )
+        return deck[key]
+
     return {
         "kinematics": {
-            "stroke_amp_deg": entry["stroke_amp_deg"],
-            "frequency_fstar": entry["frequency_fstar"],
-            "pitch_amp_deg": entry["pitch_amp_deg"],
-            "reynolds": entry["reynolds"],
+            "stroke_amp_deg": _entry_field("stroke_amp_deg"),
+            "frequency_fstar": _entry_field("frequency_fstar"),
+            "pitch_amp_deg": _entry_field("pitch_amp_deg"),
+            "reynolds": _entry_field("reynolds"),
         },
-        "grid": deck["amr.n_cell"],
-        "fixed_dt": float(deck["ns.fixed_dt"]),
-        "max_step": entry["max_step"],
+        "grid": _deck_field("amr.n_cell"),
+        "fixed_dt": float(_deck_field("ns.fixed_dt")),
+        "max_step": _entry_field("max_step"),
     }
 
 
@@ -341,11 +372,22 @@ def query_argo_workflow_status(workflow_name: str) -> dict[str, Any]:
         ) from exc
 
 
+def _parse_argo_timestamp(value: str) -> datetime:
+    """Parse an Argo/Kubernetes ISO-8601 timestamp (``Z``-suffixed) into a ``datetime``."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 def compute_wall_time_s(status: dict[str, Any]) -> float:
     """Compute wall-clock duration from a completed Argo workflow's node timestamps.
 
     Reflects only the final **successful** attempt's duration — a failed attempt followed by a
-    successful retry contributes nothing to the result.
+    successful retry contributes nothing to the result. Excludes Argo's own ``"Retry"``-type
+    wrapper node: when a step has a ``retryStrategy`` (as
+    ``cluster/argo/workflow-templates/force-surrogate-single-config.yaml`` does), Argo emits a
+    wrapper node whose ``phase`` also becomes ``"Succeeded"`` but whose ``startedAt`` is the
+    *first* (failed) attempt's start — including it would silently inflate the result by the
+    failed attempt's duration. Timestamps are parsed to ``datetime`` (not compared as raw
+    strings) so mixed sub-second-precision formatting can't misorder attempts.
 
     Args:
         status: The parsed Argo workflow status (as returned by
@@ -355,25 +397,26 @@ def compute_wall_time_s(status: dict[str, Any]) -> float:
         The successful attempt's duration in seconds.
 
     Raises:
-        ValueError: If no node has phase ``"Succeeded"`` with both ``startedAt`` and
+        ValueError: If no non-Retry node has phase ``"Succeeded"`` with both ``startedAt`` and
             ``finishedAt`` timestamps.
     """
     nodes = status.get("status", {}).get("nodes", {})
-    succeeded = [
-        node
-        for node in nodes.values()
-        if node.get("phase") == "Succeeded"
-        and node.get("startedAt")
-        and node.get("finishedAt")
-    ]
-    if not succeeded:
-        raise ValueError(
-            "Argo workflow status has no Succeeded node with both startedAt and finishedAt "
-            "timestamps; cannot compute wall_time_s"
+    candidates = []
+    for node in nodes.values():
+        if node.get("phase") != "Succeeded" or node.get("type") == "Retry":
+            continue
+        started_raw, finished_raw = node.get("startedAt"), node.get("finishedAt")
+        if not started_raw or not finished_raw:
+            continue
+        candidates.append(
+            (_parse_argo_timestamp(started_raw), _parse_argo_timestamp(finished_raw))
         )
-    final = max(succeeded, key=lambda node: node["finishedAt"])
-    started = datetime.fromisoformat(final["startedAt"].replace("Z", "+00:00"))
-    finished = datetime.fromisoformat(final["finishedAt"].replace("Z", "+00:00"))
+    if not candidates:
+        raise ValueError(
+            "Argo workflow status has no non-Retry Succeeded node with both startedAt and "
+            "finishedAt timestamps; cannot compute wall_time_s"
+        )
+    started, finished = max(candidates, key=lambda pair: pair[1])
     return (finished - started).total_seconds()
 
 
@@ -448,16 +491,46 @@ def assemble_run_metadata(
     Raises:
         FileNotFoundError: If any input file is missing.
         ValueError: If any input is malformed, the docker digest or git commit fails validation,
-            or the pod-reported row count disagrees with the CSV-derived timestep count.
-        KeyError: If ``config_name`` is not present in the manifest.
+            the pod-reported status is not ``"completed"``, the ``--deck`` file's hash doesn't
+            match the pod-recorded ``deck_sha256``, or the pod-reported row count is missing or
+            disagrees with the CSV-derived timestep count.
+        KeyError: If ``config_name`` is not present in the manifest, or the manifest entry/deck
+            is missing a required field.
     """
     pod_metadata = load_pod_run_metadata(pod_metadata_path)
     docker_image = extract_docker_image(pod_metadata)
     git_info = extract_git_info(pod_metadata)
 
+    pod_status = pod_metadata.get("status")
+    if pod_status != STATUS_COMPLETED:
+        raise ValueError(
+            f"pod-reported status for config {config_name!r} is {pod_status!r}, not "
+            f"{STATUS_COMPLETED!r}; refusing to assemble metadata for a non-completed run"
+        )
+
+    deck_path = Path(deck_path)
+    pod_deck_sha256 = pod_metadata.get("deck_sha256")
+    if pod_deck_sha256 is None:
+        raise ValueError(
+            f"pod-side run_metadata.json for config {config_name!r} has no deck_sha256; "
+            "cannot verify the supplied --deck is the one actually executed"
+        )
+    actual_deck_sha256 = hash_file(deck_path)
+    if actual_deck_sha256 != pod_deck_sha256:
+        raise ValueError(
+            f"--deck {deck_path} (sha256:{actual_deck_sha256}) does not match the pod-recorded "
+            f"deck_sha256 ({pod_deck_sha256}) for config {config_name!r}; the supplied deck is "
+            "not the one actually executed"
+        )
+
     final_time, timesteps = read_final_time_from_csv(csv_path)
-    pod_rows = pod_metadata.get("rows")
-    if pod_rows is not None and int(pod_rows) != timesteps:
+    if "rows" not in pod_metadata:
+        raise ValueError(
+            f"pod-side run_metadata.json for config {config_name!r} has no 'rows' field; "
+            "cannot cross-validate against the CSV-derived timestep count"
+        )
+    pod_rows = pod_metadata["rows"]
+    if int(pod_rows) != timesteps:
         raise ValueError(
             f"pod-reported row count ({pod_rows}) disagrees with the CSV-derived timestep "
             f"count ({timesteps}) for config {config_name!r}"

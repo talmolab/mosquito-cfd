@@ -25,9 +25,13 @@ written back to that directory.
 - `argo_status_simple.json` — a canned `argo get <name> -o json`-shaped response with one
   `Succeeded` node, `startedAt`/`finishedAt` spanning exactly `s35_f085_p45`'s real committed
   `timing.wall_time_s` (`9448.466969`).
-- `argo_status_with_retry.json` — a canned response with one `Failed` node followed by one
-  `Succeeded` node, for testing that `wall_time_s` reflects only the final successful attempt's
-  duration, not the full span including the failed attempt. Not tied to a real pilot config
-  (synthetic workflow/pod names).
+- `argo_status_with_retry.json` — a canned response with one `Failed` Pod node, one `Succeeded`
+  Pod node, AND a `Succeeded` `"type": "Retry"` wrapper node (matching real Argo's node model for
+  a step with `retryStrategy`, as `cluster/argo/workflow-templates/force-surrogate-single-config.yaml`
+  configures) whose `startedAt` spans back to the first (failed) attempt but whose `finishedAt`
+  ties the real successful attempt's. Tests both that `wall_time_s` reflects only the final
+  successful **Pod** attempt's duration (not the full span including the failed attempt) and that
+  the `Retry` wrapper node is excluded rather than winning the tie. Not tied to a real pilot
+  config (synthetic workflow/pod names).
 
 Test data only — do not import fixtures from anywhere outside `tests/`.

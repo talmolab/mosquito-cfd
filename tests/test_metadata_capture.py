@@ -154,6 +154,19 @@ def test_stability_derived_from_fixed_dt_alone():
     assert mc.derive_stability(2.5e-4) == "stable_at_2.5e-4_fallback"
 
 
+def test_parse_arena_max_mib_ignores_other_arena_types(tmp_path):
+    """A real GPU-build log also emits Device/Managed/Pinned Arena lines with different (here,
+    larger) figures -- only "[The Arena]" itself should be reported, not the max across all."""
+    log = tmp_path / "run.log"
+    log.write_text(
+        "[The Device Arena] Total space used (max across MPI ranks): 40000 MiB\n"
+        "[The Arena] Total space used (max across MPI ranks): 7998 MiB\n"
+        "[The Pinned Arena] Total space used (max across MPI ranks): 20000 MiB\n",
+        encoding="utf-8",
+    )
+    assert mc.parse_arena_max_mib(log) == 7998
+
+
 # ---------------------------------------------------------------------------
 # 4. Manifest/deck sourcing
 # ---------------------------------------------------------------------------
@@ -178,6 +191,27 @@ def test_parse_deck_skips_lines_with_no_key(tmp_path):
     deck = tmp_path / "inputs.3d.test"
     deck.write_text("= no_key_here\namr.n_cell = 64 32 64\n", encoding="utf-8")
     assert mc.parse_deck(deck) == {"amr.n_cell": "64 32 64"}
+
+
+def test_source_config_fields_raises_clear_error_on_missing_deck_key(tmp_path):
+    deck = tmp_path / "inputs.3d.test"
+    deck.write_text("amr.n_cell = 64 32 64\n", encoding="utf-8")  # no ns.fixed_dt
+    with pytest.raises(KeyError, match="ns.fixed_dt"):
+        mc.source_config_fields(
+            manifest_path=_MANIFEST, deck_path=deck, config_name="s35_f085_p45"
+        )
+
+
+def test_source_config_fields_raises_clear_error_on_missing_manifest_field(tmp_path):
+    manifest = tmp_path / "sweep_manifest.json"
+    manifest.write_text(
+        json.dumps({"configs": [{"name": "s35_f085_p45", "max_step": 4706}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(KeyError, match="stroke_amp_deg"):
+        mc.source_config_fields(
+            manifest_path=manifest, deck_path=_DECK, config_name="s35_f085_p45"
+        )
 
 
 def test_manifest_lookup_raises_on_missing_config():
@@ -398,6 +432,46 @@ def test_assemble_metadata_raises_on_row_count_mismatch_between_pod_and_csv(tmp_
 
     with pytest.raises(ValueError, match="4700"):
         _assemble(pod_metadata_path=mismatched)
+
+
+def test_assemble_metadata_raises_on_missing_rows_field(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    del pod_metadata["rows"]
+    missing_rows = tmp_path / "run_metadata.json"
+    missing_rows.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="rows"):
+        _assemble(pod_metadata_path=missing_rows)
+
+
+def test_assemble_metadata_raises_on_non_completed_status(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["status"] = "failed"
+    failed = tmp_path / "run_metadata.json"
+    failed.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="failed"):
+        _assemble(pod_metadata_path=failed)
+
+
+def test_assemble_metadata_raises_on_deck_hash_mismatch(tmp_path):
+    wrong_deck = tmp_path / "inputs.3d.wrong"
+    wrong_deck.write_text(
+        "amr.n_cell = 1 1 1\nns.fixed_dt = 0.0005\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="deck_sha256"):
+        _assemble(deck_path=wrong_deck)
+
+
+def test_assemble_metadata_raises_on_missing_deck_sha256(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    del pod_metadata["deck_sha256"]
+    no_hash = tmp_path / "run_metadata.json"
+    no_hash.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="deck_sha256"):
+        _assemble(pod_metadata_path=no_hash)
 
 
 @pytest.mark.skipif(
