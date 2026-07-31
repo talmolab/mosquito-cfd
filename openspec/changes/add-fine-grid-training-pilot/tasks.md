@@ -91,28 +91,33 @@ and would exceed a normal tool call's timeout on a run this long. Submit in a de
 mode, confirm the workflow object exists, do the short sanity check, then move on; check status
 later via `monitor_workflow.sh get/logs <name>`.
 
-- [ ] 2.0 Confirm the current `:fp64` digest (`ghcr.io/talmolab/mosquito-cfd@sha256:...`) — the
+- [x] 2.0 Confirm the current `:fp64` digest (`ghcr.io/talmolab/mosquito-cfd@sha256:...`) — the
   one already used for the original 27-config coarse sweep should already contain
   `run_one_config` and be safe to reuse (this proposal makes no code changes, so no fresh
   merge/build is required). Record the exact digest used; it's captured automatically in each
   config's `run_metadata_*.json` via the existing schema.
-- [ ] 2.1 Stage `examples/prelim_sweep_fine_pilot/` (decks, `wing.vertex`) onto
+  **Done:** `sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a` (confirmed
+  via the `docker.yml` "Emit FP64 image digest to job summary" step on the latest main-branch
+  build).
+- [x] 2.1 Stage `examples/prelim_sweep_fine_pilot/` (decks, `wing.vertex`) onto
   `WORKSPACE_HOSTPATH=/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine_pilot`
   (pinned — mirrors the existing `flapping_wing/`/`prelim_sweep/` Z:\ ↔ NFS pattern exactly; not
   an open question). This is a hard prerequisite for every task below — nothing in this phase
   runs without it.
-- [ ] 2.2 Bump the single-config Argo template's pod `resources.limits.memory` /
+- [x] 2.2 Bump the single-config Argo template's pod `resources.limits.memory` /
   `requests.memory` for these 3 submissions (e.g. `32Gi` → `64Gi`) — a distinct concern from GPU
   VRAM (below): fine 256×128×256 is ~64× the coarse grid's cell count, and host-side AMReX
   bookkeeping (not just GPU memory) plausibly scales with it. Cheap insurance against a
   mid-run OOMKill (a different failure mode than GPU OOM) several hours into a run.
-- [ ] 2.3 Submit config 1 (`s55_f115_p45`, highest Reynolds — closest to the already-known
+  **Done:** committed `770847b`, applied to the cluster's live WorkflowTemplate via
+  `submit_workflow.sh template`.
+- [x] 2.3 Submit config 1 (`s55_f115_p45`, highest Reynolds — closest to the already-known
   CFL-marginal validated case, so submitted first to learn fastest whether the fallback is
   needed at all) via `cluster/argo/scripts/submit_workflow.sh smoke`, **run in a detached/
   background mode** (not as a blocking foreground call), with `SMOKE_CONFIG_NAME=s55_f115_p45`,
   `SMOKE_INPUT_FILE=inputs/inputs.3d.s55_f115_p45`, `SMOKE_MAX_STEP=3478`,
   `WORKSPACE_HOSTPATH` from 2.1, `--image` from 2.0.
-  - [ ] 2.3.1 Confirm the workflow object was accepted and the pod reaches `Running` phase
+  - [x] 2.3.1 Confirm the workflow object was accepted and the pod reaches `Running` phase
     (`monitor_workflow.sh get s55_f115_p45` or equivalent), and watch for the first ~10-15
     minutes for an early phase transition OUT of `Running` (a fast crash-on-launch signature).
     Do **not** rely on `argo logs`/`kubectl logs` to show live solver diagnostics — the runner
@@ -120,48 +125,74 @@ later via `monitor_workflow.sh get/logs <name>`.
     nothing useful until completion or crash. Also confirm GPU VRAM via `nvidia-smi`/pod
     describe stays under 48 GB during this window (folds in the arena-size open question — this
     can only actually be confirmed by observing a running pod, not as a prior standalone gate).
-  - [ ] 2.3.2 **This is now a detached, later check-in** (may be a new session, hours or a day
+    **Done, with a gap:** pod-phase polling (2-min intervals over ~13 min) confirmed clean
+    `Running` throughout for all 3 configs. `nvidia-smi` VRAM confirmation was **not possible**
+    — the Argo service account lacks `pods/exec` RBAC in `runai-talmo-lab` (`Forbidden`). Relied
+    on pod-phase + CSV-row-growth only (both signals D6 already documents as the real live
+    signals, since log-tailing shows nothing anyway); AMReX's own end-of-run report confirmed
+    VRAM headroom retroactively (`The Arena` max used 7998 MiB / 46068 MiB card) for all 3.
+  - [x] 2.3.2 **This is now a detached, later check-in** (may be a new session, hours or a day
     later): `monitor_workflow.sh get s55_f115_p45`. If `Succeeded`: record wall time +
     `s_per_step` from the run's metadata/output; proceed to 2.3.5 (commit) before starting
     config 2. If `Running` and the CSV row count is growing (secondary health signal, checkable
     on the NFS mount without waiting for pod exit): nothing to do yet, check back later. If
     `Failed`/`Error`: go to 2.3.3.
-  - [ ] 2.3.3 If it diverged (caught in 2.3.1's crash-signature check, a stalled/non-growing CSV
+    **Done:** `Succeeded` in 1h58m (7032.46s), `s_per_step=2.022` — well under the ~7.6h
+    T3c-carried-over estimate.
+  - [x] 2.3.3 If it diverged (caught in 2.3.1's crash-signature check, a stalled/non-growing CSV
     in 2.3.2, or discovered at a later check-in): apply the T3c fallback
     (`ns.fixed_dt=2.5e-4`, `max_step=6956`), re-submit (background again, repeat 2.3.1-2.3.2).
-  - [ ] 2.3.4 If still unstable at `2.5e-4`: `monitor_workflow.sh stop s55_f115_p45` to free the
+    **Not needed** — config 1 was stable at `dt=5e-4`.
+  - [x] 2.3.4 If still unstable at `2.5e-4`: `monitor_workflow.sh stop s55_f115_p45` to free the
     GPU. Record as a genuine "unstable at this kinematic range" finding — do not retry further
     or route around it silently. Copy any partial force CSV/log to
     `examples/prelim_sweep_fine_pilot/` as evidence (e.g.
     `run_metadata_s55_f115_p45_unstable.json` + `forces_s55_f115_p45_partial.csv`) rather than
     discarding it.
-  - [ ] 2.3.5 **Commit config 1's results now** (`run_metadata_s55_f115_p45.json` + force CSV, or
+    **Not needed** — config 1 completed cleanly.
+  - [x] 2.3.5 **Commit config 1's results now** (`run_metadata_s55_f115_p45.json` + force CSV, or
     the unstable-finding artifacts from 2.3.4) — do not wait for configs 2/3. A partial pilot
     (e.g. only config 1 done) should still leave real, committed data.
-  - [ ] 2.3.6 **Serial gate**: do not start config 2 (task 2.4) until config 1's workflow is
+    **Done:** commit `70c68fb`, pushed.
+  - [x] 2.3.6 **Serial gate**: do not start config 2 (task 2.4) until config 1's workflow is
     confirmed in a terminal state (`Succeeded`/stopped-as-unstable) via `monitor_workflow.sh
     get` — never more than 1 GPU committed at once (the explicit reason serial execution was
     chosen over parallel).
-- [ ] 2.4 Submit config 2 (`s45_f100_p45`, mid Reynolds), identical procedure to 2.3
+    **Done.**
+- [x] 2.4 Submit config 2 (`s45_f100_p45`, mid Reynolds), identical procedure to 2.3
   (`SMOKE_MAX_STEP=4000`, fallback `max_step=8000`), including its own 2.4.1-2.4.6 sub-steps
   (sanity check, detached check-in, fallback, abort/evidence, immediate commit, serial gate
   before config 3).
-- [ ] 2.5 Submit config 3 (`s35_f085_p45`, lowest Reynolds), identical procedure to 2.3
+  **Done:** `Succeeded` in 2h13m (8002.88s), `s_per_step=2.001`, no fallback needed. Committed
+  `634c561`, pushed.
+- [x] 2.5 Submit config 3 (`s35_f085_p45`, lowest Reynolds), identical procedure to 2.3
   (`SMOKE_MAX_STEP=4706`, fallback `max_step=9412`), including its own 2.5.1-2.5.5 sub-steps
   (no serial gate needed after — this is the last config).
+  **Done:** `Succeeded` in 2h37m (9448.47s), `s_per_step=2.008`, no fallback needed (final
+  step's `DT` is benign-truncated to land exactly on `stop_time`, not a divergence response —
+  see the pilot report). Committed `f1f903e`, pushed.
+
+**Note on the local `argo submit --watch` client:** the background process wrapping
+`submit_workflow.sh smoke` for configs 2 and 3 reported `failed`/`stopped` locally partway
+through each multi-hour run — in both cases this was the local watching client losing its own
+connection/being torn down, **not** the cluster workflow itself; `monitor_workflow.sh get`
+against the live cluster confirmed the actual Argo workflow was unaffected and continued
+running to completion independently. Don't treat a local watch-client failure as a cluster-job
+failure — always re-verify via `monitor_workflow.sh get <name>` directly.
 
 ---
 
 ## 3. Write the pilot report
 
-- [ ] 3.1 **Test first (report structure, skipif absent):** add
+- [x] 3.1 **Test first (report structure, skipif absent):** add
   `test_pilot_report_covers_all_attempted_configs` to `tests/test_fine_pilot_deck.py`, `skipif`
   the report doesn't exist yet. Parse
   `docs/force_surrogate/fine-grid-pilot-report.md` and assert, for each of the 3 config names
   that was actually attempted (per whatever committed `run_metadata_*.json`/unstable-finding
   files exist), one of the three literal stability strings (`stable_at_5e-4` /
   `stable_at_2.5e-4_fallback` / `unstable`) and a numeric wall-time/`s_per_step` figure appears.
-- [ ] 3.2 **Test first (provenance pin, skipif absent per config):** add
+  Written in Phase 0/1 (skipped until Phase 3 landed); now passes for all 3 configs.
+- [x] 3.2 **Test first (provenance pin, skipif absent per config):** add
   `test_pilot_run_metadata_schema` to `tests/test_fine_pilot_deck.py`, using
   `pytest.mark.parametrize` over the 3 config names with a per-case `skipif` mark (NOT a single
   function with an internal skip-on-first-missing loop, which would silently stop checking
@@ -169,18 +200,24 @@ later via `monitor_workflow.sh get/logs <name>`.
   result. Assert the required fields (`git`, `docker_image`, `image_digest`,
   `timing.wall_time_s`, `timing.timesteps`, `timing.s_per_step`, `fixed_dt`, `dt_reduced`) for
   each config whose `run_metadata_*.json` exists.
-- [ ] 3.3 Write the pilot report at `docs/force_surrogate/fine-grid-pilot-report.md` (this is a
+  Written in Phase 0/1; now passes 3/3 (0 skipped).
+- [x] 3.3 Write the pilot report at `docs/force_surrogate/fine-grid-pilot-report.md` (this is a
   Track B / force-surrogate artifact, not an aerodynamics-validation tier — filed under
   `docs/force_surrogate/` alongside `roadmap.md`, cross-referencing the T3c
   `CF_chord`/`CF_normal` numbers already published in `docs/aerodynamics_validation/` rather
   than restating them): per-config stability/timing table, the real (measured) cost projection
   for the full 27-config regeneration, and an explicit go/no-go recommendation.
-- [ ] 3.4 Open the PR **now if not already open** (see Phase 4 note) rather than holding it open
+  **Done:** all 3 configs `stable_at_5e-4`; projected full-27-config cost ~61.2h (~2.55 days)
+  serial single-A40; recommendation **GO**.
+- [x] 3.4 Open the PR **now if not already open** (see Phase 4 note) rather than holding it open
   only in draft — Phase 0/1's tooling should already be reviewable and CI-green independent of
   whether Phase 2/3 fully completed.
-- [ ] 3.5 Update `docs/force_surrogate/roadmap.md` with the pilot's actual outcome (separate
+  **Done:** [PR #58](https://github.com/talmolab/mosquito-cfd/pull/58), opened right after
+  Phase 0/1 landed.
+- [x] 3.5 Update `docs/force_surrogate/roadmap.md` with the pilot's actual outcome (separate
   from 0.4's earlier severity flag): stability results per config, the measured cost estimate,
   and the go/no-go recommendation for the full 27-config regeneration.
+  **Done.**
 
 ---
 
@@ -192,9 +229,11 @@ later via `monitor_workflow.sh get/logs <name>`.
   (`.github/workflows/ci.yml`'s ruff steps currently hardcode a directory list — per that file's
   own comment, a new example directory must be added there explicitly, or the new
   `generate_pilot.py` script is silently never linted in CI).
-- [x] 4.2 `uv run pytest tests/test_fine_pilot_deck.py -v` — Phase 0/1 tests pass; Phase 3 tests
-  report SKIPPED per-config until that config's data is committed, then PASS once it lands.
-- [x] 4.3 The full suite `uv run pytest tests/` is green (no regressions).
+- [x] 4.2 `uv run pytest tests/test_fine_pilot_deck.py -v` — all 8 tests PASS (0 skipped): all 3
+  configs completed, so the Phase 3 skipif-gated tests now run for real.
+- [x] 4.3 The full suite `uv run pytest tests/` is green: 473 passed, 14 skipped (no
+  regressions — the delta from Phase 0/1's 469/18 is exactly the 4 Phase-3 tests flipping from
+  skip to pass).
 - [x] 4.4 `openspec validate add-fine-grid-training-pilot --strict` passes.
 
 **PR strategy**: single PR, opened right after Phase 0/1 commits land (cluster-free, CI-green) —

@@ -193,12 +193,14 @@ The committed 27-config corpus above was generated entirely on the **coarse 64×
 (CC-4's "pipeline readiness on coarse-grid forces," not validated aerodynamics), not in absolute
 magnitude.
 
-**In flight:** `add-fine-grid-training-pilot` — a 3-config pilot at fine 256³ resolution (reusing
-`generate_sweep()`/`submit_workflow.sh smoke` unmodified) to test CFL/dt stability across the
-sweep's kinematic range and get a real cluster cost estimate, before committing to regenerating
-the full 27-config corpus at fine resolution. See
-`docs/force_surrogate/fine-grid-pilot-report.md` (once the pilot completes) for the go/no-go
-recommendation.
+**Pilot complete — GO recommendation:** `add-fine-grid-training-pilot` ran a 3-config pilot at
+fine 256³ resolution (reusing `generate_sweep()`/`submit_workflow.sh smoke` unmodified, RunAI
+`talmo-lab`). All 3 configs — spanning the sweep's full kinematic range — completed cleanly at
+the standard `dt=5e-4` with **no CFL fallback needed and no preemption**. Measured cost
+(~2.01 s/step, constant across configs) projects the full 27-config regeneration at
+**~61 hours (~2.55 days) of serial single-A40 wall time** — far below the ~20-day worst case
+that motivated the pilot. See `docs/force_surrogate/fine-grid-pilot-report.md` for the full
+per-config breakdown and the follow-on-change caveats (untested pitch levels, quota headroom).
 
 ### Post-corpus follow-up issues (tracked, non-gating)
 
