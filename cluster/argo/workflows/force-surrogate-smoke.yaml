@@ -37,6 +37,13 @@ spec:
       value: "4706"
     - name: csv-name
       value: "IB_Particle_1.csv"
+    # Host RAM (K8s memory, distinct from GPU VRAM) — parameterized (not hardcoded in the
+    # WorkflowTemplate) so a caller can size it per submission. Defaults match the
+    # add-fine-grid-training-pilot bump (see force-surrogate-single-config.yaml's doc comment).
+    - name: pod-memory-limit
+      value: "64Gi"
+    - name: pod-memory-request
+      value: "32Gi"
 
   activeDeadlineSeconds: 86400
 
@@ -70,3 +77,7 @@ spec:
             value: "{{workflow.parameters.timestamp}}"
           - name: csv-name
             value: "{{workflow.parameters.csv-name}}"
+          - name: pod-memory-limit
+            value: "{{workflow.parameters.pod-memory-limit}}"
+          - name: pod-memory-request
+            value: "{{workflow.parameters.pod-memory-request}}"
