@@ -10,6 +10,35 @@ submission command that blocks and would hit a tool timeout on a multi-hour job,
 plan that doesn't observe what it claims to. All are fixed below; see the OpenSpec change's
 review history for the full findings.
 
+**Revision note 2 (post-PR-review, pre-merge):** a 5-agent `/review-pr` on PR #58 (after Phase
+0-4 had already landed and all 3 cluster runs completed) found 4 BLOCKING + several IMPORTANT
+issues, all fixed via TDD before merge:
+- `generate_pilot.py` had no runtime guard against `--output` pointing at the frozen coarse
+  corpus (a real `unlink()`-against-real-data risk) — added `_validate_output_dir()` +
+  3 tests (pure-function, CLI-wiring via a monkeypatched decoy, and the pre-existing static
+  isolation guard).
+- All 3 committed `run_metadata_<config>.json` had a `timing.final_time` that recorded the
+  deck's `stop_time` instead of the force CSV's actual last row (always exactly one `dt`
+  earlier — a pre-existing IAMReX writer convention, not a divergence bug) — corrected all 3
+  + added a parametrized regression test (`test_pilot_run_metadata_final_time_matches_last_csv_row`).
+- 2 of 3 metadata files used a truncated 7-char git SHA instead of the full 40-char one — fixed
+  + added `test_pilot_run_metadata_git_commit_is_full_sha`.
+- `test_pilot_report_covers_all_attempted_configs` was a whole-document substring check inside a
+  per-config loop (never confirmed a given config's *own* line carried its stability outcome,
+  and never checked for a numeric figure or the 27-config cost projection at all) —
+  strengthened to a per-line, per-config check + a dedicated cost-projection assertion.
+- No test tied `generate_pilot.PILOT_CONFIGS` to the test file's own hand-duplicated config list
+  — added `test_pilot_configs_match_generate_pilot_script`.
+- Also: fixed a wrong citation in the pilot report (cited `t3c-handoff.md`, which doesn't
+  contain the cited figures; corrected to `docs/aerodynamics_validation/roadmap.md`); reconciled
+  a stale GPU-VRAM comment in the Argo template; parameterized the pod's host-RAM
+  limit/request (`pod-memory-limit`/`pod-memory-request`, via `podSpecPatch` since Kubernetes
+  `resource.Quantity` fields can't be templated directly) instead of hardcoding it in the shared
+  WorkflowTemplate, and re-applied the template to the cluster; added a malformed-JSON
+  clear-error test and a `dt_reduced`/`fixed_dt` correlation test; documented the
+  unexercised-preemption-retry-path caveat in the pilot report.
+See PR #58's review comment for the full original findings list.
+
 ---
 
 ## 0. Fine-grid base deck — cluster-free
