@@ -35,6 +35,22 @@ now gated, `rows` now required rather than silently skipped when absent, deck/ma
 lookups now raise clear errors instead of bare `KeyError`s) — see commit `3df231d`. 100% coverage
 maintained; 527 passed / 14 skipped, no regressions.
 
+**Revision note (post-PR-review, PR #59):** a 5-agent `/review-pr` pass against the pushed PR
+(no BLOCKING findings) surfaced one real IMPORTANT gap the proposal never specced: the deck-hash
+check added in the prior fix round verified `--deck` against the pod's `deck_sha256` but never
+persisted the verified hash in the output — once the pod-side (uncommitted) artifacts are
+cleaned up, there was no way to audit which deck produced a committed file. Fixed: `deck_sha256`
+is now a top-level output field, and two spec requirements ("pod-reported run status must be
+completed", "deck identity is cross-validated ... and persisted in the output") were added to
+formalize guards that existed in code/tests but were never specced (see task 12 below). Also
+fixed: task 9.3's own claim that `inputs hash` "does not exist in either the old or new schema"
+was itself factually wrong (it exists in the old schema as `inputs.hash`; corrected in place
+above); an `is None`-vs-falsy bug where an empty-string `deck_sha256` slipped past the
+"must be present" guard into a confusing mismatch message instead of the clear "missing" one; a
+CWD-relative path in the sole end-to-end oracle test that could silently skip if pytest ran from
+a non-root directory; and a missing timeout on the Argo status-query subprocess (raised as a
+non-blocking suggestion twice now — added a 30s timeout with a clear error).
+
 ---
 
 ## 0. Fixtures and `.gitignore` fix
@@ -222,13 +238,16 @@ maintained; 527 passed / 14 skipped, no regressions.
   schema specifically, not the schema new runs will use going forward.
 - [x] 9.3 Correct `docs/force_surrogate/roadmap.md` CC-1's run-metadata field description: it
   currently reads "container digest, IAMReX commit, inputs hash, git SHA, host, and a
-  caller-supplied timestamp" — `inputs hash` does not exist in either the old or new schema and
-  `IAMReX commit` is not part of this change's schema either. Replace the field list with a
-  one-line summary instead of re-enumerating individual fields: "git (full SHA), a single
-  digest-validated `docker_image`, hardware/orchestration, and timing/kinematics/stability for
-  force-surrogate runs — full schema in `metadata_capture.py`'s module docstring and
-  `specs/run-metadata/spec.md`, not re-enumerated here." (Single canonical source per task 7.5;
-  this task only points to it.)
+  caller-supplied timestamp" — **correction (a PR review caught this claim was itself wrong):**
+  `inputs hash` DOES exist in the old schema (as `inputs.hash`) and now also exists in the new
+  schema (as the flat `deck_sha256` field, persisted per the "deck identity is cross-validated
+  ... and persisted in the output" spec requirement added post-implementation). `IAMReX commit`
+  is genuinely not part of this change's schema. Replace the field list with a one-line summary
+  instead of re-enumerating individual fields: "git (full SHA), a single digest-validated
+  `docker_image`, a verified `deck_sha256`, hardware/orchestration, and timing/kinematics/
+  stability for force-surrogate runs — full schema in `metadata_capture.py`'s module docstring
+  and `specs/run-metadata/spec.md`, not re-enumerated here." (Single canonical source per task
+  7.5; this task only points to it.)
 - [x] 9.4 Add a short usage note (module docstring in `scripts/generate_run_metadata.py`) pointing
   the full 27-config corpus follow-on at this tool instead of hand-authoring its 27 metadata files.
 
@@ -275,4 +294,29 @@ argparse-required flag beyond the file paths.
   covers `examples/prelim_sweep/` and `examples/prelim_sweep_fine_pilot/` — fine here since this
   change touches no files under `examples/`).
 - [x] 11.4 `uv run ruff format --check src/ scripts/ tests/`.
-- [ ] 11.5 `/pre-merge-check`, open PR.
+- [x] 11.5 `/pre-merge-check`, open PR — [PR #59](https://github.com/talmolab/mosquito-cfd/pull/59).
+
+## 12. Post-PR-review hardening (retroactive — see the PR #59 revision note above)
+
+- [x] 12.1 Persist the verified `deck_sha256` as a top-level output field (previously computed
+  and checked but discarded); add the corresponding spec requirement and
+  `test_assemble_metadata_produces_normalized_schema`'s deck_sha256 assertion.
+- [x] 12.2 Add a spec requirement for the pod `status` gate (guard already existed in code/tests
+  from the prior fix round; only the spec was missing).
+- [x] 12.3 Fix the `is None`-vs-falsy bug: an empty-string `deck_sha256` now correctly triggers
+  the "missing" error, not a confusing mismatch message —
+  `test_assemble_metadata_raises_on_empty_string_deck_sha256`.
+- [x] 12.4 Anchor `test_assemble_metadata_matches_known_correct_pilot_config`'s
+  `_REAL_COMMITTED_METADATA` path to `Path(__file__).parent.parent` instead of a bare
+  CWD-relative path (was silently skippable if pytest ran from a non-root directory).
+- [x] 12.5 Add a 30s timeout to `query_argo_workflow_status`'s subprocess call, with a clear
+  `RuntimeError` on expiry — `test_argo_status_query_timeout_produces_clear_error`.
+- [x] 12.6 Correct `roadmap.md` CC-1 and `tasks.md` 9.3's own factually-wrong claim that
+  `inputs hash` doesn't exist in either schema.
+
+## 13. Re-validate and push
+
+- [x] 13.1 `openspec validate automate-run-metadata-capture --strict`.
+- [x] 13.2 `uv run pytest` (full suite green, 529 passed / 14 skipped, no regressions).
+- [x] 13.3 `uv run ruff check` / `ruff format --check` clean.
+- [x] 13.4 Push and confirm CI green on PR #59.

@@ -24,8 +24,12 @@ _DECK = _FIXTURES / "inputs.3d.s35_f085_p45"
 _ARGO_SIMPLE = _FIXTURES / "argo_status_simple.json"
 _ARGO_RETRY = _FIXTURES / "argo_status_with_retry.json"
 
-_REAL_COMMITTED_METADATA = Path(
-    "examples/prelim_sweep_fine_pilot/run_metadata_s35_f085_p45.json"
+_REPO_ROOT = Path(__file__).parent.parent
+_REAL_COMMITTED_METADATA = (
+    _REPO_ROOT
+    / "examples"
+    / "prelim_sweep_fine_pilot"
+    / "run_metadata_s35_f085_p45.json"
 )
 
 DIGEST = "sha256:" + "0" * 64
@@ -307,6 +311,17 @@ def test_argo_status_query_failure_produces_clear_error(monkeypatch):
         mc.query_argo_workflow_status("some-workflow")
 
 
+def test_argo_status_query_timeout_produces_clear_error(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise mc.subprocess.TimeoutExpired(
+            cmd=["argo"], timeout=mc._ARGO_QUERY_TIMEOUT_S
+        )
+
+    monkeypatch.setattr(mc.subprocess, "run", _raise)
+    with pytest.raises(RuntimeError, match="did not return within"):
+        mc.query_argo_workflow_status("some-workflow")
+
+
 def test_argo_status_query_nonzero_exit_produces_clear_error(monkeypatch):
     class _FakeCompleted:
         returncode = 1
@@ -386,6 +401,10 @@ def test_assemble_metadata_produces_normalized_schema():
     result = _assemble()
     assert result["docker_image"].startswith("sha256:")
     assert "image_digest" not in result
+    assert (
+        result["deck_sha256"]
+        == "92d5ab87b8556b711329f23f197aaefca8954db93df91a409bef396a66a7674d"
+    )
     assert result["stability"] == "stable_at_5e-4"
     assert result["arena_max_mib"] == 7998
     assert result["node"] == "gpu-node14"
@@ -472,6 +491,18 @@ def test_assemble_metadata_raises_on_missing_deck_sha256(tmp_path):
 
     with pytest.raises(ValueError, match="deck_sha256"):
         _assemble(pod_metadata_path=no_hash)
+
+
+def test_assemble_metadata_raises_on_empty_string_deck_sha256(tmp_path):
+    """An empty string is falsy but not None -- must be treated the same as a missing key,
+    not fall through to a confusing hash-mismatch message."""
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["deck_sha256"] = ""
+    empty_hash = tmp_path / "run_metadata.json"
+    empty_hash.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="has no deck_sha256"):
+        _assemble(pod_metadata_path=empty_hash)
 
 
 @pytest.mark.skipif(

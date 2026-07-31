@@ -68,7 +68,8 @@ These are program invariants — design them into the foundation (PR1), don't re
 ### CC-1. Reproducibility / provenance.
 Pin the container by **digest** (not just `:fp64`). Every stage (sweep run, dataset build,
 training) emits a `run_metadata.json`: git (full SHA), a single digest-validated `docker_image`,
-hardware/orchestration, and timing/kinematics/stability for force-surrogate runs — full schema in
+a verified `deck_sha256`, hardware/orchestration, and timing/kinematics/stability for
+force-surrogate runs — full schema in
 `metadata_capture.py`'s module docstring and `specs/run-metadata/spec.md`, not re-enumerated here
 — and a caller-supplied timestamp (never wall-clock-at-runtime baked into logic). Reruns
 reproduce bit-for-bit given the same seed.

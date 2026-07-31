@@ -83,6 +83,43 @@ valid metadata file when `notes` is omitted.
 - **WHEN** the generator assembles the committed metadata file without a `--notes` argument
 - **THEN** the output is complete and valid with no `notes` key present (not an empty string)
 
+### Requirement: pod-reported run status must be completed
+
+The metadata generator SHALL refuse to assemble metadata when the pod-side `run_metadata.json`'s
+reported `status` is not `"completed"`, rather than silently assembling a normalized file for a
+failed or incomplete run.
+
+#### Scenario: non-completed status is rejected
+
+- **GIVEN** a pod-side `run_metadata.json` whose `status` field is `"failed"` (or any value other
+  than `"completed"`)
+- **WHEN** the generator attempts to assemble metadata for that config
+- **THEN** it raises a clear error naming the offending status value, rather than producing a
+  normalized `run_metadata_<config>.json` for a run that did not actually complete
+
+### Requirement: deck identity is cross-validated against the pod's recorded hash and persisted in the output
+
+The metadata generator SHALL compute a SHA256 hash of the `--deck` file actually supplied and
+require it to match the pod-side `run_metadata.json`'s recorded `deck_sha256`, refusing to
+assemble metadata on a mismatch or on a missing `deck_sha256`. The verified hash SHALL be
+persisted in the assembled output (as `deck_sha256`) so deck identity remains auditable after the
+pod-side artifacts (which are not committed) are cleaned up.
+
+#### Scenario: mismatched deck is rejected
+
+- **GIVEN** a `--deck` file whose SHA256 hash does not match the pod-side `run_metadata.json`'s
+  recorded `deck_sha256`
+- **WHEN** the generator attempts to assemble metadata
+- **THEN** it raises a clear error naming both the computed and pod-recorded hashes, rather than
+  silently trusting the supplied `--deck` file
+
+#### Scenario: verified deck hash is persisted in the output
+
+- **GIVEN** a `--deck` file whose hash matches the pod-recorded `deck_sha256`
+- **WHEN** the generator assembles the committed metadata file
+- **THEN** the output includes a `deck_sha256` field with the verified hash, so which exact deck
+  produced this file remains auditable even after the pod-side (uncommitted) artifacts are gone
+
 ### Requirement: kinematics, grid, fixed_dt, and max_step are sourced from the sweep manifest or deck
 
 The metadata generator SHALL read `stroke_amp_deg`, `frequency_fstar`, `pitch_amp_deg`,

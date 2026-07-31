@@ -13,6 +13,10 @@ artifact — nothing is re-typed by a human:
 - ``docker_image``: the pod file's validated ``sha256:...`` digest (single field — no separate
   mutable-tag field, unlike the committed t3c/pilot schema's ``docker_image``/``image_digest``
   split).
+- ``deck_sha256``: a freshly computed SHA256 of the actual ``--deck`` file supplied, verified to
+  match the pod file's recorded ``deck_sha256`` (see the trust-one-artifact guards below) and
+  persisted here so deck identity remains auditable after the pod-side (uncommitted) artifacts
+  are cleaned up — the old schema's equivalent field was ``inputs.hash``.
 - ``config``, ``tier``: the config name and a caller-supplied tier label (e.g.
   ``"fine-grid-corpus-full"`` — a single known constant per invocation, not run-specific data).
 - ``kinematics`` (``stroke_amp_deg``/``frequency_fstar``/``pitch_amp_deg``/``reynolds``),
@@ -333,6 +337,12 @@ def extract_git_info(pod_metadata: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# Generous but bounded: protects an interactive operator run from hanging indefinitely on a
+# half-torn-down/partitioned cluster session (raised in review; this tool has no other timeout
+# anywhere since every other input is a local file read).
+_ARGO_QUERY_TIMEOUT_S = 30
+
+
 def query_argo_workflow_status(workflow_name: str) -> dict[str, Any]:
     """Query a completed Argo workflow's persisted status (read-only, works after completion).
 
@@ -344,8 +354,8 @@ def query_argo_workflow_status(workflow_name: str) -> dict[str, Any]:
         The parsed ``argo get <workflow-name> -o json`` output.
 
     Raises:
-        RuntimeError: If the ``argo`` CLI is unavailable, the query fails, or the output is not
-            valid JSON.
+        RuntimeError: If the ``argo`` CLI is unavailable, the query fails, times out, or the
+            output is not valid JSON.
     """
     try:
         completed = subprocess.run(
@@ -354,10 +364,17 @@ def query_argo_workflow_status(workflow_name: str) -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=_ARGO_QUERY_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "`argo` CLI not found; is it installed and on PATH?"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"`argo get {workflow_name} -o json` did not return within "
+            f"{_ARGO_QUERY_TIMEOUT_S}s; the cluster session may be unresponsive. Retry, or "
+            "supply --wall-time-s manually."
         ) from exc
     if completed.returncode != 0:
         raise RuntimeError(
@@ -510,7 +527,7 @@ def assemble_run_metadata(
 
     deck_path = Path(deck_path)
     pod_deck_sha256 = pod_metadata.get("deck_sha256")
-    if pod_deck_sha256 is None:
+    if not pod_deck_sha256:  # catches both an absent key and an empty/null value
         raise ValueError(
             f"pod-side run_metadata.json for config {config_name!r} has no deck_sha256; "
             "cannot verify the supplied --deck is the one actually executed"
@@ -561,6 +578,7 @@ def assemble_run_metadata(
         "timestamp": pod_metadata.get("timestamp"),
         "git": git_info,
         "docker_image": docker_image,
+        "deck_sha256": actual_deck_sha256,
         "hardware": hardware,
         "config": config_name,
         "tier": tier,
