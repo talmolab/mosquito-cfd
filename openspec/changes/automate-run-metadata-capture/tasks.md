@@ -19,6 +19,22 @@ schema (fixed — new task 0.4), 3 stale task-number cross-references surviving 
 (fixed — task 1.0, the commit-sequence section, and this note itself), and `proposal.md` still
 carrying the pre-correction "two inconsistent lineages" framing (fixed directly in `proposal.md`).
 
+**Revision note (post-implementation, `/review-pr` self-review before opening a PR):** a 5-agent
+review of the actual implementation (not the proposal) found 3 real BLOCKING correctness gaps
+undetected by the proposal-stage reviews, since they only surface once real code exists:
+`compute_wall_time_s` could silently select Argo's own `"Retry"`-type wrapper node (whose
+`startedAt` spans back to the first failed attempt) over the true successful attempt — a real
+risk given `force-surrogate-single-config.yaml`'s actual `retryStrategy: {limit: 5}`; verified by
+hand-simulating the old logic against a realistic 3-node fixture and confirming it silently
+returned the full 17848s span instead of the correct 10096s. `parse_arena_max_mib`'s regex
+matched any `*Arena*` line, not just `"[The Arena]"`, so a real GPU log's Device/Managed/Pinned
+Arena lines could win the `max()` and report the wrong arena's peak. Deck identity was never
+cross-validated against the pod's own `deck_sha256`, reproducing PR #58's "trust the wrong
+artifact" failure class in a new spot. All three fixed, plus the IMPORTANT findings (pod `status`
+now gated, `rows` now required rather than silently skipped when absent, deck/manifest field
+lookups now raise clear errors instead of bare `KeyError`s) — see commit `3df231d`. 100% coverage
+maintained; 527 passed / 14 skipped, no regressions.
+
 ---
 
 ## 0. Fixtures and `.gitignore` fix
