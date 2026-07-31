@@ -117,7 +117,13 @@ mosquito-cfd/
 
 ### Implemented
 - [x] Parametric wing planform generation (`geometry/` package)
-- [x] Run metadata capture with docker/git/hardware tracking (`benchmarks/metadata`)
+- [x] Run metadata capture with docker/git/hardware tracking (`benchmarks/metadata`); force-surrogate
+  cluster runs additionally get a fully automated `run_metadata_<config>.json` generator
+  (`force_surrogate/metadata_capture.py`, `scripts/generate_run_metadata.py`) that derives
+  timing/kinematics/orchestration/stability fields from existing artifacts instead of hand-typing
+  them (`automate-run-metadata-capture`) — `examples/flapping_wing/run_metadata_{t3c,t3b,t2a}.json`
+  and the 3 `examples/prelim_sweep_fine_pilot/run_metadata_*.json` pilot files intentionally remain
+  on the older, pre-normalization hand-authored schema (not retrofitted)
 - [x] Docker infrastructure with FP64 working builds
 - [x] GitHub Actions CI/CD for lint/test/publish
 - [x] Flow past sphere validation example (100 timesteps verified on A40)
