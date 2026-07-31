@@ -40,16 +40,27 @@ inconsistent fields (a mutable tag under one key and the digest under another).
 
 - **GIVEN** a pod-side `run_metadata.json` with a validated `sha256:...` docker image digest
 - **WHEN** the generator assembles the committed metadata file
-- **THEN** exactly one field carries the image identity, its value matches the digest regex, and
-  no separate mutable-tag field is present
+- **THEN** exactly one field, named `docker_image`, carries the image identity, its value matches
+  the digest regex, and no separate mutable-tag field is present
+
+#### Scenario: malformed digest is rejected
+
+- **GIVEN** a pod-side `run_metadata.json` whose docker image field does not match
+  `sha256:[0-9a-f]{64}` (e.g. a bare tag like `ghcr.io/talmolab/mosquito-cfd:fp64`, or a
+  truncated/malformed digest)
+- **WHEN** the generator attempts to assemble metadata from it
+- **THEN** it raises a clear validation error naming the offending value, rather than passing the
+  invalid identity through to the committed output
 
 ### Requirement: run context is structured, not free-text narrative, except for one optional notes field
 
 The metadata generator SHALL derive `stability`, `arena_max_mib`, `node`, and `gpu_model` as
-independent structured fields rather than composing a free-text narrative paragraph. An optional
-`notes` field MAY be present for exceptional human commentary but SHALL NOT be required for a
-normal run, and the generator SHALL produce a complete, valid metadata file when `notes` is
-omitted.
+independent structured fields rather than composing a free-text narrative paragraph. `stability`
+SHALL be derived solely from the config's manifest-sourced `fixed_dt` value (see the
+kinematics/grid requirement below) compared against the sweep's nominal `fixed_dt` — not from any
+separately hand-set flag. An optional `notes` field MAY be present for exceptional human
+commentary but SHALL NOT be required for a normal run, and the generator SHALL produce a complete,
+valid metadata file when `notes` is omitted.
 
 #### Scenario: Arena max parsed from run.log
 
@@ -57,6 +68,14 @@ omitted.
   reporting `7998 MiB`
 - **WHEN** the generator assembles the committed metadata file
 - **THEN** `arena_max_mib` is `7998`, and no free-text field is required to convey this figure
+
+#### Scenario: stability derived from fixed_dt alone
+
+- **GIVEN** a config whose manifest-sourced `fixed_dt` equals the sweep's nominal `5e-4`, and a
+  second config whose manifest-sourced `fixed_dt` is `2.5e-4` (the documented CFL fallback value)
+- **WHEN** the generator assembles metadata for each
+- **THEN** the first config's `stability` is `"stable_at_5e-4"` and the second's is
+  `"stable_at_2.5e-4_fallback"`, with no separate `dt_reduced`-style input read or required
 
 #### Scenario: notes omitted on a normal run
 
@@ -71,20 +90,24 @@ The metadata generator SHALL read `stroke_amp_deg`, `frequency_fstar`, `pitch_am
 or the generated deck file for the given config, rather than accepting them as freeform CLI input
 or requiring a human to re-type them.
 
-#### Scenario: kinematics match the manifest entry
+#### Scenario: kinematics, grid, and timestep fields match the manifest entry
 
 - **GIVEN** a config present in `sweep_manifest.json` with a specific `stroke_amp_deg`,
-  `frequency_fstar`, `pitch_amp_deg`, and `reynolds`
+  `frequency_fstar`, `pitch_amp_deg`, `reynolds`, grid resolution, `fixed_dt`, and `max_step`
 - **WHEN** the generator assembles metadata for that config
-- **THEN** the output's `kinematics` block matches the manifest entry's values exactly, with no
-  CLI flag available to override them
+- **THEN** the output's `kinematics` block, `grid`, `fixed_dt`, and `max_step` fields all match the
+  manifest entry's values exactly, with no CLI flag available to override any of them
 
-### Requirement: wall-clock timing is computed from a completed Argo workflow's persisted status
+### Requirement: wall-clock timing is computed from a completed Argo workflow's persisted status, with a manual override for garbage-collected workflows
 
 The metadata generator SHALL compute `timing.wall_time_s` from a completed Argo workflow's
 persisted start/finish timestamps, retrieved via a read-only status query (e.g. `argo get
-<workflow-name> -o json`) given a workflow name supplied by the caller. It SHALL NOT require any
-modification to `run_one_config.py`, the Argo WorkflowTemplate, or any live `pods/exec` access.
+<workflow-name> -o json`) given a workflow name supplied by the caller, reflecting only the
+final successful attempt's duration (not any earlier retried/failed attempt). It SHALL NOT require
+any modification to `run_one_config.py`, the Argo WorkflowTemplate, or any live `pods/exec` access.
+Since completed Argo workflow objects may be garbage-collected before this tool is run, the
+generator SHALL accept an optional `--wall-time-s` override that, when supplied, is used instead
+of querying Argo at all.
 
 #### Scenario: wall time from workflow status timestamps
 
@@ -93,6 +116,44 @@ modification to `run_one_config.py`, the Argo WorkflowTemplate, or any live `pod
 - **WHEN** the generator is invoked with that workflow's name
 - **THEN** `timing.wall_time_s` equals the difference between `finishedAt` and `startedAt` in
   seconds, and no pod-level code change was required to produce it
+
+#### Scenario: wall time reflects only the final successful attempt after a retry
+
+- **GIVEN** a completed Argo workflow's status JSON showing one failed attempt followed by a
+  successful retry, each with its own `startedAt`/`finishedAt`
+- **WHEN** the generator computes `timing.wall_time_s`
+- **THEN** it uses only the successful attempt's duration, not the sum including the failed
+  attempt
+
+#### Scenario: manual override bypasses the Argo query entirely
+
+- **GIVEN** the source workflow has already been garbage-collected from the cluster
+- **WHEN** the generator is invoked with `--wall-time-s 7032.46` instead of relying on a live Argo
+  query
+- **THEN** `timing.wall_time_s` is `7032.46` and no Argo query is attempted
+
+#### Scenario: missing timestamps in an otherwise-successful query produce a clear error
+
+- **GIVEN** an Argo status response that parses successfully but omits `startedAt` or
+  `finishedAt` for the relevant node
+- **WHEN** no `--wall-time-s` override is supplied
+- **THEN** the generator raises a clear, actionable error rather than computing a nonsensical or
+  `None` duration
+
+### Requirement: pod-reported row count is cross-validated against the CSV
+
+The metadata generator SHALL compare the pod-side `run_metadata.json`'s own reported row/step
+count against the force CSV's independently-derived `timing.timesteps` (see the final_time
+requirement above), and SHALL raise a clear error naming both values when they disagree, rather
+than silently preferring one or producing a valid-looking output with an unresolved discrepancy.
+
+#### Scenario: pod-reported row count disagrees with the CSV
+
+- **GIVEN** a pod-side `run_metadata.json` reporting `rows=4700` and a force CSV whose last row
+  gives `timesteps=4706`
+- **WHEN** the generator attempts to assemble metadata for that config
+- **THEN** it raises a clear error naming both the pod-reported and CSV-derived counts, rather than
+  producing output that silently picks one
 
 ### Requirement: the generator is testable without live cluster or Argo access
 

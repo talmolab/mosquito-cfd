@@ -38,12 +38,16 @@ Add a new post-run CLI (`scripts/generate_run_metadata.py`) that assembles a com
   `fine-grid-corpus-full`) — not a re-derivation of run-specific data, so not "hand-authoring" in
   the sense the bugs above were.
 
-The output schema is **normalized**, not backward-compatible with today's two inconsistent
-lineages (t3c/t3b/t2a vs. the 3 pilot files): fixes the `docker_image`/`image_digest` field
-inversion (the t3c-lineage schema stores a mutable tag under `docker_image` and the digest
-separately, while the code that actually validates digests stores the digest under
-`docker_image` — schema and code disagree), and replaces the free-text `run_platform` narrative
-with structured, independently-derived fields (`stability`, `arena_max_mib`, `node`, `gpu_model`).
+The output schema is **normalized**, not backward-compatible with today's committed schema (both
+the t3c/t3b/t2a lineage and the 3 pilot files use the *same* shape, so this is a single
+schema-vs-code mismatch, not a cross-lineage inconsistency — see `design.md` D2): every committed
+file stores a mutable tag under `docker_image` and the real digest separately under
+`image_digest`, while the code that actually validates image identity
+(`capture_surrogate_run_metadata`/`sidecar.validate_image_digest`) stores a single validated
+digest under `docker_image` itself. This change normalizes future files to match what the
+validating code actually produces (one digest-validated `docker_image` field), and replaces the
+free-text `run_platform` narrative with structured, independently-derived fields (`stability`,
+`arena_max_mib`, `node`, `gpu_model`).
 One optional `notes` field remains for genuinely exceptional human commentary (e.g. explaining an
 unusual truncated final step) but is never required for a normal run.
 
@@ -58,18 +62,40 @@ unusual truncated final step) but is never required for a normal run.
   without a live cluster.
 - Does not retroactively fix `examples/flapping_wing/run_metadata_{t3c,t3b,t2a}.json` (older
   lineage, different tier, not blocking the upcoming corpus work).
+- **Does not regenerate or replace the 3 already-committed pilot `run_metadata_*.json` files.**
+  `openspec/specs/force-surrogate/spec.md`'s "Fine-grid pilot per-config run metadata is committed
+  with provenance" requirement normatively pins those 3 files to `run_metadata_t3c.json`'s schema
+  (including the `docker_image`/`image_digest` split this change normalizes away for future runs),
+  and `tests/test_fine_pilot_deck.py::test_pilot_run_metadata_schema` hard-requires that same
+  split. Regenerating them here would silently violate a live spec requirement and break a passing
+  test. Per PR #58's own review precedent of treating these 3 files as sensitive to silent
+  re-touching, any future regeneration is a separate, explicitly-reviewed follow-up change that
+  must itself update that spec requirement and test — see `design.md` D4.
 - Does not itself regenerate the full 27-config corpus — that is a separate, already-scoped
   follow-on change that will depend on this one's output schema.
 
 ## Impact
 
-- Affected specs: `run-metadata` (new capability — no prior spec file existed).
-- Affected code: new `scripts/generate_run_metadata.py` + supporting parsing functions (CSV
-  last-row reader, `run.log` Arena-max parser, Argo status-query wrapper, schema assembler). No
-  changes to `run_one_config.py`, `sweep.py`, or any Argo template.
-- New tests: `tests/test_generate_run_metadata.py`, TDD against fixture data derived from the
+- Affected specs: `run-metadata` (new capability — no prior spec file existed). Does NOT modify
+  `force-surrogate`'s existing "Fine-grid pilot per-config run metadata is committed with
+  provenance" requirement (see Non-goals — that requirement's 3 target files are untouched here).
+- Affected code:
+  - New `src/mosquito_cfd/force_surrogate/metadata_capture.py` — the actual parsing/validation/
+    assembly logic (CSV last-row reader, `run.log` Arena-max parser, manifest sourcing, digest/git
+    validation reusing `sidecar.validate_image_digest`, Argo status-query wrapper, schema
+    assembler). Importable and independently unit-testable.
+  - New `scripts/generate_run_metadata.py` — a thin argparse CLI wrapper over
+    `metadata_capture.py`, matching the existing bare-script convention (`run_sweep.py`,
+    `extract_forces.py`) rather than a `[project.scripts]` entry.
+  - `.gitignore` — generalize `examples/prelim_sweep/runs/` to `examples/prelim_sweep*/runs/`
+    (the pattern currently doesn't cover `examples/prelim_sweep_fine_pilot/runs/` or the upcoming
+    full-corpus follow-on's own `runs/` tree — a real accidental-commit risk this change's premise
+    depends on closing; see `design.md` D6).
+  - No changes to `run_one_config.py`, `sweep.py`, or any Argo template.
+  - Docs: `openspec/project.md` (Current State line), `docs/force_surrogate/fine-grid-pilot-report.md`
+    and `docs/force_surrogate/roadmap.md` (both currently describe the old schema in prose and will
+    be annotated as describing the pre-normalization schema for the 3 pilot files specifically).
+- New tests: `tests/test_metadata_capture.py`, plus fixture data under
+  `tests/fixtures/run_metadata/` cross-checked against (but not generated from a live run of) the
   already-committed, already-corrected 3 pilot `run_metadata_*.json` files and their CSVs — no
   live cluster/Argo/RunAI access needed to write or run these tests.
-- Whether the 3 already-committed pilot files are regenerated through the new tool (to prove
-  real-world round-trip equivalence) is decided during implementation — see `design.md` open
-  question.
