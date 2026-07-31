@@ -1,0 +1,45 @@
+{
+  "run_id": "77e25c18-1859-4ec1-9f51-5f1720811cc7",
+  "timestamp": "2026-07-30T18:13:31+00:00",
+  "git": {
+    "commit": "634c5611ff7d91e35eae054222c1d90fa0a3720f",
+    "branch": "add-fine-grid-training-pilot",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "gpu-node14",
+    "gpus": [
+      {
+        "model": "NVIDIA A40",
+        "memory_mb": 46068,
+        "driver_version": "550.90.07"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a",
+  "config": "s35_f085_p45",
+  "deck": "inputs/inputs.3d.s35_f085_p45",
+  "deck_sha256": "92d5ab87b8556b711329f23f197aaefca8954db93df91a409bef396a66a7674d",
+  "command": [
+    "mpirun",
+    "--allow-run-as-root",
+    "-np",
+    "1",
+    "/opt/cfd/IAMReX/Tutorials/FlappingWing/amr3d.gnu.MPI.CUDA.ex",
+    "/workspace/inputs/inputs.3d.s35_f085_p45"
+  ],
+  "ib_particle_csv": "s35_f085_p45/IB_Particle_1.csv",
+  "log": "s35_f085_p45/run.log",
+  "rows": 4706,
+  "max_step": 4706,
+  "threshold": 0.99,
+  "status": "completed",
+  "orchestration": {
+    "workflow_uid": "4378eb61-6e31-4a5b-8374-f61c89be1a1e",
+    "pod": "force-surrogate-smoke-xwm4b-run-config-3125566197",
+    "node": "gpu-node14",
+    "retry": "0"
+  }
+}

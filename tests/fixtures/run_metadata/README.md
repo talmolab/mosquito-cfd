@@ -1,0 +1,33 @@
+# `run_metadata` test fixtures
+
+Cluster-free TDD fixtures for `tests/test_metadata_capture.py` (OpenSpec change
+`automate-run-metadata-capture`). All values here are cross-checked against the real,
+already-committed, already-corrected pilot config `s35_f085_p45`
+(`examples/prelim_sweep_fine_pilot/`) as **read-only ground truth** — nothing here is ever
+written back to that directory.
+
+- `forces_s35_f085_p45.csv` — exact copy of the committed force CSV. Last row:
+  `iStep=4705, time=2.3525` (one `dt=0.0005` short of the deck's `stop_time=2.352941176...`).
+- `sweep_manifest.json` — exact copy of the committed manifest (per-config kinematics/reynolds/
+  max_step; note `dt` is the manifest-level nominal, not per-config).
+- `inputs.3d.s35_f085_p45` — exact copy of the committed deck (source of `amr.n_cell` /
+  `ns.fixed_dt`, which are **not** in the manifest).
+- `pod_run_metadata.json` — a hand-reconstructed pod-side `run_metadata.json` matching the real
+  shape `capture_surrogate_run_metadata`/`capture_run_metadata` produce (see
+  `src/mosquito_cfd/benchmarks/metadata.py`, `src/mosquito_cfd/force_surrogate/sidecar.py`,
+  `run_one_config.py`'s `_write_run_metadata`). Uses the real git commit SHA and image digest from
+  the committed `run_metadata_s35_f085_p45.json`. `rows=4706` matches the CSV's row count.
+- `run.log` — synthetic excerpt with a realistic AMReX "The Arena" max-used line (`7998 MiB`,
+  matching the figure in `docs/force_surrogate/fine-grid-pilot-report.md`). The exact AMReX log
+  line format is not verified against a real captured `run.log` (none is committed — it's
+  gitignored); `metadata_capture.parse_arena_max_mib`'s regex is intentionally tolerant of MiB/MB
+  and "Arena ... used ... N" phrasing rather than pinned to this exact string.
+- `argo_status_simple.json` — a canned `argo get <name> -o json`-shaped response with one
+  `Succeeded` node, `startedAt`/`finishedAt` spanning exactly `s35_f085_p45`'s real committed
+  `timing.wall_time_s` (`9448.466969`).
+- `argo_status_with_retry.json` — a canned response with one `Failed` node followed by one
+  `Succeeded` node, for testing that `wall_time_s` reflects only the final successful attempt's
+  duration, not the full span including the failed attempt. Not tied to a real pilot config
+  (synthetic workflow/pod names).
+
+Test data only — do not import fixtures from anywhere outside `tests/`.
