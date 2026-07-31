@@ -174,6 +174,12 @@ def test_kinematics_grid_fixed_dt_max_step_sourced_from_manifest():
     assert fields["max_step"] == 4706
 
 
+def test_parse_deck_skips_lines_with_no_key(tmp_path):
+    deck = tmp_path / "inputs.3d.test"
+    deck.write_text("= no_key_here\namr.n_cell = 64 32 64\n", encoding="utf-8")
+    assert mc.parse_deck(deck) == {"amr.n_cell": "64 32 64"}
+
+
 def test_manifest_lookup_raises_on_missing_config():
     with pytest.raises(KeyError, match="not_a_real_config"):
         mc.source_config_fields(
@@ -267,6 +273,45 @@ def test_argo_status_query_failure_produces_clear_error(monkeypatch):
         mc.query_argo_workflow_status("some-workflow")
 
 
+def test_argo_status_query_nonzero_exit_produces_clear_error(monkeypatch):
+    class _FakeCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = 'workflows.argoproj.io "some-workflow" not found'
+
+    monkeypatch.setattr(mc.subprocess, "run", lambda *a, **k: _FakeCompleted())
+    with pytest.raises(RuntimeError, match="not found"):
+        mc.query_argo_workflow_status("some-workflow")
+
+
+def test_argo_status_query_invalid_json_produces_clear_error(monkeypatch):
+    class _FakeCompleted:
+        returncode = 0
+        stdout = "not json"
+        stderr = ""
+
+    monkeypatch.setattr(mc.subprocess, "run", lambda *a, **k: _FakeCompleted())
+    with pytest.raises(RuntimeError, match="valid JSON"):
+        mc.query_argo_workflow_status("some-workflow")
+
+
+def test_resolve_wall_time_s_calls_argo_status_query_when_no_override():
+    status = _load_json(_ARGO_SIMPLE)
+    calls = []
+
+    def _fake_query(workflow_name):
+        calls.append(workflow_name)
+        return status
+
+    result = mc.resolve_wall_time_s(
+        workflow_name="force-surrogate-smoke-xwm4b",
+        wall_time_s_override=None,
+        argo_status_query=_fake_query,
+    )
+    assert result == pytest.approx(9448.466969)
+    assert calls == ["force-surrogate-smoke-xwm4b"]
+
+
 def test_wall_time_s_override_bypasses_argo_query():
     calls = []
 
@@ -330,6 +375,11 @@ def test_assemble_metadata_produces_normalized_schema():
     )
     assert result["orchestration"]["retry"] == "0"
     assert "run_platform" not in result
+
+
+def test_assemble_metadata_includes_workflow_name_in_orchestration_when_supplied():
+    result = _assemble(workflow_name="force-surrogate-smoke-xwm4b")
+    assert result["orchestration"]["workflow_name"] == "force-surrogate-smoke-xwm4b"
 
 
 def test_assemble_metadata_notes_field_optional():

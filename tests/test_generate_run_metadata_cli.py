@@ -84,7 +84,9 @@ def test_cli_missing_workflow_name_and_wall_time_s_raises_clear_error(tmp_path):
     output = tmp_path / "run_metadata.json"
     args = _base_args(output)
     idx = args.index("--wall-time-s")
-    del args[idx : idx + 2]  # neither --workflow-name (never added) nor --wall-time-s present
+    del args[
+        idx : idx + 2
+    ]  # neither --workflow-name (never added) nor --wall-time-s present
 
     with pytest.raises(ValueError, match="workflow_name"):
         module.main(args)
