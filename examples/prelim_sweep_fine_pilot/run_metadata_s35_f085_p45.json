@@ -2,7 +2,7 @@
   "run_id": "77e25c18-1859-4ec1-9f51-5f1720811cc7",
   "timestamp": "2026-07-30T18:13:31+00:00",
   "git": {
-    "commit": "634c561",
+    "commit": "634c5611ff7d91e35eae054222c1d90fa0a3720f",
     "branch": "add-fine-grid-training-pilot",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
@@ -17,7 +17,7 @@
     "wall_time_s": 9448.466969,
     "timesteps": 4706,
     "s_per_step": 2.007749,
-    "final_time": 2.352941176
+    "final_time": 2.3525
   },
   "outputs": {
     "directory": "examples/prelim_sweep_fine_pilot",
@@ -38,7 +38,7 @@
   "dt_reduced": false,
   "max_step": 4706,
   "convention": "van Veen (span y, stroke Rz(phi) about vertical z; R=Rz(phi)Ry(alpha)Rx(theta))",
-  "run_platform": "RunAI cluster (talmo-lab), NVIDIA A40 46068 MiB, gpu-node14; add-fine-grid-training-pilot config 3/3 (lowest Reynolds); STABLE at the standard dt=5e-4, no CFL fallback needed; AMReX 'The Arena' max used 7998 MiB (well within the 46 GB card). Final step's DT is benign-truncated to 0.0004411765 (4705 of 4706 steps ran at the full 0.0005) so the run lands exactly on stop_time=2.352941176 -- max_step*dt (2.353) slightly overshoots stop_time due to the round() in derive_run_duration; this is standard AMReX end-of-run clamping, not a CFL/divergence response.",
+  "run_platform": "RunAI cluster (talmo-lab), NVIDIA A40 46068 MiB, gpu-node14; add-fine-grid-training-pilot config 3/3 (lowest Reynolds); STABLE at the standard dt=5e-4, no CFL fallback needed; AMReX 'The Arena' max used 7998 MiB (well within the 46 GB card). Per run.log, the solver's internal final step is benign-truncated to DT=0.0004411765 (4705 of 4706 steps ran at the full DT=0.0005) so its internal clock lands exactly on stop_time=2.352941176 -- max_step*dt (2.353) slightly overshoots stop_time due to the round() in derive_run_duration; this is standard AMReX end-of-run clamping, not a CFL/divergence response. The committed forces_s35_f085_p45.csv (and timing.final_time above) reflects the last WRITTEN force sample, iStep=4705 at time=2.3525 -- one dt short of that internal final time, matching the same max_step-rows convention (iStep 0..max_step-1) seen in all 3 pilot configs' CSVs, not something specific to this truncated step.",
   "analysis_host": {
     "hostname": "gpu-node14",
     "gpus": [

@@ -2,7 +2,7 @@
   "run_id": "dd9d767d-d779-441d-a783-ecabf3aef15f",
   "timestamp": "2026-07-30T02:40:52+00:00",
   "git": {
-    "commit": "70c68fb",
+    "commit": "70c68fbdc438623aa008198f619e78b24145b88b",
     "branch": "add-fine-grid-training-pilot",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
@@ -17,7 +17,7 @@
     "wall_time_s": 8002.8776,
     "timesteps": 4000,
     "s_per_step": 2.000719,
-    "final_time": 2.0
+    "final_time": 1.9995
   },
   "outputs": {
     "directory": "examples/prelim_sweep_fine_pilot",

@@ -17,7 +17,7 @@
     "wall_time_s": 7032.459991,
     "timesteps": 3478,
     "s_per_step": 2.021984,
-    "final_time": 1.7390
+    "final_time": 1.7385
   },
   "outputs": {
     "directory": "examples/prelim_sweep_fine_pilot",

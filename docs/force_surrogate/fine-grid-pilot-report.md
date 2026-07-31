@@ -8,8 +8,9 @@ corpus at fine resolution?
 
 This pilot collects raw force CSVs only — it does **not** extract force coefficients or compare
 against the QS-model target. The `CF_chord`/`CF_normal` grid-convergence numbers that motivate
-this pilot (coarse +115%, fine ~4-5% off target) are already published in
-`docs/aerodynamics_validation/t3c-handoff.md` and are not restated here.
+this pilot (coarse +115%, fine ~4-5% off target) are already published in the T3c row of
+`docs/aerodynamics_validation/roadmap.md` (`CF_chord`: 0.923 coarse → 0.554 medium → 0.411 fine)
+and are not restated here.
 
 ## Per-config results
 
@@ -91,3 +92,11 @@ exposure before committing the full run, and should budget for the possibility t
 config outside this pilot's tested pitch level (30°/60°, not just the pilot's 45°) needs the
 CFL fallback — this pilot did not vary pitch, since pitch is not a CFL-driving parameter in
 `derive_run_duration`, but it also was not empirically tested at the other 2 pitch levels.
+
+**Caveat: the preemption/retry path itself is unexercised, not just unobserved.** All 3 pilot
+configs show `retry: "0"` — genuinely no preemption occurred — but that means whether a
+Run:ai-preempted pod actually surfaces to Argo as a retryable `Failed` (picked up by the
+`retryStrategy`'s `retryPolicy: OnFailure`) versus a non-retried `Error` has never been
+empirically confirmed, by this pilot or the earlier coarse 27-config run. Given the follow-on's
+~61-hour exposure on a cluster already over its non-preemptible GPU quota, this is worth
+validating (e.g. a deliberate test eviction) before relying on the retry path for real.

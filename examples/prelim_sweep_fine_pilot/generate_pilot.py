@@ -42,6 +42,30 @@ WORKSPACE_HOSTPATH = (
     "/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine_pilot"
 )
 
+# The frozen 27-config coarse corpus generate_sweep() must never be pointed at (its
+# stale-deck-pruning unlink() would delete real, committed CFD output). Module-level so tests
+# can monkeypatch it to a decoy path rather than exercising the guard against the real directory.
+_FROZEN_CORPUS_DIR = Path("examples/prelim_sweep")
+
+
+def _validate_output_dir(output: Path) -> None:
+    """Reject an ``--output`` directory that resolves to the frozen coarse corpus.
+
+    Args:
+        output: The requested output directory.
+
+    Raises:
+        ValueError: If ``output`` resolves to the same directory as the frozen coarse corpus
+            (``_FROZEN_CORPUS_DIR``) -- pointing ``generate_sweep()`` at it would prune its real,
+            committed decks and overwrite its manifest with this script's 3-config one.
+    """
+    if output.resolve() == _FROZEN_CORPUS_DIR.resolve():
+        raise ValueError(
+            f"refusing to generate into {output} -- this is the frozen coarse corpus "
+            f"({_FROZEN_CORPUS_DIR}); pointing generate_sweep() at it would prune its real, "
+            "committed decks. Use a different --output directory."
+        )
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Generate the fine-grid pilot corpus and print a one-line summary.
@@ -75,6 +99,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"base inputs {BASE_INPUTS} not found relative to cwd {Path.cwd()}; "
             "run this driver from the repository root"
         )
+
+    try:
+        _validate_output_dir(args.output)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     manifest = generate_sweep(
         BASE_INPUTS,
