@@ -11,6 +11,10 @@
 #   lint       argo lint both manifests (authoritative structural validation)
 #   smoke      Submit ONE config via the template (scheduling/GPU pre-flight before the 27-way fan-out)
 #   full       Submit the full fan-out sweep workflow
+#              --parallelism N overrides the submitted workflow's concurrency (default: the
+#              committed force-surrogate-sweep.yaml's own value, unpatched) by submitting an
+#              anchored, self-verifying sed-patched temp copy -- the committed file is never
+#              edited. Omit the flag to submit the committed file exactly as-is.
 #
 # IMPORTANT: pin --image to the POST-MERGE :fp64 @sha256: digest (the value emitted by the
 # docker.yml "Emit FP64 image digest to job summary" step on the merge commit — never an older one).
@@ -19,7 +23,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml"
+# Respect a pre-set WORKFLOW (e.g. a test injecting a mangled copy to exercise the parallelism
+# patch's failure path) -- matches the "${VAR:-default}" idiom already used below for every other
+# override in this script. Normal invocations never set this, so behavior is unchanged.
+WORKFLOW="${WORKFLOW:-$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml}"
 SMOKE_WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-smoke.yaml"
 TEMPLATE="$(cd "$SCRIPT_DIR/../workflow-templates" && pwd)/force-surrogate-single-config.yaml"
 
@@ -39,6 +46,10 @@ SMOKE_MAX_STEP="${SMOKE_MAX_STEP:-4706}"
 # POD_MEMORY_LIMIT=32Gi POD_MEMORY_REQUEST=16Gi) without editing the shared WorkflowTemplate.
 POD_MEMORY_LIMIT="${POD_MEMORY_LIMIT:-64Gi}"
 POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
+# Empty = flag not given = submit $WORKFLOW unpatched (true no-op, no second hardcoded default
+# that could drift from the committed file's actual value). Only sed-patch a temp copy when this
+# is explicitly set via --parallelism.
+PARALLELISM=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -58,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --namespace) NAMESPACE="$2"; shift 2;;
     --pod-memory-limit) POD_MEMORY_LIMIT="$2"; shift 2;;
     --pod-memory-request) POD_MEMORY_REQUEST="$2"; shift 2;;
+    --parallelism) PARALLELISM="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
 done
@@ -92,8 +104,24 @@ case "$COMMAND" in
     ;;
   full)
     require_image
-    echo "Submitting the full fan-out sweep (image=$IMAGE, timestamp=$TIMESTAMP) ..."
-    argo submit "$WORKFLOW" -n "$NAMESPACE" --watch \
+    workflow_file="$WORKFLOW"
+    if [[ -n "$PARALLELISM" ]]; then
+      [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
+        || die "--parallelism must be a positive integer (got: $PARALLELISM)"
+      # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits non-zero,
+      # which would otherwise kill the script here instead of reaching the die() message below.
+      n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$WORKFLOW" || true)
+      [[ "$n_matches" -eq 1 ]] \
+        || die "expected exactly one top-level 'parallelism:' line in $WORKFLOW, found $n_matches"
+      tmp="$(mktemp --suffix=.yaml)"
+      trap 'rm -f "$tmp"' EXIT
+      sed -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$WORKFLOW" > "$tmp"
+      grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
+        || die "parallelism patch did not apply as expected"
+      workflow_file="$tmp"
+    fi
+    echo "Submitting the full fan-out sweep (image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}) ..."
+    argo submit "$workflow_file" -n "$NAMESPACE" --watch \
       --parameter image="$IMAGE" \
       --parameter docker-digest="$IMAGE" \
       --parameter timestamp="$TIMESTAMP" \
