@@ -112,7 +112,9 @@ def test_generate_full_corpus_main_rejects_frozen_paths_via_cli(tmp_path, monkey
 
     Monkeypatches both ``_FROZEN_CORPUS_DIR`` and ``_PILOT_DIR`` to separate ``tmp_path`` decoys
     (never the real frozen directories), exercising the full CLI wiring (guard -> ``parser.error``
-    -> ``SystemExit``) for each independently.
+    -> ``SystemExit``) for each independently. Also asserts the decoy directory was never created,
+    proving the guard ran *before* ``generate_sweep()`` (which would ``mkdir`` and write into it) --
+    not just that ``SystemExit`` eventually happened by some other path.
     """
     full_corpus = _load_full_corpus_script()
 
@@ -120,11 +122,17 @@ def test_generate_full_corpus_main_rejects_frozen_paths_via_cli(tmp_path, monkey
     monkeypatch.setattr(full_corpus, "_FROZEN_CORPUS_DIR", decoy_coarse)
     with pytest.raises(SystemExit):
         full_corpus.main(["--output", str(decoy_coarse)])
+    assert not decoy_coarse.exists(), (
+        "generate_sweep() must not run before the guard rejects"
+    )
 
     decoy_pilot = tmp_path / "decoy_prelim_sweep_fine_pilot"
     monkeypatch.setattr(full_corpus, "_PILOT_DIR", decoy_pilot)
     with pytest.raises(SystemExit):
         full_corpus.main(["--output", str(decoy_pilot)])
+    assert not decoy_pilot.exists(), (
+        "generate_sweep() must not run before the guard rejects"
+    )
 
 
 def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():

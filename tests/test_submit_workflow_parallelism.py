@@ -140,7 +140,9 @@ def test_missing_parallelism_line_fails_loudly_not_silently(tmp_path):
     mangled.write_text("".join(line for line in lines if "parallelism:" not in line))
 
     result, _capture_file, invoked_marker = _run_submit_workflow(
-        tmp_path, ["--parallelism", "1"], extra_env={"WORKFLOW": str(mangled)}
+        tmp_path,
+        ["--parallelism", "1"],
+        extra_env={"SWEEP_WORKFLOW_FILE": str(mangled)},
     )
 
     assert result.returncode != 0

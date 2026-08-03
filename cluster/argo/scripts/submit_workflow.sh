@@ -23,12 +23,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Respect a pre-set WORKFLOW (e.g. a test injecting a mangled copy to exercise the parallelism
+# Respect a pre-set SWEEP_WORKFLOW_FILE (e.g. a test injecting a mangled copy to exercise the parallelism
 # patch's failure path) -- matches the "${VAR:-default}" idiom already used below for every other
 # override in this script. Normal invocations never set this, so behavior is unchanged. NOTE:
-# this seam is script-wide, not scoped to `full` -- `lint` also reads $WORKFLOW, so a stray
-# `export WORKFLOW=...` left over from testing would silently make `lint` validate the wrong file.
-WORKFLOW="${WORKFLOW:-$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml}"
+# this seam is script-wide, not scoped to `full` -- `lint` also reads $SWEEP_WORKFLOW_FILE, so a stray
+# `export SWEEP_WORKFLOW_FILE=...` left over from testing would silently make `lint` validate the wrong file.
+SWEEP_WORKFLOW_FILE="${SWEEP_WORKFLOW_FILE:-$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml}"
 SMOKE_WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-smoke.yaml"
 TEMPLATE="$(cd "$SCRIPT_DIR/../workflow-templates" && pwd)/force-surrogate-single-config.yaml"
 
@@ -48,7 +48,7 @@ SMOKE_MAX_STEP="${SMOKE_MAX_STEP:-4706}"
 # POD_MEMORY_LIMIT=32Gi POD_MEMORY_REQUEST=16Gi) without editing the shared WorkflowTemplate.
 POD_MEMORY_LIMIT="${POD_MEMORY_LIMIT:-64Gi}"
 POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
-# Empty = flag not given = submit $WORKFLOW unpatched (true no-op, no second hardcoded default
+# Empty = flag not given = submit $SWEEP_WORKFLOW_FILE unpatched (true no-op, no second hardcoded default
 # that could drift from the committed file's actual value). Only sed-patch a temp copy when this
 # is explicitly set via --parallelism.
 PARALLELISM=""
@@ -83,9 +83,9 @@ case "$COMMAND" in
       || argo template update "$TEMPLATE" -n "$NAMESPACE"
     ;;
   lint)
-    echo "Linting manifests (the authoritative structural check) ..."
+    echo "Linting manifests (the authoritative structural check): $TEMPLATE, $SWEEP_WORKFLOW_FILE ..."
     argo lint "$TEMPLATE" -n "$NAMESPACE"
-    argo lint "$WORKFLOW" -n "$NAMESPACE"
+    argo lint "$SWEEP_WORKFLOW_FILE" -n "$NAMESPACE"
     ;;
   smoke)
     require_image
@@ -106,23 +106,23 @@ case "$COMMAND" in
     ;;
   full)
     require_image
-    workflow_file="$WORKFLOW"
+    workflow_file="$SWEEP_WORKFLOW_FILE"
     if [[ -n "$PARALLELISM" ]]; then
       [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
         || die "--parallelism must be a positive integer (got: $PARALLELISM)"
       # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits non-zero,
       # which would otherwise kill the script here instead of reaching the die() message below.
-      n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$WORKFLOW" || true)
+      n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$SWEEP_WORKFLOW_FILE" || true)
       [[ "$n_matches" -eq 1 ]] \
-        || die "expected exactly one top-level 'parallelism:' line in $WORKFLOW, found $n_matches"
+        || die "expected exactly one top-level 'parallelism:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
       tmp="$(mktemp --suffix=.yaml)"
       trap 'rm -f "$tmp"' EXIT
-      sed -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$WORKFLOW" > "$tmp"
+      sed -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$SWEEP_WORKFLOW_FILE" > "$tmp"
       grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
         || die "parallelism patch did not apply as expected"
       workflow_file="$tmp"
     fi
-    echo "Submitting the full fan-out sweep (image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}) ..."
+    echo "Submitting the full fan-out sweep ($workflow_file; image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}) ..."
     argo submit "$workflow_file" -n "$NAMESPACE" --watch \
       --parameter image="$IMAGE" \
       --parameter docker-digest="$IMAGE" \
