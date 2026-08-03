@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Full 27-config fine-256³ force-surrogate corpus scaffolding: `generate_full_corpus.py` (thin driver over the unmodified `generate_sweep()`, default 27-config Aedes grid, `n_holdout=6`) plus the generated `examples/prelim_sweep_fine/` decks + manifest, committed cluster-free (no live cluster run in this PR) (#61)
+- `submit_workflow.sh full --parallelism N`: overrides the fan-out sweep's concurrency via an anchored, self-verifying `sed` patch to a temp copy — never edits the committed `force-surrogate-sweep.yaml`; omitting the flag is a true no-op (#61)
 - T3c fine-grid (256×128×256) convergence run: `forces_fine.csv` (4000 steps, 1 wingbeat, RTX A5000) and `run_metadata_t3c.json` with deck hash pin, image digest, timing, and `dt_reduced=true` flag (#52)
 - 3-grid Richardson analysis: CF_normal monotone (p_obs=1.38, Richardson=2.162, GCI_fine=3.7%); CF_chord monotone (p_obs=1.37, Richardson=0.321, GCI_fine=27.6%) — documented in `examples/flapping_wing/RESULTS.md` (#52)
 - Reproducibility guard test `test_3grid_convergence_recomputes_from_committed_csvs` with tight `abs=1e-4` tolerances pinned to committed CSV values (#52)
@@ -23,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - T4 per-component force-decomposition (`make_force_decomposition_figure.py`, `fig_force_decomposition`) now compares the van Veen quasi-steady model against the fine 256³ grid (`forces_fine.csv`, T3c) instead of the coarse 64³ grid: CF_normal 2.23 vs model 2.48 (rel gap ~11%, still within the 16% tolerance); CF_chord 0.41 vs model 0.43 (close agreement, down from the coarse-grid 0.92). `decompose_wing_force` is no longer called with `medium_csv` here — pairing the finest grid as the 2-grid GCI function's "coarse" role inverted the convergence-direction semantics; RESULTS.md's T4 section and Validation Status row now cite the T3c 3-grid Richardson/GCI numbers instead
 
 ### Fixed
+- `.gitattributes`' `inputs.3d.*` LF-normalization pattern broadened to `*inputs.3d.*` so it also covers `base_inputs.3d.*` files — a Windows checkout was silently baking a platform-dependent sha256 into committed `sweep_provenance.json` files (#61)
 - `inputs.3d.convergence_fine` reproducibility banner added — warns that re-running the deck as committed will not reproduce `forces_fine.csv` (D6 runtime override required) (#52)
 - `test_wing_convergence_fine.py`: strengthened `image_digest` assertion to verify `sha256:` prefix (was vacuous key-presence check); added `cf_normal.monotone=True` and `cf_chord.monotone=True` structural assertions (#52)
 - `test_t4_decomposition_numbers_reproduce` and `test_fig_force_decomposition_regenerates` updated to assert against the fine-grid numbers, replacing the stale coarse-grid pins
