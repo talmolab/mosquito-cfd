@@ -136,6 +136,10 @@ mosquito-cfd/
 - [x] **Arbitrary geometry support** - external vertex file loading + prescribed kinematics for
   flapping wing validation; archived as `add-arbitrary-geometry` once its foundational scope
   shipped and was extended by the same T2a-T4/T3c lineage
+- [x] Full 27-config fine-256³ force-surrogate corpus (decks + manifest only, no CFD output yet) —
+  `examples/prelim_sweep_fine/generate_full_corpus.py`, committed via `add-fine-grid-corpus-full`,
+  the follow-on to the 3-config `add-fine-grid-training-pilot` (GO recommendation) — reuses
+  `generate_sweep()`'s default 27-point grid and `n_holdout=6`, unmodified
 
 ### Not Planned
 - FP32 builds - upstream IAMReX does not support; using FP64 on A100/H100 instead
@@ -144,6 +148,9 @@ mosquito-cfd/
 - [ ] Scaling benchmarks for the NVIDIA Academic Grant (H100) - the current grant target;
   scaling-benchmark scope originally written for APEX still applies, just against H100 hardware
 - [ ] Multi-GPU / multi-node validation
+- [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
+  — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
+  explicit go-ahead (shared lab GPU quota, unverified preemption/retry path)
 
 ## Conventions
 
