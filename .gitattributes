@@ -19,8 +19,11 @@
 *.ipynb text eol=lf
 
 # IAMReX input decks (extension-less) — pin LF so the committed sweep corpus is
-# byte-reproducible on Windows and Linux (force-surrogate sweep generator).
-examples/**/inputs.3d.* text eol=lf
+# byte-reproducible on Windows and Linux (force-surrogate sweep generator). The leading `*`
+# also matches `base_inputs.3d.*` (base/template decks), not just the per-config `inputs.3d.*`
+# ones — a prior version of this pattern missed base decks, letting Windows autocrlf silently
+# bake a platform-dependent sha256 into committed sweep_provenance.json files.
+examples/**/*inputs.3d.* text eol=lf
 
 # Documentation
 *.rst text eol=lf

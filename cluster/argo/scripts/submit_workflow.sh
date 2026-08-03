@@ -25,7 +25,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Respect a pre-set WORKFLOW (e.g. a test injecting a mangled copy to exercise the parallelism
 # patch's failure path) -- matches the "${VAR:-default}" idiom already used below for every other
-# override in this script. Normal invocations never set this, so behavior is unchanged.
+# override in this script. Normal invocations never set this, so behavior is unchanged. NOTE:
+# this seam is script-wide, not scoped to `full` -- `lint` also reads $WORKFLOW, so a stray
+# `export WORKFLOW=...` left over from testing would silently make `lint` validate the wrong file.
 WORKFLOW="${WORKFLOW:-$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-sweep.yaml}"
 SMOKE_WORKFLOW="$(cd "$SCRIPT_DIR/../workflows" && pwd)/force-surrogate-smoke.yaml"
 TEMPLATE="$(cd "$SCRIPT_DIR/../workflow-templates" && pwd)/force-surrogate-single-config.yaml"
