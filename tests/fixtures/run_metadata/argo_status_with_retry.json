@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "name": "force-surrogate-full-abc12",
+    "uid": "9f1e2d3c-4b5a-6789-0abc-def123456789"
+  },
+  "status": {
+    "phase": "Succeeded",
+    "startedAt": "2026-08-01T09:00:00Z",
+    "finishedAt": "2026-08-01T13:57:28.466969Z",
+    "nodes": {
+      "force-surrogate-full-abc12-run-config-0000000000": {
+        "displayName": "run-config",
+        "type": "Retry",
+        "phase": "Succeeded",
+        "startedAt": "2026-08-01T09:00:00Z",
+        "finishedAt": "2026-08-01T13:57:28.466969Z"
+      },
+      "force-surrogate-full-abc12-run-config-1111111111": {
+        "displayName": "run-config(0)",
+        "type": "Pod",
+        "phase": "Failed",
+        "startedAt": "2026-08-01T09:00:00Z",
+        "finishedAt": "2026-08-01T11:09:00Z"
+      },
+      "force-surrogate-full-abc12-run-config-2222222222": {
+        "displayName": "run-config(1)",
+        "type": "Pod",
+        "phase": "Succeeded",
+        "startedAt": "2026-08-01T11:09:12Z",
+        "finishedAt": "2026-08-01T13:57:28.466969Z"
+      }
+    }
+  }
+}

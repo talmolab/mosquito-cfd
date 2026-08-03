@@ -21,7 +21,9 @@ and are not restated here.
 | `s35_f085_p45` | 42.55 | 0.85 | 4706 | `stable_at_5e-4` | 9448.47 s (2.62 h) | 2.007749 | 0 |
 
 Provenance: `examples/prelim_sweep_fine_pilot/run_metadata_<config>.json` (schema matches
-`run_metadata_t3c.json`: git/docker/hardware/timing) + `examples/prelim_sweep_fine_pilot/forces_<config>.csv`
+`run_metadata_t3c.json`: git/docker/hardware/timing — this is these 3 files' as-committed,
+pre-normalization schema; `automate-run-metadata-capture` normalizes the schema for future runs,
+but does not retrofit these 3) + `examples/prelim_sweep_fine_pilot/forces_<config>.csv`
 (the committed `IB_Particle_1.csv`, verified against the pinned 29-column IB-particle schema).
 Cluster: RunAI `talmo-lab`, image `ghcr.io/talmolab/mosquito-cfd@sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a`
 (the current post-merge `:fp64`; no fresh build needed per `design.md`'s "no code changes"

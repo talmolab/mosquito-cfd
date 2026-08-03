@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "name": "force-surrogate-smoke-xwm4b",
+    "uid": "4378eb61-6e31-4a5b-8374-f61c89be1a1e"
+  },
+  "status": {
+    "phase": "Succeeded",
+    "startedAt": "2026-07-30T15:37:12Z",
+    "finishedAt": "2026-07-30T18:14:40.466969Z",
+    "nodes": {
+      "force-surrogate-smoke-xwm4b-run-config-3125566197": {
+        "displayName": "run-config",
+        "phase": "Succeeded",
+        "startedAt": "2026-07-30T15:37:12Z",
+        "finishedAt": "2026-07-30T18:14:40.466969Z"
+      }
+    }
+  }
+}

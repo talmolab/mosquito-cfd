@@ -21,7 +21,10 @@ particle[0-9]*
 # Force-surrogate sweep runner output (PR3): per-config IB CSVs + run_metadata are the
 # intermediate corpus produced on the cluster, not committed (provenance lands via PR4's
 # dataset.parquet). IB_Particle_*.csv is already ignored above; this covers run_metadata too.
-examples/prelim_sweep/runs/
+# Generalized to prelim_sweep* (not just the frozen coarse corpus) so the fine-grid pilot's and
+# full-corpus follow-on's own runs/ trees are covered too (automate-run-metadata-capture D6 —
+# examples/prelim_sweep_fine_pilot/runs/ was previously unmatched).
+examples/prelim_sweep*/runs/
 
 # Plotfiles and checkpoints (track selectively if needed)
 plotfiles/
@@ -53,6 +56,7 @@ Thumbs.db
 
 # Logs
 *.log
+!tests/fixtures/**/*.log
 slurm-*.out
 
 # Local config (not for sharing)
