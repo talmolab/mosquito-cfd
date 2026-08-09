@@ -72,10 +72,14 @@ _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # Anchored to "[The Arena]" specifically -- a real GPU-build run.log typically also emits
 # "[The Device Arena]"/"[The Managed Arena]"/"[The Pinned Arena]" lines, which report different
 # (and sometimes larger) figures; matching "Arena" unanchored would silently report the wrong
-# arena's peak.
-_ARENA_USED_RE = re.compile(
-    r"\[The Arena\].*?\bused\b.*?([\d.]+)\s*Mi?B", re.IGNORECASE
-)
+# arena's peak. "\s+" (not a literal single space) between "The" and "Arena" because AMReX pads
+# the tag with extra spaces to column-align it with the longer Device/Managed/Pinned labels (real
+# GPU run.log: "[The         Arena] max space (MB) used      spread across MPI: [7998 ... 7998]"),
+# and the figure isn't followed by a "MiB"/"MB" suffix in that format (units are declared once,
+# earlier in the line, as "(MB)") -- unlike the older "... 7998 MiB" phrasing this regex
+# originally targeted. Matching the first number after "used" (with no required unit suffix)
+# covers both.
+_ARENA_USED_RE = re.compile(r"\[The\s+Arena\].*?\bused\b.*?(\d+(?:\.\d+)?)", re.IGNORECASE)
 
 # The sweep's nominal timestep (matches `sweep_manifest.json`'s top-level "dt" for every config
 # that hasn't needed the CFL fallback).

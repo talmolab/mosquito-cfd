@@ -1,0 +1,49 @@
+{
+  "run_id": "a8a0deae-1061-472a-b24c-91084c8f84c2",
+  "timestamp": "2026-08-04T20:44:38+0000",
+  "git": {
+    "commit": "ec3a19508441f4b86828ec2eb12427d77b1eb29d",
+    "branch": "main"
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:d296852ae81328c20f9b4cd0c265a5a037df1bc6863969982ccfde58b5e84f39",
+  "deck_sha256": "f2723ef6b0a5f49b8b81e450a76bdc1b88fee30166d1417222c289f172cea82c",
+  "hardware": {
+    "hostname": "force-surrogate-sweep-vb8t5-run-config-2354230427",
+    "gpus": [
+      {
+        "model": "NVIDIA A40",
+        "memory_mb": 46068,
+        "driver_version": "550.90.07"
+      }
+    ],
+    "gpu_count": 1,
+    "cuda_version": "Cuda compilation tools, release 12.4, V12.4.131"
+  },
+  "config": "s55_f085_p45",
+  "tier": "fine-grid-corpus-full",
+  "kinematics": {
+    "stroke_amp_deg": 55.0,
+    "frequency_fstar": 0.85,
+    "pitch_amp_deg": 45.0,
+    "reynolds": 66.87014576100398
+  },
+  "grid": "256 128 256",
+  "fixed_dt": 0.0005,
+  "max_step": 4706,
+  "stability": "stable_at_5e-4",
+  "arena_max_mib": 7998,
+  "node": "gpu-node13",
+  "gpu_model": "NVIDIA A40",
+  "timing": {
+    "final_time": 2.3525,
+    "timesteps": 4706,
+    "wall_time_s": 9343.0
+  },
+  "orchestration": {
+    "workflow_uid": "f5a8630d-c6c3-4be5-acd9-3c1bd2cf87c8",
+    "pod": "force-surrogate-sweep-vb8t5-run-config-2354230427",
+    "node": "gpu-node13",
+    "retry": "0",
+    "workflow_name": "force-surrogate-sweep-vb8t5"
+  }
+}
