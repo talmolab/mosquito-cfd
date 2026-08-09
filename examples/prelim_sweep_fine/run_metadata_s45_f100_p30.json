@@ -45,5 +45,6 @@
     "node": "gpu-node13",
     "retry": "0",
     "workflow_name": "force-surrogate-sweep-vb8t5"
-  }
+  },
+  "notes": "git.commit independently verified (not pod-captured -- the :fp64 image has no .git dir, see issue #66): confirmed via the docker.yml 'Build FP64 Image' job that this exact docker_image digest was built from this exact commit on main. wall_time_s includes real GPU-scheduling queue delay under cluster quota pressure, not just compute time -- confirmed via kubectl pod status.startTime vs. this Argo node's startedAt (~3h/~1h gap here, vs. ~10s for a typical config in this corpus)."
 }

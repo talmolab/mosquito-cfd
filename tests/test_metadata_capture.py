@@ -177,6 +177,19 @@ def test_parse_arena_max_mib_from_real_gpu_run_log_format(tmp_path):
     assert mc.parse_arena_max_mib(log) == 7998
 
 
+def test_parse_arena_max_mib_reports_max_not_min_across_mpi_ranks(tmp_path):
+    """AMReX's CArena::PrintUsage reports "[min ... max]" across MPI ranks. A genuinely
+    multi-rank run has min != max; grabbing the first bracketed number (the min) would silently
+    under-report the true peak -- invisible in this repo's single-rank runs, where min == max,
+    until checked against the actual upstream AMReX source."""
+    log = tmp_path / "run.log"
+    log.write_text(
+        "[The         Arena] max space (MB) used      spread across MPI: [100 ... 7998]\n",
+        encoding="utf-8",
+    )
+    assert mc.parse_arena_max_mib(log) == 7998
+
+
 def test_parse_arena_max_mib_ignores_other_arena_types(tmp_path):
     """A real GPU-build log also emits Device/Managed/Pinned Arena lines with different (here,
     larger) figures -- only "[The Arena]" itself should be reported, not the max across all."""
