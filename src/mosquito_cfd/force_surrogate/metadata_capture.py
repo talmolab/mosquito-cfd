@@ -72,9 +72,23 @@ _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # Anchored to "[The Arena]" specifically -- a real GPU-build run.log typically also emits
 # "[The Device Arena]"/"[The Managed Arena]"/"[The Pinned Arena]" lines, which report different
 # (and sometimes larger) figures; matching "Arena" unanchored would silently report the wrong
-# arena's peak.
+# arena's peak. "\s+" (not a literal single space) between "The" and "Arena" because AMReX pads
+# the tag with extra spaces to column-align it with the longer Device/Managed/Pinned labels.
+#
+# AMReX's CArena::PrintUsage reports the used figure as a per-MPI-rank "[min ... max]" pair (real
+# GPU run.log: "[The         Arena] max space (MB) used      spread across MPI: [7998 ... 7998]")
+# -- the "bracket_max" branch captures the SECOND number (the max across ranks), not the first:
+# for a genuinely multi-rank run min != max, and grabbing the first number would silently
+# under-report the true peak (this repo's runs are single-rank today, so min == max and the
+# distinction was invisible until checked against the actual upstream AMReX source). The
+# "suffix_num" branch is a fallback for the older "... 7998 MiB" phrasing (no bracket, unit
+# suffix directly after the figure) this regex originally targeted, kept for backward
+# compatibility with existing fixtures in case some run.log variant ever uses it.
 _ARENA_USED_RE = re.compile(
-    r"\[The Arena\].*?\bused\b.*?([\d.]+)\s*Mi?B", re.IGNORECASE
+    r"\[The\s+Arena\].*?\bused\b.*?"
+    r"(?:\[\s*[\d.]+\s*\.\.\.\s*(?P<bracket_max>\d+(?:\.\d+)?)\s*\]"
+    r"|(?P<suffix_num>\d+(?:\.\d+)?)\s*Mi?B)",
+    re.IGNORECASE,
 )
 
 # The sweep's nominal timestep (matches `sweep_manifest.json`'s top-level "dt" for every config
@@ -137,7 +151,10 @@ def parse_arena_max_mib(run_log_path: Path | str) -> int | None:
     if not path.exists():
         raise FileNotFoundError(f"run.log not found: {path}")
     text = path.read_text(encoding="utf-8", errors="replace")
-    matches = [float(m.group(1)) for m in _ARENA_USED_RE.finditer(text)]
+    matches = [
+        float(m.group("bracket_max") or m.group("suffix_num"))
+        for m in _ARENA_USED_RE.finditer(text)
+    ]
     if not matches:
         return None
     return int(max(matches))

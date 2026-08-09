@@ -158,6 +158,38 @@ def test_stability_derived_from_fixed_dt_alone():
     assert mc.derive_stability(2.5e-4) == "stable_at_2.5e-4_fallback"
 
 
+def test_parse_arena_max_mib_from_real_gpu_run_log_format(tmp_path):
+    """The real IAMReX GPU binary pads "[The Arena]" with extra spaces to column-align it with
+    the longer Device/Managed/Pinned labels, and reports the figure inside a bracketed
+    per-MPI-rank list with no adjacent unit suffix -- distinct from this fixture's older,
+    synthetic "... 7998 MiB" phrasing. Caught via the full 27-config fine-grid corpus's real
+    run.log files all parsing to arena_max_mib=None despite containing this exact line."""
+    log = tmp_path / "run.log"
+    log.write_text(
+        "[The         Arena] max space (MB) allocated spread across MPI: [34052 ... 34052]\n"
+        "[The         Arena] max space (MB) used      spread across MPI: [7998 ... 7998]\n"
+        "[The Managed Arena] max space (MB) allocated spread across MPI: [8 ... 8]\n"
+        "[The Managed Arena] max space (MB) used      spread across MPI: [0 ... 0]\n"
+        "[The  Pinned Arena] max space (MB) allocated spread across MPI: [24 ... 24]\n"
+        "[The  Pinned Arena] max space (MB) used      spread across MPI: [17 ... 17]\n",
+        encoding="utf-8",
+    )
+    assert mc.parse_arena_max_mib(log) == 7998
+
+
+def test_parse_arena_max_mib_reports_max_not_min_across_mpi_ranks(tmp_path):
+    """AMReX's CArena::PrintUsage reports "[min ... max]" across MPI ranks. A genuinely
+    multi-rank run has min != max; grabbing the first bracketed number (the min) would silently
+    under-report the true peak -- invisible in this repo's single-rank runs, where min == max,
+    until checked against the actual upstream AMReX source."""
+    log = tmp_path / "run.log"
+    log.write_text(
+        "[The         Arena] max space (MB) used      spread across MPI: [100 ... 7998]\n",
+        encoding="utf-8",
+    )
+    assert mc.parse_arena_max_mib(log) == 7998
+
+
 def test_parse_arena_max_mib_ignores_other_arena_types(tmp_path):
     """A real GPU-build log also emits Device/Managed/Pinned Arena lines with different (here,
     larger) figures -- only "[The Arena]" itself should be reported, not the max across all."""
