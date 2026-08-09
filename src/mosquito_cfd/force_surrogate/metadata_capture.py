@@ -79,7 +79,9 @@ _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # earlier in the line, as "(MB)") -- unlike the older "... 7998 MiB" phrasing this regex
 # originally targeted. Matching the first number after "used" (with no required unit suffix)
 # covers both.
-_ARENA_USED_RE = re.compile(r"\[The\s+Arena\].*?\bused\b.*?(\d+(?:\.\d+)?)", re.IGNORECASE)
+_ARENA_USED_RE = re.compile(
+    r"\[The\s+Arena\].*?\bused\b.*?(\d+(?:\.\d+)?)", re.IGNORECASE
+)
 
 # The sweep's nominal timestep (matches `sweep_manifest.json`'s top-level "dt" for every config
 # that hasn't needed the CFL fallback).
