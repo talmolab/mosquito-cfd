@@ -183,7 +183,7 @@ Phase 5's cluster-run commit):
     `test_committed_sweep_matches_regeneration` reads the frozen-snapshot base deck and byte-compares
     against the committed corpus, so these cannot land in separate pushes. (Task 29's `_FROZEN_RAW_FORCE_SHA`
     update lands later, with task 36 — `dataset.parquet` doesn't exist yet at this point.)
-32. [ ] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
+32. [x] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
     as a manual, visual pre-submission sanity check — an operator looking at the PNG, not a pytest
     assertion. Run once (task 37 supersedes it; do not duplicate).
 33. [ ] **Fetch a fresh `:fp64` digest for this change's own merge**: per `cluster/argo/README.md`'s
