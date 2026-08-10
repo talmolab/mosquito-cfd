@@ -26,6 +26,11 @@ from mosquito_cfd.force_surrogate import generate_sweep
 BASE_INPUTS = Path("examples/prelim_sweep_fine_pilot/base_inputs.3d.fine")
 OUTPUT_DIR = Path("examples/prelim_sweep_fine_pilot")
 # Fixed caller-supplied timestamp so the committed provenance is reproducible (never wall-clock).
+# NOTE (fix-force-surrogate-sweep-hinge): the sibling scripts generate_sweep.py and
+# generate_full_corpus.py had this identical default removed (it let a real regeneration silently
+# reuse a stale timestamp) and now require --timestamp explicitly. This script keeps the default
+# deliberately -- the pilot isn't re-run by that change -- but the same latent footgun exists here
+# if this script is ever used for a real regeneration; make --timestamp required then too.
 DEFAULT_TIMESTAMP = "2026-07-29T00:00:00+00:00"
 
 # The 3 pilot configs (highest-Reynolds-first per design.md D4). Pitch held at 45 deg across

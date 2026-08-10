@@ -540,3 +540,23 @@ def test_driver_smoke(tmp_path):
         "sweep_provenance.json",
     ):
         assert (tmp_path / name).exists()
+
+
+def test_main_requires_timestamp(tmp_path):
+    """Omitting --timestamp is rejected before any file is read or written (fix-force-surrogate-sweep-hinge).
+
+    A real regeneration must supply a fresh, caller-chosen timestamp -- never silently reuse a
+    stale literal from the script's original authoring session.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        driver.main(["--output", str(decoy)])
+    assert not decoy.exists(), "no file should be read or written before the missing --timestamp is rejected"

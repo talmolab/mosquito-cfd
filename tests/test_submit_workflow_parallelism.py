@@ -69,7 +69,10 @@ def _run_submit_workflow(
         env.update(extra_env)
 
     result = subprocess.run(
-        [_BASH, str(_SUBMIT_SH), "full", "--image", _FAKE_IMAGE, *args],
+        # --no-provision: this test file is entirely about --parallelism; provisioning (a sibling,
+        # independent feature added by fix-force-surrogate-sweep-hinge) is exercised in its own
+        # tests/test_submit_workflow_provision.py and must not touch real NFS defaults here.
+        [_BASH, str(_SUBMIT_SH), "full", "--image", _FAKE_IMAGE, "--no-provision", *args],
         env=env,
         capture_output=True,
         text=True,

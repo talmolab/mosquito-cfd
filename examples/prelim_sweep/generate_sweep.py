@@ -21,8 +21,6 @@ from mosquito_cfd.force_surrogate import generate_sweep
 # Paths relative to the repository root (run the driver from the repo root).
 BASE_INPUTS = Path("examples/flapping_wing/inputs.3d.validation")
 DEFAULT_OUTPUT = Path("examples/prelim_sweep")
-# Fixed caller-supplied timestamp so the committed provenance is reproducible (never wall-clock).
-DEFAULT_TIMESTAMP = "2026-06-09T00:00:00+00:00"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -45,8 +43,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timestamp",
-        default=DEFAULT_TIMESTAMP,
-        help="Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json.",
+        required=True,
+        help=(
+            "Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json. Required: a "
+            "real regeneration must supply a fresh value, never silently reuse a stale one "
+            "(fix-force-surrogate-sweep-hinge)."
+        ),
     )
     args = parser.parse_args(argv)
 

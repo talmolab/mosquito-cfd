@@ -45,6 +45,29 @@ Windows/Cluster/container [mount mapping](../../openspec/runai-dev-workflow.md#w
      && cluster/argo/scripts/submit_workflow.sh full --image ghcr.io/talmolab/mosquito-cfd@sha256:<DIGEST>"
    ```
 
+### NFS provisioning (automatic, closes #62)
+
+Both `smoke` and `full` **provision** `--workspace-hostpath` from `--corpus-dir` (default
+`examples/prelim_sweep`) before submitting — copying `inputs/`, `sweep_manifest*.json` (`full`
+only; `smoke` runs a single named deck and never reads the manifest), and the canonical
+`examples/flapping_wing/wing.vertex`, then verifying the copy by hash. This closes a
+previously-manual, previously-missed step: an earlier session found the coarse corpus's NFS
+`wing.vertex` didn't match any git-committed version at all (stale from before the
+axis-convention refactor), sitting undetected on the cluster share for over a month.
+
+- **`--corpus-dir DIR`** — the local corpus to stage. Its basename **must match**
+  `--workspace-hostpath`'s basename (provisioning refuses a mismatch, e.g. a coarse `--corpus-dir`
+  paired with a fine-corpus `--workspace-hostpath`) — always pass both together when targeting a
+  non-default corpus:
+  ```bash
+  wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml \
+    && cluster/argo/scripts/submit_workflow.sh full --image ghcr.io/talmolab/mosquito-cfd@sha256:<DIGEST> \
+       --corpus-dir examples/prelim_sweep_fine --workspace-hostpath /hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine"
+  ```
+- **`--no-provision`** — skip staging (you've already verified NFS is current by hand). Provisioning
+  defaults to **on**; opt-in skipping is exactly how the original gap went undetected, so make this
+  an explicit, deliberate choice, not a habit.
+
 ## Monitor
 
 ```bash
