@@ -138,34 +138,50 @@ Phase 5's cluster-run commit):
 
 ### Phase 1 — fix the two base decks (PR 2 — begins the coupled sequence)
 
-23. [ ] Edit `examples/prelim_sweep/base_inputs.3d.validation`: `hinge_y = 2.0 → 0.5`,
+23. [x] Edit `examples/prelim_sweep/base_inputs.3d.validation`: `hinge_y = 2.0 → 0.5`,
     `hinge_z = 2.5 → 4.0`. Update the deck's inline comment.
-24. [ ] Edit `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` identically.
-25. [ ] Run Phase 0's test 5 — now green. Run
+24. [x] Edit `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` identically.
+25. [x] Run Phase 0's test 5 — now green. Run
     `tests/test_fine_pilot_deck.py::test_fine_pilot_deck_matches_coarse_base_except_n_cell` — must
     still pass (both bases changed identically).
-26. [ ] Regenerate `tests/fixtures/run_metadata/inputs.3d.s35_f085_p45` from the corrected fine base
-    deck; confirm `tests/test_metadata_capture.py` still passes.
+26. [x] **Deviation from the original plan (discovered during implementation):** do NOT regenerate
+    `tests/fixtures/run_metadata/inputs.3d.s35_f085_p45`. Its own README documents it as an "exact
+    copy of the committed deck," cross-checked as read-only ground truth against the real,
+    already-committed pilot config alongside sibling fixtures (`forces_s35_f085_p45.csv`,
+    `run_metadata_s35_f085_p45.json`, `argo_status_*.json`) that all pertain to that SAME real,
+    un-regenerated CFD run (the pilot's actual CFD is intentionally not re-run by this change).
+    Regenerating just this one fixture with the corrected hinge would silently diverge it from the
+    real deck it claims to mirror and from its own sibling fixtures — breaking the invariant this
+    task was meant to preserve, not fixing anything. Confirmed unchanged (byte-identical to
+    `examples/prelim_sweep_fine_pilot/inputs/inputs.3d.s35_f085_p45`, which itself is correctly
+    *not* touched) and `tests/test_metadata_capture.py` passes (39/39) with no edit.
 
 ### Phase 2 — update the tests/docstrings this fix intentionally supersedes
 
-27. [ ] Update `tests/test_force_surrogate_sweep.py`'s `BASE_INPUTS` comment ("frozen snapshot...
+27. [x] Update `tests/test_force_surrogate_sweep.py`'s `BASE_INPUTS` comment ("frozen snapshot...
     never regenerated") to reference this change and the one-time exception.
-28. [ ] Update `src/mosquito_cfd/force_surrogate/sweep.py`'s docstring(s) similarly.
+28. [x] Update `src/mosquito_cfd/force_surrogate/sweep.py`'s docstring(s) similarly.
 29. [ ] **Update `tests/test_force_surrogate_scale_invariance.py`'s `_FROZEN_RAW_FORCE_SHA`** to the
     post-regeneration hash. `_FROZEN_RAW_FORCE_SHA` hashes `dataset.parquet`'s raw columns, which
     only exist after Phase 5's extract/train step (task 36) — update this in the **same commit** as
     task 36, not earlier (the new hash isn't known until `dataset.parquet` exists).
-30. [ ] `test_committed_sweep_matches_regeneration` requires no code change — passes by construction
+30. [x] `test_committed_sweep_matches_regeneration` requires no code change — passes by construction
     once Phase 5 regenerates and commits the corpus together. Do not weaken or delete it.
 
 ### Phase 5 — regenerate the coarse corpus end-to-end (still PR 2)
 
-31. [ ] Regenerate `examples/prelim_sweep/` decks + `sweep_manifest.json` + `sweep_manifest.units.json`
-    via `generate_sweep()`'s CLI with the corrected base deck and an explicit fresh timestamp (now
-    mandatory per Phase 4 task 19). Commit together with Phase 1 (tasks 23-26) —
-    `test_committed_sweep_matches_regeneration` reads the live base deck and byte-compares against
-    the committed corpus, so these cannot land in separate pushes. (Task 29's `_FROZEN_RAW_FORCE_SHA`
+31. [x] **Deviation discovered here:** `examples/prelim_sweep/generate_sweep.py`'s `BASE_INPUTS`
+    pointed at the live `examples/flapping_wing/inputs.3d.validation`, not the frozen snapshot the
+    tests/CC-V6 design depend on (correct only at the driver's original pre-T2a commit; never
+    updated when T2a froze the snapshot). Caught before committing by comparing the driver's output
+    against a direct `generate_sweep()` call with the correct base — see proposal.md "Why N instead
+    of M." Fixed the constant, added `test_driver_base_inputs_matches_the_frozen_snapshot`
+    (`tests/test_force_surrogate_sweep.py`), reverted the incorrect first regeneration attempt, then
+    regenerated `examples/prelim_sweep/` decks + `sweep_manifest.json` + `sweep_manifest.units.json`
+    correctly via `generate_sweep()`'s CLI with the corrected base deck and an explicit fresh
+    timestamp (now mandatory per Phase 4 task 19). Commit together with Phase 1 (tasks 23-26) —
+    `test_committed_sweep_matches_regeneration` reads the frozen-snapshot base deck and byte-compares
+    against the committed corpus, so these cannot land in separate pushes. (Task 29's `_FROZEN_RAW_FORCE_SHA`
     update lands later, with task 36 — `dataset.parquet` doesn't exist yet at this point.)
 32. [ ] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
     as a manual, visual pre-submission sanity check — an operator looking at the PNG, not a pytest

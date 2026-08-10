@@ -1,10 +1,12 @@
 """Tests for force_surrogate.sweep.
 
-Cluster-free (roadmap CC-2): every test runs against the committed validated base inputs
-(``examples/flapping_wing/inputs.3d.validation``), ``tests/fixtures/micro_sweep.json``, and the
-committed ``examples/prelim_sweep/`` corpus — no RunAI, GPU, or plotfiles. The unit tests use the
-base inputs + micro-sweep fixture; the artifact tests at the end of this module additionally read
-the committed ``examples/prelim_sweep/`` sweep corpus.
+Cluster-free (roadmap CC-2): every test runs against the committed sweep base inputs
+(``examples/prelim_sweep/base_inputs.3d.validation`` — a decoupled snapshot, NOT the live
+``examples/flapping_wing/inputs.3d.validation``; see the ``BASE_INPUTS`` comment below),
+``tests/fixtures/micro_sweep.json``, and the committed ``examples/prelim_sweep/`` corpus — no
+RunAI, GPU, or plotfiles. The unit tests use the base inputs + micro-sweep fixture; the artifact
+tests at the end of this module additionally read the committed ``examples/prelim_sweep/`` sweep
+corpus.
 """
 
 import itertools
@@ -31,10 +33,15 @@ from mosquito_cfd.force_surrogate.constants import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Track-B templates off a FROZEN snapshot of the pre-T2a validation deck, NOT the live
+# Track-B templates off a snapshot of the pre-T2a validation deck, NOT the live
 # examples/flapping_wing/inputs.3d.validation (which T2a re-oriented to the van Veen convention).
-# The snapshot is byte-identical to the deck the frozen corpus was generated from, so the corpus is
-# decoupled from T2a and never regenerated (CC-V6 / hard constraint). See the T2a proposal deviation.
+# T2a froze this snapshot decoupled from the live deck specifically to avoid regenerating the
+# corpus (CC-V6) -- but froze it WITH a hinge value that was only correct under the pre-refactor
+# geometry convention, producing a midspan-pivot defect once wing.vertex moved to the new
+# convention. fix-force-surrogate-sweep-hinge corrected the hinge here and regenerated the corpus
+# once -- a documented, one-time exception to CC-V6 (see that change's proposal.md), not a
+# reversion to "regenerate on every convention change." The snapshot otherwise remains decoupled
+# from the live deck's future edits.
 BASE_INPUTS = REPO_ROOT / "examples" / "prelim_sweep" / "base_inputs.3d.validation"
 MICRO_SWEEP = REPO_ROOT / "tests" / "fixtures" / "micro_sweep.json"
 TS = "2020-01-01T00:00:00+00:00"
@@ -520,6 +527,30 @@ def test_committed_manifest_shape():
     assert splits.count("train") == 21
     units = read_units_sidecar(PRELIM_SWEEP / "sweep_manifest.units.json")
     assert units["reynolds"] == "dimensionless"
+
+
+def test_driver_base_inputs_matches_the_frozen_snapshot():
+    """The CLI driver's BASE_INPUTS must be the frozen snapshot, not the live flapping_wing deck.
+
+    Regression (fix-force-surrogate-sweep-hinge): the driver's BASE_INPUTS pointed at
+    examples/flapping_wing/inputs.3d.validation since its original commit (PR2, before the T2a
+    refactor, when the two files were byte-identical). T2a froze a snapshot at
+    examples/prelim_sweep/base_inputs.3d.validation specifically so the corpus would NOT track the
+    live deck's future edits (CC-V6) -- but never updated this constant, silently reintroducing
+    exactly that tracking. Undetected until this session because nobody re-ran this driver between
+    T2a landing and the hinge fix (the corpus was "frozen, never regenerated"). Running it with the
+    stale BASE_INPUTS would have regenerated all 27 decks with the live deck's full content (new
+    axis-convention headers, ns.init_iter, ns.lo_bc/hi_bc, etc.) -- not just the intended hinge fix.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    assert driver.BASE_INPUTS.resolve() == BASE_INPUTS.resolve()
 
 
 def test_driver_smoke(tmp_path):
