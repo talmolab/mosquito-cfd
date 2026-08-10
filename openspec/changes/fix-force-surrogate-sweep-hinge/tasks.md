@@ -216,11 +216,20 @@ Phase 5's cluster-run commit):
 
 ### Phase 6 — regenerate the fine corpus's decks only (no CFD run; still PR 2 — needs Phase 1's fix)
 
-39. [ ] Regenerate `examples/prelim_sweep_fine/` decks + manifest via `generate_full_corpus.py`
+39. [x] Regenerate `examples/prelim_sweep_fine/` decks + manifest via `generate_full_corpus.py`
     against the corrected fine base deck (task 24), passing an explicit fresh `--timestamp` (now
     required by task 19 — the CLI itself enforces it, no separate reminder needed).
-40. [ ] Run the Phase 3 diagnostic (manual/visual) against a sample of the regenerated fine decks.
-41. [ ] Add a `superseded_by` field to `examples/prelim_sweep_fine/sweep_provenance.json` naming the
+40. [x] Run the Phase 3 diagnostic (manual/visual) against a sample of the regenerated fine decks.
+    **Deviation discovered here:** the diagnostic CLI's `_sweep_config_kwargs` hardcoded
+    `<corpus-dir>/base_inputs.3d.validation` as the hinge/centre source, which happened to work for
+    the coarse corpus (whose base deck really does live there) but not the fine corpus (whose base
+    deck lives under `examples/prelim_sweep_fine_pilot/` with a different name). Fixed to read
+    hinge/centre from the config's own generated deck instead (`render_inputs` always copies those
+    fields through unchanged, so any generated deck carries the real values) — works uniformly
+    regardless of a corpus's base-deck naming/location. Added
+    `test_cli_runs_against_a_corpus_with_no_base_deck_of_its_own`
+    (`tests/test_wing_phase_diagnostic_cli.py`) to pin this.
+41. [x] Add a `superseded_by` field to `examples/prelim_sweep_fine/sweep_provenance.json` naming the
     now-stale cluster workflows `force-surrogate-sweep-vb8t5` and
     `force-surrogate-retry-failed-trz9k` (noting their NFS `wing.vertex` was already-correct — only
     the hinge was stale for that run), plus a `test_fine_corpus_provenance_flags_superseded_runs`

@@ -1,9 +1,14 @@
 {
   "base_inputs": {
     "path": "examples/prelim_sweep_fine_pilot/base_inputs.3d.fine",
-    "sha256": "5716225bb6875d9f68d940b65547c7742620e89b953a149ecbf75f1e44228ea2"
+    "sha256": "135ccd38437e56ae04812299162f3bcf02ec7c8bfe1dce2470fb9899063ed6a0"
   },
-  "generated_at": "2026-08-03T00:00:00+00:00",
-  "git_commit": "3c691b9d086fd3862aabcead420c3757a153290e",
-  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
+  "generated_at": "2026-08-10T00:00:00+00:00",
+  "git_commit": "a32ccd12f0d6cff68c0b5991ea6555e830ff5108",
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
+  "superseded_by": {
+    "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by the cluster runs below, whose raw CFD output on NFS predates this fix and is now stale.",
+    "cluster_workflows": ["force-surrogate-sweep-vb8t5", "force-surrogate-retry-failed-trz9k"],
+    "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale."
+  }
 }
