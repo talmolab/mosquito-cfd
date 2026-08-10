@@ -214,15 +214,15 @@ Phase 5's cluster-run commit):
 
 **PR 1c (cluster-free, no claim that the fix is complete):**
 
-42. [ ] `git show duncan-meeting-prep:docs/field_surrogate/roadmap.md` → commit onto `main` at
+42. [x] `git show duncan-meeting-prep:docs/field_surrogate/roadmap.md` → commit onto `main` at
     `docs/field_surrogate/roadmap.md`, updating its sequencing note to record that the standalone F1
     pilot is superseded by a full-corpus field-capture run bundled with the **follow-on change**.
-43. [ ] **Port the `docs/force_surrogate/roadmap.md` CC-6 + "Out of scope" edit**, retrieved via
+43. [x] **Port the `docs/force_surrogate/roadmap.md` CC-6 + "Out of scope" edit**, retrieved via
     `git diff main duncan-meeting-prep -- docs/force_surrogate/roadmap.md` (confirmed this session to
     cleanly show exactly the CC-6 supersession note + reworded "Out of scope" section — apply that
     diff directly, don't hand-reconstruct it). Land in the same commit as task 42 — task 42 alone
     leaves the imported file's own header referencing a note that won't otherwise exist.
-44. [ ] Add a one-line pointer note in `docs/force_surrogate/fine-grid-pilot-report.md` referencing
+44. [x] Add a one-line pointer note in `docs/force_surrogate/fine-grid-pilot-report.md` referencing
     this fix wherever it discusses corpus force accuracy/validity.
 
 **PR 2 (claims the fix is done, so gated on Phase 5/6 actually landing):**

@@ -109,8 +109,15 @@ convention). No silent unit mixing.
 
 ### CC-6. Scope guard (force-only).
 **No** velocity-field/plotfile reading, **no** AMReX→PhysicsNeMo field reader, **no** RL
-integration, **no** DoMINO/latent-dynamics. `amr.plot_int = -1` throughout. These are the funded
-deliverables and are explicitly out of scope here.
+integration, **no** DoMINO/latent-dynamics. `amr.plot_int = -1` throughout **within this
+roadmap's PRs**. These were originally framed as funded-only deliverables gated on an NVIDIA
+H100 award.
+
+> **Superseded 2026-08-07:** not waiting for that award — the field/DoMINO track is starting now,
+> tracked separately in [`docs/field_surrogate/roadmap.md`](../field_surrogate/roadmap.md) so it
+> doesn't retroactively scope-creep this roadmap's already-merged PRs. This roadmap's force-only
+> boundary stays true *historically* (what PR1–PR6 did); it is no longer true as a statement of
+> what the *project* will do next.
 
 ### CC-7. Reynolds handling in the sweep (RESOLVED in PR2: hold ν\* fixed).
 The validated ν\* = 0.115 sets Re≈100 at the 70° point. Changing stroke amplitude / frequency
@@ -240,8 +247,14 @@ standalone. The steps below wrap `/new-feature` with the issue-drafting and arch
 4. After merge, `/openspec:archive <change-id>`.
 5. Tick the status checkbox in this roadmap.
 
-## Out of scope (funded work — not this program)
+## Out of scope (not this program)
 
-Velocity/pressure field reading, AMReX→PhysicsNeMo field reader, DoMINO encoder + latent dynamics,
-RL-in-loop (MJX-Warp PPO), the full LHS production corpus, multi-GPU scaling, medium/fine-grid
-validation. These are H100-award deliverables.
+The full LHS production corpus, multi-GPU scaling. These remain H100-award-scale deliverables.
+
+Velocity/pressure field reading, AMReX→PhysicsNeMo field reader, DoMINO encoder + latent
+dynamics, and RL-in-loop (MJX-Warp PPO) were listed here as H100-award deliverables — **that
+gate is dropped** (see CC-6 note above). They're now tracked in
+[`docs/field_surrogate/roadmap.md`](../field_surrogate/roadmap.md), starting on local/lab-cluster
+hardware rather than waiting for an award. Medium/fine-grid validation for the *force* corpus is
+no longer out of scope either — it's `add-wing-fine-grid-convergence` / the fine-grid regeneration
+already tracked above, not deferred.

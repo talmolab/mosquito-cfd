@@ -12,6 +12,14 @@ this pilot (coarse +115%, fine ~4-5% off target) are already published in the T3
 `docs/aerodynamics_validation/roadmap.md` (`CF_chord`: 0.923 coarse → 0.554 medium → 0.411 fine)
 and are not restated here.
 
+> **Geometry note (`fix-force-surrogate-sweep-hinge`, 2026-08-10):** the base deck this pilot ran
+> from (`examples/prelim_sweep_fine_pilot/base_inputs.3d.fine`) carried a wing-hinge geometry
+> defect (a midspan pivot, not a root hinge) since the 2026-07-02 axis-convention refactor. That
+> fix is orthogonal to **this report's own finding** — the `dt=5e-4` numerical-stability result is
+> a property of the rigid-body pivot's motion smoothness, not its placement, and is not affected —
+> but the raw force magnitudes in the committed `forces_<config>.csv` files reflect the buggy
+> geometry and should not be trusted for anything beyond the stability go/no-go this report makes.
+
 ## Per-config results
 
 | Config | Re | f* | max_step | Stability | Wall time | s/step | Retries |
