@@ -44,7 +44,9 @@ DEFAULT_SAMPLE = ("validated", "s35_f085_p30", "s55_f115_p60")
 def _validated_kwargs() -> dict:
     deck_text = _VALIDATED_DECK.read_text(encoding="utf-8")
     center = tuple(read_deck_value(deck_text, f"particle_inputs.{a}") for a in "xyz")
-    hinge = tuple(read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz")
+    hinge = tuple(
+        read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz"
+    )
     return {
         "center": center,
         "hinge": hinge,
@@ -58,7 +60,9 @@ def _sweep_config_kwargs(name: str, corpus_dir: Path) -> dict:
     base_deck = corpus_dir / "base_inputs.3d.validation"
     deck_text = base_deck.read_text(encoding="utf-8")
     center = tuple(read_deck_value(deck_text, f"particle_inputs.{a}") for a in "xyz")
-    hinge = tuple(read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz")
+    hinge = tuple(
+        read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz"
+    )
     params = parse_config_name(name)
     return {
         "center": center,
@@ -76,7 +80,9 @@ def _config_kwargs(name: str, corpus_dir: Path) -> dict:
 
 
 def _all_config_names(corpus_dir: Path) -> list[str]:
-    manifest = json.loads((corpus_dir / "sweep_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (corpus_dir / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
     return [c["name"] for c in manifest["configs"]]
 
 
