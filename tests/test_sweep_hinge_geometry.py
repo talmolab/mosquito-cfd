@@ -14,7 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from mosquito_cfd.force_surrogate.geometry_guard import assert_hinge_at_span_root
+from mosquito_cfd.force_surrogate.geometry_guard import (
+    assert_hinge_at_span_root,
+    read_deck_value,
+)
 
 _LIVE_DECK = Path("examples/flapping_wing/inputs.3d.validation")
 _CANONICAL_VERTEX = Path("examples/flapping_wing/wing.vertex")
@@ -68,6 +71,23 @@ particle_inputs.hinge_z = 4.0
 """
     with pytest.raises(ValueError, match="empty.vertex"):
         assert_hinge_at_span_root(deck, empty_vertex)
+
+
+def test_hinge_at_span_root_rejects_invalid_span_axis():
+    """An invalid span_axis raises a clear ValueError, not a bare KeyError."""
+    with pytest.raises(ValueError, match="span_axis"):
+        assert_hinge_at_span_root(
+            _LIVE_DECK.read_text(), _CANONICAL_VERTEX, span_axis="w"
+        )
+
+
+def test_read_deck_value_uses_last_occurrence_when_key_duplicated():
+    """A key assigned twice resolves to the LAST value (ParmParse override semantics)."""
+    deck = """
+particle_inputs.hinge_y = 2.0
+particle_inputs.hinge_y = 0.5
+"""
+    assert read_deck_value(deck, "particle_inputs.hinge_y") == pytest.approx(0.5)
 
 
 @pytest.mark.xfail(

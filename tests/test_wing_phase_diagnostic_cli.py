@@ -60,6 +60,51 @@ def test_cli_smoke_runs_single_named_config(tmp_path):
     assert not (tmp_path / "s35_f085_p30_wing_phases.png").exists()
 
 
+def test_cli_runs_against_a_corpus_with_no_base_deck_of_its_own(tmp_path):
+    """Regression: sweep-config kwargs must not assume a shared 'base_inputs.3d.validation' name.
+
+    examples/prelim_sweep_fine/ has no base deck of its own (it's derived from
+    examples/prelim_sweep_fine_pilot/base_inputs.3d.fine) -- the CLI must read hinge/centre from
+    each config's own generated deck instead, not a hardcoded base-deck filename/location.
+    """
+    cli = _load_cli()
+    rc = cli.main(
+        [
+            "--out-dir",
+            str(tmp_path),
+            "--docker-digest",
+            DIGEST,
+            "--timestamp",
+            TS,
+            "--config",
+            "s35_f085_p30",
+            "--corpus-dir",
+            "examples/prelim_sweep_fine",
+        ]
+    )
+    assert rc == 0
+    assert (tmp_path / "s35_f085_p30_wing_phases.png").exists()
+
+
+def test_cli_rejects_config_name_not_in_manifest(tmp_path):
+    """A well-formed but nonexistent config name is rejected before any file is written."""
+    cli = _load_cli()
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "--out-dir",
+                str(tmp_path),
+                "--docker-digest",
+                DIGEST,
+                "--timestamp",
+                TS,
+                "--config",
+                "s99_f999_p99",
+            ]
+        )
+    assert not (tmp_path / "s99_f999_p99_wing_phases.png").exists()
+
+
 def test_wing_phase_diagnostic_default_sample_is_documented(tmp_path, capsys):
     """--help names the default sample configs and states why they were chosen."""
     cli = _load_cli()
