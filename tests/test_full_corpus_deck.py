@@ -200,4 +200,11 @@ def test_fine_corpus_provenance_flags_superseded_runs():
     assert provenance.get("superseded_by"), (
         "sweep_provenance.json is missing 'superseded_by'"
     )
+    assert provenance["superseded_by"]["cluster_workflows"] == [
+        "force-surrogate-sweep-vb8t5",
+        "force-surrogate-retry-failed-trz9k",
+    ], (
+        "superseded_by.cluster_workflows must name exactly the two stale runs, not just be "
+        "non-empty -- a typo'd or wrong workflow name must not pass silently"
+    )
     assert provenance["superseded_by"]["cluster_workflows"]

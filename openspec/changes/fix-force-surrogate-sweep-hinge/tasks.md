@@ -220,15 +220,17 @@ Phase 5's cluster-run commit):
     against the corrected fine base deck (task 24), passing an explicit fresh `--timestamp` (now
     required by task 19 — the CLI itself enforces it, no separate reminder needed).
 40. [x] Run the Phase 3 diagnostic (manual/visual) against a sample of the regenerated fine decks.
-    **Deviation discovered here:** the diagnostic CLI's `_sweep_config_kwargs` hardcoded
+    **Note (attribution corrected post-review):** running this against the fine corpus is what
+    surfaced a bug in the diagnostic CLI's `_sweep_config_kwargs` (it hardcoded
     `<corpus-dir>/base_inputs.3d.validation` as the hinge/centre source, which happened to work for
-    the coarse corpus (whose base deck really does live there) but not the fine corpus (whose base
-    deck lives under `examples/prelim_sweep_fine_pilot/` with a different name). Fixed to read
-    hinge/centre from the config's own generated deck instead (`render_inputs` always copies those
-    fields through unchanged, so any generated deck carries the real values) — works uniformly
-    regardless of a corpus's base-deck naming/location. Added
-    `test_cli_runs_against_a_corpus_with_no_base_deck_of_its_own`
-    (`tests/test_wing_phase_diagnostic_cli.py`) to pin this.
+    the coarse corpus but not the fine one, whose base deck lives under
+    `examples/prelim_sweep_fine_pilot/` with a different name) — but the fix itself (reading
+    hinge/centre from each config's own generated deck instead) and its regression test
+    (`test_cli_runs_against_a_corpus_with_no_base_deck_of_its_own`,
+    `tests/test_wing_phase_diagnostic_cli.py`) were relocated to PR 1b's (#69) own review-fix commit
+    during this change's stacked-PR review, since that is the PR that introduced the CLI in the
+    first place — not implemented fresh in this PR's commit. `git blame`/`git log -S` on those two
+    files confirms the fix lives on the `fix-hinge-geometry-guard` branch, not this one.
 41. [x] Add a `superseded_by` field to `examples/prelim_sweep_fine/sweep_provenance.json` naming the
     now-stale cluster workflows `force-surrogate-sweep-vb8t5` and
     `force-surrogate-retry-failed-trz9k` (noting their NFS `wing.vertex` was already-correct — only
