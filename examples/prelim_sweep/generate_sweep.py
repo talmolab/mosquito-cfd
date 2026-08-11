@@ -17,30 +17,13 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
 
-from mosquito_cfd.force_surrogate import generate_sweep
+from mosquito_cfd.force_surrogate import generate_sweep, iso8601_timestamp
 
 # Paths relative to the repository root (run the driver from the repo root).
 BASE_INPUTS = Path("examples/flapping_wing/inputs.3d.validation")
 DEFAULT_OUTPUT = Path("examples/prelim_sweep")
-
-
-def _iso8601_timestamp(value: str) -> str:
-    """Validate ``value`` parses as ISO-8601; return it verbatim (never reformatted).
-
-    ``--timestamp`` being *required* (fix-force-surrogate-sweep-hinge) only closes the "silently
-    reuse a stale hardcoded default" hole -- without this, an empty string or garbage value would
-    still be silently accepted and baked into ``sweep_provenance.json`` unvalidated.
-    """
-    try:
-        datetime.fromisoformat(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            f"{value!r} is not a valid ISO-8601 timestamp: {exc}"
-        ) from exc
-    return value
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -63,7 +46,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timestamp",
-        type=_iso8601_timestamp,
+        type=iso8601_timestamp,
         required=True,
         help=(
             "Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json. Required: a "

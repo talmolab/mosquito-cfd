@@ -62,6 +62,7 @@ from mosquito_cfd.force_surrogate.sweep import (
     compute_reynolds,
     derive_run_duration,
     generate_sweep,
+    iso8601_timestamp,
     render_inputs,
     select_holdout,
 )
@@ -120,6 +121,7 @@ __all__ = [
     "compute_reynolds",
     "derive_run_duration",
     "generate_sweep",
+    "iso8601_timestamp",
     "render_inputs",
     "select_holdout",
     "Completion",

@@ -19,6 +19,7 @@ from mosquito_cfd.force_surrogate import (
     compute_reynolds,
     derive_run_duration,
     generate_sweep,
+    iso8601_timestamp,
     read_units_sidecar,
     render_inputs,
     select_holdout,
@@ -583,3 +584,23 @@ def test_main_rejects_malformed_timestamp(tmp_path, bad_timestamp):
     with pytest.raises(SystemExit):
         driver.main(["--output", str(decoy), "--timestamp", bad_timestamp])
     assert not decoy.exists()
+
+
+def test_iso8601_timestamp_returns_value_verbatim():
+    """A valid timestamp round-trips unchanged (never reformatted)."""
+    assert iso8601_timestamp("2026-08-10T00:00:00+00:00") == "2026-08-10T00:00:00+00:00"
+
+
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_iso8601_timestamp_rejects_malformed_value(bad_timestamp):
+    """The shared validator itself (not just a driver's CLI wiring) rejects bad input.
+
+    Both examples/prelim_sweep/generate_sweep.py and
+    examples/prelim_sweep_fine/generate_full_corpus.py wire this in as their --timestamp
+    argparse `type=` -- a single shared implementation, not duplicated per driver
+    (fix-force-surrogate-sweep-hinge review).
+    """
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        iso8601_timestamp(bad_timestamp)

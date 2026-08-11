@@ -25,11 +25,13 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-swe
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import math
 from collections import Counter
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -318,6 +320,32 @@ def _git_commit() -> str | None:
     """Return the current git commit SHA, or the error string / None if unavailable."""
     info = get_git_info()
     return info.get("commit", info.get("error"))
+
+
+def iso8601_timestamp(value: str) -> str:
+    """Validate ``value`` parses as ISO-8601; return it verbatim (never reformatted).
+
+    Shared by every ``generate_sweep()``/``generate_full_corpus()`` CLI driver's ``--timestamp``
+    argument (``type=iso8601_timestamp``) so a real regeneration must supply a fresh,
+    caller-chosen value -- without this, an empty string or garbage value would still be silently
+    accepted and baked into ``sweep_provenance.json`` unvalidated (fix-force-surrogate-sweep-hinge).
+
+    Args:
+        value: The raw ``--timestamp`` string from argparse.
+
+    Returns:
+        ``value`` unchanged.
+
+    Raises:
+        argparse.ArgumentTypeError: If ``value`` does not parse as ISO-8601.
+    """
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a valid ISO-8601 timestamp: {exc}"
+        ) from exc
+    return value
 
 
 def generate_sweep(
