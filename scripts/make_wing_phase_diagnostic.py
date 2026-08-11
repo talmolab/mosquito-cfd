@@ -147,6 +147,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.config == "all":
         names = _all_config_names(args.corpus_dir)
     elif args.config == "validated":
+        if args.corpus_dir != DEFAULT_CORPUS_DIR:
+            parser.error(
+                "--config validated always reads examples/flapping_wing/inputs.3d.validation "
+                "directly -- it is corpus-independent and ignores --corpus-dir. Pass "
+                "--corpus-dir only with 'all' or a specific manifest config name."
+            )
         names = [args.config]
     else:
         manifest_names = _all_config_names(args.corpus_dir)

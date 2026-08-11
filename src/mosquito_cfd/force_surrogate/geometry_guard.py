@@ -9,6 +9,7 @@ behind the pre-existing byte-identity guards for over a month.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -55,14 +56,20 @@ def read_deck_value(text: str, key: str) -> float:
         The key's value, parsed as a float.
 
     Raises:
-        ValueError: If ``key`` is not found in ``text``.
+        ValueError: If ``key`` is not found in ``text``, or its value is not finite (NaN/inf) --
+            a tolerance comparison against NaN is always ``False``, so an un-rejected NaN would
+            silently defeat every downstream guard built on this function (`assert_hinge_at_span_root`
+            included) rather than raising the `AssertionError` it exists to raise.
     """
     matches = re.findall(
         rf"^\s*{re.escape(key)}\s*=\s*(.+?)\s*(?:#.*)?$", text, re.MULTILINE
     )
     if not matches:
         raise ValueError(f"key {key!r} not found in the deck")
-    return float(matches[-1].strip())
+    value = float(matches[-1].strip())
+    if not math.isfinite(value):
+        raise ValueError(f"key {key!r} has a non-finite value: {value}")
+    return value
 
 
 def wing_half_span(vertex_path: str | Path, span_axis: str = "y") -> float:
@@ -119,11 +126,14 @@ def assert_hinge_at_span_root(
             van Veen convention).
         tol: Tolerance (in the geometry's own length units) for the span-axis arm comparison.
             Default 0.1 is ~7% of the wing's ~1.475 half-span -- well above float/deck round-trip
-            noise, but over 14x tighter than the real bug's ~1.0 arm error, so it cannot miss the
-            failure mode this guard exists to catch (see design.md D1).
+            noise, but over 14x tighter than the real bug's ~1.475 arm error (a midspan pivot has
+            zero arm, so the error against the expected ~1.475 arm is ~1.475 itself; see design.md
+            D1), so it cannot miss the failure mode this guard exists to catch.
 
     Raises:
-        ValueError: If ``span_axis`` is invalid, or ``vertex_path`` contains zero markers.
+        ValueError: If ``span_axis`` is invalid, ``vertex_path`` contains zero markers, or
+            ``deck_text`` is missing (or has a non-finite value for) any required
+            ``particle_inputs.{x,y,z}``/``particle_inputs.hinge_{x,y,z}`` key.
         AssertionError: If the span-axis arm doesn't match the geometry's half-span within
             ``tol``, or a non-span axis has a spurious offset from the wing centre.
     """
