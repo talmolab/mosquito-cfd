@@ -25,6 +25,10 @@ from mosquito_cfd.benchmarks.wing_kinematics import (  # noqa: E402
     euler_angles,
     rotation_matrix,
 )
+from mosquito_cfd.force_surrogate.geometry_guard import (  # noqa: E402
+    axis_index,
+    wing_half_span,
+)
 from mosquito_cfd.force_surrogate.sidecar import (  # noqa: E402
     capture_surrogate_run_metadata,
     validate_image_digest,
@@ -33,7 +37,6 @@ from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 from mosquito_cfd.geometry.vertex_io import read_vertex_file  # noqa: E402
 
 _PHASES = [(0.0, "t=0"), (0.25, "t=T/4"), (0.5, "t=T/2"), (0.75, "t=3T/4")]
-_AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
 
 def _transform_markers(
@@ -78,19 +81,35 @@ def build_wing_phase_figure(
         span-arm/hinge numbers ``assert_hinge_at_span_root`` computes for the same deck.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is a mutable tag.
+        ValueError: If ``docker_image_digest`` is a mutable tag, ``span_axis`` is invalid,
+            ``vertex_path`` contains zero markers, or the resulting geometry is non-finite
+            (NaN/inf center, hinge, or half-span) -- refuses to write a diagnostic for
+            degenerate geometry rather than silently recording it.
     """
     validate_image_digest(
         docker_image_digest
     )  # fail-fast before any computation/file I/O
 
+    half_span = wing_half_span(
+        vertex_path, span_axis
+    )  # validates span_axis + zero-marker
+    axis_idx = axis_index(span_axis)
+
     center_arr = np.asarray(center, dtype=float)
     hinge_arr = np.asarray(hinge, dtype=float)
-    ref_markers = read_vertex_file(str(vertex_path))
-
-    axis_idx = _AXIS_INDEX[span_axis]
-    half_span = float(ref_markers[:, axis_idx].max())
     span_arm = float(center_arr[axis_idx] - hinge_arr[axis_idx])
+
+    if not (
+        np.isfinite(center_arr).all()
+        and np.isfinite(hinge_arr).all()
+        and np.isfinite(half_span)
+    ):
+        raise ValueError(
+            f"non-finite geometry for config {config_name!r}: center={center}, hinge={hinge}, "
+            f"half_span={half_span} -- refusing to write a diagnostic for degenerate geometry"
+        )
+
+    ref_markers = read_vertex_file(str(vertex_path))
 
     fig, axes = plt.subplots(1, 4, figsize=(12, 3.5), sharey=True)
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]

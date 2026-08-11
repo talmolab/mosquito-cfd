@@ -27,6 +27,7 @@ import argparse
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from mosquito_cfd.force_surrogate.evidence_figure import parse_config_name
 from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
@@ -41,7 +42,7 @@ _VALIDATED_DECK = Path("examples/flapping_wing/inputs.3d.validation")
 DEFAULT_SAMPLE = ("validated", "s35_f085_p30", "s55_f115_p60")
 
 
-def _validated_kwargs() -> dict:
+def _validated_kwargs() -> dict[str, Any]:
     deck_text = _VALIDATED_DECK.read_text(encoding="utf-8")
     center = tuple(read_deck_value(deck_text, f"particle_inputs.{a}") for a in "xyz")
     hinge = tuple(
@@ -56,9 +57,13 @@ def _validated_kwargs() -> dict:
     }
 
 
-def _sweep_config_kwargs(name: str, corpus_dir: Path) -> dict:
-    base_deck = corpus_dir / "base_inputs.3d.validation"
-    deck_text = base_deck.read_text(encoding="utf-8")
+def _sweep_config_kwargs(name: str, corpus_dir: Path) -> dict[str, Any]:
+    # Read hinge/centre from the config's OWN generated deck, not a "base deck" file -- corpora
+    # don't share a common base-deck filename/location (e.g. the fine corpus's base deck lives
+    # under examples/prelim_sweep_fine_pilot/, not under its own directory), but render_inputs()
+    # always copies hinge/centre through unchanged, so any generated deck carries the real values.
+    deck_path = corpus_dir / "inputs" / f"inputs.3d.{name}"
+    deck_text = deck_path.read_text(encoding="utf-8")
     center = tuple(read_deck_value(deck_text, f"particle_inputs.{a}") for a in "xyz")
     hinge = tuple(
         read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz"
@@ -73,7 +78,7 @@ def _sweep_config_kwargs(name: str, corpus_dir: Path) -> dict:
     }
 
 
-def _config_kwargs(name: str, corpus_dir: Path) -> dict:
+def _config_kwargs(name: str, corpus_dir: Path) -> dict[str, Any]:
     if name == "validated":
         return _validated_kwargs()
     return _sweep_config_kwargs(name, corpus_dir)
@@ -111,8 +116,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="A specific config name, 'all' (every config in --corpus-dir's manifest), or "
         "omit for the default sample.",
     )
-    parser.add_argument("--corpus-dir", type=Path, default=DEFAULT_CORPUS_DIR)
-    parser.add_argument("--vertex-path", type=Path, default=DEFAULT_VERTEX_PATH)
+    parser.add_argument(
+        "--corpus-dir",
+        type=Path,
+        default=DEFAULT_CORPUS_DIR,
+        help="Sweep corpus directory (holds sweep_manifest.json and inputs/). "
+        f"Default: {DEFAULT_CORPUS_DIR}.",
+    )
+    parser.add_argument(
+        "--vertex-path",
+        type=Path,
+        default=DEFAULT_VERTEX_PATH,
+        help=f"Wing marker file. Default: {DEFAULT_VERTEX_PATH}.",
+    )
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument(
         "--docker-digest",
@@ -130,7 +146,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         names = list(DEFAULT_SAMPLE)
     elif args.config == "all":
         names = _all_config_names(args.corpus_dir)
+    elif args.config == "validated":
+        names = [args.config]
     else:
+        manifest_names = _all_config_names(args.corpus_dir)
+        if args.config not in manifest_names:
+            parser.error(
+                f"--config {args.config!r} is not a config in "
+                f"{args.corpus_dir}/sweep_manifest.json -- pass 'all', 'validated', or an exact "
+                "name from that manifest"
+            )
         names = [args.config]
 
     for name in names:

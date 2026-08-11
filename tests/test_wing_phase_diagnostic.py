@@ -86,3 +86,38 @@ def test_wing_phase_diagnostic_rejects_mutable_docker_tag(tmp_path):
             out_dir=tmp_path,
         )
     assert not (tmp_path / "validated_wing_phases.png").exists()
+
+
+def test_build_wing_phase_figure_rejects_zero_marker_vertex_file(tmp_path):
+    """An empty vertex file raises a clear ValueError, not a raw numpy 'zero-size array' error."""
+    empty_vertex = tmp_path / "empty.vertex"
+    empty_vertex.write_text("0\n", encoding="utf-8")
+    kwargs = {**_VALIDATED_KWARGS, "vertex_path": empty_vertex}
+
+    with pytest.raises(ValueError, match="empty.vertex"):
+        build_wing_phase_figure(
+            **kwargs, docker_image_digest=DIGEST, timestamp=TS, out_dir=tmp_path
+        )
+    assert not (tmp_path / "validated_wing_phases.png").exists()
+
+
+def test_build_wing_phase_figure_rejects_invalid_span_axis(tmp_path):
+    kwargs = {**_VALIDATED_KWARGS, "span_axis": "w"}
+
+    with pytest.raises(ValueError, match="span_axis"):
+        build_wing_phase_figure(
+            **kwargs, docker_image_digest=DIGEST, timestamp=TS, out_dir=tmp_path
+        )
+    assert not (tmp_path / "validated_wing_phases.png").exists()
+
+
+def test_build_wing_phase_figure_rejects_nan_geometry(tmp_path):
+    """A NaN center/hinge coordinate must not silently write a garbage diagnostic to disk."""
+    kwargs = {**_VALIDATED_KWARGS, "center": (4.0, float("nan"), 4.0)}
+
+    with pytest.raises(ValueError, match="non-finite"):
+        build_wing_phase_figure(
+            **kwargs, docker_image_digest=DIGEST, timestamp=TS, out_dir=tmp_path
+        )
+    assert not (tmp_path / "validated_wing_phases.png").exists()
+    assert not (tmp_path / "validated_wing_phases_metrics.json").exists()
