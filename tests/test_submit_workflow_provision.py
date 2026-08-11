@@ -44,7 +44,9 @@ def _make_corpus(root: Path, name: str, *, with_manifest: bool = True) -> Path:
     """Build a fake corpus dir at ``root/name`` with ``inputs/`` (+ optionally a manifest)."""
     corpus = root / name
     (corpus / "inputs").mkdir(parents=True)
-    (corpus / "inputs" / "inputs.3d.s35_f085_p30").write_text("dummy deck\n", encoding="utf-8")
+    (corpus / "inputs" / "inputs.3d.s35_f085_p30").write_text(
+        "dummy deck\n", encoding="utf-8"
+    )
     if with_manifest:
         (corpus / "sweep_manifest.json").write_text("{}", encoding="utf-8")
         (corpus / "sweep_manifest.units.json").write_text("{}", encoding="utf-8")
@@ -99,7 +101,9 @@ def canonical_wing_vertex(tmp_path: Path) -> Path:
     return path
 
 
-def test_provision_copies_and_verifies_by_hash_for_full(tmp_path, canonical_wing_vertex):
+def test_provision_copies_and_verifies_by_hash_for_full(
+    tmp_path, canonical_wing_vertex
+):
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
     workspace = tmp_path / "workspace" / "prelim_sweep"
 
@@ -111,12 +115,18 @@ def test_provision_copies_and_verifies_by_hash_for_full(tmp_path, canonical_wing
 
     assert result.returncode == 0, result.stderr
     assert invoked_marker.exists()
-    assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").read_text() == "dummy deck\n"
+    assert (
+        workspace / "inputs" / "inputs.3d.s35_f085_p30"
+    ).read_text() == "dummy deck\n"
     assert (workspace / "sweep_manifest.json").exists()
-    assert (workspace / "wing.vertex").read_bytes() == canonical_wing_vertex.read_bytes()
+    assert (
+        workspace / "wing.vertex"
+    ).read_bytes() == canonical_wing_vertex.read_bytes()
 
 
-def test_provision_copies_and_verifies_by_hash_for_smoke(tmp_path, canonical_wing_vertex):
+def test_provision_copies_and_verifies_by_hash_for_smoke(
+    tmp_path, canonical_wing_vertex
+):
     # smoke doesn't need a manifest -- omit it to prove `full`'s requirement isn't shared.
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=False)
     workspace = tmp_path / "workspace" / "prelim_sweep"
@@ -129,12 +139,18 @@ def test_provision_copies_and_verifies_by_hash_for_smoke(tmp_path, canonical_win
 
     assert result.returncode == 0, result.stderr
     assert invoked_marker.exists()
-    assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").read_text() == "dummy deck\n"
-    assert (workspace / "wing.vertex").read_bytes() == canonical_wing_vertex.read_bytes()
+    assert (
+        workspace / "inputs" / "inputs.3d.s35_f085_p30"
+    ).read_text() == "dummy deck\n"
+    assert (
+        workspace / "wing.vertex"
+    ).read_bytes() == canonical_wing_vertex.read_bytes()
     assert not (workspace / "sweep_manifest.json").exists()
 
 
-def test_provision_fails_when_corpus_dir_does_not_exist(tmp_path, canonical_wing_vertex):
+def test_provision_fails_when_corpus_dir_does_not_exist(
+    tmp_path, canonical_wing_vertex
+):
     missing_corpus = tmp_path / "does_not_exist"
     workspace = tmp_path / "workspace" / "does_not_exist"
 
@@ -149,7 +165,9 @@ def test_provision_fails_when_corpus_dir_does_not_exist(tmp_path, canonical_wing
     assert "does not exist" in result.stderr
 
 
-def test_provision_fails_when_inputs_missing_within_existing_corpus_dir(tmp_path, canonical_wing_vertex):
+def test_provision_fails_when_inputs_missing_within_existing_corpus_dir(
+    tmp_path, canonical_wing_vertex
+):
     corpus = tmp_path / "corpus" / "prelim_sweep"
     corpus.mkdir(parents=True)  # exists, but no inputs/ subdir
     workspace = tmp_path / "workspace" / "prelim_sweep"
@@ -165,7 +183,9 @@ def test_provision_fails_when_inputs_missing_within_existing_corpus_dir(tmp_path
     assert "inputs/" in result.stderr
 
 
-def test_provision_fails_when_manifest_missing_for_full(tmp_path, canonical_wing_vertex):
+def test_provision_fails_when_manifest_missing_for_full(
+    tmp_path, canonical_wing_vertex
+):
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=False)
     workspace = tmp_path / "workspace" / "prelim_sweep"
 
@@ -180,7 +200,9 @@ def test_provision_fails_when_manifest_missing_for_full(tmp_path, canonical_wing
     assert "sweep_manifest.json" in result.stderr
 
 
-def test_provision_fails_on_corpus_workspace_basename_mismatch(tmp_path, canonical_wing_vertex):
+def test_provision_fails_on_corpus_workspace_basename_mismatch(
+    tmp_path, canonical_wing_vertex
+):
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
     workspace = tmp_path / "workspace" / "prelim_sweep_fine"  # deliberately mismatched
 
@@ -195,11 +217,15 @@ def test_provision_fails_on_corpus_workspace_basename_mismatch(tmp_path, canonic
     assert "prelim_sweep" in result.stderr and "prelim_sweep_fine" in result.stderr
 
 
-def test_no_provision_flag_skips_copy_but_still_submits(tmp_path, canonical_wing_vertex):
+def test_no_provision_flag_skips_copy_but_still_submits(
+    tmp_path, canonical_wing_vertex
+):
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
     workspace = tmp_path / "workspace" / "prelim_sweep"
     workspace.mkdir(parents=True)
-    (workspace / "sentinel.txt").write_text("pre-existing, untouched\n", encoding="utf-8")
+    (workspace / "sentinel.txt").write_text(
+        "pre-existing, untouched\n", encoding="utf-8"
+    )
 
     result, invoked_marker = _run_submit_workflow(
         tmp_path,
@@ -224,7 +250,9 @@ def test_no_provision_flag_skips_copy_but_still_submits(tmp_path, canonical_wing
     "corpus_name",
     ["prelim_sweep", "prelim_sweep_fine"],
 )
-def test_provisioned_wing_vertex_matches_canonical_source(tmp_path, canonical_wing_vertex, corpus_name):
+def test_provisioned_wing_vertex_matches_canonical_source(
+    tmp_path, canonical_wing_vertex, corpus_name
+):
     corpus = _make_corpus(tmp_path / "corpus", corpus_name, with_manifest=True)
     workspace = tmp_path / "workspace" / corpus_name
 
@@ -251,7 +279,9 @@ def test_to_local_path_default_mapping(tmp_path, canonical_wing_vertex):
     (tmp_path) location -- not literally under /hpi/hpi_dev, which doesn't exist on this test host.
     """
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
-    cluster_style_workspace = "/hpi/hpi_dev/users/testuser/mosquito-cfd/examples/prelim_sweep"
+    cluster_style_workspace = (
+        "/hpi/hpi_dev/users/testuser/mosquito-cfd/examples/prelim_sweep"
+    )
     local_root = tmp_path / "mnt_hpi_dev"
     local_root.mkdir()
 

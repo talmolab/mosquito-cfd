@@ -559,4 +559,6 @@ def test_main_requires_timestamp(tmp_path):
     decoy = tmp_path / "decoy_output"
     with pytest.raises(SystemExit):
         driver.main(["--output", str(decoy)])
-    assert not decoy.exists(), "no file should be read or written before the missing --timestamp is rejected"
+    assert not decoy.exists(), (
+        "no file should be read or written before the missing --timestamp is rejected"
+    )

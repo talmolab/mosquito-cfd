@@ -149,7 +149,9 @@ def test_main_requires_timestamp(tmp_path):
     decoy = tmp_path / "decoy_output"
     with pytest.raises(SystemExit):
         full_corpus.main(["--output", str(decoy)])
-    assert not decoy.exists(), "no file should be read or written before the missing --timestamp is rejected"
+    assert not decoy.exists(), (
+        "no file should be read or written before the missing --timestamp is rejected"
+    )
 
 
 def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():
