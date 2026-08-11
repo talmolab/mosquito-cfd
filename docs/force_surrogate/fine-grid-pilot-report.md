@@ -12,6 +12,17 @@ this pilot (coarse +115%, fine ~4-5% off target) are already published in the T3
 `docs/aerodynamics_validation/roadmap.md` (`CF_chord`: 0.923 coarse → 0.554 medium → 0.411 fine)
 and are not restated here.
 
+> **Geometry note (`fix-force-surrogate-sweep-hinge`, 2026-08-10):** the base deck this pilot ran
+> from (`examples/prelim_sweep_fine_pilot/base_inputs.3d.fine`) carried a wing-hinge geometry
+> defect (a midspan pivot, not a root hinge) since the 2026-07-02 axis-convention refactor. The raw
+> force magnitudes in the committed `forces_<config>.csv` files reflect the buggy geometry and
+> should not be trusted for anything beyond this report's own stability go/no-go. That go/no-go
+> itself is not confirmed to transfer to the corrected geometry: marker velocity scales with
+> the hinge-to-tip arm (ω×r), and the buggy midspan pivot's arm (~1.475) is roughly half the
+> corrected root hinge's arm (~2.975) — this pilot's "no CFL fallback needed at `dt=5e-4`" result
+> was measured at roughly half the true tip speed. The corrected-geometry fine-grid regeneration
+> must re-confirm `dt=5e-4` stability rather than assume this pilot's numbers transfer.
+
 ## Per-config results
 
 | Config | Re | f* | max_step | Stability | Wall time | s/step | Retries |
