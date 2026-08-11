@@ -26,21 +26,21 @@ Phase 5's cluster-run commit):
 
 ### Phase 0 — regression guard (TDD, cluster-free, before touching any deck)
 
-1. [ ] Write `tests/test_sweep_hinge_geometry.py`: `test_hinge_at_span_root_for_correct_deck` against
+1. [x] Write `tests/test_sweep_hinge_geometry.py`: `test_hinge_at_span_root_for_correct_deck` against
    the **live** `examples/flapping_wing/inputs.3d.validation` (must pass against today's already-correct
    deck — the calibration baseline from `design.md` D1). The implementation does not exist yet — this
    test must fail with an `ImportError`/`AttributeError` first.
-2. [ ] Write `test_hinge_at_span_root_rejects_midspan_pivot`: a synthetic deck string with
+2. [x] Write `test_hinge_at_span_root_rejects_midspan_pivot`: a synthetic deck string with
    `hinge_y == particle_inputs.y` (zero arm) must fail.
-3. [ ] Write `test_hinge_at_span_root_rejects_spurious_offset`: a synthetic deck string with a
+3. [x] Write `test_hinge_at_span_root_rejects_spurious_offset`: a synthetic deck string with a
    *correct* span-axis arm but `hinge_z != particle_inputs.z` must fail, naming the offending axis.
-4. [ ] Write `test_hinge_at_span_root_handles_empty_vertex_file`: an empty/zero-marker vertex file
+4. [x] Write `test_hinge_at_span_root_handles_empty_vertex_file`: an empty/zero-marker vertex file
    raises a clear `ValueError` naming the file.
-5. [ ] Write `test_hinge_at_span_root_for_coarse_and_fine_base_decks` against
+5. [x] Write `test_hinge_at_span_root_for_coarse_and_fine_base_decks` against
    `examples/prelim_sweep/base_inputs.3d.validation` and
    `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` — **expected to fail** until Phase 1 lands
    (in PR 2; this test is written here in Phase 0 but only goes green in PR 2's Phase 1 commit).
-6. [ ] Implement `assert_hinge_at_span_root` in `src/mosquito_cfd/force_surrogate/geometry_guard.py`
+6. [x] Implement `assert_hinge_at_span_root` in `src/mosquito_cfd/force_surrogate/geometry_guard.py`
    per `design.md` D1. Run tests 1-4 green, test 5 red (expected — PR 1b ships with test 5
    intentionally red against the not-yet-fixed decks; this is fine because PR 1b's own commit
    doesn't touch those decks, and `pytest`'s overall exit code for PR 1b's CI run is scoped to what
@@ -48,25 +48,25 @@ Phase 5's cluster-run commit):
 
 ### Phase 3 — wing-phase diagnostic (TDD; depends only on Phase 0)
 
-7. [ ] Write tests for `build_wing_phase_figure` per `design.md` D2: figure structure via the
+7. [x] Write tests for `build_wing_phase_figure` per `design.md` D2: figure structure via the
    Matplotlib object model; its metrics dict matches Phase 0's `assert_hinge_at_span_root` numbers
    exactly for the same deck; runs with no CFD output present.
-8. [ ] Write `test_build_wing_phase_figure_writes_three_artifacts` (mirrors
+8. [x] Write `test_build_wing_phase_figure_writes_three_artifacts` (mirrors
    `tests/test_force_surrogate_evidence_figure.py::test_generate_writes_three_artifacts`).
-9. [ ] Write `test_wing_phase_diagnostic_rejects_mutable_docker_tag` (mirrors
+9. [x] Write `test_wing_phase_diagnostic_rejects_mutable_docker_tag` (mirrors
    `test_generate_rejects_mutable_tag`).
-10. [ ] Implement `build_wing_phase_figure` in
+10. [x] Implement `build_wing_phase_figure` in
     `src/mosquito_cfd/force_surrogate/wing_phase_diagnostic.py`, importing
     `rotation_matrix`/`euler_angles` from `mosquito_cfd.benchmarks.wing_kinematics`.
-11. [ ] Write a CLI smoke test for the new driver **before** implementing the CLI.
-12. [ ] Write `test_wing_phase_diagnostic_default_sample_is_documented`, scoped to what's verifiable
+11. [x] Write a CLI smoke test for the new driver **before** implementing the CLI.
+12. [x] Write `test_wing_phase_diagnostic_default_sample_is_documented`, scoped to what's verifiable
     within this PR: the CLI's own `--help` output names the default sample configs and states why
     they were chosen. (The spec's sibling documentation channel — a figures README — doesn't exist
     yet at this point in the sequence; PR 1b must not depend on PR 2's `examples/prelim_sweep/figures/README.md`,
     which task 37 creates later. Task 37 additionally documents this same default sample once that
     README exists, satisfying the rest of the spec scenario at that point — not a new obligation,
     just where the second half of an already-existing requirement actually gets fulfilled.)
-13. [ ] Implement the thin CLI driver (`scripts/`) with a **named, literal** default sample — the
+13. [x] Implement the thin CLI driver (`scripts/`) with a **named, literal** default sample — the
     validated point (`examples/flapping_wing/inputs.3d.validation`'s kinematics) plus the two grid
     corners `s35_f085_p30` and `s55_f115_p60` — and an explicit `--config all` override.
 
