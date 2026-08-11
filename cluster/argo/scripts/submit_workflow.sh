@@ -49,6 +49,10 @@ WORKSPACE_HOSTPATH="${WORKSPACE_HOSTPATH:-/hpi/hpi_dev/users/eberrigan/mosquito-
 # WORKSPACE_HOSTPATH's basename (provision enforces this) when overriding either for another corpus.
 CORPUS_DIR="${CORPUS_DIR:-examples/prelim_sweep}"
 WING_VERTEX_SOURCE="${WING_VERTEX_SOURCE:-examples/flapping_wing/wing.vertex}"
+# Overridable so tests can substitute a stub that deliberately reports a wrong hash (to exercise
+# provision()'s die-on-mismatch branch) -- some shells resolve well-known coreutils names to a
+# fixed trusted location regardless of PATH, making a PATH-based stub unreliable for this one.
+SHA256SUM="${SHA256SUM:-sha256sum}"
 NO_PROVISION=""   # empty = provision (default, on); set by --no-provision
 # Cluster-hostPath vs. WSL-mount-point prefixes (openspec/project.md's path-mapping table).
 # submit_workflow.sh runs inside WSL, so WORKSPACE_HOSTPATH's cluster-hostPath string (correct as
@@ -100,6 +104,10 @@ provision() {
   local corpus_dir="$1" workspace_hostpath="$2" require_manifest="$3"
   local local_workspace; local_workspace="$(to_local_path "$workspace_hostpath")"
 
+  # All preconditions are checked BEFORE any mutation below -- a bad WING_VERTEX_SOURCE used to be
+  # checked only after inputs/ was already wiped and replaced, so a failure here left the workspace
+  # in a half-migrated state (fresh decks, stale geometry) -- exactly the defect class this whole
+  # step exists to close, just reached through a different trigger. Fail fast, mutate nothing.
   [[ -e "$corpus_dir" ]] || die "corpus dir $corpus_dir does not exist"
   [[ -d "$corpus_dir" ]] || die "corpus dir $corpus_dir exists but is not a directory"
   [[ -d "$corpus_dir/inputs" ]] || die "corpus dir $corpus_dir has no inputs/ -- generate it first"
@@ -107,22 +115,23 @@ provision() {
     [[ -f "$corpus_dir/sweep_manifest.json" ]] || die "corpus dir $corpus_dir has no sweep_manifest.json"
     [[ -f "$corpus_dir/sweep_manifest.units.json" ]] || die "corpus dir $corpus_dir has no sweep_manifest.units.json"
   fi
+  [[ -f "$WING_VERTEX_SOURCE" ]] || die "canonical wing.vertex source $WING_VERTEX_SOURCE does not exist"
   # The exact defect this step exists to prevent: a coarse corpus-dir silently provisioned onto a
   # fine workspace-hostpath (or vice versa) because the two flags were overridden independently.
   [[ "$(basename "$corpus_dir")" == "$(basename "$workspace_hostpath")" ]] \
     || die "corpus-dir '$corpus_dir' and workspace-hostpath '$workspace_hostpath' name different corpora -- pass matching --corpus-dir/--workspace-hostpath"
 
   mkdir -p "$local_workspace" || die "cannot create/access local workspace path $local_workspace (resolved from $workspace_hostpath)"
-  # Replace, don't merge: `cp -r` into an existing inputs/ only adds/overwrites, so a config
-  # dropped from a shrunk/changed corpus would otherwise survive undetected -- the same class of
-  # silent-stale-content defect (#62) this whole step exists to close, just for inputs/ instead of
-  # wing.vertex. Remove any prior inputs/ before staging the current corpus's.
+  # Replace, don't merge: `cp -r`/`cp` into existing content only adds/overwrites, so a config or
+  # manifest file dropped from a shrunk/changed corpus would otherwise survive undetected -- the
+  # same class of silent-stale-content defect (#62) this whole step exists to close. Remove prior
+  # inputs/ and any prior sweep_manifest*.json before staging the current corpus's.
   rm -rf "${local_workspace:?}/inputs"
   cp -r "$corpus_dir/inputs" "$local_workspace/"
   if [[ "$require_manifest" == "true" ]]; then
+    rm -f "${local_workspace:?}"/sweep_manifest*.json
     cp "$corpus_dir"/sweep_manifest*.json "$local_workspace/"
   fi
-  [[ -f "$WING_VERTEX_SOURCE" ]] || die "canonical wing.vertex source $WING_VERTEX_SOURCE does not exist"
   cp "$WING_VERTEX_SOURCE" "$local_workspace/wing.vertex"   # always the canonical file
   # Verify by hash immediately -- fail loudly here, not hours later in a pod's mount retry loop.
   # Scoped to wing.vertex: the one artifact with a documented history of silently drifting.
@@ -132,8 +141,8 @@ provision() {
   # contains a backslash (its own escaping convention) -- strip it so a Windows-style path in
   # WING_VERTEX_SOURCE doesn't corrupt the extracted hash via a stray leading "\".
   local expected actual
-  expected="$(sha256sum "$WING_VERTEX_SOURCE" | cut -d' ' -f1)"; expected="${expected#\\}"
-  actual="$(sha256sum "$local_workspace/wing.vertex" | cut -d' ' -f1)"; actual="${actual#\\}"
+  expected="$("$SHA256SUM" "$WING_VERTEX_SOURCE" | cut -d' ' -f1)"; expected="${expected#\\}"
+  actual="$("$SHA256SUM" "$local_workspace/wing.vertex" | cut -d' ' -f1)"; actual="${actual#\\}"
   [[ "$expected" == "$actual" ]] || die "provisioned wing.vertex hash mismatch after copy"
 }
 

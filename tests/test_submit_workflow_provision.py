@@ -269,6 +269,38 @@ def test_provision_fails_when_wing_vertex_source_missing(tmp_path):
     assert "does not exist" in result.stderr
 
 
+def test_provision_fails_when_wing_vertex_source_missing_leaves_workspace_untouched(
+    tmp_path,
+):
+    """A bad WING_VERTEX_SOURCE must fail before any destructive mutation, not after.
+
+    Regression: this precondition used to be checked AFTER inputs/ was already wiped and
+    replaced, so a failure here left the workspace half-migrated -- fresh decks, stale/missing
+    geometry -- exactly the "silent stale content" defect class (#62) this step exists to close,
+    just reached through a different trigger. All preconditions must be validated before any
+    rm -rf/cp runs.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    workspace.mkdir(parents=True)
+    (workspace / "inputs").mkdir()
+    pre_existing_deck = workspace / "inputs" / "inputs.3d.pre_existing"
+    pre_existing_deck.write_text("pre-existing deck, must survive\n", encoding="utf-8")
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+        extra_env={"WING_VERTEX_SOURCE": str(tmp_path / "does_not_exist.vertex")},
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert pre_existing_deck.exists(), (
+        "inputs/ must not be wiped/replaced before the wing.vertex source is validated"
+    )
+
+
 def test_provision_replaces_stale_inputs_not_merges(tmp_path, canonical_wing_vertex):
     """A config dropped from a shrunk/changed corpus must not survive provisioning.
 
@@ -295,6 +327,36 @@ def test_provision_replaces_stale_inputs_not_merges(tmp_path, canonical_wing_ver
         "stale config from a prior corpus must not survive provisioning"
     )
     assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
+def test_provision_replaces_stale_manifest_not_merges(tmp_path, canonical_wing_vertex):
+    """A manifest file dropped from a prior corpus must not survive provisioning either.
+
+    Regression: `inputs/` got replace-not-merge semantics (see
+    test_provision_replaces_stale_inputs_not_merges above), but the manifest glob copy
+    (`cp "$corpus_dir"/sweep_manifest*.json ...`) was left as merge-semantics -- the identical
+    "stale artifact silently survives" defect (#62's whole reason for existing), just for the
+    manifest instead of inputs/.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    workspace.mkdir(parents=True)
+    stale_manifest = workspace / "sweep_manifest.legacy_extra.json"
+    stale_manifest.write_text("{}", encoding="utf-8")
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert not stale_manifest.exists(), (
+        "a manifest file no longer present in the corpus must not survive provisioning"
+    )
+    assert (workspace / "sweep_manifest.json").exists()
+    assert (workspace / "sweep_manifest.units.json").exists()
 
 
 def test_provision_fails_on_corpus_workspace_basename_mismatch(
@@ -331,6 +393,36 @@ def test_no_provision_flag_skips_copy_but_still_submits(
     result, invoked_marker = _run_submit_workflow(
         tmp_path,
         "full",
+        [
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(workspace),
+            "--no-provision",
+        ],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert (workspace / "sentinel.txt").read_text() == "pre-existing, untouched\n"
+    assert not (workspace / "inputs").exists()
+    assert not (workspace / "wing.vertex").exists()
+
+
+def test_no_provision_flag_skips_copy_but_still_submits_for_smoke(
+    tmp_path, canonical_wing_vertex
+):
+    """The `--no-provision` gate is identically wired at the `smoke` call site, not just `full`."""
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=False)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    workspace.mkdir(parents=True)
+    (workspace / "sentinel.txt").write_text(
+        "pre-existing, untouched\n", encoding="utf-8"
+    )
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "smoke",
         [
             "--corpus-dir",
             str(corpus),
@@ -500,3 +592,57 @@ def test_parallelism_and_provisioning_do_not_interfere(tmp_path, canonical_wing_
     assert result.returncode != 0
     assert not invoked_marker.exists()
     assert "parallelism" in result.stderr
+
+
+def test_provision_dies_on_wing_vertex_hash_mismatch(tmp_path, canonical_wing_vertex):
+    """The hash-verification `die` branch itself actually fires -- not just the happy path.
+
+    This is the headline safety mechanism the whole PR exists to add (the motivating incident was
+    a wing.vertex that silently didn't match any committed version for over a month); every other
+    test here only exercises matching hashes or upstream failures (missing source file). A `cp`
+    always makes the destination byte-identical to the source, so `expected != actual` cannot occur
+    from any real filesystem state reachable in this test setup -- it can only be forced by
+    substituting the hashing tool itself. `submit_workflow.sh`'s `SHA256SUM="${SHA256SUM:-sha256sum}"`
+    is overridable for exactly this reason: some shells resolve well-known coreutils names (like
+    `sha256sum`) to a fixed trusted location regardless of `PATH`, which is what `argo`'s
+    PATH-based stub relies on -- `sha256sum` needed a dedicated override seam instead.
+    """
+    real_sha256sum = shutil.which("sha256sum")
+    assert real_sha256sum, "sha256sum must be on PATH for this test to be meaningful"
+
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+
+    # provision() calls $SHA256SUM exactly twice, in order: once on $WING_VERTEX_SOURCE (the
+    # source), then once on the provisioned destination copy. Counting invocations (via a counter
+    # file) is robust regardless of how bash represents either path on this platform -- only the
+    # 2nd (destination) call gets a wrong hash; the 1st (source) call delegates to the real tool.
+    stub_dir = tmp_path / "stub_bin"
+    stub_dir.mkdir(exist_ok=True)
+    call_counter = tmp_path / "sha256sum_call_count"
+    stub_sha256sum = stub_dir / "stub_sha256sum"
+    stub_sha256sum.write_text(
+        "#!/bin/sh\n"
+        f'COUNT_FILE="{call_counter}"\n'
+        'N=$( [ -f "$COUNT_FILE" ] && cat "$COUNT_FILE" || echo 0 )\n'
+        "N=$((N + 1))\n"
+        'echo "$N" > "$COUNT_FILE"\n'
+        'if [ "$N" = "1" ]; then\n'
+        f'  exec "{real_sha256sum}" "$1"\n'
+        "else\n"
+        '  echo "0000000000000000000000000000000000000000000000000000000000000000  $1"\n'
+        "fi\n",
+        encoding="utf-8",
+    )
+    stub_sha256sum.chmod(0o755)
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+        extra_env={"SHA256SUM": str(stub_sha256sum)},
+    )
+
+    assert result.returncode != 0
+    assert "hash mismatch" in result.stderr
+    assert not invoked_marker.exists(), "argo submit must not run after a hash mismatch"
