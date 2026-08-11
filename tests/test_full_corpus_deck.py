@@ -118,10 +118,13 @@ def test_generate_full_corpus_main_rejects_frozen_paths_via_cli(tmp_path, monkey
     """
     full_corpus = _load_full_corpus_script()
 
+    # --timestamp is supplied explicitly (now required -- fix-force-surrogate-sweep-hinge) so the
+    # SystemExit asserted below is caused by the frozen-path guard specifically, not by a missing
+    # required argument (see test_main_requires_timestamp for that case).
     decoy_coarse = tmp_path / "decoy_prelim_sweep"
     monkeypatch.setattr(full_corpus, "_FROZEN_CORPUS_DIR", decoy_coarse)
     with pytest.raises(SystemExit):
-        full_corpus.main(["--output", str(decoy_coarse)])
+        full_corpus.main(["--output", str(decoy_coarse), "--timestamp", _TIMESTAMP])
     assert not decoy_coarse.exists(), (
         "generate_sweep() must not run before the guard rejects"
     )
@@ -129,10 +132,37 @@ def test_generate_full_corpus_main_rejects_frozen_paths_via_cli(tmp_path, monkey
     decoy_pilot = tmp_path / "decoy_prelim_sweep_fine_pilot"
     monkeypatch.setattr(full_corpus, "_PILOT_DIR", decoy_pilot)
     with pytest.raises(SystemExit):
-        full_corpus.main(["--output", str(decoy_pilot)])
+        full_corpus.main(["--output", str(decoy_pilot), "--timestamp", _TIMESTAMP])
     assert not decoy_pilot.exists(), (
         "generate_sweep() must not run before the guard rejects"
     )
+
+
+def test_main_requires_timestamp(tmp_path):
+    """Omitting --timestamp is rejected before any file is read or written (fix-force-surrogate-sweep-hinge).
+
+    A real regeneration must supply a fresh, caller-chosen timestamp -- never silently reuse the
+    stale 2026-08-03 literal from the script's original (buggy-hinge) authoring session.
+    """
+    full_corpus = _load_full_corpus_script()
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        full_corpus.main(["--output", str(decoy)])
+    assert not decoy.exists(), (
+        "no file should be read or written before the missing --timestamp is rejected"
+    )
+
+
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_main_rejects_malformed_timestamp(tmp_path, bad_timestamp):
+    """--timestamp being *present* isn't enough -- an empty/garbage value must also be rejected."""
+    full_corpus = _load_full_corpus_script()
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        full_corpus.main(["--output", str(decoy), "--timestamp", bad_timestamp])
+    assert not decoy.exists()
 
 
 def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():

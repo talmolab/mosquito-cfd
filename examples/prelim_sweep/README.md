@@ -56,12 +56,14 @@ generated and run, since the held-out set is the CFD ground truth.
 ## Regenerating
 
 ```bash
-uv run python examples/prelim_sweep/generate_sweep.py   # run from the repo root
+uv run python examples/prelim_sweep/generate_sweep.py --timestamp <iso-8601>   # run from the repo root
 ```
 
-Regeneration is **byte-identical** (fixed seed + fixed caller timestamp); the test
-`test_committed_sweep_matches_regeneration` enforces this. Re-running into an existing directory
-prunes any stale decks first, so a shrunk config set never leaves orphans.
+`--timestamp` is required (a real regeneration must supply a fresh, caller-chosen value --
+fix-force-surrogate-sweep-hinge; there is no default). Given the same seed and timestamp,
+regeneration is **byte-identical**; the test `test_committed_sweep_matches_regeneration` enforces
+this against the seed/timestamp recorded in the committed `sweep_provenance.json`. Re-running into
+an existing directory prunes any stale decks first, so a shrunk config set never leaves orphans.
 
 > **Naming resolution.** Deck file names (`inputs.3d.s{φ}_f{f*×100}_p{α}`) encode **whole-degree**
 > stroke/pitch and **0.01-resolution** f\*. Configs finer than that (e.g. φ=42.5° or f\*=1.005) would

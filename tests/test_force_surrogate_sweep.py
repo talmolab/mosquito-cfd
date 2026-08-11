@@ -19,6 +19,7 @@ from mosquito_cfd.force_surrogate import (
     compute_reynolds,
     derive_run_duration,
     generate_sweep,
+    iso8601_timestamp,
     read_units_sidecar,
     render_inputs,
     select_holdout,
@@ -540,3 +541,66 @@ def test_driver_smoke(tmp_path):
         "sweep_provenance.json",
     ):
         assert (tmp_path / name).exists()
+
+
+def test_main_requires_timestamp(tmp_path):
+    """Omitting --timestamp is rejected before any file is read or written (fix-force-surrogate-sweep-hinge).
+
+    A real regeneration must supply a fresh, caller-chosen timestamp -- never silently reuse a
+    stale literal from the script's original authoring session.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        driver.main(["--output", str(decoy)])
+    assert not decoy.exists(), (
+        "no file should be read or written before the missing --timestamp is rejected"
+    )
+
+
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_main_rejects_malformed_timestamp(tmp_path, bad_timestamp):
+    """--timestamp being *present* isn't enough -- an empty/garbage value must also be rejected.
+
+    required=True on its own only rejects omission; a careless or scripted caller could otherwise
+    pass "" or a garbage string straight into sweep_provenance.json unvalidated.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        driver.main(["--output", str(decoy), "--timestamp", bad_timestamp])
+    assert not decoy.exists()
+
+
+def test_iso8601_timestamp_returns_value_verbatim():
+    """A valid timestamp round-trips unchanged (never reformatted)."""
+    assert iso8601_timestamp("2026-08-10T00:00:00+00:00") == "2026-08-10T00:00:00+00:00"
+
+
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_iso8601_timestamp_rejects_malformed_value(bad_timestamp):
+    """The shared validator itself (not just a driver's CLI wiring) rejects bad input.
+
+    Both examples/prelim_sweep/generate_sweep.py and
+    examples/prelim_sweep_fine/generate_full_corpus.py wire this in as their --timestamp
+    argparse `type=` -- a single shared implementation, not duplicated per driver
+    (fix-force-surrogate-sweep-hinge review).
+    """
+    import argparse
+
+    with pytest.raises(argparse.ArgumentTypeError):
+        iso8601_timestamp(bad_timestamp)

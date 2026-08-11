@@ -3,7 +3,10 @@
 Thin driver over :func:`mosquito_cfd.force_surrogate.sweep.generate_sweep` (all logic lives in
 the tested library). Run from the repository root::
 
-    uv run python examples/prelim_sweep/generate_sweep.py
+    uv run python examples/prelim_sweep/generate_sweep.py --timestamp 2026-06-09T00:00:00+00:00
+
+``--timestamp`` is required (a real regeneration must supply a fresh, caller-chosen value --
+fix-force-surrogate-sweep-hinge).
 
 This (re)writes ``inputs/inputs.3d.*`` (27 decks), ``sweep_manifest.json``,
 ``sweep_manifest.units.json``, and ``sweep_provenance.json``. The corpus is committed and a test
@@ -16,13 +19,11 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from mosquito_cfd.force_surrogate import generate_sweep
+from mosquito_cfd.force_surrogate import generate_sweep, iso8601_timestamp
 
 # Paths relative to the repository root (run the driver from the repo root).
 BASE_INPUTS = Path("examples/flapping_wing/inputs.3d.validation")
 DEFAULT_OUTPUT = Path("examples/prelim_sweep")
-# Fixed caller-supplied timestamp so the committed provenance is reproducible (never wall-clock).
-DEFAULT_TIMESTAMP = "2026-06-09T00:00:00+00:00"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -45,8 +46,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timestamp",
-        default=DEFAULT_TIMESTAMP,
-        help="Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json.",
+        type=iso8601_timestamp,
+        required=True,
+        help=(
+            "Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json. Required: a "
+            "real regeneration must supply a fresh value, never silently reuse a stale one "
+            "(fix-force-surrogate-sweep-hinge)."
+        ),
     )
     args = parser.parse_args(argv)
 

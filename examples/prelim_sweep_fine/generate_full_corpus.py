@@ -5,7 +5,10 @@ the tested library) -- mirrors ``examples/prelim_sweep_fine_pilot/generate_pilot
 ``generate_sweep()`` with no ``configs=``/``n_holdout=`` override (OpenSpec change
 ``add-fine-grid-corpus-full``). Run from the repository root::
 
-    uv run python examples/prelim_sweep_fine/generate_full_corpus.py
+    uv run python examples/prelim_sweep_fine/generate_full_corpus.py --timestamp 2026-08-03T00:00:00+00:00
+
+``--timestamp`` is required (a real regeneration must supply a fresh, caller-chosen value --
+fix-force-surrogate-sweep-hinge).
 
 Unlike the pilot (3 configs, forced ``n_holdout=0``), the full corpus uses ``generate_sweep()``'s
 defaults: the full 27-point Aedes grid (``build_kinematic_grid()``) and ``n_holdout=6``
@@ -22,15 +25,13 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from mosquito_cfd.force_surrogate import generate_sweep
+from mosquito_cfd.force_surrogate import generate_sweep, iso8601_timestamp
 
 # Paths relative to the repository root (run the driver from the repo root). The fine base deck
 # is reused unmodified from the pilot -- not copied -- since it's already committed and its
 # deck-invariance (vs. the coarse base) is already tested by tests/test_fine_pilot_deck.py.
 BASE_INPUTS = Path("examples/prelim_sweep_fine_pilot/base_inputs.3d.fine")
 OUTPUT_DIR = Path("examples/prelim_sweep_fine")
-# Fixed caller-supplied timestamp so the committed provenance is reproducible (never wall-clock).
-DEFAULT_TIMESTAMP = "2026-08-03T00:00:00+00:00"
 
 # Full-corpus-specific NFS staging path (design.md "Open questions - resolved"). Distinct from
 # both the frozen coarse corpus's default (examples/prelim_sweep) and the pilot's
@@ -94,8 +95,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timestamp",
-        default=DEFAULT_TIMESTAMP,
-        help="Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json.",
+        type=iso8601_timestamp,
+        required=True,
+        help=(
+            "Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json. Required: a "
+            "real regeneration must supply a fresh value, never silently reuse the stale "
+            "2026-08-03 literal from this script's original (buggy-hinge) authoring session "
+            "(fix-force-surrogate-sweep-hinge)."
+        ),
     )
     args = parser.parse_args(argv)
 
