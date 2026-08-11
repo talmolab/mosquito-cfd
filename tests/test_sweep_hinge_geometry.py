@@ -17,6 +17,7 @@ import pytest
 from mosquito_cfd.force_surrogate.geometry_guard import (
     assert_hinge_at_span_root,
     read_deck_value,
+    wing_half_span,
 )
 
 _LIVE_DECK = Path("examples/flapping_wing/inputs.3d.validation")
@@ -88,6 +89,62 @@ particle_inputs.hinge_y = 2.0
 particle_inputs.hinge_y = 0.5
 """
     assert read_deck_value(deck, "particle_inputs.hinge_y") == pytest.approx(0.5)
+
+
+def test_read_deck_value_rejects_non_finite_value():
+    """A NaN/inf value must be rejected here, not silently defeat a downstream tolerance check.
+
+    A tolerance comparison against NaN (``abs(nan - x) >= tol``) is always False in Python, so an
+    un-rejected NaN would silently bypass assert_hinge_at_span_root's AssertionError entirely --
+    exactly the "self-consistently wrong value slips through" failure mode this guard exists to
+    catch, just via a different mechanism than the original bug.
+    """
+    deck = "particle_inputs.hinge_y = nan\n"
+    with pytest.raises(ValueError, match="non-finite"):
+        read_deck_value(deck, "particle_inputs.hinge_y")
+
+
+def test_hinge_at_span_root_rejects_nan_hinge_value():
+    """assert_hinge_at_span_root itself must not silently pass on a NaN hinge value."""
+    deck = """
+particle_inputs.x = 4.0
+particle_inputs.y = 2.0
+particle_inputs.z = 4.0
+particle_inputs.hinge_x = 4.0
+particle_inputs.hinge_y = nan
+particle_inputs.hinge_z = 4.0
+"""
+    with pytest.raises(ValueError, match="non-finite"):
+        assert_hinge_at_span_root(deck, _CANONICAL_VERTEX)
+
+
+def test_hinge_at_span_root_rejects_deck_missing_a_required_key():
+    """A deck missing one of the 6 required particle_inputs.* keys raises a clear ValueError."""
+    deck = """
+particle_inputs.x = 4.0
+particle_inputs.y = 2.0
+particle_inputs.z = 4.0
+particle_inputs.hinge_x = 4.0
+particle_inputs.hinge_y = 0.5
+"""
+    with pytest.raises(ValueError, match="particle_inputs.hinge_z"):
+        assert_hinge_at_span_root(deck, _CANONICAL_VERTEX)
+
+
+def test_wing_half_span_uses_max_minus_min_not_max_alone(tmp_path):
+    """The half-span formula must be robust to a non-origin-centered vertex file.
+
+    Regression: an earlier version used markers.max() alone, which only equals the true half-span
+    because the committed wing.vertex happens to be exactly symmetric about 0 (an artifact of
+    generate-wing-planform's span/spacing dividing evenly) -- not a guaranteed property of every
+    vertex file. This fixture is deliberately NOT symmetric (span y in [1.0, 4.0], half-span 1.5)
+    so markers.max() alone (4.0) and (max-min)/2 (1.5) give different, distinguishable answers.
+    """
+    asymmetric_vertex = tmp_path / "asymmetric.vertex"
+    asymmetric_vertex.write_text(
+        "3\n0.0 1.0 0.0\n0.0 2.5 0.0\n0.0 4.0 0.0\n", encoding="utf-8"
+    )
+    assert wing_half_span(asymmetric_vertex, span_axis="y") == pytest.approx(1.5)
 
 
 @pytest.mark.xfail(

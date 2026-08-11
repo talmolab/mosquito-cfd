@@ -105,6 +105,29 @@ def test_cli_rejects_config_name_not_in_manifest(tmp_path):
     assert not (tmp_path / "s99_f999_p99_wing_phases.png").exists()
 
 
+def test_cli_rejects_config_validated_combined_with_explicit_corpus_dir(tmp_path):
+    """--config validated ignores --corpus-dir entirely -- combining them must error, not silently
+    render the validated deck while pretending --corpus-dir had an effect.
+    """
+    cli = _load_cli()
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "--out-dir",
+                str(tmp_path),
+                "--docker-digest",
+                DIGEST,
+                "--timestamp",
+                TS,
+                "--config",
+                "validated",
+                "--corpus-dir",
+                "examples/prelim_sweep_fine",
+            ]
+        )
+    assert not (tmp_path / "validated_wing_phases.png").exists()
+
+
 def test_wing_phase_diagnostic_default_sample_is_documented(tmp_path, capsys):
     """--help names the default sample configs and states why they were chosen."""
     cli = _load_cli()
