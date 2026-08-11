@@ -197,5 +197,7 @@ def test_fine_corpus_provenance_flags_superseded_runs():
             encoding="utf-8"
         )
     )
-    assert provenance.get("superseded_by"), "sweep_provenance.json is missing 'superseded_by'"
+    assert provenance.get("superseded_by"), (
+        "sweep_provenance.json is missing 'superseded_by'"
+    )
     assert provenance["superseded_by"]["cluster_workflows"]
