@@ -515,6 +515,25 @@ def test_committed_sweep_matches_regeneration(tmp_path):
         assert (PRELIM_SWEEP / name).read_bytes() == (tmp_path / name).read_bytes()
 
 
+def test_coarse_corpus_provenance_flags_pending_downstream_regeneration():
+    """The committed sweep_provenance.json flags that dataset.parquet/surrogate/*/figures/*
+    do not yet reflect the corrected hinge -- fix-force-surrogate-sweep-hinge regenerated this
+    corpus's decks/manifest, but the actual cluster re-run + retrain is still gated on an
+    explicit go/no-go (tasks.md Phase 5). Without this flag, a reader could mistake main's
+    committed dataset/surrogate/figures for evidence of the corrected geometry.
+    """
+    provenance = json.loads(
+        (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance.get("downstream_artifacts_pending_regeneration"), (
+        "sweep_provenance.json is missing 'downstream_artifacts_pending_regeneration'"
+    )
+    affected = provenance["downstream_artifacts_pending_regeneration"]["affected"]
+    assert "dataset.parquet" in affected
+    assert any("surrogate/" in a for a in affected)
+    assert any("figures/" in a for a in affected)
+
+
 def test_committed_manifest_shape():
     """The committed manifest has 27 configs, 6 holdout / 21 train, nu* fixed; units valid."""
     manifest = json.loads(

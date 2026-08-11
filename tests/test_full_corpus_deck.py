@@ -207,4 +207,3 @@ def test_fine_corpus_provenance_flags_superseded_runs():
         "superseded_by.cluster_workflows must name exactly the two stale runs, not just be "
         "non-empty -- a typo'd or wrong workflow name must not pass silently"
     )
-    assert provenance["superseded_by"]["cluster_workflows"]
