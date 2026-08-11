@@ -30,7 +30,9 @@ def read_deck_value(text: str, key: str) -> float:
     Raises:
         ValueError: If ``key`` is not found in ``text``.
     """
-    match = re.search(rf"^\s*{re.escape(key)}\s*=\s*(.+?)\s*(?:#.*)?$", text, re.MULTILINE)
+    match = re.search(
+        rf"^\s*{re.escape(key)}\s*=\s*(.+?)\s*(?:#.*)?$", text, re.MULTILINE
+    )
     if match is None:
         raise ValueError(f"key {key!r} not found in the deck")
     return float(match.group(1).strip())
@@ -67,7 +69,9 @@ def assert_hinge_at_span_root(
     """
     markers = read_vertex_file(str(vertex_path))
     if markers.shape[0] == 0:
-        raise ValueError(f"{vertex_path} contains zero markers -- cannot derive a span extent")
+        raise ValueError(
+            f"{vertex_path} contains zero markers -- cannot derive a span extent"
+        )
 
     axis_idx = _AXIS_INDEX[span_axis]
     half_span = float(markers[:, axis_idx].max())

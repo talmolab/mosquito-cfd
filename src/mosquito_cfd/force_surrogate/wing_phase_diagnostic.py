@@ -80,7 +80,9 @@ def build_wing_phase_figure(
     Raises:
         ValueError: If ``docker_image_digest`` is a mutable tag.
     """
-    validate_image_digest(docker_image_digest)  # fail-fast before any computation/file I/O
+    validate_image_digest(
+        docker_image_digest
+    )  # fail-fast before any computation/file I/O
 
     center_arr = np.asarray(center, dtype=float)
     hinge_arr = np.asarray(hinge, dtype=float)
@@ -101,12 +103,21 @@ def build_wing_phase_figure(
         )
         rotation = rotation_matrix(phi, alpha, theta)
         markers = _transform_markers(ref_markers + center_arr, hinge_arr, rotation)
-        ax.scatter(markers[:, 0], markers[:, 1], s=1.0, color=color, alpha=0.7, rasterized=True)
-        ax.scatter(hinge_arr[0], hinge_arr[1], s=50, color="black", zorder=5, marker="^")
-        ax.set_title(f"{label}\nphi={np.degrees(phi):.0f} alpha={np.degrees(alpha):.0f}", fontsize=8)
+        ax.scatter(
+            markers[:, 0], markers[:, 1], s=1.0, color=color, alpha=0.7, rasterized=True
+        )
+        ax.scatter(
+            hinge_arr[0], hinge_arr[1], s=50, color="black", zorder=5, marker="^"
+        )
+        ax.set_title(
+            f"{label}\nphi={np.degrees(phi):.0f} alpha={np.degrees(alpha):.0f}",
+            fontsize=8,
+        )
         ax.set_aspect("equal")
         ax.grid(True, alpha=0.3)
-    fig.suptitle(f"{config_name}: wing marker positions at key phases (hinge = black triangle)")
+    fig.suptitle(
+        f"{config_name}: wing marker positions at key phases (hinge = black triangle)"
+    )
     fig.tight_layout()
 
     fig_metrics: dict[str, Any] = {
@@ -129,7 +140,9 @@ def build_wing_phase_figure(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_dir / f"{config_name}_wing_phases.png", dpi=150, bbox_inches="tight")
+    fig.savefig(
+        out_dir / f"{config_name}_wing_phases.png", dpi=150, bbox_inches="tight"
+    )
     plt.close(fig)
     write_json(out_dir / f"{config_name}_wing_phases_metrics.json", fig_metrics)
     write_json(out_dir / f"{config_name}_run_metadata.json", metadata)
