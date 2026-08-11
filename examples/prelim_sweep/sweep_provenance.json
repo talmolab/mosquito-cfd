@@ -3,7 +3,7 @@
     "path": "examples/prelim_sweep/base_inputs.3d.validation",
     "sha256": "6a2a2f1663e7e42573fe8922e900f01f37a7ddc15c2154a353bb8c0c582ad3ff"
   },
-  "generated_at": "2026-08-11T00:00:00+00:00",
-  "git_commit": "1158930b92b69d6a568a0ee16618184765374a28",
+  "generated_at": "2026-08-11T00:05:00+00:00",
+  "git_commit": "26bd0a24fc865463a7724a658da9619dc5c991a6",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
 }
