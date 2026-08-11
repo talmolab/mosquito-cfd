@@ -3,8 +3,8 @@
     "path": "examples/prelim_sweep_fine_pilot/base_inputs.3d.fine",
     "sha256": "135ccd38437e56ae04812299162f3bcf02ec7c8bfe1dce2470fb9899063ed6a0"
   },
-  "generated_at": "2026-08-11T01:00:00+00:00",
-  "git_commit": "90bae4af0cd04a616f19296267f4768af6f780f2",
+  "generated_at": "2026-08-11T02:00:00+00:00",
+  "git_commit": "8c4361f32f79198f58667fec142a852b1d321907",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
   "superseded_by": {
     "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by the cluster runs below, whose raw CFD output on NFS predates this fix and is now stale.",
