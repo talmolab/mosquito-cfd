@@ -268,6 +268,8 @@ def test_pilot_report_flags_the_hinge_geometry_defect_and_unconfirmed_stability(
     assert "midspan pivot" in text
     assert "not confirmed to transfer" in text
     assert "re-confirm" in text.lower()
+    assert "orthogonal to hinge placement" not in text
+    assert "not affected" not in text.lower()
 
 
 _REQUIRED_METADATA_FIELDS = (

@@ -128,7 +128,7 @@ plotfiles in CI.
 
 ## PR / issue split
 
-Status: ⬜ not started | 🟡 in flight | ✅ merged.
+Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 
 | # | OpenSpec change-id (proposed) | Scope | Env | Status |
 |---|---|---|---|---|

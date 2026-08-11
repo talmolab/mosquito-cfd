@@ -267,6 +267,10 @@ session, recorded here so the decision isn't silently assumed later):
   new `provision` step automatically before `argo submit`, so this is a repeatable, tested code
   path, not a one-off manual copy — closing the same class of gap that stalled the fine-grid corpus
   submission for 22 hours in an earlier session ([[fine-corpus-nfs-provisioning-gap]]).
-- **Explicitly out of scope:** re-running the fine-grid pilot's stability check (orthogonal,
-  already valid); re-authoring `examples/flapping_wing/inputs.3d.production`'s banner (pre-existing,
-  unrelated gap, noted not fixed); any change to IAMReX solver source.
+- **Explicitly out of scope:** actually re-running the fine-grid pilot's `dt=5e-4` stability check
+  against the corrected geometry -- this change is docs/decks/cluster-free-tooling only, it does
+  not submit any CFD job. That re-confirmation is required (not "orthogonal, already valid" -- see
+  the "Not safe to assume unaffected" bullet above) and is deferred to the follow-on change that
+  performs the actual corrected-geometry fine-grid CFD re-run; re-authoring
+  `examples/flapping_wing/inputs.3d.production`'s banner (pre-existing, unrelated gap, noted not
+  fixed); any change to IAMReX solver source.

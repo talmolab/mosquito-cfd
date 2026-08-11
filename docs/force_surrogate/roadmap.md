@@ -215,6 +215,10 @@ the standard `dt=5e-4` with **no CFL fallback needed and no preemption**. Measur
 **~61 hours (~2.55 days) of serial single-A40 wall time** — far below the ~20-day worst case
 that motivated the pilot. See `docs/force_surrogate/fine-grid-pilot-report.md` for the full
 per-config breakdown and the follow-on-change caveats (untested pitch levels, quota headroom).
+**Geometry caveat (`fix-force-surrogate-sweep-hinge`, 2026-08-10):** the pilot ran under a
+midspan-pivot hinge defect with roughly half the corrected root hinge's rotation arm -- this
+`dt=5e-4` result is not confirmed to transfer to the corrected geometry and must be re-confirmed
+before the corrected-geometry regeneration; see that report's own geometry note.
 
 ### Post-corpus follow-up issues (tracked, non-gating)
 
