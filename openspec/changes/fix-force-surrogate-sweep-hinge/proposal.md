@@ -209,9 +209,10 @@ session, recorded here so the decision isn't silently assumed later):
   WSL/cluster path translation, `--corpus-dir`/`--no-provision` flags) + `cluster/argo/README.md`
   (documents the new flags) + new `tests/test_submit_workflow_provision.py` (mirrors
   `tests/test_submit_workflow_parallelism.py`'s stub-`argo` convention, parametrized across ≥2
-  corpus-dir/workspace-hostpath pairs); `examples/prelim_sweep/generate_sweep.py` (new
-  `tests/test_generate_sweep_cli.py`) and `examples/prelim_sweep_fine/generate_full_corpus.py`
-  (`--timestamp` made required, no default) +
+  corpus-dir/workspace-hostpath pairs); `examples/prelim_sweep/generate_sweep.py` (new tests added
+  to the existing `tests/test_force_surrogate_sweep.py`, which already loads this exact script —
+  not a new file) and `examples/prelim_sweep_fine/generate_full_corpus.py`
+  (`--timestamp` made required and ISO-8601-validated, no default) +
   `tests/test_full_corpus_deck.py::test_generate_full_corpus_main_rejects_frozen_paths_via_cli`
   (updated to pass an explicit `--timestamp` so it keeps exercising the frozen-path guard rather
   than a now-required-argument error) + a pointer comment in

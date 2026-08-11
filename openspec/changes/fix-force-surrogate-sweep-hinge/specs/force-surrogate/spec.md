@@ -176,8 +176,11 @@ which reads it, but not for `smoke`, which runs a single named deck and never re
 (`/hpi/hpi_dev/...`) to the WSL-visible mount point (`/mnt/hpi_dev/...`, per
 `openspec/project.md`'s path table) before any filesystem operation — `submit_workflow.sh` runs
 inside WSL, so operating on the unstranslated cluster-path string would silently no-op or write to
-the wrong location while still reporting success. Provisioning SHALL verify the copy by content
-hash, and SHALL reject a `--corpus-dir`/`--workspace-hostpath` pair whose basenames don't match
+the wrong location while still reporting success. Provisioning SHALL replace (not merge into) any
+prior `inputs/` content at the destination, SHALL verify the copy of `wing.vertex` specifically by
+content hash (the one artifact with a documented history of silently drifting; `inputs/` and the
+manifest rely on the replace-not-merge behavior plus `cp`'s own failure under `set -euo pipefail`),
+and SHALL reject a `--corpus-dir`/`--workspace-hostpath` pair whose basenames don't match
 (preventing one corpus's decks from being silently provisioned onto a different corpus's
 workspace). It fails fast and loudly rather than causing the submitted workflow's pods to retry a
 mount for hours (issue #62) or, worse, silently run against stale or mismatched geometry.
@@ -190,7 +193,13 @@ either (cross-referenced from both requirements' descriptions, not a one-way poi
 
 - **Given** a `--corpus-dir` containing `inputs/` + `sweep_manifest.json` whose basename matches `--workspace-hostpath`'s basename, and a `--workspace-hostpath` (resolved to its local mount point) that is empty or contains stale content
 - **When** `submit_workflow.sh full` runs (verified cluster-free via a stub `argo` executable and a `tmp_path`-rooted `--workspace-hostpath`/`CLUSTER_NFS_PREFIX`/`LOCAL_NFS_PREFIX`, per the existing `--parallelism` test convention — never a live cluster or real NFS mount)
-- **Then** the resolved local workspace directory contains a byte-identical copy of `inputs/` and `sweep_manifest*.json` (verified at the test level, mirroring the existing `--parallelism` test's hashlib convention) and a copy of `wing.vertex` whose content hash the script **itself** verifies against the canonical source before proceeding — `wing.vertex` gets script-internal verification because it is the one artifact with a documented history of silently drifting; `inputs/`/the manifest rely on `cp`'s own failure under `set -euo pipefail` — and this provisioning completes before the stub `argo` is ever invoked
+- **Then** the resolved local workspace directory contains a byte-identical copy of `inputs/` and `sweep_manifest*.json` (verified by content equality at the test level, mirroring the existing `--parallelism` test's hashlib convention) and a copy of `wing.vertex` whose content hash the script **itself** verifies against the canonical source before proceeding — `wing.vertex` gets script-internal verification because it is the one artifact with a documented history of silently drifting; `inputs/`/the manifest rely on the replace-not-merge behavior (below) plus `cp`'s own failure under `set -euo pipefail` — and this provisioning completes before the stub `argo` is ever invoked
+
+#### Scenario: A dropped config does not survive provisioning (replace, not merge)
+
+- **Given** a `--workspace-hostpath` whose `inputs/` already contains a deck for a config that no longer exists in the current `--corpus-dir` (e.g. a config dropped when the corpus grid changed)
+- **When** provisioning runs
+- **Then** that stale deck is gone from the resulting `inputs/` afterward — provisioning replaces the destination's `inputs/` wholesale rather than only adding/overwriting matching filenames, so a shrunk or changed corpus can never leave an orphaned, silently-stale deck behind (the same failure class as a stale `wing.vertex`, just for `inputs/`)
 
 #### Scenario: `smoke` provisions without requiring a manifest
 
@@ -200,21 +209,33 @@ either (cross-referenced from both requirements' descriptions, not a one-way poi
 
 #### Scenario: The default cluster-to-local path translation is exactly right
 
-- **Given** `CLUSTER_NFS_PREFIX`/`LOCAL_NFS_PREFIX` left at their real-world defaults (not overridden by a test)
+- **Given** `CLUSTER_NFS_PREFIX`/`LOCAL_NFS_PREFIX` left at their real-world defaults (not overridden by a test — the script is sourced directly so the translation function is called with production defaults, not a test-substituted prefix pair)
 - **When** the path-translation function is applied to `/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep`
 - **Then** it returns `/mnt/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep` exactly — a pure string-substitution check requiring no real filesystem or mount, since the real mount can't be exercised in CI
 
-#### Scenario: A missing corpus-dir, or a corpus-dir missing inputs/, fails before any cluster action
+#### Scenario: A sibling cluster export sharing the prefix string is not mistranslated
 
-- **Given**, separately, a `--corpus-dir` that does not exist at all, and a `--corpus-dir` that exists but whose `inputs/` subdirectory does not
+- **Given** a hostpath under a *different* cluster export that happens to share `CLUSTER_NFS_PREFIX` as a string prefix but not as a path component (e.g. `/hpi/hpi_dev_archive/...` against the default `/hpi/hpi_dev` prefix)
+- **When** the path-translation function is applied
+- **Then** it returns the input unchanged (no translation applied) rather than silently rewriting it under `LOCAL_NFS_PREFIX`'s tree, which has no relationship to that sibling export — the prefix match is anchored on a path-component boundary (exact match or followed by `/`), not a bare string prefix
+
+#### Scenario: A missing corpus-dir, a corpus-dir that is a file, or a corpus-dir missing inputs/, fails before any cluster action
+
+- **Given**, separately: a `--corpus-dir` that does not exist at all; a `--corpus-dir` path that exists but is a file, not a directory; and a `--corpus-dir` that exists but whose `inputs/` subdirectory does not
 - **When** `submit_workflow.sh full` runs for each
-- **Then** each fails with a clear, **distinguishable** error (naming which is missing — the directory itself vs. its `inputs/`), and the stub `argo` is never invoked for either (mirrors the existing `--parallelism` "fails before touching anything" convention)
+- **Then** each fails with a clear, **distinguishable** error (naming which condition applies — nonexistent vs. not-a-directory vs. missing `inputs/`), and the stub `argo` is never invoked for any of them (mirrors the existing `--parallelism` "fails before touching anything" convention)
 
-#### Scenario: `full` additionally requires a manifest; `smoke` does not
+#### Scenario: `full` additionally requires a manifest and its units sidecar; `smoke` does not
 
-- **Given** a `--corpus-dir` containing `inputs/` but no `sweep_manifest.json`
-- **When** `submit_workflow.sh full` runs
-- **Then** it fails with a clear error naming the missing manifest, before any copy or the stub `argo` is invoked — distinct from the `smoke` scenario above, where the identical corpus-dir provisions successfully because `smoke` never requires the manifest
+- **Given**, separately, a `--corpus-dir` containing `inputs/` but no `sweep_manifest.json`, and one containing `sweep_manifest.json` but no `sweep_manifest.units.json`
+- **When** `submit_workflow.sh full` runs for each
+- **Then** each fails with a clear error naming the specific missing file, before any copy or the stub `argo` is invoked — distinct from the `smoke` scenario above, where the identical corpus-dir provisions successfully because `smoke` never requires either manifest file
+
+#### Scenario: A missing canonical `wing.vertex` source fails clearly
+
+- **Given** `WING_VERTEX_SOURCE` resolving to a path that does not exist
+- **When** provisioning runs
+- **Then** it fails with a clear error naming the missing source, before the stub `argo` is invoked — not a bare `cp: cannot stat` message
 
 #### Scenario: A corpus-dir/workspace-hostpath basename mismatch is rejected
 
@@ -234,20 +255,39 @@ either (cross-referenced from both requirements' descriptions, not a one-way poi
 - **When** provisioning runs for each independently
 - **Then** each resolved workspace's `wing.vertex` is byte-identical to the single canonical `examples/flapping_wing/wing.vertex`, never a different or stale copy, **for every corpus-dir tested** — this is the specific defect this requirement exists to prevent (this session found the live coarse corpus's NFS `wing.vertex` did not match any git-committed version)
 
+#### Scenario: The script's own hardcoded defaults name the same corpus
+
+- **Given** `submit_workflow.sh`'s built-in `CORPUS_DIR` and `WORKSPACE_HOSTPATH` defaults, with neither overridden
+- **When** their basenames are compared
+- **Then** they match — a static guard so a future edit to only one default (exactly the failure class this requirement fixes) is caught before it ever reaches the runtime basename-mismatch check on a real submission
+
+#### Scenario: `--help` documents the new flags
+
+- **Given** `submit_workflow.sh help`
+- **When** the command runs
+- **Then** its output names both `--corpus-dir` and `--no-provision`
+
 ### Requirement: Corpus-generation CLI drivers require an explicit timestamp
 
-Both corpus-generation CLI drivers SHALL require `--timestamp` as an explicit CLI argument with
-**no default value** — this applies to `examples/prelim_sweep/generate_sweep.py` and
-`examples/prelim_sweep_fine/generate_full_corpus.py`. A real
-regeneration run must supply a fresh, caller-chosen timestamp, never silently reuse a literal from
-the script's original authoring session (which would misleadingly stamp a corrected corpus's
-provenance as if generated on the original, pre-fix date).
+Both corpus-generation CLI drivers SHALL require `--timestamp` as an explicit, ISO-8601-validated
+CLI argument with **no default value** — this applies to `examples/prelim_sweep/generate_sweep.py`
+and `examples/prelim_sweep_fine/generate_full_corpus.py`. A real regeneration run must supply a
+fresh, caller-chosen, well-formed timestamp — never silently reuse a literal from the script's
+original authoring session (which would misleadingly stamp a corrected corpus's provenance as if
+generated on the original, pre-fix date), and never accept an empty or malformed value that
+`required=True` alone would not catch.
 
 #### Scenario: Omitting `--timestamp` is rejected
 
 - **Given** either driver invoked with no `--timestamp` argument
 - **When** `main()` parses arguments
 - **Then** it exits non-zero via argparse's own "required argument" error, before any file is read or written
+
+#### Scenario: An empty or malformed `--timestamp` value is rejected
+
+- **Given** either driver invoked with `--timestamp ""` or a non-ISO-8601 string (e.g. `"not-a-timestamp"`)
+- **When** `main()` parses arguments
+- **Then** it exits non-zero before any file is read or written — presence of the flag alone is not sufficient; the value must parse as ISO-8601
 
 #### Scenario: A frozen-path rejection is not masked by the timestamp requirement
 

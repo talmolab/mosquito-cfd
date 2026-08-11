@@ -48,12 +48,15 @@ Windows/Cluster/container [mount mapping](../../openspec/runai-dev-workflow.md#w
 ### NFS provisioning (automatic, closes #62)
 
 Both `smoke` and `full` **provision** `--workspace-hostpath` from `--corpus-dir` (default
-`examples/prelim_sweep`) before submitting — copying `inputs/`, `sweep_manifest*.json` (`full`
-only; `smoke` runs a single named deck and never reads the manifest), and the canonical
-`examples/flapping_wing/wing.vertex`, then verifying the copy by hash. This closes a
-previously-manual, previously-missed step: an earlier session found the coarse corpus's NFS
-`wing.vertex` didn't match any git-committed version at all (stale from before the
-axis-convention refactor), sitting undetected on the cluster share for over a month.
+`examples/prelim_sweep`) before submitting — replacing (not merging into) any prior `inputs/`
+content, copying `sweep_manifest*.json` (`full` only; `smoke` runs a single named deck and never
+reads the manifest), and copying the canonical `examples/flapping_wing/wing.vertex`, **verifying
+`wing.vertex` specifically by content hash** (the one artifact with a documented history of
+silently drifting — `inputs/`/the manifest rely on the replace-not-merge behavior and `cp`'s own
+failure instead). This closes a previously-manual, previously-missed step: an earlier session
+found the coarse corpus's NFS `wing.vertex` didn't match any git-committed version at all (stale
+from before the axis-convention refactor), sitting undetected on the cluster share for over a
+month.
 
 - **`--corpus-dir DIR`** — the local corpus to stage. Its basename **must match**
   `--workspace-hostpath`'s basename (provisioning refuses a mismatch, e.g. a coarse `--corpus-dir`

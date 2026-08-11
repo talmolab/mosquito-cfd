@@ -562,3 +562,24 @@ def test_main_requires_timestamp(tmp_path):
     assert not decoy.exists(), (
         "no file should be read or written before the missing --timestamp is rejected"
     )
+
+
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_main_rejects_malformed_timestamp(tmp_path, bad_timestamp):
+    """--timestamp being *present* isn't enough -- an empty/garbage value must also be rejected.
+
+    required=True on its own only rejects omission; a careless or scripted caller could otherwise
+    pass "" or a garbage string straight into sweep_provenance.json unvalidated.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "prelim_sweep_driver", PRELIM_SWEEP / "generate_sweep.py"
+    )
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        driver.main(["--output", str(decoy), "--timestamp", bad_timestamp])
+    assert not decoy.exists()

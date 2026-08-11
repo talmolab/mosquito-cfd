@@ -82,11 +82,13 @@ require_image() {
 
 # Translate a cluster-hostPath string (the value handed to `argo submit`) to the path WSL's own
 # filesystem can actually read/write. A pure string substitution -- no filesystem access itself,
-# so it's trivially unit-testable without any real mount.
+# so it's trivially unit-testable without any real mount. Anchored on a path-component boundary
+# (exact match or followed by "/") so a sibling export sharing the prefix STRING but not the path
+# (e.g. /hpi/hpi_dev_archive) is never silently mistranslated onto /mnt/hpi_dev's tree.
 to_local_path() {
   local p="$1"
   case "$p" in
-    "$CLUSTER_NFS_PREFIX"*) echo "${LOCAL_NFS_PREFIX}${p#$CLUSTER_NFS_PREFIX}" ;;
+    "$CLUSTER_NFS_PREFIX"|"$CLUSTER_NFS_PREFIX"/*) echo "${LOCAL_NFS_PREFIX}${p#$CLUSTER_NFS_PREFIX}" ;;
     *) echo "$p" ;;   # already a local/relative path (e.g. a tmp_path fixture in tests)
   esac
 }
@@ -98,10 +100,12 @@ provision() {
   local corpus_dir="$1" workspace_hostpath="$2" require_manifest="$3"
   local local_workspace; local_workspace="$(to_local_path "$workspace_hostpath")"
 
-  [[ -d "$corpus_dir" ]] || die "corpus dir $corpus_dir does not exist"
+  [[ -e "$corpus_dir" ]] || die "corpus dir $corpus_dir does not exist"
+  [[ -d "$corpus_dir" ]] || die "corpus dir $corpus_dir exists but is not a directory"
   [[ -d "$corpus_dir/inputs" ]] || die "corpus dir $corpus_dir has no inputs/ -- generate it first"
   if [[ "$require_manifest" == "true" ]]; then
     [[ -f "$corpus_dir/sweep_manifest.json" ]] || die "corpus dir $corpus_dir has no sweep_manifest.json"
+    [[ -f "$corpus_dir/sweep_manifest.units.json" ]] || die "corpus dir $corpus_dir has no sweep_manifest.units.json"
   fi
   # The exact defect this step exists to prevent: a coarse corpus-dir silently provisioned onto a
   # fine workspace-hostpath (or vice versa) because the two flags were overridden independently.
@@ -109,14 +113,21 @@ provision() {
     || die "corpus-dir '$corpus_dir' and workspace-hostpath '$workspace_hostpath' name different corpora -- pass matching --corpus-dir/--workspace-hostpath"
 
   mkdir -p "$local_workspace" || die "cannot create/access local workspace path $local_workspace (resolved from $workspace_hostpath)"
+  # Replace, don't merge: `cp -r` into an existing inputs/ only adds/overwrites, so a config
+  # dropped from a shrunk/changed corpus would otherwise survive undetected -- the same class of
+  # silent-stale-content defect (#62) this whole step exists to close, just for inputs/ instead of
+  # wing.vertex. Remove any prior inputs/ before staging the current corpus's.
+  rm -rf "${local_workspace:?}/inputs"
   cp -r "$corpus_dir/inputs" "$local_workspace/"
   if [[ "$require_manifest" == "true" ]]; then
     cp "$corpus_dir"/sweep_manifest*.json "$local_workspace/"
   fi
+  [[ -f "$WING_VERTEX_SOURCE" ]] || die "canonical wing.vertex source $WING_VERTEX_SOURCE does not exist"
   cp "$WING_VERTEX_SOURCE" "$local_workspace/wing.vertex"   # always the canonical file
   # Verify by hash immediately -- fail loudly here, not hours later in a pod's mount retry loop.
   # Scoped to wing.vertex: the one artifact with a documented history of silently drifting.
-  # inputs/ and the manifest rely on `cp`'s own failure under `set -euo pipefail` above.
+  # inputs/ and the manifest rely on `cp`'s own failure under `set -euo pipefail` above (and, for
+  # inputs/, the destructive rm -rf just above, which removes the only silent-survival path).
   # NOTE: GNU sha256sum prepends a literal backslash to its output line when the filename itself
   # contains a backslash (its own escaping convention) -- strip it so a Windows-style path in
   # WING_VERTEX_SOURCE doesn't corrupt the extracted hash via a stray leading "\".

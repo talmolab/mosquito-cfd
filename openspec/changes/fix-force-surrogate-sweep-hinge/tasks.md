@@ -123,11 +123,18 @@ Phase 5's cluster-run commit):
 21. [x] Add a one-line comment next to `examples/prelim_sweep_fine_pilot/generate_pilot.py`'s own
     `DEFAULT_TIMESTAMP` pointing at this change's id — the identical pattern is intentionally left
     functionally unfixed there (the pilot isn't re-run by this change), but not left unmarked.
-22. [x] Run `grep -rn '\.main(\[' tests/` and confirm the result is **exactly 3 matches**: the two
-    calls in `test_full_corpus_deck.py` fixed by task 20, and the one call in
-    `test_fine_pilot_deck.py` targeting the untouched `generate_pilot.py` (verified this session —
-    if the count or file list differs at implementation time, stop and investigate before
-    proceeding, since that means a call site this proposal didn't account for exists).
+22. [x] Ran `grep -rn '\.main(\[' tests/` at the time this task was first checked off: exactly 3
+    matches without `--timestamp` (the two calls in `test_full_corpus_deck.py` fixed by task 20,
+    and the one call in `test_fine_pilot_deck.py` targeting the untouched `generate_pilot.py`).
+    **Note (round-2 PR review):** this count is a point-in-time audit, not a standing invariant.
+    Re-running it now (after adding the malformed-timestamp regression tests) gives 8 total
+    `.main([` call sites, 3 of which omit `--timestamp`: the original `generate_pilot.py` exception
+    (`test_fine_pilot_deck.py:203`) plus 2 *deliberate* "confirm omission is rejected" calls
+    (`test_force_surrogate_sweep.py::test_main_requires_timestamp`,
+    `test_full_corpus_deck.py::test_main_requires_timestamp`) — both intentional, not a gap. The
+    5 remaining calls all supply `--timestamp` explicitly (including the new malformed-value tests,
+    which supply a *present-but-invalid* value, not an omitted one). Re-run and re-classify each
+    call site by intent (not just count) if this driver surface changes again.
 
 ### Phase 1 — fix the two base decks (PR 2 — begins the coupled sequence)
 

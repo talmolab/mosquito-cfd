@@ -5,7 +5,10 @@ the tested library) -- mirrors ``examples/prelim_sweep_fine_pilot/generate_pilot
 ``generate_sweep()`` with no ``configs=``/``n_holdout=`` override (OpenSpec change
 ``add-fine-grid-corpus-full``). Run from the repository root::
 
-    uv run python examples/prelim_sweep_fine/generate_full_corpus.py
+    uv run python examples/prelim_sweep_fine/generate_full_corpus.py --timestamp 2026-08-03T00:00:00+00:00
+
+``--timestamp`` is required (a real regeneration must supply a fresh, caller-chosen value --
+fix-force-surrogate-sweep-hinge).
 
 Unlike the pilot (3 configs, forced ``n_holdout=0``), the full corpus uses ``generate_sweep()``'s
 defaults: the full 27-point Aedes grid (``build_kinematic_grid()``) and ``n_holdout=6``
@@ -20,9 +23,27 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 
 from mosquito_cfd.force_surrogate import generate_sweep
+
+
+def _iso8601_timestamp(value: str) -> str:
+    """Validate ``value`` parses as ISO-8601; return it verbatim (never reformatted).
+
+    ``--timestamp`` being *required* (fix-force-surrogate-sweep-hinge) only closes the "silently
+    reuse a stale hardcoded default" hole -- without this, an empty string or garbage value would
+    still be silently accepted and baked into ``sweep_provenance.json`` unvalidated.
+    """
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a valid ISO-8601 timestamp: {exc}"
+        ) from exc
+    return value
+
 
 # Paths relative to the repository root (run the driver from the repo root). The fine base deck
 # is reused unmodified from the pilot -- not copied -- since it's already committed and its
@@ -92,6 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--timestamp",
+        type=_iso8601_timestamp,
         required=True,
         help=(
             "Caller-supplied ISO-8601 timestamp recorded in sweep_provenance.json. Required: a "

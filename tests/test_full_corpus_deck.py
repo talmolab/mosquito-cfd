@@ -154,6 +154,17 @@ def test_main_requires_timestamp(tmp_path):
     )
 
 
+@pytest.mark.parametrize("bad_timestamp", ["", "not-a-timestamp", "2026-13-45"])
+def test_main_rejects_malformed_timestamp(tmp_path, bad_timestamp):
+    """--timestamp being *present* isn't enough -- an empty/garbage value must also be rejected."""
+    full_corpus = _load_full_corpus_script()
+
+    decoy = tmp_path / "decoy_output"
+    with pytest.raises(SystemExit):
+        full_corpus.main(["--output", str(decoy), "--timestamp", bad_timestamp])
+    assert not decoy.exists()
+
+
 def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():
     """Static isolation guard: the script's constants are distinct from both frozen paths.
 

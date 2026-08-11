@@ -118,7 +118,14 @@ def test_provision_copies_and_verifies_by_hash_for_full(
     assert (
         workspace / "inputs" / "inputs.3d.s35_f085_p30"
     ).read_text() == "dummy deck\n"
-    assert (workspace / "sweep_manifest.json").exists()
+    # Content-equality, not just existence -- a truncated/corrupted-but-cp-succeeded manifest copy
+    # must be caught, matching the rigor already applied to inputs/ and wing.vertex.
+    assert (workspace / "sweep_manifest.json").read_text() == (
+        corpus / "sweep_manifest.json"
+    ).read_text()
+    assert (workspace / "sweep_manifest.units.json").read_text() == (
+        corpus / "sweep_manifest.units.json"
+    ).read_text()
     assert (
         workspace / "wing.vertex"
     ).read_bytes() == canonical_wing_vertex.read_bytes()
@@ -165,6 +172,27 @@ def test_provision_fails_when_corpus_dir_does_not_exist(
     assert "does not exist" in result.stderr
 
 
+def test_provision_fails_when_corpus_dir_is_a_file_not_a_directory(
+    tmp_path, canonical_wing_vertex
+):
+    """Distinct error from 'does not exist' -- the path IS there, just not a directory."""
+    not_a_dir = tmp_path / "corpus" / "prelim_sweep"
+    not_a_dir.parent.mkdir(parents=True)
+    not_a_dir.write_text("oops, a file", encoding="utf-8")
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(not_a_dir), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "not a directory" in result.stderr
+    assert "does not exist" not in result.stderr
+
+
 def test_provision_fails_when_inputs_missing_within_existing_corpus_dir(
     tmp_path, canonical_wing_vertex
 ):
@@ -200,6 +228,75 @@ def test_provision_fails_when_manifest_missing_for_full(
     assert "sweep_manifest.json" in result.stderr
 
 
+def test_provision_fails_when_units_sidecar_missing_for_full(
+    tmp_path, canonical_wing_vertex
+):
+    """sweep_manifest.json alone isn't enough for `full` -- the units sidecar is also required.
+
+    Regression: `provision` only checked sweep_manifest.json before staging the whole
+    sweep_manifest*.json glob, so a corpus-dir missing only sweep_manifest.units.json would have
+    "provisioned successfully" with a silently incomplete manifest set.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    (corpus / "sweep_manifest.units.json").unlink()
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "sweep_manifest.units.json" in result.stderr
+
+
+def test_provision_fails_when_wing_vertex_source_missing(tmp_path):
+    """A missing canonical wing.vertex source fails clearly, not via a raw `cp` error."""
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+        extra_env={"WING_VERTEX_SOURCE": str(tmp_path / "does_not_exist.vertex")},
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "does not exist" in result.stderr
+
+
+def test_provision_replaces_stale_inputs_not_merges(tmp_path, canonical_wing_vertex):
+    """A config dropped from a shrunk/changed corpus must not survive provisioning.
+
+    Regression: `cp -r` into a pre-existing inputs/ only adds/overwrites; it never removes files
+    already present at the destination that no longer exist in the source -- the same class of
+    silent-stale-content defect (#62) this whole step exists to close, just for inputs/ instead of
+    wing.vertex.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    (workspace / "inputs").mkdir(parents=True)
+    stale_deck = workspace / "inputs" / "inputs.3d.stale_dropped_config"
+    stale_deck.write_text("this config was removed from the corpus\n", encoding="utf-8")
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert not stale_deck.exists(), (
+        "stale config from a prior corpus must not survive provisioning"
+    )
+    assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
 def test_provision_fails_on_corpus_workspace_basename_mismatch(
     tmp_path, canonical_wing_vertex
 ):
@@ -214,7 +311,11 @@ def test_provision_fails_on_corpus_workspace_basename_mismatch(
 
     assert result.returncode != 0
     assert not invoked_marker.exists()
-    assert "prelim_sweep" in result.stderr and "prelim_sweep_fine" in result.stderr
+    # Full quoted strings, not bare substrings -- "prelim_sweep" is itself a substring of
+    # "prelim_sweep_fine", so asserting the bare words would be trivially satisfied by either half
+    # alone. Confirm the error names both full paths distinctly.
+    assert f"'{corpus}'" in result.stderr
+    assert f"'{workspace}'" in result.stderr
 
 
 def test_no_provision_flag_skips_copy_but_still_submits(
@@ -269,14 +370,17 @@ def test_provisioned_wing_vertex_matches_canonical_source(
     )
 
 
-def test_to_local_path_default_mapping(tmp_path, canonical_wing_vertex):
-    """Confirms the real default CLUSTER_NFS_PREFIX/LOCAL_NFS_PREFIX translation is applied.
+def test_to_local_path_translation_via_env_override(tmp_path, canonical_wing_vertex):
+    """Confirms the CLUSTER_NFS_PREFIX/LOCAL_NFS_PREFIX translation seam works end-to-end.
 
     submit_workflow.sh dispatches on $1 immediately rather than exposing to_local_path as a
     separately-sourceable library function, so this exercises it end-to-end: point a
-    --workspace-hostpath that DOES start with the default CLUSTER_NFS_PREFIX, override
+    --workspace-hostpath that DOES start with the (overridden) CLUSTER_NFS_PREFIX, override
     LOCAL_NFS_PREFIX to a tmp_path root, and confirm provisioning lands under the translated
     (tmp_path) location -- not literally under /hpi/hpi_dev, which doesn't exist on this test host.
+    This is deliberately an OVERRIDE test (proving the seam works), distinct from
+    test_to_local_path_uses_real_default_prefix_mapping below (proving TODAY'S actual default is
+    correct) -- neither one alone proves both properties.
     """
     corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
     cluster_style_workspace = (
@@ -302,6 +406,78 @@ def test_to_local_path_default_mapping(tmp_path, canonical_wing_vertex):
         "provisioning must land at the LOCAL_NFS_PREFIX-translated path, not the literal "
         "cluster-hostPath string, which does not exist on this test host"
     )
+
+
+def test_to_local_path_uses_real_default_prefix_mapping():
+    """Proves TODAY'S real default /hpi/hpi_dev -> /mnt/hpi_dev mapping is correct.
+
+    A pure string-substitution check with NO env override and no filesystem access -- sources the
+    script (via `--help`, which runs no destructive action) so `to_local_path` is directly callable
+    with the production defaults, closing the gap where nothing previously verified the literal
+    default string (every other test overrides LOCAL_NFS_PREFIX/CLUSTER_NFS_PREFIX to a tmp_path
+    root, so a future typo in the real default would have gone undetected).
+    """
+    script = (
+        f"source {str(_SUBMIT_SH)!r} --help >/dev/null 2>&1\n"
+        'to_local_path "/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep"\n'
+    )
+    result = subprocess.run(
+        [_BASH, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        result.stdout.strip()
+        == "/mnt/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep"
+    )
+
+
+def test_to_local_path_does_not_match_a_sibling_prefix():
+    """A cluster export sharing the prefix STRING but not the path must not be mistranslated.
+
+    Regression: the original `case "$p" in "$CLUSTER_NFS_PREFIX"*)` had no path-boundary check, so
+    /hpi/hpi_dev_archive (a different, sibling export) would have matched the /hpi/hpi_dev prefix
+    and been silently rewritten to /mnt/hpi_dev_archive -- a path that has no relationship to the
+    real /hpi/hpi_dev -> /mnt/hpi_dev WSL mount.
+    """
+    script = (
+        f"source {str(_SUBMIT_SH)!r} --help >/dev/null 2>&1\n"
+        'to_local_path "/hpi/hpi_dev_archive/users/eberrigan/somewhere"\n'
+    )
+    result = subprocess.run(
+        [_BASH, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    # Must pass through unchanged (no local mount known for this sibling export) -- NOT translated
+    # under /mnt/hpi_dev, which would silently point at the wrong tree.
+    assert result.stdout.strip() == "/hpi/hpi_dev_archive/users/eberrigan/somewhere"
+
+
+def test_corpus_dir_and_workspace_hostpath_defaults_share_a_basename():
+    """Static guard: the script's own hardcoded defaults must name the same corpus.
+
+    Nothing else pins this invariant -- a future edit to only one default (exactly the failure
+    class this whole change fixes) would go undetected until a real cluster submission hit the
+    basename-mismatch guard live.
+    """
+    script = f'source {str(_SUBMIT_SH)!r} --help >/dev/null 2>&1\necho "$CORPUS_DIR|$WORKSPACE_HOSTPATH"\n'
+    result = subprocess.run(
+        [_BASH, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    corpus_dir, workspace_hostpath = result.stdout.strip().split("|")
+    assert Path(corpus_dir).name == Path(workspace_hostpath).name
+
+
+def test_help_documents_the_new_provisioning_flags():
+    result = subprocess.run(
+        [_BASH, str(_SUBMIT_SH), "help"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    assert "--corpus-dir" in result.stdout
+    assert "--no-provision" in result.stdout
 
 
 def test_parallelism_and_provisioning_do_not_interfere(tmp_path, canonical_wing_vertex):
