@@ -40,8 +40,14 @@ the live deck and the committed `wing.vertex` marker geometry (908 markers, span
 - Not affected: `examples/flapping_wing/`'s own van Veen validation (T2a/T3b/T3c) — always ran the
   live, corrected deck. `R_GYRATION`/`S_yy` (`src/mosquito_cfd/force_surrogate/constants.py`) are
   re-verified this session to be traced from `wing.vertex` markers alone, independent of hinge
-  placement — unaffected. The fine-grid pilot's `dt=5e-4` numerical-stability finding is orthogonal
-  to hinge placement (a wrong-but-still-rigid pivot doesn't change solver stability) — not re-run.
+  placement — unaffected.
+- **Not safe to assume unaffected: the fine-grid pilot's `dt=5e-4` numerical-stability finding.**
+  Marker velocity scales with the hinge-to-tip arm (ω×r); the buggy midspan pivot's arm (~1.475) is
+  roughly half the corrected root hinge's arm (~2.975), so the pilot's "no CFL fallback needed"
+  result was measured at roughly half the true tip speed. The corrected-geometry fine-grid CFD
+  re-run (deferred to a follow-on change, per Phase 6) must re-confirm `dt=5e-4` stability rather
+  than assume this pilot's numbers transfer — see `docs/force_surrogate/fine-grid-pilot-report.md`'s
+  geometry note.
 
 **A second, compounding defect: the actual cluster runs used whatever `wing.vertex` happened to be
 staged on the cluster NFS share, not the git-committed geometry — and that turned out to differ by

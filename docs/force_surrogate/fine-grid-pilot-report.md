@@ -14,11 +14,14 @@ and are not restated here.
 
 > **Geometry note (`fix-force-surrogate-sweep-hinge`, 2026-08-10):** the base deck this pilot ran
 > from (`examples/prelim_sweep_fine_pilot/base_inputs.3d.fine`) carried a wing-hinge geometry
-> defect (a midspan pivot, not a root hinge) since the 2026-07-02 axis-convention refactor. That
-> fix is orthogonal to **this report's own finding** — the `dt=5e-4` numerical-stability result is
-> a property of the rigid-body pivot's motion smoothness, not its placement, and is not affected —
-> but the raw force magnitudes in the committed `forces_<config>.csv` files reflect the buggy
-> geometry and should not be trusted for anything beyond the stability go/no-go this report makes.
+> defect (a midspan pivot, not a root hinge) since the 2026-07-02 axis-convention refactor. The raw
+> force magnitudes in the committed `forces_<config>.csv` files reflect the buggy geometry and
+> should not be trusted for anything beyond this report's own stability go/no-go. That go/no-go
+> itself is not confirmed to transfer to the corrected geometry: marker velocity scales with
+> the hinge-to-tip arm (ω×r), and the buggy midspan pivot's arm (~1.475) is roughly half the
+> corrected root hinge's arm (~2.975) — this pilot's "no CFL fallback needed at `dt=5e-4`" result
+> was measured at roughly half the true tip speed. The corrected-geometry fine-grid regeneration
+> must re-confirm `dt=5e-4` stability rather than assume this pilot's numbers transfer.
 
 ## Per-config results
 

@@ -256,6 +256,20 @@ def test_pilot_report_covers_all_attempted_configs():
     )
 
 
+def test_pilot_report_flags_the_hinge_geometry_defect_and_unconfirmed_stability():
+    """The report's geometry note names the hinge defect and does NOT claim stability transfers.
+
+    fix-force-surrogate-sweep-hinge: an earlier draft of this note claimed the dt=5e-4 stability
+    result was unaffected by hinge placement -- wrong, since marker velocity (and therefore CFL
+    margin) scales with the hinge-to-tip arm, which the bug roughly halved. This pins the note to
+    NOT make that retracted claim, and to explicitly call out that stability needs re-confirming.
+    """
+    text = _REPORT.read_text(encoding="utf-8")
+    assert "midspan pivot" in text
+    assert "not confirmed to transfer" in text
+    assert "re-confirm" in text.lower()
+
+
 _REQUIRED_METADATA_FIELDS = (
     "git",
     "docker_image",

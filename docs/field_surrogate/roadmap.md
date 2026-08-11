@@ -15,15 +15,22 @@ Salk RunAI `talmo-lab` A40 allocation and the local RTX A5000, same hardware Tra
 **Sequencing note (updated 2026-08-10):** Track B's frozen coarse corpus and the fine corpus's
 committed decks carried a wing-hinge geometry defect since the 2026-07-02 axis-convention refactor
 (fixed by `fix-force-surrogate-sweep-hinge`), which also found the fine corpus's prior cluster
-regeneration (`add-fine-grid-corpus-full`, in flight as of 2026-08-07) ran against that defect and
-needs re-running regardless of any Stage-2 decision. Rather than pay for a second ~54-A40-hour
-fine-grid regeneration later, **F1's standalone field-capture pilot below is superseded**: the
-corrected fine-grid re-run is bundled with full 27-config field capture directly, in the follow-on
-change to `fix-force-surrogate-sweep-hinge` — an explicit, deliberate deviation from this roadmap's
-own CC-F3 "measure storage on a small pilot before committing to the full corpus" default, decided
+regeneration (submitted via the already-merged `add-fine-grid-corpus-full` scaffolding; the actual
+Argo job ran 2026-08-04→08-07) ran against that defect and needs re-running regardless of any
+Stage-2 decision. That already-run job cost ~54 A40-GPU-hours (now sunk, invalidated by the hinge
+defect); the pilot report's own pre-run projection for a full 27-config fine-grid regeneration is
+~61 hours (~2.55 days) — the two numbers describe different things (actual sunk cost vs. a
+separate projection), not a discrepancy. Rather than pay for a second full regeneration later,
+**F1's standalone field-capture pilot below is superseded**: the corrected fine-grid re-run is
+bundled with full 27-config field capture directly, in the follow-on change to
+`fix-force-surrogate-sweep-hinge` — an explicit, deliberate deviation from this roadmap's own
+CC-F3 "measure storage on a small pilot before committing to the full corpus" default, decided
 with the user rather than assumed. That follow-on change measures storage from the real run instead
-of a preceding pilot (see its proposal's "Deviation and scoping decisions"). `talmo-lab`'s RunAI
-quota was already at 171% allocation during the fine-grid force pilot
+of a preceding pilot (see its proposal's "Deviation and scoping decisions"). It must also re-confirm
+`dt=5e-4` numerical stability against the corrected hinge before submitting — the fine-grid pilot's
+stability result was measured against the buggy midspan pivot's roughly-half-length rotation arm and
+is not confirmed to transfer (see `docs/force_surrogate/fine-grid-pilot-report.md`'s geometry note).
+`talmo-lab`'s RunAI quota was already at 171.74% allocation during the fine-grid force pilot
 (`docs/force_surrogate/fine-grid-pilot-report.md`) — still confirm quota headroom before submitting.
 
 ---

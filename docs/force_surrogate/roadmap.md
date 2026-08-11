@@ -34,6 +34,10 @@ Per design §9: *"do not over-build pre-award: scaling, field-based DoMINO, and 
 what the H100 award funds."* Track B is a deliberately reduced proof-of-pipeline. Framing and the
 CC-4 figure caption must keep it honest — readiness evidence, not the funded surrogate.
 
+> This table describes Track B's own historical scope and stays accurate as a record of what
+> PR1–PR6 did. As a statement of what happens *next*, the H100-award gate on field-based
+> DoMINO/latent-dynamics is dropped — see CC-6 below.
+
 ## Inputs and outputs
 
 - **Input:** the validated flapping-wing setup — `examples/flapping_wing/inputs.3d.validation`,

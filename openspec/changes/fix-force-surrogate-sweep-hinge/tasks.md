@@ -236,6 +236,10 @@ Phase 5's cluster-run commit):
     (CFD re-run deferred); automated NFS provisioning going forward — `fix-force-surrogate-sweep-hinge`".
     Also edit the existing "Pending" bullet about the full fine-grid corpus's live cluster run to
     note the run which already happened (`vb8t5`/`trz9k`) is superseded and needs re-submission.
+    Also add the one-line pointer to this fix in the archived `add-fine-grid-corpus-full` and
+    `add-fine-grid-training-pilot` proposals' own force-accuracy/validity discussion, per this
+    proposal's "Deviation and scoping decisions" item 10 — flagged in PR #70's review as promised
+    by `proposal.md` but not yet covered by any task (PR 1c's tasks 42-44 only touch `docs/`).
 
 ### Phase 8 — verification and sign-off
 
