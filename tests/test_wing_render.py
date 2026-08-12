@@ -101,6 +101,22 @@ def test_transform_markers_rejects_non_finite_hinge():
         )
 
 
+def test_transform_markers_rejects_non_finite_angles():
+    """A NaN/inf phi/alpha/theta must not silently NaN-poison the output via
+    wing_kinematics.rotation_matrix's cos/sin -- round-3 review found every existing finite
+    check targeted markers/hinge only, never the rotation angles themselves.
+    """
+    markers = np.array([[1.0, 0.0, 0.0]])
+    hinge = (0.0, 0.0, 0.0)
+    for bad_kwargs in (
+        {"phi": float("nan"), "alpha": 0.0, "theta": 0.0},
+        {"phi": 0.0, "alpha": float("inf"), "theta": 0.0},
+        {"phi": 0.0, "alpha": 0.0, "theta": float("nan")},
+    ):
+        with pytest.raises(ValueError, match="finite"):
+            transform_markers(markers, hinge, **bad_kwargs)
+
+
 def test_transform_markers_rejects_non_finite_markers():
     """The finite check's `markers` branch, not just its `hinge` branch (round-2 review found
     only the hinge side was ever exercised, despite the check covering both).

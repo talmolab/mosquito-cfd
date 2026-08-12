@@ -50,8 +50,8 @@ def transform_markers(
         Transformed marker positions, shape ``(N, 3)``.
 
     Raises:
-        ValueError: If ``markers`` is not shape ``(N, 3)``, is empty, or ``hinge``/``markers``
-            contain non-finite values.
+        ValueError: If ``markers`` is not shape ``(N, 3)``, is empty, or ``hinge``/``markers``/
+            ``phi``/``alpha``/``theta`` contain non-finite values.
     """
     markers_arr = np.asarray(markers, dtype=np.float64)
     # Column-shape checked before emptiness, matching wing_outline's "wrong shape is the more
@@ -65,6 +65,14 @@ def transform_markers(
         raise ValueError(
             "transform_markers: markers and hinge must be finite (no NaN/inf); "
             f"got hinge={hinge}"
+        )
+    if not all(np.isfinite(a) for a in (phi, alpha, theta)):
+        # Without this, a non-finite angle NaN-poisons the output via rotation_matrix's cos/sin
+        # with only a RuntimeWarning (easily swallowed in batch rendering) -- round-3 review found
+        # every existing finite check here targeted markers/hinge, never the angles themselves.
+        raise ValueError(
+            f"transform_markers: phi, alpha, theta must be finite (no NaN/inf); "
+            f"got phi={phi}, alpha={alpha}, theta={theta}"
         )
     r = rotation_matrix(phi, alpha, theta)
     return (r @ (markers_arr - hinge_arr).T).T + hinge_arr
