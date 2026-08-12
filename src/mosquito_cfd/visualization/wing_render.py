@@ -50,13 +50,16 @@ def transform_markers(
         Transformed marker positions, shape ``(N, 3)``.
 
     Raises:
-        ValueError: If ``markers`` is empty, is not shape ``(N, 3)``, or ``hinge``/``markers``
+        ValueError: If ``markers`` is not shape ``(N, 3)``, is empty, or ``hinge``/``markers``
             contain non-finite values.
     """
     markers_arr = np.asarray(markers, dtype=np.float64)
+    # Column-shape checked before emptiness, matching wing_outline's "wrong shape is the more
+    # fundamental problem" convention -- round-2 review found the two functions disagreed on
+    # this ordering for a doubly-wrong input (e.g. a (0, 2) array).
+    _require_xyz_columns(markers_arr, "transform_markers")
     if markers_arr.shape[0] == 0:
         raise ValueError("transform_markers: markers array is empty")
-    _require_xyz_columns(markers_arr, "transform_markers")
     hinge_arr = np.asarray(hinge, dtype=np.float64)
     if not (np.isfinite(markers_arr).all() and np.isfinite(hinge_arr).all()):
         raise ValueError(

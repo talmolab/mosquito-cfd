@@ -72,6 +72,21 @@ def test_transform_markers_applies_the_same_rotation_to_every_marker():
     np.testing.assert_allclose(result, expected, atol=1e-12)
 
 
+def test_transform_markers_is_rigid_with_all_three_angles_nonzero():
+    """The rotation preserves distance from the hinge even with phi, alpha, AND theta all
+    nonzero together -- round-2 review found every existing test left theta=0.0, so this
+    specific combination (deviation angle alongside stroke+pitch) was numerically unverified.
+    """
+    hinge = np.array([2.0, 3.0, 0.0])
+    marker = np.array([[-1.5, 4.5, 2.0]])
+    expected_distance = np.linalg.norm(marker[0] - hinge)
+
+    result = transform_markers(marker, hinge, phi=0.6, alpha=-0.4, theta=0.25)
+
+    actual_distance = np.linalg.norm(result[0] - hinge)
+    assert actual_distance == pytest.approx(expected_distance, abs=1e-12)
+
+
 def test_transform_markers_rejects_zero_marker_input():
     empty = np.zeros((0, 3))
     with pytest.raises(ValueError, match="empty|zero"):
@@ -86,12 +101,33 @@ def test_transform_markers_rejects_non_finite_hinge():
         )
 
 
+def test_transform_markers_rejects_non_finite_markers():
+    """The finite check's `markers` branch, not just its `hinge` branch (round-2 review found
+    only the hinge side was ever exercised, despite the check covering both).
+    """
+    marker = np.array([[float("inf"), 0.0, 0.0]])
+    with pytest.raises(ValueError, match="finite"):
+        transform_markers(marker, hinge=(0.0, 0.0, 0.0), phi=0.0, alpha=0.0, theta=0.0)
+
+
 def test_transform_markers_rejects_wrong_column_count():
     """2-column (x, y) input -- caller forgot z -- is rejected, not silently returned as (N, 2)."""
     markers_2d = np.array([[1.0, 0.0], [0.0, 1.0]])
     with pytest.raises(ValueError, match=r"\(N, 3\)"):
         transform_markers(
             markers_2d, hinge=(0.0, 0.0, 0.0), phi=0.0, alpha=0.0, theta=0.0
+        )
+
+
+def test_transform_markers_reports_wrong_shape_before_empty():
+    """A doubly-wrong input (wrong columns AND zero rows) reports the shape problem first,
+    matching wing_outline's same convention (round-2 review found the two functions previously
+    disagreed on this ordering).
+    """
+    markers_2d_and_empty = np.zeros((0, 2))
+    with pytest.raises(ValueError, match=r"\(N, 3\)"):
+        transform_markers(
+            markers_2d_and_empty, hinge=(0.0, 0.0, 0.0), phi=0.0, alpha=0.0, theta=0.0
         )
 
 

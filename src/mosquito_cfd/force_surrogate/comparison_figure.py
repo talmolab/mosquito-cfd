@@ -53,6 +53,22 @@ def _require(mapping: dict[str, Any], key: str, ctx: str) -> Any:
     return mapping[key]
 
 
+def _require_predictions_schema(
+    predictions: pd.DataFrame, required: tuple[str, ...] = ("config_name",)
+) -> None:
+    """Raise a clear ``ValueError`` if ``predictions`` is missing any column in ``required``.
+
+    Both builders group by ``config_name``; ``build_config_mean_collapse_diagnostic`` additionally
+    needs ``phase`` (its waveform panel sorts by it). Without this check, a predictions frame
+    missing either column fails with a bare, context-free ``KeyError`` deep inside a
+    ``groupby``/plotting call -- inconsistent with this module's convention of naming exactly
+    what's wrong before any computation.
+    """
+    missing = [c for c in required if c not in predictions.columns]
+    if missing:
+        raise ValueError(f"predictions parquet is missing required column(s) {missing}")
+
+
 def _validate_predictions_finite(predictions: pd.DataFrame, coefficient: str) -> None:
     """Raise a clear ``ValueError`` if ``<coefficient>_{true,pred}`` contains NaN/inf.
 
@@ -145,14 +161,16 @@ def build_coarse_vs_fine_comparison(
         ``{"true_mean", "pred_mean"}`` -- the exact per-config diamond positions plotted.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is a mutable tag, a required
-            ``<coefficient>_{true,pred}`` column is missing, or either predictions frame has a
-            non-finite (NaN/inf) value in that column.
+        ValueError: If ``docker_image_digest`` is a mutable tag, either predictions frame is
+            missing ``config_name`` or the required ``<coefficient>_{true,pred}`` column, or
+            has a non-finite (NaN/inf) value in the latter.
     """
     validate_image_digest(docker_image_digest)  # fail-fast before any I/O
 
     coarse_df = pd.read_parquet(coarse_predictions_path)
     fine_df = pd.read_parquet(fine_predictions_path)
+    _require_predictions_schema(coarse_df)
+    _require_predictions_schema(fine_df)
     _validate_predictions_finite(coarse_df, coefficient)
     _validate_predictions_finite(fine_df, coefficient)
 
@@ -291,9 +309,9 @@ def build_config_mean_collapse_diagnostic(
         from that grid's ``metrics.json`` ``config_resolved`` block.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is a mutable tag, a required
-            ``<coefficient>_{true,pred}`` column is missing, or either predictions frame has a
-            non-finite (NaN/inf) value in that column.
+        ValueError: If ``docker_image_digest`` is a mutable tag, either predictions frame is
+            missing ``config_name``/``phase`` or the required ``<coefficient>_{true,pred}``
+            column, or has a non-finite (NaN/inf) value in the latter.
         KeyError: If either ``metrics.json`` is missing ``config_resolved``, the
             ``coefficient`` entry within it, or ``config_mean_r2`` -- naming exactly which key
             (see ``_config_resolved_r2``).
@@ -302,6 +320,8 @@ def build_config_mean_collapse_diagnostic(
 
     coarse_df = pd.read_parquet(coarse_predictions_path)
     fine_df = pd.read_parquet(fine_predictions_path)
+    _require_predictions_schema(coarse_df, required=("config_name", "phase"))
+    _require_predictions_schema(fine_df, required=("config_name", "phase"))
     _validate_predictions_finite(coarse_df, coefficient)
     _validate_predictions_finite(fine_df, coefficient)
     coarse_metrics = json.loads(Path(coarse_metrics_path).read_text(encoding="utf-8"))

@@ -392,6 +392,156 @@ def test_config_mean_collapse_diagnostic_missing_config_resolved_key_names_it(tm
         )
 
 
+def test_config_mean_collapse_diagnostic_missing_coefficient_entry_names_it(tmp_path):
+    """config_resolved present but missing the coefficient's own entry -- the second of
+    _config_resolved_r2's three _require call sites, previously untested (round 2 review).
+    """
+    coarse_metrics_path = tmp_path / "coarse_metrics.json"
+    fine_metrics_path = tmp_path / "fine_metrics.json"
+    coarse_metrics_path.write_text(json.dumps({"config_resolved": {}}))
+    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
+    coarse_pred_path = tmp_path / "coarse.parquet"
+    fine_pred_path = tmp_path / "fine.parquet"
+    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
+    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+
+    with pytest.raises(KeyError, match="CF_x"):
+        build_config_mean_collapse_diagnostic(
+            coarse_predictions_path=coarse_pred_path,
+            fine_predictions_path=fine_pred_path,
+            coarse_metrics_path=coarse_metrics_path,
+            fine_metrics_path=fine_metrics_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+
+
+def test_config_mean_collapse_diagnostic_missing_config_mean_r2_leaf_names_it(tmp_path):
+    """config_resolved.<coef> present but missing config_mean_r2 itself -- the third of
+    _config_resolved_r2's three _require call sites, previously untested (round 2 review) and
+    easily confused with the separate present-but-null case, which is a different code path.
+    """
+    coarse_metrics_path = tmp_path / "coarse_metrics.json"
+    fine_metrics_path = tmp_path / "fine_metrics.json"
+    coarse_metrics_path.write_text(json.dumps({"config_resolved": {"CF_x": {}}}))
+    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
+    coarse_pred_path = tmp_path / "coarse.parquet"
+    fine_pred_path = tmp_path / "fine.parquet"
+    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
+    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+
+    with pytest.raises(KeyError, match="config_mean_r2"):
+        build_config_mean_collapse_diagnostic(
+            coarse_predictions_path=coarse_pred_path,
+            fine_predictions_path=fine_pred_path,
+            coarse_metrics_path=coarse_metrics_path,
+            fine_metrics_path=fine_metrics_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+
+
+def test_config_mean_collapse_diagnostic_rejects_missing_phase_column(tmp_path):
+    """A predictions frame without `phase` fails clearly before any figure work, instead of a
+    bare KeyError('phase') deep inside the waveform panel's sort_values call (round 2 review).
+    """
+    df = _tiny_predictions_df().drop(columns=["phase"])
+    coarse_pred_path = tmp_path / "coarse.parquet"
+    fine_pred_path = tmp_path / "fine.parquet"
+    _write_parquet(df, coarse_pred_path)
+    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+    coarse_metrics_path = tmp_path / "coarse_metrics.json"
+    fine_metrics_path = tmp_path / "fine_metrics.json"
+    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
+    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
+
+    with pytest.raises(ValueError, match="phase"):
+        build_config_mean_collapse_diagnostic(
+            coarse_predictions_path=coarse_pred_path,
+            fine_predictions_path=fine_pred_path,
+            coarse_metrics_path=coarse_metrics_path,
+            fine_metrics_path=fine_metrics_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
+
+
+def test_coarse_vs_fine_comparison_rejects_missing_config_name_column(tmp_path):
+    df = _tiny_predictions_df().drop(columns=["config_name"])
+    coarse_path = tmp_path / "coarse.parquet"
+    fine_path = tmp_path / "fine.parquet"
+    _write_parquet(df, coarse_path)
+    _write_parquet(_tiny_predictions_df(), fine_path)
+
+    with pytest.raises(ValueError, match="config_name"):
+        build_coarse_vs_fine_comparison(
+            coarse_predictions_path=coarse_path,
+            fine_predictions_path=fine_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
+
+
+def test_config_mean_collapse_diagnostic_waveform_panel_is_sorted_by_phase(
+    tmp_path, monkeypatch
+):
+    """The bottom-row waveform plot sorts by phase before plotting -- pins the existing
+    .sort_values("phase") call so it can't be silently dropped without a test noticing (round 2
+    review found this was correct but unpinned). The function closes its own figure before
+    returning, so this captures it via a wrapped plt.subplots rather than plt.gcf() afterward.
+    """
+    shuffled = pd.DataFrame(
+        {
+            "config_name": ["cfgA"] * 4,
+            "phase": [0.66, 0.0, 0.99, 0.33],
+            "CF_x_true": [3.0, 1.0, 4.0, 2.0],
+            "CF_x_pred": [3.2, 1.1, 4.4, 2.2],
+        }
+    )
+    coarse_pred_path = tmp_path / "coarse.parquet"
+    fine_pred_path = tmp_path / "fine.parquet"
+    _write_parquet(shuffled, coarse_pred_path)
+    _write_parquet(shuffled, fine_pred_path)
+    coarse_metrics_path = tmp_path / "coarse_metrics.json"
+    fine_metrics_path = tmp_path / "fine_metrics.json"
+    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
+    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
+
+    captured = {}
+    real_subplots = plt.subplots
+
+    def spy_subplots(*args, **kwargs):
+        fig, axes = real_subplots(*args, **kwargs)
+        captured["fig"] = fig
+        return fig, axes
+
+    monkeypatch.setattr(
+        "mosquito_cfd.force_surrogate.comparison_figure.plt.subplots", spy_subplots
+    )
+
+    build_config_mean_collapse_diagnostic(
+        coarse_predictions_path=coarse_pred_path,
+        fine_predictions_path=fine_pred_path,
+        coarse_metrics_path=coarse_metrics_path,
+        fine_metrics_path=fine_metrics_path,
+        out_dir=tmp_path,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+
+    # The bottom-left axes' first Line2D (the "true" waveform) must be phase-ordered, even
+    # though the figure itself is already closed by the time this runs.
+    bottom_left_ax = captured["fig"].axes[2]
+    plotted_x = bottom_left_ax.lines[0].get_xdata()
+    assert list(plotted_x) == sorted(plotted_x)
+
+
 def test_config_mean_collapse_diagnostic_raises_before_any_figure_exists_on_metrics_error(
     tmp_path,
 ):
