@@ -115,6 +115,16 @@ def test_wing_outline_rejects_too_few_markers(n_markers):
         wing_outline(np.zeros((n_markers, 3)))
 
 
+def test_wing_outline_rejects_non_finite_markers():
+    """NaN/inf markers raise this module's own clear ValueError, not scipy's raw
+    'Points cannot contain NaN' -- matches the finite-input convention transform_markers and
+    leading_edge_mask already enforce.
+    """
+    markers = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, float("nan"), 0.0]])
+    with pytest.raises(ValueError, match="finite"):
+        wing_outline(markers)
+
+
 def test_wing_outline_rejects_collinear_markers():
     """3+ collinear (chord, span) points can't form a hull -- clear ValueError, not QhullError."""
     collinear = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])

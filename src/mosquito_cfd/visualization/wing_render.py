@@ -81,9 +81,9 @@ def wing_outline(markers: ArrayLike) -> NDArray[np.float64]:
         ``(M, 3)``, in the order ``scipy.spatial.ConvexHull`` returns.
 
     Raises:
-        ValueError: If ``markers`` is not shape ``(N, 3)``, has fewer than 3 points, or the 2-D
-            (chord, span) projection is degenerate (e.g. all collinear) so no convex hull can be
-            constructed.
+        ValueError: If ``markers`` is not shape ``(N, 3)``, has fewer than 3 points, contains
+            non-finite (NaN/inf) values, or the 2-D (chord, span) projection is degenerate (e.g.
+            all collinear) so no convex hull can be constructed.
     """
     markers_arr = np.asarray(markers, dtype=np.float64)
     # Column-shape checked before the point-count check, matching the docstring's Raises: order
@@ -96,6 +96,12 @@ def wing_outline(markers: ArrayLike) -> NDArray[np.float64]:
             "wing_outline: need at least 3 markers to compute a convex hull, got "
             f"{markers_arr.shape[0]}"
         )
+    if not np.isfinite(markers_arr).all():
+        # Both siblings (transform_markers, leading_edge_mask) raise this module's own clear
+        # message for non-finite input; without this check, scipy's ConvexHull raises its own
+        # "Points cannot contain NaN" ValueError instead -- correct exception type, but review
+        # found it inconsistent with this module's convention and untested.
+        raise ValueError("wing_outline: markers must be finite (no NaN/inf)")
     from scipy.spatial import ConvexHull, QhullError
 
     try:

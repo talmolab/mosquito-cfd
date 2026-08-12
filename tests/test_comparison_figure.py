@@ -236,6 +236,52 @@ def test_coarse_vs_fine_comparison_rejects_nonfinite_values(tmp_path):
     assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
 
 
+def test_coarse_vs_fine_comparison_rejects_missing_coefficient_columns(tmp_path):
+    """A coefficient with no matching columns in the predictions parquet fails clearly, via the
+    same _validate_predictions_finite guard as the non-finite-value case above -- previously only
+    the non-finite-*value* branch was tested, not the missing-*column* branch.
+    """
+    coarse_path = tmp_path / "coarse.parquet"
+    fine_path = tmp_path / "fine.parquet"
+    _write_parquet(_tiny_predictions_df(), coarse_path)
+    _write_parquet(_tiny_predictions_df(), fine_path)
+
+    with pytest.raises(ValueError, match="missing required column"):
+        build_coarse_vs_fine_comparison(
+            coarse_predictions_path=coarse_path,
+            fine_predictions_path=fine_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            coefficient="CF_missing",
+        )
+    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
+
+
+def test_config_mean_collapse_diagnostic_rejects_missing_coefficient_columns(tmp_path):
+    coarse_metrics_path = tmp_path / "coarse_metrics.json"
+    fine_metrics_path = tmp_path / "fine_metrics.json"
+    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
+    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
+    coarse_pred_path = tmp_path / "coarse.parquet"
+    fine_pred_path = tmp_path / "fine.parquet"
+    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
+    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+
+    with pytest.raises(ValueError, match="missing required column"):
+        build_config_mean_collapse_diagnostic(
+            coarse_predictions_path=coarse_pred_path,
+            fine_predictions_path=fine_pred_path,
+            coarse_metrics_path=coarse_metrics_path,
+            fine_metrics_path=fine_metrics_path,
+            out_dir=tmp_path,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            coefficient="CF_missing",
+        )
+    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
+
+
 def test_config_mean_collapse_diagnostic_rejects_nonfinite_values(tmp_path):
     df = _tiny_predictions_df()
     df.loc[0, "CF_x_pred"] = np.inf
