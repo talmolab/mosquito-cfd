@@ -36,6 +36,15 @@ train = [
     "torchvision ; sys_platform == 'linux'",
     "wandb>=0.18",
 ]
+# Visualization tooling (add-visualization-tooling): LEV/wake/kinematics video rendering and
+# marching-cubes isosurfaces. Unlike `train`, these are lightweight, pure-Python-wheel, and
+# cross-platform (no GPU, no Linux marker gate) — CI installs this group so the new
+# `visualization/` package's non-plotfile-dependent logic gets real test coverage.
+viz = [
+    "imageio-ffmpeg>=0.6.0",
+    "scikit-image>=0.26.0",
+    "scipy>=1.17.1",
+]
 
 # Pin the Linux CUDA build of torch/torchvision to the PyTorch cu126 index (CUDA 12.6). The
 # default PyPI wheel is +cu130 (CUDA 13.0), which needs a ~580+ driver; the dev/training A5000

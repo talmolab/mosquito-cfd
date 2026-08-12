@@ -32,6 +32,14 @@ def test_validate_image_digest_rejects_mutable_or_empty():
             validate_image_digest(bad)
 
 
+def test_validate_image_digest_rejects_overlong_hex_run():
+    """65+ consecutive hex chars after sha256: must not be accepted by matching only the first 64
+    (OpenSpec change fix-digest-validation-exact-length; found reviewing PR #73).
+    """
+    with pytest.raises(ValueError, match="content-addressable"):
+        validate_image_digest("repo@sha256:" + "a" * 65)
+
+
 def test_units_sidecar_roundtrip(tmp_path):
     """write -> read returns an identical mapping (UTF-8 JSON)."""
     units = {

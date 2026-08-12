@@ -30,6 +30,14 @@ examples/prelim_sweep*/runs/
 plotfiles/
 checkpoints/
 
+# Visualization tooling output (add-visualization-tooling): mp4 videos are 450KB-1.5MB each, not
+# diff-reviewable, and regenerable from source data via scripts/make_flow_video.py /
+# make_kinematics_video.py. Scoped by output FILENAME convention, not directory -- --out-dir is
+# caller-supplied and arbitrary (matches the IB_Particle_*.csv strategy above: by name, not by the
+# directory a run happens to write into).
+*_flow_*.mp4
+*_kinematics_preview.mp4
+
 # Python / uv
 __pycache__/
 *.py[cod]

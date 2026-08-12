@@ -26,9 +26,14 @@ UNITS_VOCABULARY: frozenset[str] = frozenset(
     }
 )
 
-# A content-addressable image digest: `sha256:` + 64 lowercase hex chars, optionally
-# prefixed by a registry/repo (e.g. `ghcr.io/org/img@sha256:<64hex>`).
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+# A content-addressable image digest: `sha256:` + EXACTLY 64 lowercase hex chars, optionally
+# prefixed by a registry/repo (e.g. `ghcr.io/org/img@sha256:<64hex>`). The trailing negative
+# lookahead rejects a 65th+ hex character immediately following the run -- without it, `.search`
+# (no end-anchor) would match just the first 64 characters of a longer hex run and silently
+# accept an invalid overlong digest (OpenSpec change fix-digest-validation-exact-length). Not
+# `.fullmatch`-based: callers legitimately pass a full `repo@sha256:<64hex>` reference, not a bare
+# digest, so the pattern must still be found *within* a larger string.
+_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}(?![0-9a-f])")
 
 
 def _validate_units(units: object) -> None:

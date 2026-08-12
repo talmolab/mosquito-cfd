@@ -36,7 +36,7 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --group viz
 
       - name: Run tests
         # -m "not gpu" deselects the force-surrogate GPU tier (PhysicsNeMo/torch on the local
