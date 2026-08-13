@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -195,3 +196,28 @@ def test_writes_metadata_sidecar_with_no_plotfile_access(tmp_path):
     assert mp4_path.stat().st_size > 0
     assert (out_dir / "pure-kinematics_kinematics_preview_run_metadata.json").exists()
     assert result["chord_axis_extent"] >= 0.0
+
+
+def test_rejects_non_positive_fps(tmp_path):
+    """fps=0 must raise before any matplotlib Figure is created, not leak one via an unguarded
+    ZeroDivisionError from `int(1000 / fps)` deep inside FuncAnimation construction.
+    """
+    open_before = len(plt.get_fignums())
+
+    with pytest.raises(ValueError, match="fps"):
+        build_kinematics_video(
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            center=_VALIDATED_CENTER,
+            hinge=_VALIDATED_HINGE,
+            stroke_amp_deg=70.0,
+            pitch_amp_deg=45.0,
+            frequency_fstar=1.0,
+            n_frames=5,
+            fps=0,
+        )
+
+    assert len(plt.get_fignums()) == open_before

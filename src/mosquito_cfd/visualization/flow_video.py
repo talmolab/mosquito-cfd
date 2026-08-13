@@ -45,6 +45,13 @@ FIELD_MODES: tuple[str, ...] = ("wake-slice", "combined-3d", "lev-3d", "zvelocit
 DEFAULT_Q_THRESHOLD = 300.0
 DEFAULT_VORT_VMIN = 40.0
 DEFAULT_VORT_VMAX = 250.0
+# Isotropic near-field box half-width for lev-3d (not a `design.md` D4 constant -- D4 covers only
+# Q_THRESHOLD/VORT_VMIN/VMAX). Generous relative to the vault script's own asymmetric
+# BOX_LO=(1,0,1)/BOX_HI=(7,4,7) around center=(4,2,4) (margins (3,2,3), not (3,3,3)); an isotropic
+# 3.0 is a deliberate simplification for arbitrary configs, not a literal reproduction of that
+# tuning -- safe because extract_eulerian_box clips an over-wide request to the domain and
+# _draw_lev positions the isosurface from the box's own returned coordinates (not this nominal
+# value), so a clamped box is a smaller field of view, never a misaligned one.
 DEFAULT_BOX_MARGIN = 3.0
 DEFAULT_FPS = 4
 
@@ -55,6 +62,11 @@ _MIN_CELLS_ABOVE_THRESHOLD = 10
 _WING_COLOR = "#111111"
 _COLOR_LEADING = "#C53030"
 _COLOR_TRAILING = "#2D3748"
+# Rendering-only vertical offset lifting the wing outline/markers above the velocity-slice plane
+# in combined-3d/zvelocity-3d (mplot3d does not z-sort plot_surface against other collections
+# reliably -- matches the vault scripts' own WING_Z_LIFT). Not applied to lev-3d, which has no
+# slice plane to lift above. No physical meaning.
+_WING_Z_LIFT = 0.6
 
 
 def _validate_field_mode(field_mode: str) -> None:
@@ -152,7 +164,12 @@ def render_lev_frame(
     """
     q = q_criterion(u, v, w, dx)
     n_above = int((q > q_threshold).sum())
-    if n_above < _MIN_CELLS_ABOVE_THRESHOLD:
+    # marching_cubes requires `level` strictly within (q.min(), q.max()) to have any surface to
+    # extract -- a threshold at/below the field's min (e.g. a small, near-uniformly-saturated box)
+    # has n_above >= 10 but no actual crossing boundary, and skimage raises its own unwrapped
+    # "Surface level must be within volume data range" ValueError. Both "too few cells above" and
+    # "no real crossing boundary" are the same "nothing coherent to mesh" outcome for the caller.
+    if n_above < _MIN_CELLS_ABOVE_THRESHOLD or not (q.min() < q_threshold < q.max()):
         return None
 
     from scipy.ndimage import map_coordinates
@@ -262,6 +279,27 @@ def _near_field_box(
     return extract_eulerian_box(str(plt_path), lo=lo, hi=hi)
 
 
+def _box_origin(box: dict[str, Any]) -> NDArray[np.float64]:
+    """The physical position of local index ``(0, 0, 0)`` in an ``extract_eulerian_box`` result.
+
+    Reads the box's OWN returned coordinate arrays, not a caller's nominal ``lo``/``hi`` request
+    -- ``extract_eulerian_box`` clips an over-wide request to the domain, so a near-field box
+    whose nominal extent runs past a domain boundary has an actual physical origin that differs
+    from the unclamped request. Using the nominal request instead would silently misposition
+    anything placed via fractional local-index coordinates (e.g. :func:`render_lev_frame`'s
+    isosurface triangles).
+
+    Args:
+        box: A dict as returned by
+            :func:`mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box` (must contain
+            ``"x"``, ``"y"``, ``"z"`` cell-center coordinate arrays).
+
+    Returns:
+        The ``(x, y, z)`` physical position of index ``(0, 0, 0)``.
+    """
+    return np.array([box["x"][0], box["y"][0], box["z"][0]])
+
+
 def _full_domain_box(plt_path: Path) -> dict[str, Any]:
     """Extract the full domain (2-D slice modes pick their own z-index afterward)."""
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
@@ -327,12 +365,17 @@ def build_flow_video(
 
     Raises:
         ValueError: If ``docker_image_digest`` is a mutable tag, ``field_mode`` is not one of the
-            4 valid modes, no plotfiles are found under ``plotfile_dir``, or the
-            center/hinge/kinematics parameters cannot be fully resolved (see
-            :func:`mosquito_cfd.visualization.wing_render.resolve_kinematics_kwargs`).
+            4 valid modes, ``fps`` is not positive, no plotfiles are found under
+            ``plotfile_dir``, or the center/hinge/kinematics parameters cannot be fully resolved
+            (see :func:`mosquito_cfd.visualization.wing_render.resolve_kinematics_kwargs`).
     """
     validate_image_digest(docker_image_digest)  # fail-fast before any I/O
     _validate_field_mode(field_mode)
+    if fps <= 0:
+        # Caught here, before any Figure is created, rather than surfacing as an unguarded
+        # ZeroDivisionError from `int(1000 / fps)` after a Figure already exists (which would
+        # leak it -- the same class of bug PR1's review found in comparison_figure.py).
+        raise ValueError(f"fps must be positive, got {fps}")
 
     kin_kwargs = resolve_kinematics_kwargs(
         config_name=config_name,
@@ -385,8 +428,7 @@ def build_flow_video(
         if frame is not None:
             from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-            offset = center_arr - box_margin
-            triangles = frame["triangles"] + offset
+            triangles = frame["triangles"] + _box_origin(box)
             mesh = Poly3DCollection(
                 triangles, facecolors=frame["facecolors"], edgecolor="none", zorder=1
             )
@@ -454,7 +496,7 @@ def build_flow_video(
                 phi=phi,
                 alpha=alpha,
                 theta=theta,
-                z_lift=0.6 if field_mode != "lev-3d" else 0.0,
+                z_lift=_WING_Z_LIFT if field_mode != "lev-3d" else 0.0,
             )
         ax.set_title(f"{label}: {field_mode}, t = {t_sim:.4f}")
 
@@ -480,6 +522,18 @@ def build_flow_video(
             "label": label,
             "plotfile_dir": str(plotfile_dir),
             "n_frames": len(plot_dirs),
+            "vertex_path": str(vertex_path),
+            "config_name": config_name,
+            "corpus_dir": str(corpus_dir) if corpus_dir is not None else None,
+            # The resolved center/hinge/kinematics actually used to render this video -- without
+            # this, a viewer of `<label>_flow_<field_mode>.mp4` has no way to tell after the fact
+            # which hinge (as-run buggy vs. corrected-for-display, `design.md` D3) it was rendered
+            # with, since `label`/`field_mode` alone don't disambiguate the two hinge-caveat cases.
+            "center": list(kin_kwargs["center"]),
+            "hinge": list(kin_kwargs["hinge"]),
+            "stroke_amp_deg": kin_kwargs["stroke_amp_deg"],
+            "pitch_amp_deg": kin_kwargs["pitch_amp_deg"],
+            "frequency_fstar": kin_kwargs["frequency_fstar"],
         },
     )
     write_json(out_dir / f"{label}_flow_{field_mode}_run_metadata.json", metadata)

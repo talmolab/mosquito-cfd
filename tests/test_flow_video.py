@@ -9,13 +9,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+import mosquito_cfd.visualization.flow_video as flow_video
 from mosquito_cfd.benchmarks.lev import q_criterion
 from mosquito_cfd.visualization.flow_video import (
     DEFAULT_Q_THRESHOLD,
     FIELD_MODES,
+    _box_origin,
     build_flow_video,
     render_lev_frame,
     render_velocity_slice_frame,
@@ -164,6 +167,31 @@ def test_render_lev_frame_skips_below_threshold_field():
     assert result is None
 
 
+def test_render_lev_frame_skips_saturated_threshold_without_crashing():
+    """A q_threshold at/below the field's own minimum has n_above >= 10 but no real crossing
+    boundary for marching_cubes to extract -- must return None, not propagate skimage's raw
+    "Surface level must be within volume data range" ValueError.
+    """
+    n = 24
+    dx = 0.1
+    coords = (np.arange(n) - n / 2) * dx
+    x, y, z = np.meshgrid(coords, coords, coords, indexing="ij")
+    r2 = x**2 + y**2 + z**2
+    omega = 50.0 * np.exp(-r2 / (2.0 * 0.4**2))
+    u = -omega * y
+    v = omega * x
+    w = np.zeros_like(x)
+
+    q = q_criterion(u, v, w, dx)
+    below_min_threshold = float(q.min()) - 1.0
+
+    result = render_lev_frame(
+        u, v, w, dx, q_threshold=below_min_threshold, vort_vmin=0.0, vort_vmax=200.0
+    )
+
+    assert result is None
+
+
 def test_render_velocity_slice_frame_matches_known_field():
     """RdBu_r-colored slice: a known min/mid/max value maps to the colormap's 0/0.5/1 colors."""
     field = np.array([[-5.0, 0.0], [2.5, 5.0]])
@@ -271,3 +299,161 @@ def test_writes_metadata_sidecar_without_a_plotfile(tmp_path, monkeypatch):
     assert metadata_path.exists()
     assert result["docker_image"] == DIGEST
     assert result["timestamp"] == TS
+    assert result["center"] == list(_KINEMATICS_KWARGS["center"])
+    assert result["hinge"] == list(_KINEMATICS_KWARGS["hinge"])
+
+
+def _synthetic_lev_box(n: int = 20) -> dict:
+    """A localized solid-body-rotation bump box (real Q > DEFAULT_Q_THRESHOLD core), so
+    lev-3d's isosurface-drawing path is actually exercised, not just the below-threshold skip.
+    """
+    dx = 0.1
+    coords = (np.arange(n) - n / 2) * dx
+    x, y, z = np.meshgrid(coords, coords, coords, indexing="ij")
+    r2 = x**2 + y**2 + z**2
+    omega = 400.0 * np.exp(-r2 / (2.0 * 0.4**2))
+    return {
+        "u": -omega * y,
+        "v": omega * x,
+        "w": np.zeros_like(x),
+        "x": coords + 0.3,
+        "y": coords + 0.3,
+        "z": coords + 0.3,
+        "dx": np.array([dx, dx, dx]),
+        "current_time": 0.0,
+    }
+
+
+@pytest.mark.parametrize("field_mode", ["combined-3d", "lev-3d", "zvelocity-3d"])
+def test_writes_video_for_every_wing_overlay_field_mode(
+    tmp_path, monkeypatch, field_mode
+):
+    """Non-gated coverage of the 3 field modes previously exercised only by the
+    requires_plotfile-gated test_flow_video_plotfile.py (which never runs in CI) -- a crash or
+    exception anywhere in the wing-overlay drawing path (_draw_wing_scene, Poly3DCollection
+    construction, the marching_cubes call structure) would be caught here.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+
+    box = _synthetic_lev_box()
+
+    def fake_extract_eulerian_box(plotfile_path, *, lo, hi, halo=0):
+        return dict(box)
+
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        fake_extract_eulerian_box,
+    )
+
+    out_dir = tmp_path / "out"
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode=field_mode,
+        vertex_path=_VERTEX_PATH,
+        out_dir=out_dir,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="overlay",
+        **_KINEMATICS_KWARGS,
+    )
+
+    mp4_path = out_dir / f"overlay_flow_{field_mode}.mp4"
+    assert mp4_path.exists()
+    assert mp4_path.stat().st_size > 0
+
+
+def test_zvelocity_3d_slices_the_w_field_not_u(tmp_path, monkeypatch):
+    """Regression: `field_name = "w" if field_mode == "zvelocity-3d" else "u"` -- a swapped
+    condition would silently plot the wrong velocity component with no non-gated test noticing
+    (this exact branch was previously exercised only inside the requires_plotfile gate).
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+
+    n = 6
+    dx = np.array([0.1, 0.1, 0.1])
+    box = {
+        "u": np.full((n, n, n), 1.0),
+        "v": np.zeros((n, n, n)),
+        "w": np.full((n, n, n), 2.0),  # distinct from u, so a swap is detectable
+        "x": (np.arange(n) + 0.5) * dx[0],
+        "y": (np.arange(n) + 0.5) * dx[1],
+        "z": (np.arange(n) + 0.5) * dx[2],
+        "dx": dx,
+        "current_time": 0.0,
+    }
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(box),
+    )
+
+    captured_fields = []
+    real_render = flow_video.render_velocity_slice_frame
+
+    def spy_render(field, dx, vmin, vmax):
+        captured_fields.append(np.asarray(field).copy())
+        return real_render(field, dx, vmin, vmax)
+
+    monkeypatch.setattr(flow_video, "render_velocity_slice_frame", spy_render)
+
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode="zvelocity-3d",
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="zvel-test",
+        **_KINEMATICS_KWARGS,
+    )
+
+    assert len(captured_fields) >= 1
+    for field in captured_fields:
+        np.testing.assert_allclose(
+            field, 2.0
+        )  # w's value, never u's (which would be 1.0)
+
+
+def test_box_origin_reads_the_boxs_own_coordinates_not_a_nominal_request():
+    """Regression: the LEV isosurface offset must come from the box's OWN returned coordinate
+    arrays, not a caller's nominal (center -/+ box_margin) request -- extract_eulerian_box clips
+    an over-wide request to the domain, so a near-field box near a domain boundary has an actual
+    physical origin that can differ substantially from the unclamped request.
+    """
+    # A box simulating a clamped near-field extraction: the nominal request might have been
+    # (center - box_margin) = (-8.0, -8.0, -8.0), but the domain boundary clamped it up to 0.0.
+    box = {
+        "x": np.array([0.0, 0.1, 0.2]),
+        "y": np.array([0.05, 0.15, 0.25]),
+        "z": np.array([1.0, 1.1, 1.2]),
+    }
+
+    origin = _box_origin(box)
+
+    np.testing.assert_allclose(origin, [0.0, 0.05, 1.0])
+    # Not the nominal, unclamped request this box's coordinates were clamped away from.
+    assert not np.allclose(origin, [-8.0, -8.0, -8.0])
+
+
+def test_rejects_non_positive_fps(tmp_path):
+    """fps=0 must raise before any matplotlib Figure is created, not leak one via an unguarded
+    ZeroDivisionError from `int(1000 / fps)` deep inside FuncAnimation construction.
+    """
+    nonexistent_plotfile_dir = tmp_path / "does-not-exist"
+    open_before = len(plt.get_fignums())
+
+    with pytest.raises(ValueError, match="fps"):
+        build_flow_video(
+            plotfile_dir=nonexistent_plotfile_dir,
+            field_mode="wake-slice",
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            fps=0,
+            **_KINEMATICS_KWARGS,
+        )
+
+    assert len(plt.get_fignums()) == open_before

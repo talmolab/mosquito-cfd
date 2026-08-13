@@ -133,13 +133,18 @@ def build_kinematics_video(
         ``<label>_kinematics_preview_metrics.json``.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is a mutable tag, or the center/hinge/kinematics
-            parameters cannot be fully resolved (see
+        ValueError: If ``docker_image_digest`` is a mutable tag, ``fps`` is not positive, or the
+            center/hinge/kinematics parameters cannot be fully resolved (see
             :func:`mosquito_cfd.visualization.wing_render.resolve_kinematics_kwargs`).
     """
     validate_image_digest(
         docker_image_digest
     )  # fail-fast before any computation/file I/O
+    if fps <= 0:
+        # Caught here, before any Figure is created, rather than surfacing as an unguarded
+        # ZeroDivisionError from `int(1000 / fps)` after a Figure already exists (which would
+        # leak it -- the same class of bug PR1's review found in comparison_figure.py).
+        raise ValueError(f"fps must be positive, got {fps}")
 
     kin_kwargs = resolve_kinematics_kwargs(
         config_name=config_name,
