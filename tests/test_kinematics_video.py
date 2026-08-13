@@ -221,3 +221,28 @@ def test_rejects_non_positive_fps(tmp_path):
         )
 
     assert len(plt.get_fignums()) == open_before
+
+
+def test_does_not_leak_figure_on_out_dir_mkdir_error(tmp_path):
+    """An out_dir that can't be created (a file already at that path) must not leave the
+    matplotlib Figure created earlier in build_kinematics_video unclosed.
+    """
+    blocked_out_dir = tmp_path / "blocked"
+    blocked_out_dir.write_text("not a directory")
+
+    open_before = len(plt.get_fignums())
+    with pytest.raises(FileExistsError):
+        build_kinematics_video(
+            vertex_path=_VERTEX_PATH,
+            out_dir=blocked_out_dir,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            center=_VALIDATED_CENTER,
+            hinge=_VALIDATED_HINGE,
+            stroke_amp_deg=70.0,
+            pitch_amp_deg=45.0,
+            frequency_fstar=1.0,
+            n_frames=5,
+        )
+    assert len(plt.get_fignums()) == open_before

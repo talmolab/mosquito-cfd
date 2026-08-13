@@ -504,9 +504,12 @@ def build_flow_video(
     writer = FFMpegWriter(fps=fps, bitrate=3000)
 
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    mp4_path = out_dir / f"{label}_flow_{field_mode}.mp4"
     try:
+        # mkdir inside the try: a non-creatable out_dir (e.g. a file already at that path) must
+        # not leave the Figure created above unclosed (the same leak class PR1's review found in
+        # comparison_figure.py).
+        out_dir.mkdir(parents=True, exist_ok=True)
+        mp4_path = out_dir / f"{label}_flow_{field_mode}.mp4"
         anim.save(mp4_path, writer=writer, dpi=110)
     finally:
         plt.close(fig)

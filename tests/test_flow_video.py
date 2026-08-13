@@ -457,3 +457,31 @@ def test_rejects_non_positive_fps(tmp_path):
         )
 
     assert len(plt.get_fignums()) == open_before
+
+
+def test_does_not_leak_figure_on_out_dir_mkdir_error(tmp_path, monkeypatch):
+    """An out_dir that can't be created (a file already at that path) must not leave the
+    matplotlib Figure created earlier in build_flow_video unclosed.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(_synthetic_box()),
+    )
+    blocked_out_dir = tmp_path / "blocked"
+    blocked_out_dir.write_text("not a directory")
+
+    open_before = len(plt.get_fignums())
+    with pytest.raises(FileExistsError):
+        build_flow_video(
+            plotfile_dir=plotfile_dir,
+            field_mode="wake-slice",
+            vertex_path=_VERTEX_PATH,
+            out_dir=blocked_out_dir,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            **_KINEMATICS_KWARGS,
+        )
+    assert len(plt.get_fignums()) == open_before
