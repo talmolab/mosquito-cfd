@@ -82,16 +82,16 @@ dependency phases:
 
 ### Phase 2 — `flow_video.py` generalized CFD-field video builder (TDD)
 
-11. [ ] Write `tests/test_flow_video.py::test_rejects_mutable_docker_tag` — calling the builder with
+11. [x] Write `tests/test_flow_video.py::test_rejects_mutable_docker_tag` — calling the builder with
     a `:latest`-style digest raises `ValueError` before any plotfile access (use a nonexistent path
     to prove no I/O was attempted).
-12. [ ] Write `test_rejects_unknown_field_mode` — `field_mode="isosurface"` raises `ValueError`
+12. [x] Write `test_rejects_unknown_field_mode` — `field_mode="isosurface"` raises `ValueError`
     naming the value and the 4 valid modes, without opening any plotfile path.
-13. [ ] Write `test_config_kwargs_resolves_from_deck` and
+13. [x] Write `test_config_kwargs_resolves_from_deck` and
     `test_explicit_override_takes_precedence_over_deck` — mirrors
     `wing_phase_diagnostic.py`'s `_sweep_config_kwargs`/`_config_kwargs` split; use a small
     synthetic deck fixture, no real plotfile needed.
-14. [ ] **Write pure-numpy synthetic-field tests for BOTH of `flow_video.py`'s rendering
+14. [x] **Write pure-numpy synthetic-field tests for BOTH of `flow_video.py`'s rendering
     primitives** (`design.md` D6) — review's third round found the original version of this task
     covered only one of the two and left 3 of 4 field modes with zero CI coverage, the exact gap
     this task exists to close:
@@ -109,7 +109,7 @@ dependency phases:
     composes `wing_render` + `render_velocity_slice_frame`, already covered by their own tests) —
     closing D6's CI-coverage gap for all four field modes, not just one. Also directly covers the
     "an unrecognized field mode fails fast" and Q-threshold default/override spec scenarios below.
-15. [ ] Write `test_default_q_threshold_is_300` and `test_q_threshold_override_reaches_marching_cubes`
+15. [x] Write `test_default_q_threshold_is_300` and `test_q_threshold_override_reaches_marching_cubes`
     — the documented default (`300.0`) is used when `--q-threshold` is omitted, and an explicit
     value is what's actually passed to `skimage.measure.marching_cubes`'s `level` argument (spy/mock
     the call rather than requiring a real field). Also write
@@ -118,7 +118,7 @@ dependency phases:
     the top-level orchestration function still writes the `.mp4` + `_run_metadata.json` sidecar pair.
     This closes a gap review found: without it, sidecar-writing for `flow_video` was only checked by
     task 16's `requires_plotfile`-gated tests, which never run in CI.
-16. [ ] Write `tests/test_flow_video_plotfile.py::test_renders_wake_slice_video`,
+16. [x] Write `tests/test_flow_video_plotfile.py::test_renders_wake_slice_video`,
     `test_renders_combined_3d_video`, `test_renders_lev_3d_video`, `test_renders_zvelocity_3d_video`
     — **all four field modes**, each marked `@pytest.mark.requires_plotfile` — against a real
     single-level plotfile under `$MOSQUITO_CFD_PLOTFILE_ROOT`, assert an `.mp4` + `_run_metadata.json`
@@ -127,7 +127,7 @@ dependency phases:
     degenerate-input variant (`test_lev_3d_skips_empty_isosurface_gracefully`) asserts a
     below-threshold field returns `None`/skips rather than crashing (mirrors the vault script's
     `n_above < 10` guard).
-17. [ ] Implement `flow_video.py`: field-mode dispatch, config/override resolution (reusing Phase
+17. [x] Implement `flow_video.py`: field-mode dispatch, config/override resolution (reusing Phase
     1's `wing_render.py`), and the pure/adapter split from `design.md` D6. Lazily import
     `scipy`/`skimage`/`imageio_ffmpeg` inside the specific rendering functions that need them (never
     at module top). **Verify laziness with `sys.modules` poisoning, not a subprocess** — a
@@ -155,13 +155,13 @@ dependency phases:
 
 ### Phase 3 — `kinematics_video.py` cluster-free preview video (TDD)
 
-18. [ ] Write `tests/test_kinematics_video.py::test_rejects_mutable_docker_tag`,
+18. [x] Write `tests/test_kinematics_video.py::test_rejects_mutable_docker_tag`,
     `test_config_kwargs_resolves_from_deck_with_no_override` (the plain, no-override config-resolve
     path — review's second round found this was untested for `kinematics_video`, only for
     `flow_video`), and `test_explicit_hinge_override_takes_precedence_over_deck` (review's first
     round found this was originally only tested for `flow_video`, despite `design.md` D3's
     dual-hinge-caveat narrative being specifically about `kinematics_video`).
-19. [ ] Write `test_chord_axis_extent_matches_root_hinge_arm` — for the validated config's kinematics
+19. [x] Write `test_chord_axis_extent_matches_root_hinge_arm` — for the validated config's kinematics
     (`stroke φ` about lab-vertical z per `wing_kinematics.rotation_matrix`; `stroke_amp_deg=70`,
     hinge at the span root, `span_arm≈2.975`), assert the span-tip marker's **chord-axis (x) extent**
     (max minus min of that one coordinate across one full wingbeat — not a 3-D Euclidean peak-to-peak)
@@ -181,10 +181,10 @@ dependency phases:
     (`x≈0`) for this test. The ≈0.06 chord offset perturbs the chord-axis extent by ≈2%, well inside
     the 5% tolerance regardless of which tied marker is picked, but the tie-break should still be
     stated explicitly rather than left to guess during implementation.
-20. [ ] Write `test_writes_metadata_sidecar_with_no_plotfile_access` — confirms this builder never
+20. [x] Write `test_writes_metadata_sidecar_with_no_plotfile_access` — confirms this builder never
     opens a plotfile path (pure kinematics), by pointing at a nonexistent plotfile-adjacent path and
     confirming no error referencing it occurs.
-21. [ ] Implement `kinematics_video.py` reusing `wing_render.py` + `wing_kinematics`. This module
+21. [x] Implement `kinematics_video.py` reusing `wing_render.py` + `wing_kinematics`. This module
     also needs the `viz` group (`imageio_ffmpeg`/`FFMpegWriter` for mp4 encoding, same mechanism
     `flow_video.py` uses — per `design.md` D2's correction, not base-deps-only as originally
     claimed); import `imageio_ffmpeg` inside the video-writing function, never at module top (task 9
@@ -208,16 +208,16 @@ dependency phases:
 
 ### Phase 5 — CLI drivers (TDD: smoke tests, no real data needed)
 
-26. [ ] Write `tests/test_make_flow_video_cli.py`: rejects missing required flags, rejects an
+26. [x] Write `tests/test_make_flow_video_cli.py`: rejects missing required flags, rejects an
     invalid `--field-mode`, rejects a malformed `--hinge`/`--center` (wrong arity — use
     `nargs=3, type=float`, the same pattern `src/mosquito_cfd/geometry/cli.py`'s existing `--center`
     flag already uses; `make_wing_phase_diagnostic.py` has no hinge/center CLI override to mirror
     here, since it only ever reads them from a deck), mirroring
     `test_wing_phase_diagnostic_cli.py`'s smoke-test style otherwise.
-27. [ ] Write `tests/test_make_kinematics_video_cli.py` and
+27. [x] Write `tests/test_make_kinematics_video_cli.py` and
     `tests/test_make_comparison_figure_cli.py` (same smoke-test style; the latter also covers
     `make_config_mean_collapse_diagnostic.py`).
-28. [ ] Implement `scripts/make_flow_video.py`, `scripts/make_kinematics_video.py`,
+28. [x] Implement `scripts/make_flow_video.py`, `scripts/make_kinematics_video.py`,
     `scripts/make_comparison_figure.py`, `scripts/make_config_mean_collapse_diagnostic.py` — thin
     `argparse` drivers over the Phase 1-4 library functions, matching
     `make_wing_phase_diagnostic.py`'s structure (module docstring with a runnable example,
@@ -230,7 +230,7 @@ dependency phases:
     `sweep.py`/`train.py`'s existing pointer convention and specifically avoids the mistake already
     present in `metadata_capture.py` (a literal pre-archival path, now dangling). Run tasks 26-27
     green.
-29. [ ] Confirm (no change expected): `ruff check src/ tests/ scripts/ ...` already walks `src/`
+29. [x] Confirm (no change expected): `ruff check src/ tests/ scripts/ ...` already walks `src/`
     recursively, so `src/mosquito_cfd/visualization/` needs no addition to the Lint job's explicit
     path list, and the four new `scripts/*.py` files land directly in the already-listed `scripts/`
     directory. Run the lint command locally against the new files to confirm before assuming.

@@ -6,14 +6,26 @@ about the caller's ``hinge`` (never the coordinate origin) using the canonical
 ``visualization/`` reimplements wing rotation (spec requirement). :func:`wing_outline` and
 :func:`leading_edge_mask` mirror the wing-planform conventions the vault's original video scripts
 established (convex-hull outline, leading edge = ``x >= 0``).
+
+:func:`config_kwargs`/:func:`resolve_kinematics_kwargs` are the PR2 (Phase 2/3) addition: the
+config-name-or-explicit-override resolution pattern `design.md` D3 requires of both
+``flow_video.py`` and ``kinematics_video.py``. Shared here (rather than duplicated in each) since
+both modules need the identical behavior -- this is the one place ``visualization/`` imports from
+``force_surrogate`` (``read_deck_value``, ``parse_config_name``), mirroring the same
+lookup ``make_wing_phase_diagnostic.py`` already established at the CLI-script layer.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from mosquito_cfd.benchmarks.wing_kinematics import rotation_matrix
+from mosquito_cfd.force_surrogate.evidence_figure import parse_config_name
+from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
 
 
 def _require_xyz_columns(markers_arr: NDArray[np.float64], func_name: str) -> None:
@@ -150,3 +162,113 @@ def leading_edge_mask(markers: ArrayLike) -> NDArray[np.bool_]:
             "leading_edge_mask: markers' chord (x) column must be finite (no NaN/inf)"
         )
     return markers_arr[:, 0] >= 0
+
+
+_KINEMATICS_KEYS = (
+    "center",
+    "hinge",
+    "stroke_amp_deg",
+    "pitch_amp_deg",
+    "frequency_fstar",
+)
+
+
+def config_kwargs(config_name: str, corpus_dir: str | Path) -> dict[str, Any]:
+    """Read center/hinge/kinematics for ``config_name`` from its own generated deck.
+
+    Mirrors ``make_wing_phase_diagnostic.py``'s ``_sweep_config_kwargs``: reads hinge/centre from
+    the config's OWN deck at ``<corpus_dir>/inputs/inputs.3d.<config_name>`` rather than a shared
+    base-deck filename (corpora don't consistently have one at the same location).
+
+    Args:
+        config_name: Sweep configuration name (e.g. ``"s45_f115_p60"``).
+        corpus_dir: Sweep corpus directory (holds ``inputs/inputs.3d.<config_name>``).
+
+    Returns:
+        Dict with ``center``, ``hinge`` (each an ``(x, y, z)`` float tuple),
+        ``stroke_amp_deg``, ``pitch_amp_deg``, and ``frequency_fstar``.
+
+    Raises:
+        ValueError: If the deck is missing a required key or a value is non-finite (from
+            :func:`mosquito_cfd.force_surrogate.geometry_guard.read_deck_value`), or
+            ``config_name`` doesn't match the expected ``s<NN>_f<NNN>_p<NN>`` pattern (from
+            :func:`mosquito_cfd.force_surrogate.evidence_figure.parse_config_name`).
+    """
+    deck_path = Path(corpus_dir) / "inputs" / f"inputs.3d.{config_name}"
+    deck_text = deck_path.read_text(encoding="utf-8")
+    center = tuple(read_deck_value(deck_text, f"particle_inputs.{a}") for a in "xyz")
+    hinge = tuple(
+        read_deck_value(deck_text, f"particle_inputs.hinge_{a}") for a in "xyz"
+    )
+    params = parse_config_name(config_name)
+    return {
+        "center": center,
+        "hinge": hinge,
+        "stroke_amp_deg": params.phi_amp_deg,
+        "pitch_amp_deg": params.pitch_amp_deg,
+        "frequency_fstar": params.f_star,
+    }
+
+
+def resolve_kinematics_kwargs(
+    *,
+    config_name: str | None = None,
+    corpus_dir: str | Path | None = None,
+    center: ArrayLike | None = None,
+    hinge: ArrayLike | None = None,
+    stroke_amp_deg: float | None = None,
+    pitch_amp_deg: float | None = None,
+    frequency_fstar: float | None = None,
+) -> dict[str, Any]:
+    """Resolve center/hinge/kinematics from a named config, explicit overrides, or both.
+
+    Implements `design.md` D3's config-vs-explicit-kwargs split: ``center``/``hinge``/
+    ``stroke_amp_deg``/``pitch_amp_deg``/``frequency_fstar`` are read from ``config_name``'s own
+    deck (via :func:`config_kwargs`) when given, then any explicitly supplied (non-``None``)
+    keyword argument **overrides** that field -- e.g. a caller can resolve a config's kinematics
+    from its deck while overriding only ``hinge`` to a corrected value.
+
+    Args:
+        config_name: Sweep configuration name, or ``None`` to resolve every field explicitly.
+        corpus_dir: Sweep corpus directory; required together with ``config_name``.
+        center: Optional override for the wing centre ``(x, y, z)``.
+        hinge: Optional override for the hinge position ``(x, y, z)``.
+        stroke_amp_deg: Optional override for the stroke amplitude [deg].
+        pitch_amp_deg: Optional override for the pitch amplitude [deg].
+        frequency_fstar: Optional override for the dimensionless flap frequency.
+
+    Returns:
+        Dict with ``center``, ``hinge``, ``stroke_amp_deg``, ``pitch_amp_deg``,
+        ``frequency_fstar`` -- every field resolved, config-derived values replaced in place by
+        any override supplied.
+
+    Raises:
+        ValueError: If exactly one of ``config_name``/``corpus_dir`` is given (they must be
+            supplied together or not at all), or if any of the five fields remains unresolved
+            after applying overrides (no config given and that field wasn't overridden either).
+    """
+    if (config_name is None) != (corpus_dir is None):
+        raise ValueError(
+            "resolve_kinematics_kwargs: config_name and corpus_dir must be supplied together "
+            f"or not at all; got config_name={config_name!r}, corpus_dir={corpus_dir!r}"
+        )
+    resolved: dict[str, Any] = (
+        config_kwargs(config_name, corpus_dir) if config_name is not None else {}
+    )
+    overrides = {
+        "center": center,
+        "hinge": hinge,
+        "stroke_amp_deg": stroke_amp_deg,
+        "pitch_amp_deg": pitch_amp_deg,
+        "frequency_fstar": frequency_fstar,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            resolved[key] = value
+    missing = [k for k in _KINEMATICS_KEYS if k not in resolved]
+    if missing:
+        raise ValueError(
+            f"resolve_kinematics_kwargs: missing required parameter(s) {missing} -- pass "
+            "config_name+corpus_dir, or explicit overrides for all of them"
+        )
+    return resolved

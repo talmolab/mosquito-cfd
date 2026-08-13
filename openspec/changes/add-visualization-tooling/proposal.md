@@ -146,3 +146,19 @@ PR1 pass:
 No task-13-level scope change resulted — Phase 1 and Phase 4's checked-off tasks (1-10, 22-25) still
 accurately describe what was implemented and tested; this section exists because the *description*
 of that implementation needed to catch up, not because the plan itself was wrong.
+
+### PR2 added `config_kwargs`/`resolve_kinematics_kwargs` to `wing_render.py`, not named in tasks.md
+
+Tasks 13 and 18 both require a "config name or explicit override" resolution test in
+`test_flow_video.py`/`test_kinematics_video.py`, but dependency order (Phase 5, the CLI drivers,
+comes *after* Phases 2/3) rules out putting this resolution logic in the not-yet-existing CLI
+scripts the way `make_wing_phase_diagnostic.py`'s `_config_kwargs`/`_sweep_config_kwargs` do it.
+Since `flow_video.py` and `kinematics_video.py` both need the identical behavior (`design.md` D3),
+it was added once to `wing_render.py` (`config_kwargs`, `resolve_kinematics_kwargs`) — the shared
+Phase 1 substrate both later phases already depend on — rather than duplicated in each module. This
+is the one place `visualization/` imports from `force_surrogate` (`read_deck_value`,
+`parse_config_name`), a narrow exception to `design.md` D1's package-boundary framing (which
+otherwise keeps `visualization/` ignorant of force-surrogate specifics); the imported functions are
+generic deck/config-name string parsing, not force-surrogate-specific computation. No `spec.md`
+change resulted — the "config or explicit override" requirement's scenarios are already satisfied
+by this shared implementation, exercised through both consuming modules' own tests.
