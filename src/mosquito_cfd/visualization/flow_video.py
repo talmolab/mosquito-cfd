@@ -471,7 +471,15 @@ def build_flow_video(
     is_3d = field_mode != "wake-slice"
     if is_3d:
         fig = plt.figure(figsize=(10, 9), facecolor="white")
-        ax = fig.add_axes([0.03, 0.05, 0.86, 0.88], projection="3d")
+        # computed_zorder=False: mplot3d's default depth-sorts every artist by its own projected
+        # centroid, ignoring the explicit zorder kwargs _draw_wing_scene passes -- confirmed by
+        # direct visual reproduction, an opaque plot_surface can render IN FRONT of a wing lifted
+        # only _WING_Z_LIFT above it, making the wing invisible. False switches mplot3d to a real
+        # painter's algorithm that honors zorder, so the wing (zorder 20-22) always draws above
+        # the field (zorder 1) regardless of view angle.
+        ax = fig.add_axes(
+            [0.03, 0.05, 0.86, 0.88], projection="3d", computed_zorder=False
+        )
     else:
         fig, ax = plt.subplots(figsize=(9, 8), facecolor="white")
 

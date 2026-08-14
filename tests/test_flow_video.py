@@ -327,6 +327,50 @@ def _synthetic_lev_box(n: int = 20) -> dict:
 
 
 @pytest.mark.parametrize("field_mode", ["combined-3d", "lev-3d", "zvelocity-3d"])
+def test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field(
+    tmp_path, monkeypatch, field_mode
+):
+    """Regression: mplot3d's default computed_zorder=True depth-sorts by each artist's own
+    projected centroid, NOT the explicit zorder kwargs _draw_wing_scene passes -- reproduced
+    directly: an opaque plot_surface at the vault's own view angle renders IN FRONT of a wing
+    scatter lifted only WING_Z_LIFT above it (confirmed visually: the scatter is essentially
+    invisible with computed_zorder left at its default). computed_zorder=False makes mplot3d use
+    a real painter's algorithm honoring the explicit zorder values instead, so the wing (zorder
+    20-22) always draws above the field (zorder 1) regardless of view angle.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(_synthetic_lev_box()),
+    )
+
+    captured_kwargs = []
+    real_add_axes = matplotlib.figure.Figure.add_axes
+
+    def spy_add_axes(self, *args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return real_add_axes(self, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "add_axes", spy_add_axes)
+
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode=field_mode,
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="zorder-test",
+        **_KINEMATICS_KWARGS,
+    )
+
+    threed_calls = [k for k in captured_kwargs if k.get("projection") == "3d"]
+    assert len(threed_calls) == 1
+    assert threed_calls[0].get("computed_zorder") is False
+
+
+@pytest.mark.parametrize("field_mode", ["combined-3d", "lev-3d", "zvelocity-3d"])
 def test_writes_video_for_every_wing_overlay_field_mode(
     tmp_path, monkeypatch, field_mode
 ):
