@@ -41,6 +41,11 @@ _COLOR_TRAILING = "#2D3748"
 _COLOR_HINGE = "black"
 _COLOR_TRAIL = "#9CA3AF"
 
+# Oblique viewing angle (matches the vault script's own view_init) -- mplot3d resets to the
+# default (elev=30) on every ax.clear(), so this must be re-applied every frame, not just once.
+_VIEW_ELEV = 22
+_VIEW_AZIM = -65
+
 # Tolerance for detecting tied max-|span| markers (the committed wing.vertex has 3 -- see
 # _span_tip_index); dense enough sampling below (300 pts/wingbeat) that the trajectory-derived
 # chord_axis_extent closely matches the closed-form 2*span_arm*sin(stroke_amp) formula.
@@ -61,6 +66,46 @@ def _span_tip_index(local_markers: np.ndarray) -> int:
         np.abs(np.abs(span_col) - max_abs_span) < _TIE_TOLERANCE
     )
     return int(candidates[np.argmin(np.abs(local_markers[candidates, 0]))])
+
+
+def _swept_bounding_box(
+    ref_markers: np.ndarray,
+    hinge_arr: np.ndarray,
+    kin_kwargs: dict[str, Any],
+    margin: float = 0.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The ``(lo, hi)`` box containing every marker's position at every sampled phase.
+
+    A rotated wing sweeps well outside its own rest-frame footprint -- using only the unrotated
+    rest positions (plus, at most, one tracked point's own trajectory) under-covers every other
+    marker's own swept excursion, letting the wing render outside the fixed viewing window
+    (the "wing flies off the edge of the frame" bug this function exists to prevent).
+
+    Args:
+        ref_markers: Marker positions in the reference (unrotated) configuration, shape ``(N, 3)``.
+        hinge_arr: Hinge position ``(x, y, z)``.
+        kin_kwargs: Resolved kinematics dict (``frequency_fstar``, ``stroke_amp_deg``,
+            ``pitch_amp_deg``).
+        margin: Extra padding added on every side.
+
+    Returns:
+        ``(lo, hi)``, each a length-3 array.
+    """
+    t_end = 1.0 / kin_kwargs["frequency_fstar"]
+    ts = np.linspace(0.0, t_end, _TRAJECTORY_SAMPLES)
+    lo = np.minimum(ref_markers.min(axis=0), hinge_arr)
+    hi = np.maximum(ref_markers.max(axis=0), hinge_arr)
+    for t in ts:
+        phi, alpha, theta = euler_angles(
+            t,
+            frequency=kin_kwargs["frequency_fstar"],
+            stroke_amp_rad=np.radians(kin_kwargs["stroke_amp_deg"]),
+            pitch_amp_rad=np.radians(kin_kwargs["pitch_amp_deg"]),
+        )
+        rotated = transform_markers(ref_markers, hinge_arr, phi, alpha, theta)
+        lo = np.minimum(lo, rotated.min(axis=0))
+        hi = np.maximum(hi, rotated.max(axis=0))
+    return lo - margin, hi + margin
 
 
 def _tip_trajectory(
@@ -181,9 +226,7 @@ def build_kinematics_video(
     fig = plt.figure(figsize=(9, 7), facecolor="white")
     ax = fig.add_axes([0.05, 0.08, 0.9, 0.86], projection="3d")
 
-    bbox_points = np.vstack([ref_markers, tip_traj, hinge_arr[np.newaxis, :]])
-    bbox_lo = bbox_points.min(axis=0) - 0.5
-    bbox_hi = bbox_points.max(axis=0) + 0.5
+    bbox_lo, bbox_hi = _swept_bounding_box(ref_markers, hinge_arr, kin_kwargs)
 
     t_end = 1.0 / kin_kwargs["frequency_fstar"]
 
@@ -235,6 +278,9 @@ def build_kinematics_video(
             zorder=10,
         )
 
+        # Re-applied every frame: ax.clear() resets both the view angle and axis limits to
+        # mplot3d's defaults on every call.
+        ax.view_init(elev=_VIEW_ELEV, azim=_VIEW_AZIM)
         ax.set_xlim(bbox_lo[0], bbox_hi[0])
         ax.set_ylim(bbox_lo[1], bbox_hi[1])
         ax.set_zlim(bbox_lo[2], bbox_hi[2])

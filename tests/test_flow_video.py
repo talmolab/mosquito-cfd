@@ -19,6 +19,8 @@ from mosquito_cfd.visualization.flow_video import (
     DEFAULT_Q_THRESHOLD,
     FIELD_MODES,
     _box_origin,
+    _lev_axis_limits,
+    _velocity_slice_axis_limits,
     build_flow_video,
     render_lev_frame,
     render_velocity_slice_frame,
@@ -485,3 +487,145 @@ def test_does_not_leak_figure_on_out_dir_mkdir_error(tmp_path, monkeypatch):
             **_KINEMATICS_KWARGS,
         )
     assert len(plt.get_fignums()) == open_before
+
+
+def test_lev_axis_limits_uses_box_coordinates():
+    """The returned limits are exactly the near-field box's own x/y/z coordinate range."""
+    box = {
+        "x": np.array([0.5, 1.0, 1.5]),
+        "y": np.array([-2.0, -1.5, -1.0]),
+        "z": np.array([3.0, 4.0, 5.0]),
+    }
+
+    xlim, ylim, zlim = _lev_axis_limits(box)
+
+    assert xlim == (0.5, 1.5)
+    assert ylim == (-2.0, -1.0)
+    assert zlim == (3.0, 5.0)
+
+
+def test_lev_axis_limits_is_independent_of_isosurface_content():
+    """Regression: the returned view window must depend only on the box's coordinate range, not
+    on the field content (u/v/w) that determines the isosurface's shape -- otherwise the axes
+    silently rescale frame to frame as the isosurface changes, making the stationary hinge marker
+    appear to move (the exact "is the hinge moving?" symptom this fix addresses).
+    """
+    box_a = {
+        "x": np.array([0.0, 1.0, 2.0]),
+        "y": np.array([0.0, 1.0, 2.0]),
+        "z": np.array([0.0, 1.0, 2.0]),
+        "u": np.zeros((3, 3, 3)),
+    }
+    box_b = {**box_a, "u": np.ones((3, 3, 3)) * 999.0}  # wildly different field content
+
+    assert _lev_axis_limits(box_a) == _lev_axis_limits(box_b)
+
+
+def test_velocity_slice_axis_limits_z_window_around_slice_height():
+    """The z window is z_level +/- z_margin, and comfortably contains the wing's lifted
+    position (z_level + _WING_Z_LIFT) -- otherwise the wing overlay would render outside the
+    fixed viewing window this fix introduces.
+    """
+    box = {"x": np.array([0.0, 8.0]), "y": np.array([0.0, 4.0])}
+
+    xlim, ylim, zlim = _velocity_slice_axis_limits(box, z_level=4.0, z_margin=2.0)
+
+    assert xlim == (0.0, 8.0)
+    assert ylim == (0.0, 4.0)
+    assert zlim == (2.0, 6.0)
+    assert zlim[0] < 4.0 + flow_video._WING_Z_LIFT < zlim[1]
+
+
+def test_lev_3d_axis_limits_are_stable_across_frames_with_different_isosurfaces(
+    tmp_path, monkeypatch
+):
+    """End-to-end regression: two frames whose vortex cores sit at DIFFERENT positions (so their
+    isosurfaces have genuinely different shapes/extents) must still render with IDENTICAL 3-D
+    axis limits, since the near-field box's own coordinate range (not the isosurface) determines
+    the view. Directly reproduces the user-visible "why are the axes changing all the time? is
+    the hinge moving?" bug report as a regression test.
+    """
+    n = 24
+    dx = 0.1
+    coords = (np.arange(n) - n / 2) * dx
+
+    def _bump_box(core_offset):
+        x, y, z = np.meshgrid(coords, coords, coords, indexing="ij")
+        r2 = (x - core_offset) ** 2 + y**2 + z**2
+        omega = 400.0 * np.exp(-r2 / (2.0 * 0.3**2))
+        return {
+            "u": -omega * y,
+            "v": omega * x,
+            "w": np.zeros_like(x),
+            "x": coords + 0.3,
+            "y": coords + 0.3,
+            "z": coords + 0.3,
+            "dx": np.array([dx, dx, dx]),
+            "current_time": 0.0,
+        }
+
+    plotfile_dir = tmp_path / "plotfiles"
+    for name in ("plt00000", "plt00100"):
+        (plotfile_dir / name).mkdir(parents=True)
+
+    boxes = {"plt00000": _bump_box(0.0), "plt00100": _bump_box(0.6)}
+
+    def fake_extract_eulerian_box(plotfile_path, *, lo, hi, halo=0):
+        return dict(boxes[Path(plotfile_path).name])
+
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        fake_extract_eulerian_box,
+    )
+
+    # Spy on FFMpegWriter.grab_frame (the call that captures the CURRENT axes state into the
+    # video stream) rather than Axes3D.set_zlim directly -- matplotlib's own internal autoscale
+    # machinery calls set_zlim several times per frame during the render pass (transient states
+    # never written to the video); grab_frame time is what actually ends up on screen.
+    from matplotlib.animation import FFMpegWriter
+
+    captured_zlims = []
+    real_grab_frame = FFMpegWriter.grab_frame
+
+    def spy_grab_frame(self, *args, **kwargs):
+        captured_zlims.append(ax_holder["ax"].get_zlim())
+        return real_grab_frame(self, *args, **kwargs)
+
+    monkeypatch.setattr(FFMpegWriter, "grab_frame", spy_grab_frame)
+
+    # build_flow_video's Axes3D instance isn't returned; capture it via the first Poly3DCollection
+    # added to any 3-D axes during this call (there's only one axes alive in this test).
+    ax_holder = {}
+    from mpl_toolkits.mplot3d.axes3d import Axes3D
+
+    real_add_collection3d = Axes3D.add_collection3d
+
+    def spy_add_collection3d(self, *args, **kwargs):
+        ax_holder["ax"] = self
+        return real_add_collection3d(self, *args, **kwargs)
+
+    monkeypatch.setattr(Axes3D, "add_collection3d", spy_add_collection3d)
+
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode="lev-3d",
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="stability-test",
+        center=(0.3, 0.3, 0.3),
+        hinge=(0.3, 0.1, 0.3),
+        stroke_amp_deg=70.0,
+        pitch_amp_deg=45.0,
+        frequency_fstar=1.0,
+        box_margin=1.2,
+        q_threshold=100.0,
+        vort_vmin=0.0,
+        vort_vmax=800.0,
+    )
+
+    assert len(captured_zlims) >= 2
+    assert len(set(captured_zlims)) == 1, (
+        f"axis limits changed across frames despite identical box coordinates: {captured_zlims}"
+    )

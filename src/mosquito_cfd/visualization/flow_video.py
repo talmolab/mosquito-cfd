@@ -59,6 +59,18 @@ DEFAULT_FPS = 4
 # skip-if-empty guard) -- below this there is nothing coherent to mesh.
 _MIN_CELLS_ABOVE_THRESHOLD = 10
 
+# Vertical viewing window (+/-) around the velocity-slice plane for combined-3d/zvelocity-3d,
+# matching the vault scripts' own z_level +/- 2 window. Without an explicit z-limit, mplot3d's
+# per-frame autoscale fits tightly to whatever's plotted (a near-flat slice plus a wing lifted
+# only WING_Z_LIFT above it), collapsing the whole scene into an unreadable sliver at the bottom
+# of the axes -- a real rendering bug found by visually inspecting a rendered frame, not caught
+# by any file-exists/non-zero-size test.
+_Z_VIEW_MARGIN = 2.0
+# Oblique viewing angle (matches the vault scripts' own view_init) -- mplot3d resets to the
+# default (elev=30) on every ax.clear(), so this must be re-applied every frame, not just once.
+_VIEW_ELEV = 28
+_VIEW_AZIM = -60
+
 _WING_COLOR = "#111111"
 _COLOR_LEADING = "#C53030"
 _COLOR_TRAILING = "#2D3748"
@@ -300,6 +312,55 @@ def _box_origin(box: dict[str, Any]) -> NDArray[np.float64]:
     return np.array([box["x"][0], box["y"][0], box["z"][0]])
 
 
+def _lev_axis_limits(
+    box: dict[str, Any],
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+    """Fixed 3-D axis limits for ``lev-3d``, from the near-field box's own coordinate range.
+
+    Using the box's own bounds -- not mplot3d's per-frame autoscale-to-plotted-data -- keeps the
+    view stable across frames even as the isosurface's shape and position change frame to frame.
+    Without this, the (stationary) hinge marker appears to jump around the scene as the axes
+    silently rescale to fit whatever isosurface geometry happens to be present in that one frame.
+
+    Args:
+        box: A dict as returned by :func:`_near_field_box` (must contain ``"x"``, ``"y"``, ``"z"``
+            coordinate arrays).
+
+    Returns:
+        ``(xlim, ylim, zlim)``, each a ``(lo, hi)`` tuple.
+    """
+    return (
+        (float(box["x"].min()), float(box["x"].max())),
+        (float(box["y"].min()), float(box["y"].max())),
+        (float(box["z"].min()), float(box["z"].max())),
+    )
+
+
+def _velocity_slice_axis_limits(
+    box: dict[str, Any], z_level: float, z_margin: float = _Z_VIEW_MARGIN
+) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+    """Fixed 3-D axis limits for ``combined-3d``/``zvelocity-3d``.
+
+    ``x``/``y`` span the full domain slice; ``z`` is a generous ``+/- z_margin`` window around
+    the slice height so the wing (lifted only ``_WING_Z_LIFT`` above the plane) stays visible,
+    instead of mplot3d's autoscale collapsing the whole scene down to the ``~_WING_Z_LIFT``-wide
+    sliver that is actually plotted (the slice itself has essentially zero z-extent).
+
+    Args:
+        box: A dict as returned by :func:`_full_domain_box`.
+        z_level: The slice's physical z height.
+        z_margin: Half-width of the z viewing window around ``z_level``.
+
+    Returns:
+        ``(xlim, ylim, zlim)``, each a ``(lo, hi)`` tuple.
+    """
+    return (
+        (float(box["x"].min()), float(box["x"].max())),
+        (float(box["y"].min()), float(box["y"].max())),
+        (z_level - z_margin, z_level + z_margin),
+    )
+
+
 def _full_domain_box(plt_path: Path) -> dict[str, Any]:
     """Extract the full domain (2-D slice modes pick their own z-index afterward)."""
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
@@ -414,7 +475,7 @@ def build_flow_video(
     else:
         fig, ax = plt.subplots(figsize=(9, 8), facecolor="white")
 
-    def _draw_lev(plt_path: Path) -> float:
+    def _draw_lev(plt_path: Path) -> tuple[float, tuple]:
         box = _near_field_box(plt_path, center=center_arr, box_margin=box_margin)
         frame = render_lev_frame(
             box["u"],
@@ -433,9 +494,9 @@ def build_flow_video(
                 triangles, facecolors=frame["facecolors"], edgecolor="none", zorder=1
             )
             ax.add_collection3d(mesh)
-        return float(box["current_time"])
+        return float(box["current_time"]), _lev_axis_limits(box)
 
-    def _draw_velocity_slice(plt_path: Path) -> float:
+    def _draw_velocity_slice(plt_path: Path) -> tuple[float, tuple | None]:
         box = _full_domain_box(plt_path)
         z_idx = len(box["z"]) // 2
         field_name = "w" if field_mode == "zvelocity-3d" else "u"
@@ -460,26 +521,28 @@ def build_flow_video(
                 marker="^",
                 zorder=10,
             )
-        else:
-            x_mesh, y_mesh = np.meshgrid(box["x"], box["y"])
-            z_plane = np.full_like(x_mesh, box["z"][z_idx])
-            ax.plot_surface(
-                x_mesh,
-                y_mesh,
-                z_plane,
-                facecolors=facecolors,
-                rstride=2,
-                cstride=2,
-                linewidth=0,
-                antialiased=False,
-                shade=False,
-                zorder=1,
-            )
-        return float(box["current_time"])
+            return float(box["current_time"]), None
+
+        x_mesh, y_mesh = np.meshgrid(box["x"], box["y"])
+        z_level = float(box["z"][z_idx])
+        z_plane = np.full_like(x_mesh, z_level)
+        ax.plot_surface(
+            x_mesh,
+            y_mesh,
+            z_plane,
+            facecolors=facecolors,
+            rstride=2,
+            cstride=2,
+            linewidth=0,
+            antialiased=False,
+            shade=False,
+            zorder=1,
+        )
+        return float(box["current_time"]), _velocity_slice_axis_limits(box, z_level)
 
     def draw(plt_path: Path) -> None:
         ax.clear()
-        t_sim = (
+        t_sim, limits = (
             _draw_lev(plt_path)
             if field_mode == "lev-3d"
             else _draw_velocity_slice(plt_path)
@@ -499,6 +562,16 @@ def build_flow_video(
                 z_lift=_WING_Z_LIFT if field_mode != "lev-3d" else 0.0,
             )
         ax.set_title(f"{label}: {field_mode}, t = {t_sim:.4f}")
+
+        if is_3d:
+            # Re-applied every frame: ax.clear() resets both the view angle and axis limits to
+            # mplot3d's defaults, and autoscale-to-plotted-data is exactly what made the axes
+            # jump around frame to frame before this fix (see _lev_axis_limits/
+            # _velocity_slice_axis_limits docstrings).
+            ax.view_init(elev=_VIEW_ELEV, azim=_VIEW_AZIM)
+            ax.set_xlim(*limits[0])
+            ax.set_ylim(*limits[1])
+            ax.set_zlim(*limits[2])
 
     anim = FuncAnimation(fig, draw, frames=plot_dirs, interval=int(1000 / fps))
     writer = FFMpegWriter(fps=fps, bitrate=3000)

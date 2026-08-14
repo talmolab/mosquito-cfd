@@ -162,3 +162,50 @@ otherwise keeps `visualization/` ignorant of force-surrogate specifics); the imp
 generic deck/config-name string parsing, not force-surrogate-specific computation. No `spec.md`
 change resulted — the "config or explicit override" requirement's scenarios are already satisfied
 by this shared implementation, exercised through both consuming modules' own tests.
+
+### PR2's 3-D scenes shipped with no explicit axis limits or view angle — found by visually inspecting rendered output against the vault reference videos, not by any automated test
+
+None of tasks 11-21's TDD instructions call for checking rendered *visual* composition (axis limits,
+camera angle) — every test asserts numerical correctness or "a non-empty `.mp4` exists," which a
+video with a collapsed, autoscaled-to-nothing 3-D scene still satisfies. The initial PR2
+implementation of `flow_video.py`'s 3-D field modes (`combined-3d`/`lev-3d`/`zvelocity-3d`) and
+`kinematics_video.py` never called `ax.view_init(...)` or `ax.set_xlim/ylim/zlim(...)` — every
+frame relied on mplot3d's default per-frame autoscale-to-plotted-data. Two real, user-visible bugs
+resulted, both invisible to the file-exists/non-zero-size tests already in place, only found by
+actually rendering real T3c-fine videos and looking at them (compared frame-by-frame against the
+vault's own reference videos in `c:\vaults\physics surrogate models\duncan-meeting-2026-08-11\videos\`,
+which this whole change generalizes):
+
+- **`flow_video.py`**: the velocity-slice plane (`combined-3d`/`zvelocity-3d`) and the LEV
+  isosurface (`lev-3d`) autoscaled to whatever that one frame's plotted extent happened to be —
+  for the slice modes this collapsed the entire 3-D scene into an unreadably thin sliver at the
+  bottom of the axes (the wing, lifted only `_WING_Z_LIFT=0.6` above the plane, has almost no
+  z-extent to autoscale against); for `lev-3d` the isosurface's own bounding box changes shape
+  every frame as the vortex core evolves, so the axes visibly rescaled frame to frame, making the
+  *stationary* hinge marker appear to move. Fixed with two new pure, unit-tested functions,
+  `_lev_axis_limits`/`_velocity_slice_axis_limits`, deriving fixed limits from the already-computed
+  box's own coordinate range (`lev-3d`) or the slice height ± a documented `_Z_VIEW_MARGIN`
+  (`combined-3d`/`zvelocity-3d`), plus `ax.view_init(elev=28, azim=-60)` re-applied every frame
+  (matching the vault scripts' own values — `ax.clear()` resets both every call).
+  `test_lev_3d_axis_limits_are_stable_across_frames_with_different_isosurfaces` reproduces the bug
+  report directly: two frames with genuinely different isosurface geometry must still render with
+  identical axis limits. (That test's first version spied on `Axes3D.set_zlim` directly and failed
+  even after the fix — mplot3d's own internal autoscale machinery calls `set_zlim` several
+  *transient* times per frame during rendering; the test was corrected to spy on
+  `FFMpegWriter.grab_frame` instead, which reflects only what is actually written to the video.)
+- **`kinematics_video.py`**: the axis limits were computed from `ref_markers` (rest-frame,
+  *unrotated* positions) union the tip marker's own rotated trajectory — any *other* marker that
+  sweeps outside its own rest-frame footprint under rotation (which every non-tip marker does, to
+  varying degrees) was never accounted for, so the wing visibly rendered outside the frame at
+  points in the stroke cycle. Fixed with a new pure, unit-tested `_swept_bounding_box` function
+  that samples every marker's *rotated* position at `_TRAJECTORY_SAMPLES` phases (not just the
+  tip's), plus `ax.view_init(elev=22, azim=-65)` (matching the vault kinematics script, also
+  missing before this fix).
+
+No `spec.md` change resulted — visual composition (axis framing, camera angle) is an
+implementation-quality property of the already-specified "render a video" requirements, not a
+distinct scenario. No task-11–21-level scope change resulted either, for the same reason as the
+PR1 deviation above: the checked-off tasks still accurately describe what was implemented and
+tested; this section exists because rendering correctness turned out to have a dimension (visual
+framing) that numeric/file-existence tests alone don't cover, and manual inspection against the
+vault reference was what actually caught it.

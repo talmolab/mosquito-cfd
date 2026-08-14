@@ -11,8 +11,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from mosquito_cfd.geometry.vertex_io import write_vertex_file
-from mosquito_cfd.visualization.kinematics_video import build_kinematics_video
+from mosquito_cfd.geometry.vertex_io import read_vertex_file, write_vertex_file
+from mosquito_cfd.visualization.kinematics_video import (
+    _swept_bounding_box,
+    build_kinematics_video,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _VERTEX_PATH = _REPO_ROOT / "examples" / "flapping_wing" / "wing.vertex"
@@ -246,3 +249,83 @@ def test_does_not_leak_figure_on_out_dir_mkdir_error(tmp_path):
             n_frames=5,
         )
     assert len(plt.get_fignums()) == open_before
+
+
+def test_swept_bounding_box_captures_every_markers_full_sweep_not_just_rest_frame_or_tip():
+    """Regression ("wing flies off the edge of the frame"): the OLD bounding box was built from
+    `ref_markers` (rest-frame, UNROTATED positions) union a single tracked tip's own rotated
+    trajectory -- any OTHER marker that sweeps outside its own rest-frame footprint under
+    rotation was never accounted for. Uses a synthetic "decoy" marker (not the tip) whose true
+    rotated range is independently computed here (ground truth), not read back from the function
+    under test, so a reintroduced version of the old bug would be caught.
+    """
+    from mosquito_cfd.benchmarks.wing_kinematics import euler_angles
+    from mosquito_cfd.visualization.wing_render import transform_markers
+
+    markers = np.array(
+        [
+            [0.0, 1.0, 0.0],  # span tip
+            [
+                1.0,
+                0.3,
+                0.0,
+            ],  # decoy: rest position near the hinge, but sweeps far under rotation
+        ]
+    )
+    hinge_arr = np.array([0.0, 0.0, 0.0])
+    kin_kwargs = {"stroke_amp_deg": 70.0, "pitch_amp_deg": 0.0, "frequency_fstar": 1.0}
+
+    lo, hi = _swept_bounding_box(markers, hinge_arr, kin_kwargs, margin=0.0)
+
+    ts = np.linspace(0.0, 1.0, 500)
+    decoy = markers[1]
+    rotated_decoy_x = [
+        transform_markers(
+            decoy[np.newaxis, :],
+            hinge_arr,
+            *euler_angles(
+                t, frequency=1.0, stroke_amp_rad=np.radians(70.0), pitch_amp_rad=0.0
+            ),
+        )[0, 0]
+        for t in ts
+    ]
+    expected_min, expected_max = min(rotated_decoy_x), max(rotated_decoy_x)
+
+    # Sanity: the decoy's true swept range meaningfully exceeds its rest position (x=1.0) --
+    # proves this is a real, non-trivial check, not one that would pass by coincidence.
+    assert expected_max - expected_min > 0.5
+
+    assert lo[0] <= expected_min + 1e-6
+    assert hi[0] >= expected_max - 1e-6
+
+
+def test_swept_bounding_box_contains_every_real_marker_at_every_sampled_phase():
+    """Integration sanity check using the real committed wing.vertex + validated config: every
+    marker's position at every one of several sampled phases across a full wingbeat lands inside
+    the returned bounding box, using the DEFAULT margin (as production actually calls this
+    function) -- a zero margin would be spuriously brittle here: any two independent discrete
+    samplings of a continuous periodic extremum (this test's 17 phases vs. the function's own
+    300) generically disagree by a small sub-grid amount, which the default margin exists to
+    absorb.
+    """
+    local_markers = read_vertex_file(str(_VERTEX_PATH))
+    center_arr = np.asarray(_VALIDATED_CENTER)
+    hinge_arr = np.asarray(_VALIDATED_HINGE)
+    ref_markers = local_markers + center_arr
+    kin_kwargs = {"stroke_amp_deg": 70.0, "pitch_amp_deg": 45.0, "frequency_fstar": 1.0}
+
+    lo, hi = _swept_bounding_box(ref_markers, hinge_arr, kin_kwargs)
+
+    from mosquito_cfd.benchmarks.wing_kinematics import euler_angles
+    from mosquito_cfd.visualization.wing_render import transform_markers
+
+    for t in np.linspace(0.0, 1.0, 17):
+        phi, alpha, theta = euler_angles(
+            t,
+            frequency=kin_kwargs["frequency_fstar"],
+            stroke_amp_rad=np.radians(kin_kwargs["stroke_amp_deg"]),
+            pitch_amp_rad=np.radians(kin_kwargs["pitch_amp_deg"]),
+        )
+        rotated = transform_markers(ref_markers, hinge_arr, phi, alpha, theta)
+        assert np.all(rotated >= lo)
+        assert np.all(rotated <= hi)
