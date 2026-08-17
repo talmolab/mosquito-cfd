@@ -146,3 +146,99 @@ PR1 pass:
 No task-13-level scope change resulted — Phase 1 and Phase 4's checked-off tasks (1-10, 22-25) still
 accurately describe what was implemented and tested; this section exists because the *description*
 of that implementation needed to catch up, not because the plan itself was wrong.
+
+### PR2 added `config_kwargs`/`resolve_kinematics_kwargs` to `wing_render.py`, not named in tasks.md
+
+Tasks 13 and 18 both require a "config name or explicit override" resolution test in
+`test_flow_video.py`/`test_kinematics_video.py`, but dependency order (Phase 5, the CLI drivers,
+comes *after* Phases 2/3) rules out putting this resolution logic in the not-yet-existing CLI
+scripts the way `make_wing_phase_diagnostic.py`'s `_config_kwargs`/`_sweep_config_kwargs` do it.
+Since `flow_video.py` and `kinematics_video.py` both need the identical behavior (`design.md` D3),
+it was added once to `wing_render.py` (`config_kwargs`, `resolve_kinematics_kwargs`) — the shared
+Phase 1 substrate both later phases already depend on — rather than duplicated in each module. This
+is the one place `visualization/` imports from `force_surrogate` (`read_deck_value`,
+`parse_config_name`), a narrow exception to `design.md` D1's package-boundary framing (which
+otherwise keeps `visualization/` ignorant of force-surrogate specifics); the imported functions are
+generic deck/config-name string parsing, not force-surrogate-specific computation. No `spec.md`
+change resulted — the "config or explicit override" requirement's scenarios are already satisfied
+by this shared implementation, exercised through both consuming modules' own tests.
+
+### PR2's 3-D scenes shipped with no explicit axis limits or view angle — found by visually inspecting rendered output against the vault reference videos, not by any automated test
+
+None of tasks 11-21's TDD instructions call for checking rendered *visual* composition (axis limits,
+camera angle) — every test asserts numerical correctness or "a non-empty `.mp4` exists," which a
+video with a collapsed, autoscaled-to-nothing 3-D scene still satisfies. The initial PR2
+implementation of `flow_video.py`'s 3-D field modes (`combined-3d`/`lev-3d`/`zvelocity-3d`) and
+`kinematics_video.py` never called `ax.view_init(...)` or `ax.set_xlim/ylim/zlim(...)` — every
+frame relied on mplot3d's default per-frame autoscale-to-plotted-data. Two real, user-visible bugs
+resulted, both invisible to the file-exists/non-zero-size tests already in place, only found by
+actually rendering real T3c-fine videos and looking at them (compared frame-by-frame against the
+vault's own reference videos in `c:\vaults\physics surrogate models\duncan-meeting-2026-08-11\videos\`,
+which this whole change generalizes):
+
+- **`flow_video.py`**: the velocity-slice plane (`combined-3d`/`zvelocity-3d`) and the LEV
+  isosurface (`lev-3d`) autoscaled to whatever that one frame's plotted extent happened to be —
+  for the slice modes this collapsed the entire 3-D scene into an unreadably thin sliver at the
+  bottom of the axes (the wing, lifted only `_WING_Z_LIFT=0.6` above the plane, has almost no
+  z-extent to autoscale against); for `lev-3d` the isosurface's own bounding box changes shape
+  every frame as the vortex core evolves, so the axes visibly rescaled frame to frame, making the
+  *stationary* hinge marker appear to move. Fixed with two new pure, unit-tested functions,
+  `_lev_axis_limits`/`_velocity_slice_axis_limits`, deriving fixed limits from the already-computed
+  box's own coordinate range (`lev-3d`) or the slice height ± a documented `_Z_VIEW_MARGIN`
+  (`combined-3d`/`zvelocity-3d`), plus `ax.view_init(elev=28, azim=-60)` re-applied every frame
+  (matching the vault scripts' own values — `ax.clear()` resets both every call).
+  `test_lev_3d_axis_limits_are_stable_across_frames_with_different_isosurfaces` reproduces the bug
+  report directly: two frames with genuinely different isosurface geometry must still render with
+  identical axis limits. (That test's first version spied on `Axes3D.set_zlim` directly and failed
+  even after the fix — mplot3d's own internal autoscale machinery calls `set_zlim` several
+  *transient* times per frame during rendering; the test was corrected to spy on
+  `FFMpegWriter.grab_frame` instead, which reflects only what is actually written to the video.)
+- **`kinematics_video.py`**: the axis limits were computed from `ref_markers` (rest-frame,
+  *unrotated* positions) union the tip marker's own rotated trajectory — any *other* marker that
+  sweeps outside its own rest-frame footprint under rotation (which every non-tip marker does, to
+  varying degrees) was never accounted for, so the wing visibly rendered outside the frame at
+  points in the stroke cycle. Fixed with a new pure, unit-tested `_swept_bounding_box` function
+  that samples every marker's *rotated* position at `_TRAJECTORY_SAMPLES` phases (not just the
+  tip's), plus `ax.view_init(elev=22, azim=-65)` (matching the vault kinematics script, also
+  missing before this fix).
+
+No `spec.md` change resulted — visual composition (axis framing, camera angle) is an
+implementation-quality property of the already-specified "render a video" requirements, not a
+distinct scenario. No task-11–21-level scope change resulted either, for the same reason as the
+PR1 deviation above: the checked-off tasks still accurately describe what was implemented and
+tested; this section exists because rendering correctness turned out to have a dimension (visual
+framing) that numeric/file-existence tests alone don't cover, and manual inspection against the
+vault reference was what actually caught it.
+
+### Two more rendering bugs found the same way, after the above fixes landed — user-reported
+### while reviewing the actual rendered videos
+
+- **`flow_video.py`'s `combined-3d` field mode rendered the wing invisible, hidden behind the
+  velocity-slice plane.** Root cause confirmed with a standalone before/after reproduction before
+  touching any code: mplot3d's `Axes3D` default `computed_zorder=True` depth-sorts every 3-D
+  artist by its own projected centroid and simply ignores the explicit `zorder` kwargs
+  `_draw_wing_scene`/`plot_surface` already pass (wing `20`-`22`, field plane `1`) — an opaque
+  `plot_surface` can render in front of a wing scatter lifted only `_WING_Z_LIFT=0.6` above it
+  regardless of the requested zorder. Fixed by passing `computed_zorder=False` to
+  `fig.add_axes(..., projection="3d")` for the one `Axes3D` instance shared by `combined-3d`/
+  `lev-3d`/`zvelocity-3d`, switching mplot3d to a real painter's algorithm that honors zorder.
+  `test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field` spies on
+  `Figure.add_axes` to assert the kwarg is actually passed.
+- **`wake-slice`/`combined-3d`/`zvelocity-3d` sliced the velocity field at the plotfile domain's
+  vertical midpoint index, not the hinge's own z height.** `z_idx = len(box["z"]) // 2` picks
+  whatever index sits exactly in the middle of the domain's z-array — for the T3c-fine/validated
+  config this happens to equal the hinge's z (both are `4.0` in an `8`-unit-tall domain, per
+  `examples/flapping_wing/inputs.3d.validation`), purely because that deck was authored with the
+  wing centered vertically in the domain, not because the two concepts coincide in general. A
+  future config whose hinge sits elsewhere in the domain would silently render a valid,
+  non-crashing video showing the velocity slice at the *wrong* height — a plane the wing never
+  actually reaches, with the (correctly-positioned) wing overlay visibly floating off of it. Fixed
+  with a new pure, unit-tested `_nearest_z_index` function, slicing at the index nearest
+  `hinge_arr[2]` instead. `test_velocity_slice_slices_at_the_hinge_height_not_domain_center`
+  constructs a synthetic domain where the hinge is deliberately *not* at the domain's vertical
+  center and asserts the sliced field matches the hinge's height, not the domain midpoint's.
+
+Same pattern as the section above (found by watching the rendered output, not by any automated
+test that existed beforehand) and the same conclusion: no `spec.md`/task-level scope change, since
+both are correctness properties of the already-specified "render a video that shows the wing in
+its physical relationship to the field" behavior, not new requirements.
