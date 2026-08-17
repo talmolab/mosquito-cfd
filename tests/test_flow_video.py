@@ -20,6 +20,7 @@ from mosquito_cfd.visualization.flow_video import (
     FIELD_MODES,
     _box_origin,
     _lev_axis_limits,
+    _nearest_z_index,
     _velocity_slice_axis_limits,
     build_flow_video,
     render_lev_frame,
@@ -480,6 +481,84 @@ def test_box_origin_reads_the_boxs_own_coordinates_not_a_nominal_request():
     np.testing.assert_allclose(origin, [0.0, 0.05, 1.0])
     # Not the nominal, unclamped request this box's coordinates were clamped away from.
     assert not np.allclose(origin, [-8.0, -8.0, -8.0])
+
+
+def test_nearest_z_index_picks_the_closest_coordinate():
+    z_coords = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])
+
+    assert _nearest_z_index(z_coords, 2.0) == 2  # exact match
+    assert _nearest_z_index(z_coords, 2.4) == 2  # rounds down
+    assert _nearest_z_index(z_coords, 2.6) == 3  # rounds up
+    assert _nearest_z_index(z_coords, -5.0) == 0  # clamps below range
+    assert _nearest_z_index(z_coords, 99.0) == 8  # clamps above range
+
+
+def test_velocity_slice_slices_at_the_hinge_height_not_domain_center(
+    tmp_path, monkeypatch
+):
+    """Regression: wake-slice/combined-3d/zvelocity-3d must slice at the hinge's own z height
+    (the physical stroke plane), not the plotfile domain's midpoint index -- the two only happen
+    to coincide for the validated T3c-fine config (both are 4.0 in an 8-unit domain) because that
+    deck was authored with the wing centered vertically in the domain, not because "domain
+    center" and "hinge height" are the same concept. A config whose hinge sits elsewhere in the
+    domain would otherwise silently show a velocity slice at the wrong height, disconnected from
+    where the wing actually flaps.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+
+    n = 9
+    dx = np.array([1.0, 1.0, 1.0])
+    # Each z-plane has a distinct, distinguishable constant value (== its own z coordinate) so
+    # the test can tell exactly which plane got sliced.
+    z_coords = np.arange(n, dtype=np.float64)
+    u = np.zeros((n, n, n))
+    for k in range(n):
+        u[:, :, k] = z_coords[k]
+    box = {
+        "u": u,
+        "v": np.zeros((n, n, n)),
+        "w": np.zeros((n, n, n)),
+        "x": z_coords.copy(),
+        "y": z_coords.copy(),
+        "z": z_coords.copy(),  # domain 0..8 -> domain-center index 4 (z=4.0)
+        "dx": dx,
+        "current_time": 0.0,
+    }
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(box),
+    )
+
+    captured_fields = []
+    real_render = flow_video.render_velocity_slice_frame
+
+    def spy_render(field, dx, vmin, vmax):
+        captured_fields.append(np.asarray(field).copy())
+        return real_render(field, dx, vmin, vmax)
+
+    monkeypatch.setattr(flow_video, "render_velocity_slice_frame", spy_render)
+
+    hinge_z = 2.0  # deliberately NOT the domain-center z (4.0)
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode="wake-slice",
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="hinge-height-test",
+        center=(0.3, 0.3, 0.3),
+        hinge=(0.3, 0.1, hinge_z),
+        stroke_amp_deg=70.0,
+        pitch_amp_deg=45.0,
+        frequency_fstar=1.0,
+    )
+
+    assert len(captured_fields) >= 1
+    for field in captured_fields:
+        # Sliced at hinge_z=2.0, not domain-center z=4.0.
+        np.testing.assert_allclose(field, 2.0)
 
 
 def test_rejects_non_positive_fps(tmp_path):

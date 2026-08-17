@@ -312,6 +312,24 @@ def _box_origin(box: dict[str, Any]) -> NDArray[np.float64]:
     return np.array([box["x"][0], box["y"][0], box["z"][0]])
 
 
+def _nearest_z_index(z_coords: NDArray[np.float64], target_z: float) -> int:
+    """Index of the ``z_coords`` entry closest to ``target_z``.
+
+    Used to pick the velocity-slice height at the hinge's own z (the physical stroke plane) --
+    not the plotfile domain's midpoint index, which only coincides with the hinge height for
+    configs whose wing happens to be centered vertically in the domain (see ``proposal.md``'s
+    deviation note on this).
+
+    Args:
+        z_coords: 1-D array of z cell-center coordinates.
+        target_z: The physical z height to slice at.
+
+    Returns:
+        The index of the closest entry in ``z_coords`` (clamped to the array's range).
+    """
+    return int(np.argmin(np.abs(z_coords - target_z)))
+
+
 def _lev_axis_limits(
     box: dict[str, Any],
 ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
@@ -506,7 +524,9 @@ def build_flow_video(
 
     def _draw_velocity_slice(plt_path: Path) -> tuple[float, tuple | None]:
         box = _full_domain_box(plt_path)
-        z_idx = len(box["z"]) // 2
+        # The hinge's own z height (the physical stroke plane), not the domain's midpoint index --
+        # those only coincide for a wing centered vertically in the domain (see proposal.md).
+        z_idx = _nearest_z_index(box["z"], hinge_arr[2])
         field_name = "w" if field_mode == "zvelocity-3d" else "u"
         slice_2d = box[field_name][:, :, z_idx].T
         absmax = float(np.abs(slice_2d).max()) or 1.0

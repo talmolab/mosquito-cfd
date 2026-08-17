@@ -209,3 +209,36 @@ PR1 deviation above: the checked-off tasks still accurately describe what was im
 tested; this section exists because rendering correctness turned out to have a dimension (visual
 framing) that numeric/file-existence tests alone don't cover, and manual inspection against the
 vault reference was what actually caught it.
+
+### Two more rendering bugs found the same way, after the above fixes landed — user-reported
+### while reviewing the actual rendered videos
+
+- **`flow_video.py`'s `combined-3d` field mode rendered the wing invisible, hidden behind the
+  velocity-slice plane.** Root cause confirmed with a standalone before/after reproduction before
+  touching any code: mplot3d's `Axes3D` default `computed_zorder=True` depth-sorts every 3-D
+  artist by its own projected centroid and simply ignores the explicit `zorder` kwargs
+  `_draw_wing_scene`/`plot_surface` already pass (wing `20`-`22`, field plane `1`) — an opaque
+  `plot_surface` can render in front of a wing scatter lifted only `_WING_Z_LIFT=0.6` above it
+  regardless of the requested zorder. Fixed by passing `computed_zorder=False` to
+  `fig.add_axes(..., projection="3d")` for the one `Axes3D` instance shared by `combined-3d`/
+  `lev-3d`/`zvelocity-3d`, switching mplot3d to a real painter's algorithm that honors zorder.
+  `test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field` spies on
+  `Figure.add_axes` to assert the kwarg is actually passed.
+- **`wake-slice`/`combined-3d`/`zvelocity-3d` sliced the velocity field at the plotfile domain's
+  vertical midpoint index, not the hinge's own z height.** `z_idx = len(box["z"]) // 2` picks
+  whatever index sits exactly in the middle of the domain's z-array — for the T3c-fine/validated
+  config this happens to equal the hinge's z (both are `4.0` in an `8`-unit-tall domain, per
+  `examples/flapping_wing/inputs.3d.validation`), purely because that deck was authored with the
+  wing centered vertically in the domain, not because the two concepts coincide in general. A
+  future config whose hinge sits elsewhere in the domain would silently render a valid,
+  non-crashing video showing the velocity slice at the *wrong* height — a plane the wing never
+  actually reaches, with the (correctly-positioned) wing overlay visibly floating off of it. Fixed
+  with a new pure, unit-tested `_nearest_z_index` function, slicing at the index nearest
+  `hinge_arr[2]` instead. `test_velocity_slice_slices_at_the_hinge_height_not_domain_center`
+  constructs a synthetic domain where the hinge is deliberately *not* at the domain's vertical
+  center and asserts the sliced field matches the hinge's height, not the domain midpoint's.
+
+Same pattern as the section above (found by watching the rendered output, not by any automated
+test that existed beforehand) and the same conclusion: no `spec.md`/task-level scope change, since
+both are correctness properties of the already-specified "render a video that shows the wing in
+its physical relationship to the field" behavior, not new requirements.
