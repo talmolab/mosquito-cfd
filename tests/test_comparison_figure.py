@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -51,6 +52,51 @@ def _tiny_metrics(
         "config_resolved": {coefficient: {"config_mean_r2": config_mean_r2}},
         "per_target": {coefficient: {"rmse": per_target_rmse}},
     }
+
+
+def test_committed_comparison_figure_inputs_match_in_memory_tiny_fixtures():
+    """The parquet/JSON files committed under tests/fixtures/comparison_figure/inputs/ (used to
+    generate the two committed reference PNGs, per README.md there) are byte-for-value-identical
+    to this file's own ``_tiny_predictions_df``/``_tiny_metrics`` helpers.
+
+    Three /review-pr rounds on add-visualization-tooling PR3 flagged the same gap: nothing
+    enforced this correspondence, so the committed reference figures could silently go stale if
+    these in-memory fixtures ever changed. This is the guard.
+    """
+    inputs_dir = Path(__file__).parent / "fixtures" / "comparison_figure" / "inputs"
+
+    coarse = pd.read_parquet(inputs_dir / "coarse_predictions.parquet")
+    pd.testing.assert_frame_equal(coarse, _tiny_predictions_df())
+
+    expected_fine = _tiny_predictions_df()
+    expected_fine["CF_x_true"] = expected_fine["CF_x_true"] * 0.1
+    fine = pd.read_parquet(inputs_dir / "fine_predictions.parquet")
+    pd.testing.assert_frame_equal(fine, expected_fine)
+
+    diag_coarse = pd.read_parquet(inputs_dir / "diagnostic_coarse_predictions.parquet")
+    diag_fine = pd.read_parquet(inputs_dir / "diagnostic_fine_predictions.parquet")
+    pd.testing.assert_frame_equal(diag_coarse, _tiny_predictions_df())
+    pd.testing.assert_frame_equal(diag_fine, _tiny_predictions_df())
+
+    coarse_metrics = json.loads((inputs_dir / "coarse_metrics.json").read_text())
+    fine_metrics = json.loads((inputs_dir / "fine_metrics.json").read_text())
+    assert coarse_metrics == _tiny_metrics(config_mean_r2=0.944, per_target_rmse=0.133)
+    assert fine_metrics == _tiny_metrics(config_mean_r2=-31.95, per_target_rmse=0.05)
+
+
+def test_committed_reference_pngs_exist_and_are_nonempty():
+    """Operationalizes spec.md's "figure scripts ship one committed reference PNG" scenarios
+    as an actual CI-enforced check, rather than leaving it as a doc-only claim (the /review-openspec
+    round that added the diagnostic-PNG scenario found the requirement had no test backing it).
+    """
+    fixtures_dir = Path(__file__).parent / "fixtures" / "comparison_figure"
+    for name in (
+        "coarse_vs_fine_comparison.png",
+        "diagnostic_config_mean_collapse.png",
+    ):
+        path = fixtures_dir / name
+        assert path.exists(), f"{name} missing from {fixtures_dir}"
+        assert path.stat().st_size > 0, f"{name} is empty"
 
 
 def test_coarse_vs_fine_panel_means_match_groupby(tmp_path):
