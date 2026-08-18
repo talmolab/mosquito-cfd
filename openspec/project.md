@@ -70,6 +70,9 @@ mosquito-cfd/
   - `matplotlib>=3.10.8` - Visualization
   - `pandas>=3.0.0` - Data analysis
   - `yt>=4.4.2` - AMReX plot file visualization
+  - Two optional dependency groups exist beyond the base set above: `train` (documented only in
+    `pyproject.toml`'s own comment, no dedicated section here) and `viz` (`scipy`,
+    `scikit-image`, `imageio-ffmpeg`; installed in CI — see "Visualization Tooling" below)
 - **Dev Dependencies**:
   - `pytest>=9.0.2` - Testing
   - `ruff>=0.15.1` - Linting and formatting
@@ -151,6 +154,12 @@ mosquito-cfd/
 - [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
   — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
   explicit go-ahead (shared lab GPU quota, unverified preemption/retry path)
+- [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
+  `docs/visualization/diagnostic_config_mean_collapse.png` once
+  `examples/prelim_sweep_fine/surrogate/` exists — no placeholder exists at that path today; the
+  synthetic-fixture-derived renders used to validate the figure-building code live instead at
+  `tests/fixtures/comparison_figure/` (see its `README.md`), not under `docs/`. Gated on the
+  above full-corpus cluster run landing.
 
 ## Conventions
 
@@ -239,6 +248,66 @@ mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sph
   amr.check_file=/workspace/chk \
   max_step=100
 ```
+
+### Visualization Tooling
+
+`src/mosquito_cfd/visualization/` (`wing_render.py` shared marker/outline transform helpers,
+`flow_video.py` generalized CFD-field video builder, `kinematics_video.py` cluster-free
+kinematics preview) plus `src/mosquito_cfd/force_surrogate/comparison_figure.py`
+(coarse-vs-fine holdout comparison, config-mean-collapse diagnostic). All rendering/figure
+functions install via the optional `viz` dependency group (`scipy`, `scikit-image`,
+`imageio-ffmpeg`) — CI installs it (`uv sync --frozen --group viz`); a local dev-host checkout
+needs the same flag to import these modules. Four thin `argparse` CLI drivers live in `scripts/`.
+
+See OpenSpec change `add-visualization-tooling` (`design.md` D3) for the two documented
+hinge-caveat cases (as-run vs. corrected-for-display) that `make_flow_video.py`/
+`make_kinematics_video.py` accept via `--hinge`/`--center` overrides.
+
+```bash
+# One CFD-field video (wake-slice | combined-3d | lev-3d | zvelocity-3d)
+uv run python scripts/make_flow_video.py \
+    --plotfile-dir Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing/t3c-fine \
+    --field-mode wake-slice \
+    --center 4.0 2.0 4.0 --hinge 4.0 0.5 4.0 \
+    --stroke-amp-deg 70.0 --pitch-amp-deg 45.0 --frequency-fstar 1.0 \
+    --label t3c-fine \
+    --out-dir examples/prelim_sweep_fine/figures \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp 2026-08-12T00:00:00+00:00
+
+# Cluster-free kinematics preview (no plotfile, no CFD run)
+uv run python scripts/make_kinematics_video.py \
+    --config s45_f115_p60 --corpus-dir examples/prelim_sweep_fine \
+    --hinge 4.0 0.5 4.0 \
+    --label s45_f115_p60 \
+    --out-dir examples/prelim_sweep_fine/figures \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp 2026-08-12T00:00:00+00:00
+
+# Coarse-vs-fine holdout force-comparison figure
+uv run python scripts/make_comparison_figure.py \
+    --coarse-predictions examples/prelim_sweep/surrogate/holdout_predictions.parquet \
+    --fine-predictions examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet \
+    --out-dir docs/visualization \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp 2026-08-12T00:00:00+00:00
+
+# Config-mean-collapse diagnostic (config_resolved R2 vs. per_target RMSE)
+uv run python scripts/make_config_mean_collapse_diagnostic.py \
+    --coarse-predictions examples/prelim_sweep/surrogate/holdout_predictions.parquet \
+    --fine-predictions examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet \
+    --coarse-metrics examples/prelim_sweep/surrogate/metrics.json \
+    --fine-metrics examples/prelim_sweep_fine/surrogate/metrics.json \
+    --out-dir docs/visualization \
+    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
+    --timestamp 2026-08-12T00:00:00+00:00
+```
+
+**Mid-sweep partial-corpus check**: once just a few of the 27-config corpus's cluster runs
+finish (before the full sweep completes), run `make_flow_video.py --field-mode wake-slice`
+against those configs' plotfiles and eyeball the result — a wing geometry/kinematics bug (the
+exact class `fix-force-surrogate-sweep-hinge` fixed) is cheaper to catch on 2-3 finished configs
+than after burning the remaining GPU-hours on all 27.
 
 ## References
 

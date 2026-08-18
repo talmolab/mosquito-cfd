@@ -242,3 +242,21 @@ Same pattern as the section above (found by watching the rendered output, not by
 test that existed beforehand) and the same conclusion: no `spec.md`/task-level scope change, since
 both are correctness properties of the already-specified "render a video that shows the wing in
 its physical relationship to the field" behavior, not new requirements.
+
+### PR3's committed reference PNGs relocated from `docs/visualization/` to `tests/fixtures/comparison_figure/` — user-questioned during PR review
+
+Task 30 named `docs/visualization/` as one of two example paths ("e.g. `docs/visualization/` or
+`tests/fixtures/comparison_figure/`, decided during implementation"); `docs/visualization/` was
+picked during implementation and survived two `/review-pr` rounds unchallenged. A user question
+during review ("if these are tests why are they in docs?") surfaced the actual problem: the two
+committed PNGs are literal renders of `tests/test_comparison_figure.py`'s own toy unit-test
+fixtures (values chosen so a `pytest` assertion could numerically tell coarse apart from fine),
+not a curated illustrative example — `docs/` implies documentation a reader should learn from,
+which this never was. Relocated to `tests/fixtures/comparison_figure/` (the plan's other named
+option) in a follow-up commit, with `README.md` reworded to state this explicitly. The two CLI
+scripts' (`make_comparison_figure.py`/`make_config_mean_collapse_diagnostic.py`) own docstring
+examples and `openspec/project.md`'s "Visualization Tooling" CLI examples were **not** changed —
+both already exemplify the real-data case (`examples/prelim_sweep*/surrogate/` inputs,
+`--out-dir docs/visualization`), which is the correct destination once a genuine evidence figure
+exists there. No `spec.md` change resulted — its scenario already said only "the committed
+figures directory," not a specific path.

@@ -1,0 +1,9 @@
+{
+  "coefficient": "CF_x",
+  "coarse": {
+    "config_mean_r2": 0.944
+  },
+  "fine": {
+    "config_mean_r2": -31.95
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "coefficient": "CF_x",
+  "coarse": {
+    "cfgA": {
+      "true_mean": 2.0,
+      "pred_mean": 2.066666666666667
+    },
+    "cfgB": {
+      "true_mean": -2.0,
+      "pred_mean": -1.9333333333333333
+    }
+  },
+  "fine": {
+    "cfgA": {
+      "true_mean": 0.20000000000000004,
+      "pred_mean": 2.066666666666667
+    },
+    "cfgB": {
+      "true_mean": -0.20000000000000004,
+      "pred_mean": -1.9333333333333333
+    }
+  }
+}
