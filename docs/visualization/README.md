@@ -19,10 +19,19 @@
 Each PNG's `*_metrics.json`/`*_run_metadata.json` siblings are real outputs of the CC-1
 run-metadata sidecar mechanism (git commit, hardware, timestamp) exercised against the synthetic
 inputs above — they are not evidence of any real simulation or CFD run. `docker_image` is a
-placeholder digest (`sha256:` + repeated `a`), not a real published image.
+placeholder digest (`sha256:` + repeated `a`). Each `*_run_metadata.json` also carries a
+top-level `"synthetic": true` marker (added after generation, since
+`capture_surrogate_run_metadata`'s `extra` fields are internal to library callers, not
+CLI-exposed) so the disclosure travels with the JSON itself, not only this README — the real
+git commit/hostname/GPU alongside a placeholder digest could otherwise be mistaken for a real
+captured run by anyone reading just the sidecar.
 
-`fixtures/` holds the tiny synthetic parquet/JSON inputs so the figures are regenerable
-byte-for-byte without reading test source:
+`fixtures/` holds the tiny synthetic parquet/JSON inputs so the PNGs and `*_metrics.json`
+outputs are regenerable byte-for-byte without reading test source. The `*_run_metadata.json`
+sidecars will **not** come back byte-identical from the commands below — `run_id` is a fresh
+random UUID each call, `git.commit` reflects whatever commit you run from, and the `synthetic`
+marker above is a manual post-processing step this repo's generation script applies, not
+something the CLI itself writes.
 
 ```bash
 uv run python scripts/make_comparison_figure.py \
