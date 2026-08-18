@@ -27,11 +27,14 @@ git commit/hostname/GPU alongside a placeholder digest could otherwise be mistak
 captured run by anyone reading just the sidecar.
 
 `fixtures/` holds the tiny synthetic parquet/JSON inputs so the PNGs and `*_metrics.json`
-outputs are regenerable byte-for-byte without reading test source. The `*_run_metadata.json`
-sidecars will **not** come back byte-identical from the commands below — `run_id` is a fresh
-random UUID each call, `git.commit` reflects whatever commit you run from, and the `synthetic`
-marker above is a manual post-processing step this repo's generation script applies, not
-something the CLI itself writes.
+outputs are regenerable byte-for-byte via the commands below, without reading test source. The
+`*_run_metadata.json` sidecars will **not** come back byte-identical: `run_id` is a fresh random
+UUID each call, `git.dirty`/`git.diff_hash`/`git.commit` reflect whatever tree/commit you run
+from, and running these commands as shown will **not** reproduce the `"synthetic": true` marker
+— that key was added to the two committed sidecars by a one-off manual post-processing step (not
+a committed script, since `capture_surrogate_run_metadata`'s `extra` fields are internal to
+library callers, not CLI-exposed), applied once after generation, not something either the CLI
+or the library writes on its own.
 
 ```bash
 uv run python scripts/make_comparison_figure.py \
