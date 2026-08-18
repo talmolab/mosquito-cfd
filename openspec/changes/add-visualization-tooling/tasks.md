@@ -276,4 +276,4 @@ dependency phases:
     auto-skip without `$MOSQUITO_CFD_PLOTFILE_ROOT`, as in every other tier of this repo; everything
     else, including the new Phase 2 pure-rendering-math tests, runs and passes).
 36. [x] `openspec validate add-visualization-tooling --strict`.
-37. [ ] `/review-openspec` — adversarial re-review before requesting user approval.
+37. [x] `/review-openspec` — adversarial re-review before requesting user approval.

@@ -99,6 +99,14 @@ generated from that script's own small synthetic test fixture (not real corpus d
 - **THEN** a `coarse_vs_fine_comparison.png` produced by `make_comparison_figure.py` against its
   synthetic test fixture is present and tracked by git
 
+#### Scenario: the config-mean-collapse diagnostic figure has a committed reference output
+
+- **GIVEN** the repository at HEAD
+- **WHEN** the committed figures directory is inspected
+- **THEN** a `diagnostic_config_mean_collapse.png` produced by
+  `make_config_mean_collapse_diagnostic.py` against its synthetic test fixture is present and
+  tracked by git
+
 ### Requirement: Wing rotation is computed exclusively via the canonical `wing_kinematics` module
 
 No module under `visualization/` SHALL define its own `rotation_matrix` or `euler_angles`
