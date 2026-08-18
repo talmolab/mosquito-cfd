@@ -81,8 +81,11 @@ existing `stress_integral.extract_eulerian_box` lazy-`yt`-import convention.
 (`*_flow_*.mp4`, `*_kinematics_preview.mp4`), not by directory, since `--out-dir` is caller-supplied
 and arbitrary. Each figure-producing script (`make_comparison_figure.py`,
 `make_config_mean_collapse_diagnostic.py`) SHALL have at least one committed reference PNG,
-generated from that script's own small synthetic test fixture (not real corpus data — see the
-`comparison_figure.py` numerical-correctness requirement below), serving as validation evidence.
+generated from that script's own small synthetic test fixture (not real corpus data, and not a
+curated illustrative example — see the `comparison_figure.py` numerical-correctness requirement
+below), serving as validation evidence that the script's plotting code runs and produces an
+image, committed under `tests/fixtures/comparison_figure/` rather than `docs/` precisely because
+it is fixture-derived, not documentation.
 
 #### Scenario: a freshly rendered video does not appear in `git status` regardless of output directory
 
@@ -95,14 +98,14 @@ generated from that script's own small synthetic test fixture (not real corpus d
 #### Scenario: the coarse-vs-fine comparison figure has a committed reference output
 
 - **GIVEN** the repository at HEAD
-- **WHEN** the committed figures directory is inspected
+- **WHEN** `tests/fixtures/comparison_figure/` is inspected
 - **THEN** a `coarse_vs_fine_comparison.png` produced by `make_comparison_figure.py` against its
   synthetic test fixture is present and tracked by git
 
 #### Scenario: the config-mean-collapse diagnostic figure has a committed reference output
 
 - **GIVEN** the repository at HEAD
-- **WHEN** the committed figures directory is inspected
+- **WHEN** `tests/fixtures/comparison_figure/` is inspected
 - **THEN** a `diagnostic_config_mean_collapse.png` produced by
   `make_config_mean_collapse_diagnostic.py` against its synthetic test fixture is present and
   tracked by git
