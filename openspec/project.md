@@ -154,10 +154,11 @@ mosquito-cfd/
 - [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
   — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
   explicit go-ahead (shared lab GPU quota, unverified preemption/retry path)
-- [ ] Regenerate `docs/visualization/coarse_vs_fine_comparison.png` and
-  `docs/visualization/diagnostic_config_mean_collapse.png` against **real** fine-grid holdout
-  data once `examples/prelim_sweep_fine/surrogate/` exists — the committed PNGs are synthetic-
-  fixture-derived (see `docs/visualization/README.md`), not real corpus results. Gated on the
+- [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
+  `docs/visualization/diagnostic_config_mean_collapse.png` once
+  `examples/prelim_sweep_fine/surrogate/` exists — no placeholder exists at that path today; the
+  synthetic-fixture-derived renders used to validate the figure-building code live instead at
+  `tests/fixtures/comparison_figure/` (see its `README.md`), not under `docs/`. Gated on the
   above full-corpus cluster run landing.
 
 ## Conventions
