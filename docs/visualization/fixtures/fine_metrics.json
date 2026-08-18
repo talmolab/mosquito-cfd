@@ -1,0 +1,12 @@
+{
+  "config_resolved": {
+    "CF_x": {
+      "config_mean_r2": -31.95
+    }
+  },
+  "per_target": {
+    "CF_x": {
+      "rmse": 0.05
+    }
+  }
+}

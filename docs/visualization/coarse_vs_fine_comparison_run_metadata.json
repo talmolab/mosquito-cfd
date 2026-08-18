@@ -1,0 +1,28 @@
+{
+  "run_id": "264eac32-0828-43d5-90e2-4b9d916ec8f2",
+  "timestamp": "2020-01-01T00:00:00+00:00",
+  "git": {
+    "commit": "32b01401c972f3ae2dbe414f94596e3af98f291b",
+    "branch": "add-visualization-tooling-pr3",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inputs": {
+    "file": "docs\\visualization\\fixtures\\coarse_predictions.parquet",
+    "hash": "bc61a1eba94d349e313290a26f9da335a898ae8a1c9db25513393b8aaee3aec5"
+  },
+  "fine_predictions_path": "docs\\visualization\\fixtures\\fine_predictions.parquet",
+  "fine_predictions_sha256": "a33571c915b16e49a2be1fe3f83ca6dcc204e2a20f7ac271c0e575d3b37c4fab"
+}

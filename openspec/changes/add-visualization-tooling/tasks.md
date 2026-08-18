@@ -237,7 +237,7 @@ dependency phases:
 
 ### Phase 6 — reference outputs + docs
 
-30. [ ] Commit `coarse_vs_fine_comparison.png` and `diagnostic_config_mean_collapse.png` generated
+30. [x] Commit `coarse_vs_fine_comparison.png` and `diagnostic_config_mean_collapse.png` generated
     from the **synthetic test fixtures** used in tasks 22-23 (not real corpus data —
     `examples/prelim_sweep_fine/surrogate/` does not exist on `main`; see `proposal.md`'s `## Out of
     Scope`). Place under a clearly-labeled path (e.g. `docs/visualization/` or
@@ -250,19 +250,19 @@ dependency phases:
     would be named. Add a `openspec/project.md` Pending-section line noting that regenerating the
     *real* comparison figure against actual fine-grid holdout data is deferred until that data
     exists (tracked alongside the existing full-corpus cluster-run item).
-31. [ ] Add a "Visualization Tooling" section to `openspec/project.md`: package layout
+31. [x] Add a "Visualization Tooling" section to `openspec/project.md`: package layout
     (`visualization/`, `force_surrogate/comparison_figure.py`), the 4 CLI scripts with one example
     invocation each, the `viz` dependency group, the same durable change-ID-qualified pointer to
     `design.md` D3 for the hinge-caveat cases used in task 28 (not a restatement, not a literal
     path), and the mid-sweep partial-corpus check workflow (run `make_flow_video.py --field-mode
     wake-slice` against the first few completed configs' plotfiles before the full 27-config sweep
     finishes).
-32. [ ] Fix the existing "Python Environment / Dependencies" bullet list in `openspec/project.md`
+32. [x] Fix the existing "Python Environment / Dependencies" bullet list in `openspec/project.md`
     (currently lists only `numpy`/`matplotlib`/`pandas`/`yt`). Add one line noting the two optional
     groups accurately: `train` is described only in `pyproject.toml`'s own comment (no dedicated
     `project.md` section exists for it today — do not claim one), while `viz` is described in this
     change's new "Visualization Tooling" section (task 31).
-33. [ ] Add a `docs/CHANGELOG.md` entry matching the granularity of recent entries (e.g. PR #61, #52
+33. [x] Add a `docs/CHANGELOG.md` entry matching the granularity of recent entries (e.g. PR #61, #52
     — multiple specific `### Added` bullets, not one collapsed sentence). At minimum two bullets: (1)
     naming `wing_render.py`/`flow_video.py`/`kinematics_video.py`/`comparison_figure.py` and the four
     `scripts/make_*.py` CLI drivers plus the new `viz` dependency group; (2) naming the committed
@@ -271,9 +271,9 @@ dependency phases:
 
 ### Phase 7 — validation
 
-34. [ ] `uv run ruff check` / `uv run ruff format --check` over the new files.
-35. [ ] `uv run pytest -v -m "not gpu"` — full suite green (Phase 2/3's `requires_plotfile` tests
+34. [x] `uv run ruff check` / `uv run ruff format --check` over the new files.
+35. [x] `uv run pytest -v -m "not gpu"` — full suite green (Phase 2/3's `requires_plotfile` tests
     auto-skip without `$MOSQUITO_CFD_PLOTFILE_ROOT`, as in every other tier of this repo; everything
     else, including the new Phase 2 pure-rendering-math tests, runs and passes).
-36. [ ] `openspec validate add-visualization-tooling --strict`.
+36. [x] `openspec validate add-visualization-tooling --strict`.
 37. [ ] `/review-openspec` — adversarial re-review before requesting user approval.
