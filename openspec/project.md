@@ -143,6 +143,13 @@ mosquito-cfd/
   `examples/prelim_sweep_fine/generate_full_corpus.py`, committed via `add-fine-grid-corpus-full`,
   the follow-on to the 3-config `add-fine-grid-training-pilot` (GO recommendation) — reuses
   `generate_sweep()`'s default 27-point grid and `n_holdout=6`, unmodified
+- [x] Fixed a wing-hinge geometry defect (root hinge collapsed to a midspan pivot in the
+  git-committed base decks) dating to the 2026-07-02 axis-convention refactor; separately found and
+  fixed a stale/incorrect `wing.vertex` on the coarse corpus's cluster NFS share (issue #62) that had
+  been running the pre-T2a axis convention entirely; regenerated `examples/prelim_sweep/`'s decks +
+  `dataset.parquet`/`surrogate/*`/`figures/*` end-to-end and `examples/prelim_sweep_fine/`'s decks
+  (CFD re-run deferred); automated NFS provisioning going forward —
+  `fix-force-surrogate-sweep-hinge`
 
 ### Not Planned
 - FP32 builds - upstream IAMReX does not support; using FP64 on A100/H100 instead
@@ -153,7 +160,11 @@ mosquito-cfd/
 - [ ] Multi-GPU / multi-node validation
 - [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
   — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
-  explicit go-ahead (shared lab GPU quota, unverified preemption/retry path)
+  explicit go-ahead (shared lab GPU quota, unverified preemption/retry path). **Superseded run:**
+  this already happened once (`force-surrogate-sweep-vb8t5` +
+  `force-surrogate-retry-failed-trz9k`), but it ran against the stale wing-hinge geometry
+  (`fix-force-surrogate-sweep-hinge`) and needs re-submission against the corrected decks; see
+  `examples/prelim_sweep_fine/sweep_provenance.json`'s `superseded_by` field.
 - [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
   `docs/visualization/diagnostic_config_mean_collapse.png` once
   `examples/prelim_sweep_fine/surrogate/` exists — no placeholder exists at that path today; the

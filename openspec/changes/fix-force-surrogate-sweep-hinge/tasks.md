@@ -291,7 +291,7 @@ Phase 5's cluster-run commit):
 
 **PR 2 (claims the fix is done, so gated on Phase 5/6 actually landing):**
 
-45. [ ] `openspec/project.md` "Current State" — add a bullet: "Fixed a wing-hinge geometry defect
+45. [x] `openspec/project.md` "Current State" — add a bullet: "Fixed a wing-hinge geometry defect
     (root hinge collapsed to a midspan pivot in the git-committed base decks) dating to the
     2026-07-02 axis-convention refactor; separately found and fixed a stale/incorrect `wing.vertex`
     on the coarse corpus's cluster NFS share (issue #62) that had been running the pre-T2a axis
@@ -304,7 +304,13 @@ Phase 5's cluster-run commit):
     `add-fine-grid-training-pilot` proposals' own force-accuracy/validity discussion, per this
     proposal's "What Changes" item 10 ("Documentation pointers") — flagged in PR #70's review as
     promised by `proposal.md` but not yet covered by any task (PR 1c's tasks 42-44 only touch
-    `docs/`).
+    `docs/`). Done: added the pointer to `add-fine-grid-training-pilot/proposal.md`'s CF_chord
+    grid-resolution table (clarifying that table itself is unaffected — it's from the
+    already-correct `examples/flapping_wing/` deck — but the pilot's own 3 committed force CSVs,
+    generated from the buggy `base_inputs.3d.fine`, predate the fix) and to
+    `add-fine-grid-corpus-full/proposal.md`'s "Why" section (which reuses that same buggy base deck
+    unmodified). `docs/force_surrogate/fine-grid-pilot-report.md` already had its pointer from
+    task 44.
 
 ### Phase 8 — verification and sign-off
 

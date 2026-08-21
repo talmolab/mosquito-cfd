@@ -10,6 +10,12 @@ generate all 27 `run_metadata_<config>.json` files without hand-authoring — th
 hand-authored files had a `final_time` bug and a truncated-SHA bug, exactly the class of mistake
 the new tool exists to prevent.
 
+> **Pointer (`fix-force-surrogate-sweep-hinge`, later change):** the pilot's fine base deck this
+> proposal reuses unmodified (`examples/prelim_sweep_fine_pilot/base_inputs.3d.fine`, referenced
+> below) carried a wing-hinge geometry defect until that later fix, which also regenerated this
+> proposal's own 27 committed decks. The pilot's force accuracy/stability findings above predate
+> the fix; see that change's `tasks.md` for what was and wasn't regenerated.
+
 Both pilot gates are now cleared. What remains before the actual 27-config regeneration can be
 submitted is scaffolding: a deck-generation driver for the full grid (the pilot's own script is
 hardcoded to 3 configs and `n_holdout=0`), and a way to run the existing fan-out Argo workflow at
