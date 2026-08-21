@@ -345,7 +345,7 @@ def test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel():
     a shape the original off-panel-only scan silently mishandled (caught by /review-pr, not by
     the first version of this test).
     """
-    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, cf_mx_r2=0.99, null_target=None)
+    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
     sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
     cap = build_caption(metrics, sp, _TOY_BASELINE)
     low = cap.lower()
@@ -356,6 +356,37 @@ def test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel():
     assert (
         "no target's config-resolved" not in low
     )  # must not use the "nothing found" fallback
+
+
+def test_build_caption_names_the_worst_offender_when_multiple_targets_are_negative():
+    """Scenario: with two simultaneously-negative targets, the caveats line must name the
+    MOST negative (worst) one, not just the first in axis order. A mild on-panel dip
+    (CF_x=-0.01) must not bury a severe off-panel failure (CF_mz=-5.0) — picking "first found"
+    by axis order would report the harmless one and hide the alarming one, which is exactly
+    the "silently wrong output" the disclosure mechanism exists to prevent.
+    """
+    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, null_target=None)
+    metrics["config_resolved"]["CF_mz"]["config_mean_r2"] = -5.0
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert "cf_mz" in low and "-5.0" in cap  # the worst offender is named
+    assert "cf_x config-resolved r² = -0.01" not in low  # not the milder on-panel one
+    assert "off-panel" in low  # correctly labeled off-panel, not "on-panel"
+
+
+def test_build_caption_aggregate_r2_does_not_round_to_a_literal_1_00():
+    """Scenario: an aggregate R2 of 0.9989... must not render as a literal "1.00" — that
+    contradicts the surrounding prose's point that the aggregate is suspiciously close to,
+    but not literally, a perfect fit (a real bug: :.2f rounded 0.9989899... to "1.00" until
+    fixed to :.3f, found by /review-pr against the real committed corpus).
+    """
+    metrics = _toy_metrics(null_target=None)
+    metrics["aggregate"]["r2"] = 0.9989907931930803
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    assert "1.00" not in cap
+    assert "0.999" in cap
 
 
 def test_build_caption_mutates_with_metrics():
@@ -754,7 +785,7 @@ def test_readme_carries_full_disclosures():
     assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
-    assert "~470" in readme or "470×" in readme or "470x" in low  # latency floor
+    assert "~468" in readme or "468×" in readme or "468x" in low  # latency floor
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------

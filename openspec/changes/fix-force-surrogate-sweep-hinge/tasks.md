@@ -244,6 +244,56 @@ Phase 5's cluster-run commit):
     perfect). Added `test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel`
     (confirmed red against the once-fixed-but-still-incomplete code via `git stash`, green after
     this second fix), then regenerated the figure again.
+    **Third round, from PR #71's own posted `/review-pr` (5-agent pass against the real PR
+    diff, 4 of 5 lenses independently converged on overlapping findings):**
+    - Fixed the tie-break when more than one target is negative: was `next(iter(...))` (first
+      in fixed axis order, so a mild on-panel dip could silently bury a severe off-panel
+      failure); now `min(..., key=lambda kv: kv[1])` (the worst/most-negative offender). Added
+      `test_build_caption_names_the_worst_offender_when_multiple_targets_are_negative`
+      (confirmed red against the old tie-break, green after).
+    - Removed the now-redundant `off_panel_r2` dict (superseded by `all_config_r2`, which the
+      first-round fix added without removing the original) — `off_panel_disclosure` now reads
+      directly from `all_config_r2`.
+    - Softened the "(on-panel, see the headline above)" phrasing to "(on-panel — one of the
+      three plotted axes above)" — the literal substring `"CF_my"` never appears in the
+      headline (it renders as `"CF_m (M_y)"`), so the original phrasing's implied
+      text-cross-reference wasn't generically true for all three panel axes.
+    - Added `test_build_caption_aggregate_r2_does_not_round_to_a_literal_1_00` locking in the
+      `:.2f`→`:.3f` fix from the prior round (previously unguarded by any test; confirmed red
+      against `:.2f`, green against `:.3f`).
+    - **BLOCKING finding, fixed:** `examples/prelim_sweep/sweep_provenance.json`'s
+      `downstream_artifacts_pending_regeneration` field (added by an earlier commit in this
+      same PR, before the go/no-go landed) was left stale — it claimed `dataset.parquet`/
+      `surrogate/*`/`figures/*` had NOT been regenerated, contradicting this PR's own later
+      commits which regenerated them all. Replaced with
+      `downstream_artifacts_regenerated_from` (naming the two cluster workflows and the pinned
+      digest that produced the final artifacts, mirroring the fine corpus's `superseded_by`
+      pattern) and updated `test_coarse_corpus_provenance_flags_pending_downstream_regeneration`
+      (renamed to `..._flags_downstream_regeneration_source`) to assert the stale field's
+      absence and the new field's presence/shape.
+    - Aligned a minor rounding inconsistency: the caption's own `{lat:.0f}x` render of
+      `467.575...` is `"468x"`, while `README.md`/`roadmap.md` prose independently rounded to
+      `"~470×"`. Changed the prose to `"~468×"` to match the figure's own printed number exactly
+      (and updated the test asserting for `"470"` in the README to `"468"`).
+    - **Investigated but deliberately NOT fixed:** `examples/prelim_sweep/surrogate/run_metadata.json`'s
+      `git` block is `{"error": "git not available or not a repository"}` instead of a real
+      commit — caused by running `train_surrogate.py` from WSL against a Windows-created git
+      worktree, whose `.git` file contains a Windows-style path (`C:/repos/...`) that WSL's
+      Linux git cannot resolve as a gitdir. Confirmed fixable going forward with explicit
+      `GIT_DIR`/`GIT_WORK_TREE` env vars set to the WSL-mounted equivalent path before invoking
+      training. **Not patched retroactively**: the correct historical commit (`7740c70`, matching
+      the dataset-extraction run's own `git.commit`, since training ran in the same git state
+      before either was committed) is knowable, but the working tree's dirty/`diff_hash` state
+      differed between the two capture moments (training's own output files existed as
+      additional uncommitted changes by the time IT was captured) and can't be reconstructed
+      without literally checking out that historical commit — a materially riskier operation
+      than leaving the honest `"error"` marker in place. The current `{"error": ...}` behavior
+      is exactly this project's own documented design intent for unresolvable metadata (an
+      explicit marker, not a fabricated or silently blank value) — so this is a disclosed,
+      accepted residual, not a silently-ignored gap. Retraining to fix it was also rejected: the
+      GPU run is seeded but not bitwise-reproducible, so a re-run would very likely perturb the
+      already-verified R²/RMSE numbers now written into `README.md`/`roadmap.md`, trading one
+      real-but-minor provenance gap for a much larger re-verification cost.
 37. [x] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
     once total) and commit its output under `examples/prelim_sweep/figures/`. Create
     `examples/prelim_sweep/figures/README.md` (new file, modeled on

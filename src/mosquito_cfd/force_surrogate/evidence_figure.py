@@ -294,7 +294,9 @@ def build_caption(
     has it on-panel instead (CF_x). Scanning only the off-panel three would miss that case
     entirely and silently fall back to a "nothing to report" message while an on-panel axis
     sits negative three words earlier in the same caption's headline — checked deliberately,
-    not assumed to be off-panel.
+    not assumed to be off-panel. If more than one target is negative, the **most negative**
+    (worst) one is named, not just the first in axis order — a mild on-panel dip must not bury
+    a severe off-panel failure.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
@@ -306,7 +308,6 @@ def build_caption(
     """
     r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
     rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
-    off_panel_r2 = {c: _config_mean_r2(metrics, c) for c in ("CF_y", "CF_mx", "CF_mz")}
     all_config_r2 = {
         c: _config_mean_r2(metrics, c)
         for c in ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
@@ -328,9 +329,11 @@ def build_caption(
         c: v for c, v in all_config_r2.items() if v is not None and v < 0
     }
     if negative_targets:
-        flag_c, flag_v = next(iter(negative_targets.items()))
+        # The worst (most negative) offender, not just the first in axis order — with two
+        # simultaneous negatives, a mild on-panel one must not bury a severe off-panel one.
+        flag_c, flag_v = min(negative_targets.items(), key=lambda kv: kv[1])
         where = (
-            "on-panel, see the headline above"
+            "on-panel — one of the three plotted axes above"
             if flag_c in PANEL_COEFFICIENTS
             else "off-panel"
         )
@@ -338,7 +341,7 @@ def build_caption(
     else:
         tell = "no target's config-resolved R² is negative this run"
     off_panel_disclosure = ", ".join(
-        f"{c} {_fmt_r2(v)}" for c, v in off_panel_r2.items() if c in ("CF_mx", "CF_mz")
+        f"{c} {_fmt_r2(all_config_r2[c])}" for c in ("CF_mx", "CF_mz")
     )
     caveats = (
         f"Caveats: aggregate pointwise R²~{agg:.3f} is waveform-dominated and overstates "

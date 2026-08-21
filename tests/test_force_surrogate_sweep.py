@@ -515,20 +515,29 @@ def test_committed_sweep_matches_regeneration(tmp_path):
         assert (PRELIM_SWEEP / name).read_bytes() == (tmp_path / name).read_bytes()
 
 
-def test_coarse_corpus_provenance_flags_pending_downstream_regeneration():
-    """The committed sweep_provenance.json flags that dataset.parquet/surrogate/*/figures/*
-    do not yet reflect the corrected hinge -- fix-force-surrogate-sweep-hinge regenerated this
-    corpus's decks/manifest, but the actual cluster re-run + retrain is still gated on an
-    explicit go/no-go (tasks.md Phase 5). Without this flag, a reader could mistake main's
-    committed dataset/surrogate/figures for evidence of the corrected geometry.
+def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
+    """The committed sweep_provenance.json records which cluster workflows regenerated
+    dataset.parquet/surrogate/*/figures/* against the corrected hinge -- a completed-state
+    record, not a "still pending" flag (that flag was accurate only mid-fix, before the
+    go/no-go landed and the cluster re-run + retrain actually completed; it must be replaced,
+    not left stale, once those artifacts are genuinely refreshed -- a reader trusting a
+    "pending" flag against already-regenerated artifacts would wrongly distrust good data).
     """
     provenance = json.loads(
         (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
     )
-    assert provenance.get("downstream_artifacts_pending_regeneration"), (
-        "sweep_provenance.json is missing 'downstream_artifacts_pending_regeneration'"
+    assert "downstream_artifacts_pending_regeneration" not in provenance, (
+        "stale 'pending' flag left in place after downstream artifacts were regenerated"
     )
-    affected = provenance["downstream_artifacts_pending_regeneration"]["affected"]
+    record = provenance.get("downstream_artifacts_regenerated_from")
+    assert record, (
+        "sweep_provenance.json is missing 'downstream_artifacts_regenerated_from'"
+    )
+    assert record["cluster_workflows"], (
+        "must name the cluster workflow(s) that produced this"
+    )
+    assert record["docker_image_digest"].startswith("sha256:")
+    affected = record["affected"]
     assert "dataset.parquet" in affected
     assert any("surrogate/" in a for a in affected)
     assert any("figures/" in a for a in affected)

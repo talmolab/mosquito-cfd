@@ -350,7 +350,7 @@ disclosure:
   rate) equals `latency_speedup × parallelism_factor` (~8,050× this run — measured independently from,
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
-  **per-evaluation latency speedup is ~470×** and is reported as the like-for-like floor. Both
+  **per-evaluation latency speedup is ~468×** and is reported as the like-for-like floor. Both
   factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.
 
 ### Regenerating

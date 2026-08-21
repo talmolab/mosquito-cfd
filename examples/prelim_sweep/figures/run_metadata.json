@@ -1,11 +1,11 @@
 {
-  "run_id": "9303105b-765f-4822-aa4a-7ccdc5599048",
-  "timestamp": "2026-08-21T20:04:03Z",
+  "run_id": "9b6d1560-ca18-4362-939f-151be5e0a592",
+  "timestamp": "2026-08-21T20:55:53Z",
   "git": {
-    "commit": "670d4819be8a762a6bf48709d59e1d2b7ea4e756",
+    "commit": "bbec1692b3463c3186f29ffc76866ea48750d162",
     "branch": "fix-hinge-corpus-regen",
     "dirty": true,
-    "diff_hash": "c4274a2c58b8",
+    "diff_hash": "4fc80509f608",
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {

@@ -192,7 +192,7 @@ config-to-config skill] to 0.99 [`CF_mx`] as of the `fix-force-surrogate-sweep-h
 regeneration — see `examples/prelim_sweep/README.md`'s honest-reading section; the earlier
 pre-fix corpus had these numbers ≈0.75–0.94 with `CF_y` as the negative axis instead of `CF_x`);
 torch pinned to the cu126 index (D11). [PR #23](https://github.com/talmolab/mosquito-cfd/pull/23) | A5000 | ✅ |
-| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (~470× latency floor
+| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (~468× latency floor
 as of the `fix-force-surrogate-sweep-hinge` corpus regeneration; was ~310×). **Sane–Dickinson quasi-steady kept as a computed *reference* (overshoot factor), NOT a scatter overlay** — at the coarse grid the overlay re-displays the uncalibrated model's analytic loops, not surrogate skill (CC-4 deviation). [PR #25](https://github.com/talmolab/mosquito-cfd/pull/25) | local | ✅ |
 
 **Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6. PR3.5 (Argo) supersedes PR3's
