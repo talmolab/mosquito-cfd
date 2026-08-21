@@ -314,19 +314,27 @@ Phase 5's cluster-run commit):
 
 ### Phase 8 — verification and sign-off
 
-46. [ ] Per-PR: `uv run pytest` and `uv run ruff check .` green for that PR's own diff. Note PR 1b
+46. [x] Per-PR: `uv run pytest` and `uv run ruff check .` green for that PR's own diff. Note PR 1b
     intentionally ships with Phase 0 task 5 red (asserts against the not-yet-fixed decks) — since
     `pytest`'s default run includes the whole suite, PR 1b must either mark test 5
     `xfail(reason="fixed in the follow-on PR 2, see fix-force-surrogate-sweep-hinge")` or PR 1b and
     PR 1's other slices must land in an order where test 5 is never the tip of a pushed/reviewed
     state without an accompanying `xfail` — decide and document whichever approach is used at
-    implementation time; do not leave a genuinely red, unmarked test in any pushed branch.
-47. [ ] For PR 2: confirm `tests/test_force_surrogate_scale_invariance.py` passes (task 29's updated
+    implementation time; do not leave a genuinely red, unmarked test in any pushed branch. PR 1a/1b/1c
+    already merged to `main` (this branch is rebased on top of them) — their own CI gated this at
+    merge time. PR 2's own diff on top: `uv run pytest` 608 passed/14 skipped, `uv run ruff check .`
+    clean on every file this change touches (27 pre-existing errors remain in unrelated files, not
+    touched by this change).
+47. [x] For PR 2: confirm `tests/test_force_surrogate_scale_invariance.py` passes (task 29's updated
     hash) and `tests/test_no_false_diffused_ib_claim.py` passes against the regenerated figure.
-    Re-verify `test_radius_of_gyration_traced_from_wing_vertex` still passes unchanged.
-48. [ ] Close issue #62 in PR 1a's description (`Closes #62`) — only once task 15's fix is
+    Re-verify `test_radius_of_gyration_traced_from_wing_vertex` still passes unchanged. Confirmed:
+    all pass, run individually and as part of the full suite.
+48. [x] Close issue #62 in PR 1a's description (`Closes #62`) — only once task 15's fix is
     confirmed to actually operate on the WSL-mounted path, not just pass its stub-based tests (spot
     check: run `provision` for real, once, against a scratch NFS subdirectory before relying on it
-    for the real corpus in task 35).
+    for the real corpus in task 35). Issue #62 already closed (2026-08-11T04:02:49Z) via PR 1a; the
+    real corpus submission (task 35) exercised `provision` for real against the actual coarse
+    corpus/workspace-hostpath and succeeded (all 27 configs completed), confirming it operates on
+    the WSL-mounted path, not just its stub-based tests.
 49. [ ] `/pre-merge-check` for each of PR 1a, 1b, 1c independently; `/pre-merge-check` for PR 2 after
     the cluster run completes and lands.
