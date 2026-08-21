@@ -302,9 +302,7 @@ def build_caption(
     """
     r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
     rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
-    off_panel_r2 = {
-        c: _config_mean_r2(metrics, c) for c in ("CF_y", "CF_mx", "CF_mz")
-    }
+    off_panel_r2 = {c: _config_mean_r2(metrics, c) for c in ("CF_y", "CF_mx", "CF_mz")}
     agg = _require(metrics, "aggregate", "aggregate metrics")["r2"]
     thr = speedup["throughput_speedup"]
     lat = speedup["latency_speedup"]
