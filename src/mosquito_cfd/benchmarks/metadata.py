@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import os
+import re
 import socket
 import subprocess
 import uuid
@@ -9,9 +11,122 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+_WINDOWS_GITDIR_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
+
+
+def _translate_windows_worktree_gitdir(gitdir_line: str) -> str | None:
+    """Translate a Windows-style worktree ``gitdir:`` pointer to its WSL ``/mnt/<drive>`` path.
+
+    Git for Windows records a worktree's real gitdir using a Windows absolute path (e.g.
+    ``C:/repos/mosquito-cfd/.git/worktrees/<name>``). A Linux git binary (as invoked from WSL)
+    does not recognize a bare drive letter as absolute and fails to resolve it, reporting "not a
+    git repository" for what is actually a perfectly valid worktree
+    (``fix-git-provenance-wsl-worktree``).
+
+    Args:
+        gitdir_line: The raw content of a worktree's ``.git`` pointer file, e.g.
+            ``"gitdir: C:/repos/mosquito-cfd/.git/worktrees/my-worktree"``.
+
+    Returns:
+        The WSL-mounted equivalent (e.g. ``/mnt/c/repos/mosquito-cfd/.git/worktrees/my-worktree``),
+        or ``None`` if ``gitdir_line`` isn't a Windows-style absolute path (nothing to translate).
+    """
+    content = gitdir_line.strip()
+    if content.startswith("gitdir:"):
+        content = content[len("gitdir:") :].strip()
+    match = _WINDOWS_GITDIR_RE.match(content)
+    if match is None:
+        return None
+    drive, rest = match.groups()
+    return f"/mnt/{drive.lower()}/{rest.replace(chr(92), '/')}"
+
+
+def _worktree_retry_env(repo_dir: Path) -> dict[str, str] | None:
+    """Build a ``GIT_DIR``/``GIT_WORK_TREE`` override for a Windows-created worktree.
+
+    Used to retry a git invocation that failed to resolve ``repo_dir`` natively — see
+    :func:`_translate_windows_worktree_gitdir`.
+
+    Args:
+        repo_dir: Directory to inspect for a worktree ``.git`` pointer file.
+
+    Returns:
+        ``{"GIT_DIR": <translated path>, "GIT_WORK_TREE": str(repo_dir)}``, or ``None`` when
+        ``repo_dir/.git`` isn't a worktree pointer file (it's a real gitdir directory, or
+        missing), or its content isn't a Windows-style path (nothing to retry with).
+    """
+    git_pointer = repo_dir / ".git"
+    if not git_pointer.is_file():
+        return None
+    try:
+        content = git_pointer.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    translated = _translate_windows_worktree_gitdir(content)
+    if translated is None:
+        return None
+    return {"GIT_DIR": translated, "GIT_WORK_TREE": str(repo_dir)}
+
+
+def _collect_git_info(cwd: str, env: dict[str, str] | None) -> dict[str, Any]:
+    """Run the git subprocess calls once and assemble the provenance dict.
+
+    Args:
+        cwd: Directory to run the git commands in.
+        env: Optional environment override (e.g. a translated ``GIT_DIR``/``GIT_WORK_TREE``
+            for a Windows-created worktree read from WSL). ``None`` uses the inherited
+            environment.
+
+    Returns:
+        Dictionary with git commit, branch, dirty status, diff hash, and repository URL.
+
+    Raises:
+        subprocess.CalledProcessError: If the primary ``git rev-parse HEAD`` call fails.
+        FileNotFoundError: If the ``git`` executable itself cannot be found.
+    """
+    kwargs: dict[str, Any] = {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "cwd": cwd,
+        "env": env,
+    }
+    result: dict[str, Any] = {}
+
+    # Get current commit
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], check=True, **kwargs)
+    result["commit"] = commit.stdout.strip()
+
+    # Get branch name
+    branch = subprocess.run(["git", "symbolic-ref", "--short", "HEAD"], **kwargs)
+    result["branch"] = branch.stdout.strip() if branch.returncode == 0 else "detached"
+
+    # Check if dirty
+    diff = subprocess.run(["git", "diff", "HEAD"], check=True, **kwargs)
+    result["dirty"] = len(diff.stdout) > 0
+
+    # Hash of diff if dirty
+    if result["dirty"]:
+        result["diff_hash"] = hashlib.sha256(diff.stdout.encode()).hexdigest()[:12]
+
+    # Get remote URL
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], **kwargs)
+    if remote.returncode == 0:
+        result["repository"] = remote.stdout.strip()
+
+    return result
+
 
 def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
     """Get git repository information for provenance tracking.
+
+    If the primary attempt fails because ``repo_path`` is a git worktree whose ``.git`` pointer
+    file names a Windows-style absolute path that the running (Linux) git binary can't parse —
+    e.g. training via WSL against a worktree created by Git for Windows — retries once with that
+    path translated to its WSL-mounted equivalent (``fix-git-provenance-wsl-worktree``). Every
+    other failure (no git binary, not a repository, a non-worktree directory, or a retry that
+    also fails) falls back to the existing honest ``"error"`` result unchanged.
 
     Args:
         repo_path: Path to git repository. If None, uses current directory.
@@ -19,67 +134,22 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
     Returns:
         Dictionary with git commit, branch, dirty status, and diff hash.
     """
-    cwd = str(repo_path) if repo_path else None
-    result = {}
+    repo_dir = repo_path if repo_path is not None else Path.cwd()
+    cwd = str(repo_dir)
 
     try:
-        # Get current commit
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            check=True,
-        )
-        result["commit"] = commit.stdout.strip()
-
-        # Get branch name
-        branch = subprocess.run(
-            ["git", "symbolic-ref", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-        )
-        result["branch"] = (
-            branch.stdout.strip() if branch.returncode == 0 else "detached"
-        )
-
-        # Check if dirty
-        diff = subprocess.run(
-            ["git", "diff", "HEAD"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            check=True,
-        )
-        result["dirty"] = len(diff.stdout) > 0
-
-        # Hash of diff if dirty
-        if result["dirty"]:
-            result["diff_hash"] = hashlib.sha256(diff.stdout.encode()).hexdigest()[:12]
-
-        # Get remote URL
-        remote = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-        )
-        if remote.returncode == 0:
-            result["repository"] = remote.stdout.strip()
-
+        return _collect_git_info(cwd, env=None)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        result["error"] = "git not available or not a repository"
+        pass
 
-    return result
+    override = _worktree_retry_env(repo_dir)
+    if override is not None:
+        try:
+            return _collect_git_info(cwd, env={**os.environ, **override})
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+    return {"error": "git not available or not a repository"}
 
 
 def get_hardware_info() -> dict[str, Any]:
