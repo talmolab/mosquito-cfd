@@ -730,7 +730,7 @@ def test_readme_carries_full_disclosures():
     assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
-    assert "~310" in readme or "310×" in readme or "310x" in low  # latency floor
+    assert "~470" in readme or "470×" in readme or "470x" in low  # latency floor
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------

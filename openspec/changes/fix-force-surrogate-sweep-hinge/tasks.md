@@ -228,19 +228,28 @@ Phase 5's cluster-run commit):
     the fix), then regenerated the figure with the corrected caption. `PANEL_COEFFICIENTS` (the fixed
     3-axis panel choice, design D1) is unchanged — only the caption's off-panel prose is now
     data-driven rather than assuming one corpus's ranking holds for all future ones.
-37. [ ] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
+37. [x] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
     once total) and commit its output under `examples/prelim_sweep/figures/`. Create
     `examples/prelim_sweep/figures/README.md` (new file, modeled on
     `examples/flapping_wing/figures/README.md`'s file-table + "Regenerate" section), and add a
     one-line cross-reference from `examples/prelim_sweep/README.md`'s existing
-    "Figure (`figures/`)" section (confirmed present at that exact header).
-38. [ ] **Refresh every hardcoded result number** that changes with the regenerated corpus — this is
+    "Figure (`figures/`)" section (confirmed present at that exact header). Done: default sample
+    (`validated`, `s35_f085_p30`, `s55_f115_p60`), hinge visually confirmed at the span root
+    `(4.0, 0.5, 4.0)` (black triangle) at all four phases in all three renders.
+38. [x] **Refresh every hardcoded result number** that changes with the regenerated corpus — this is
     NOT limited to `evidence_figure_metrics.json`-sourced values: also check `surrogate/metrics.json`-
     sourced numbers, which appear separately in `docs/force_surrogate/roadmap.md`'s PR-table row for
     `add-force-surrogate-train` ("Held-out-config R²≈0.98 (config-mean R²≈0.75–0.94)") and in
     `examples/prelim_sweep/README.md`'s "honest reading" section ("pointwise aggregate R² ~0.98").
     Search both files for every number traceable to either JSON artifact and replace with the
-    regenerated values.
+    regenerated values. Done: updated both files' aggregate/config-resolved R² numbers, the
+    overshoot factor (2.3×→1.3×), and the speedup decomposition (latency floor 310×→470×,
+    parallelism factor ~12,000×→~8,050×, corrected to note it's measured independently from batch
+    size rather than assumed equal to it). Also found and fixed two more spots task 38's own wording
+    didn't anticipate: `docs/force_surrogate/roadmap.md`'s PR6 table row and
+    `evidence_figure.py`'s own module docstring both separately hardcoded "~310x latency floor."
+    Also updated `tests/test_force_surrogate_evidence_figure.py::test_readme_carries_full_disclosures`'s
+    hardcoded "~310" assertion to "~470" (same commit — the test checks the README's literal text).
 
 ### Phase 6 — regenerate the fine corpus's decks only (no CFD run; still PR 2 — needs Phase 1's fix)
 

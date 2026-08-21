@@ -14,7 +14,8 @@ Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my hea
 named as a component — issue #1), D2 (translational Sane-Dickinson via the CC-3
 ``compute_force_reference`` helper; reference-only, not overlaid), D3 (honest caption, split
 compact-caption vs README), D4 (batched-throughput >1,000x speedup, disclosed as batch-size
-driven; ~310x latency floor).
+driven; latency floor is read from ``metrics.json`` each run, not a fixed number — ~470x as of
+the ``fix-force-surrogate-sweep-hinge`` corpus regeneration, ~310x before it).
 """
 
 from __future__ import annotations

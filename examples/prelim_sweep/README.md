@@ -238,11 +238,12 @@ spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inf
 re-listed here to avoid drift.
 
 > **Read the `config_resolved` block, not just the aggregate R² (CC-4).** The pointwise aggregate
-> R² (~0.98) is **~99.9% the within-beat force waveform** — a smooth periodic shape shared by every
+> R² (~0.999) is **~99.9% the within-beat force waveform** — a smooth periodic shape shared by every
 > config — so it overstates the kinematics→force-*map* skill. `metrics.json` also reports, per
 > target, `config_resolved.config_mean_r2` (R² on the per-config **cycle-mean** — the phase-removed
-> config-to-config skill, ~0.75–0.94) and `within_config_variance_fraction` (how waveform-driven the
-> aggregate is). The PR6 figure caption uses the honest config-resolved number, not the aggregate.
+> config-to-config skill; -0.01 to 0.99 across the 6 targets in the current, corrected-hinge corpus)
+> and `within_config_variance_fraction` (how waveform-driven the aggregate is). The PR6 figure
+> caption uses the honest config-resolved number, not the aggregate.
 
 **Training is local — the RTX A5000 (24 GB, FP32/TF32) via WSL2 + `uv`, *not* RunAI.** The GPU
 deps are an opt-in group:
@@ -286,6 +287,9 @@ is computed as a reference number (overshoot factor) but **not** overlaid — se
 Force-only (CC-6): the only inputs are the committed predictions parquet + `metrics.json` — no
 plotfiles, cluster, or GPU.
 
+See [`figures/README.md`](figures/README.md) for the full file table (including the cluster-free
+wing-phase hinge-geometry diagnostic) and regeneration commands.
+
 | File | Status | Contents |
 |---|---|---|
 | `figures/evidence_figure.png` | **committed** | The ≥200-dpi figure (3 predicted-vs-CFD panels, points colored by held-out config with a shared legend, + caption). A snapshot artifact — review it visually, not by byte-diff; its numbers are auditable from the sidecar below. |
@@ -305,23 +309,36 @@ disclosure:
   figure proves the data→surrogate→inference pipeline runs end-to-end on local hardware and that the
   PhysicsNeMo stack is usable — it is **not** a validated-aerodynamics claim. This is the deliberately
   reduced "easy" surrogate (roadmap Vision / §9), not the funded DoMINO/latent-dynamics surrogate.
-- **Use the config-resolved skill, not the aggregate.** The pointwise aggregate R²≈0.98 is ~99.9% the
+- **Use the config-resolved skill, not the aggregate.** The pointwise aggregate R²≈0.999 is ~99.9% the
   shared within-beat **phase waveform** and overstates the kinematics→force-*map* skill; the figure
-  reports the per-axis **config-resolved** R² (CF_x ≈0.94, CF_z ≈0.83, CF_my ≈0.99). The concrete
-  tell that the aggregate is inflated: CF_y's config-resolved R² is **negative**.
-- **Headline moment = the M_y component, not "pitch moment".** CF_my is the only moment with genuine
-  config-to-config signal (≈56% between-config variance; the highest config-resolved R²); CF_mx and
-  CF_mz are ≈99.9% the shared waveform and are **omitted** because they cannot demonstrate a
-  kinematics→force map. CF_my is named the **M_y component** rather than "pitch moment" because the
-  repo's axis convention differs from the biomechanics standard (**issue #1**); the fix is a
-  solver-level refactor + full cluster re-run, deliberately out of scope here (CC-6).
+  reports the per-axis **config-resolved** R² (CF_x ≈-0.01, CF_z ≈0.98, CF_my ≈0.51). The concrete
+  tell that the aggregate is inflated is now directly **on-panel**: `CF_x`'s own config-resolved R² is
+  **negative** (worse than predicting the per-config mean), even though its pointwise scatter looks
+  visually perfect — the near-zero config-to-config skill is entirely masked by the shared waveform.
+  (Before the `fix-force-surrogate-sweep-hinge` corpus regeneration, it was the **off-panel** `CF_y`
+  that carried this tell, with `CF_x` at ≈0.94; the corrected hinge geometry flipped which axis shows
+  it — see `figures/README.md` and the `evidence_figure.py::build_caption` fix for why the caption
+  computes this from `metrics.json` rather than assuming one corpus's ranking holds for all others.)
+- **Headline moment = the M_y component, not "pitch moment".** The three plotted axes (`CF_x`, `CF_z`,
+  `CF_my`) are **fixed by design** (`PANEL_COEFFICIENTS`, D1), not re-derived per corpus. In the
+  pre-fix corpus, `CF_my` happened to be the only moment with genuine config-to-config signal
+  (≈56% between-config variance, the highest config-resolved R² among the three moments) — that
+  empirical ranking has since flipped: with the corrected hinge, `CF_mx`'s config-resolved R² (≈0.99)
+  now clearly beats `CF_my`'s (≈0.51), and `CF_my`'s between-config variance fraction has fallen to a
+  sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz` stay **omitted** from the
+  plotted axes), but the caption discloses the actual current `CF_mx`/`CF_mz` numbers rather than
+  claiming they carry "no between-config signal." CF_my is named the **M_y component** rather than
+  "pitch moment" because the repo's axis convention differs from the biomechanics standard
+  (**issue #1**); the fix is a solver-level refactor + full cluster re-run, deliberately out of scope
+  here (CC-6).
 - **The Sane–Dickinson quasi-steady model is a reference, not a plotted baseline.** It is an
   **uncalibrated, zero-parameter** translational quasi-steady model (Sane & Dickinson 2002;
   hovering-scoped; **symmetric-rotation** AoA; rotational + added-mass terms **omitted**; lift defined
   **stroke-plane-normal** while CFD CF_z is the **lab-z** force), computed through the single-source
   `compute_force_reference` helper (CC-3). **It is deliberately *not* drawn on the scatter.** At this
-  coarse grid it overshoots the CFD lift ~**2.3×** (RMS, in `evidence_figure_metrics.json` as
-  `quasi_steady_reference.overshoot_factor`) — the **model's tip-velocity overprediction** under the
+  coarse grid it overshoots the CFD lift ~**1.3×** (RMS, in `evidence_figure_metrics.json` as
+  `quasi_steady_reference.overshoot_factor` — down from ~2.3× pre-fix; the corrected hinge changes the
+  CFD forces the model is compared against) — the **model's tip-velocity overprediction** under the
   van Veen convention (lift integrates over the span where inboard sections move slower, while the
   uncalibrated QS model scales on a single tip-like velocity and over-weights it); the CFD `ib_force`
   itself is correct. An overlay would mostly **re-display the model's analytic loops, not surrogate
@@ -329,12 +346,12 @@ disclosure:
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
-  (≈3.7×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
-  rate) equals `latency_speedup × batch_size`, so ~12,000× of it is simply the **batch size**
-  (N=12,535, the whole holdout set evaluated in parallel — the surrogate is a pointwise map; a CFD
-  time integration cannot be batched). The conservative **per-evaluation latency speedup is ~310×**
-  and is reported as the like-for-like floor. Both factors, the batch size, and the parallelism
-  factor are in `evidence_figure_metrics.json`.
+  (≈3.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
+  rate) equals `latency_speedup × parallelism_factor` (~8,050× this run — measured independently from,
+  and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
+  the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
+  **per-evaluation latency speedup is ~470×** and is reported as the like-for-like floor. Both
+  factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.
 
 ### Regenerating
 
