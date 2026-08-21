@@ -161,10 +161,12 @@ Phase 5's cluster-run commit):
 27. [x] Update `tests/test_force_surrogate_sweep.py`'s `BASE_INPUTS` comment ("frozen snapshot...
     never regenerated") to reference this change and the one-time exception.
 28. [x] Update `src/mosquito_cfd/force_surrogate/sweep.py`'s docstring(s) similarly.
-29. [ ] **Update `tests/test_force_surrogate_scale_invariance.py`'s `_FROZEN_RAW_FORCE_SHA`** to the
+29. [x] **Update `tests/test_force_surrogate_scale_invariance.py`'s `_FROZEN_RAW_FORCE_SHA`** to the
     post-regeneration hash. `_FROZEN_RAW_FORCE_SHA` hashes `dataset.parquet`'s raw columns, which
     only exist after Phase 5's extract/train step (task 36) — update this in the **same commit** as
-    task 36, not earlier (the new hash isn't known until `dataset.parquet` exists).
+    task 36, not earlier (the new hash isn't known until `dataset.parquet` exists). Done: new hash
+    `02b04f46a99655122f402433e4d0c1afb8cd0e5b28c9b85236ed96cbab14486e` (differs from the pre-fix
+    value, confirming the corrected hinge geometry changed the raw CFD forces as expected).
 30. [x] `test_committed_sweep_matches_regeneration` requires no code change — passes by construction
     once Phase 5 regenerates and commits the corpus together. Do not weaken or delete it.
 
@@ -186,20 +188,46 @@ Phase 5's cluster-run commit):
 32. [x] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
     as a manual, visual pre-submission sanity check — an operator looking at the PNG, not a pytest
     assertion. Run once (task 37 supersedes it; do not duplicate).
-33. [ ] **Fetch a fresh `:fp64` digest for this change's own merge**: per `cluster/argo/README.md`'s
+33. [x] **Fetch a fresh `:fp64` digest for this change's own merge**: per `cluster/argo/README.md`'s
     Prerequisites, wait for `docker.yml`'s `build-fp64` job triggered by this change's own merge
     (PR 1a/1b/1c all add new files under `src/`/`cluster/`, each triggering a rebuild on merge to
     `main` — use the digest from whichever of those merges is most recent by the time PR 2 submits,
-    not any digest noted earlier in this process).
-34. [ ] **Checkpoint with user before cluster submission.** Confirm no stale `WORKSPACE_HOSTPATH` /
+    not any digest noted earlier in this process). Done: `sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3`,
+    verified present in every one of the 27 configs' `run_metadata.json` on the cluster NFS share.
+34. [x] **Checkpoint with user before cluster submission.** Confirm no stale `WORKSPACE_HOSTPATH` /
     `CORPUS_DIR` env var is exported (echo the resolved values before submitting — Phase 4's
     basename-mismatch guard is a safety net, not a substitute for checking); note there is no
-    scripted RunAI quota-headroom check in this repo.
-35. [ ] Submit the 27-config coarse re-run via `cluster/argo/scripts/submit_workflow.sh full`
-    (Phase 4's `provision` step now runs automatically) using the digest from task 33.
-36. [ ] Verify completion, then re-run extract → train → evidence-figure to regenerate
+    scripted RunAI quota-headroom check in this repo. Done in a prior session (see
+    cluster-submission-handoff memory) — checkpoint occurred before the two Argo submissions below.
+35. [x] Submit the 27-config coarse re-run via `cluster/argo/scripts/submit_workflow.sh full`
+    (Phase 4's `provision` step now runs automatically) using the digest from task 33. Done across
+    two Argo workflows in a prior session: `force-surrogate-sweep-9454x` (5/27 before a 24h
+    `activeDeadlineSeconds` ceiling from cluster-wide GPU saturation) and `force-surrogate-sweep-8nbjt`
+    (the remaining 22). Independently re-verified this session: all 27 configs have `status:
+    "completed"` in their `run_metadata.json`, rows matching the manifest's `max_step`, the pinned
+    digest from task 33, and a `deck_sha256` matching the corrected-geometry deck bytes on disk.
+36. [x] Verify completion, then re-run extract → train → evidence-figure to regenerate
     `dataset.parquet`, `surrogate/{holdout_predictions.parquet,metrics.json,surrogate.pt,run_metadata.json}`,
-    and `figures/{evidence_figure.png,evidence_figure_metrics.json,run_metadata.json}`.
+    and `figures/{evidence_figure.png,evidence_figure_metrics.json,run_metadata.json}`. Done: extract
+    via `scripts/extract_forces.py` (109,656 rows, no configs dropped), train via
+    `scripts/train_surrogate.py --device cuda` on the local A5000 (holdout aggregate R²=0.999), then
+    `scripts/make_evidence_figure.py`.
+    **Deviation discovered here:** the regenerated `metrics.json` flipped which off-panel axis has
+    a negative config-resolved R² and which has genuine between-config signal — the corrected-geometry
+    corpus gives `CF_x` (an on-panel headline axis) R²≈-0.01 and `CF_y` (off-panel) R²≈0.81, whereas
+    the pre-fix corpus had it the other way (`CF_y` negative, `CF_x`≈0.94); `CF_mx`≈0.99 now clearly
+    beats `CF_my`≈0.51 for between-config moment skill. `evidence_figure.py::build_caption` had
+    hardcoded this old ranking as literal prose — `f"CF_y config-resolved R² = {r2} < 0"` (always
+    claiming CF_y is negative) and `"CF_mx/CF_mz omitted (waveform-only, no between-config signal)"`
+    — so the regenerated caption would have asserted "CF_y config-resolved R² = 0.81 < 0", a false
+    claim baked into a committed evidence artifact. Fixed by computing the off-panel disclosure from
+    `metrics` at call time (whichever axis is actually negative, if any; the real CF_mx/CF_mz numbers
+    instead of an assumed "no signal") — TDD: added
+    `test_build_caption_off_panel_claims_are_data_driven_not_hardcoded` in
+    `tests/test_force_surrogate_evidence_figure.py` (confirmed red against the old code, green after
+    the fix), then regenerated the figure with the corrected caption. `PANEL_COEFFICIENTS` (the fixed
+    3-axis panel choice, design D1) is unchanged — only the caption's off-panel prose is now
+    data-driven rather than assuming one corpus's ranking holds for all future ones.
 37. [ ] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
     once total) and commit its output under `examples/prelim_sweep/figures/`. Create
     `examples/prelim_sweep/figures/README.md` (new file, modeled on

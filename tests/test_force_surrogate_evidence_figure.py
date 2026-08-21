@@ -55,7 +55,9 @@ def _toy_predictions(configs=("s35_f085_p45", "s55_f115_p45"), n=8) -> pd.DataFr
     return pd.concat(frames, ignore_index=True)
 
 
-def _toy_metrics(*, cf_y_r2=-3.61, cf_z_r2=0.83, null_target="CF_mz") -> dict:
+def _toy_metrics(
+    *, cf_y_r2=-3.61, cf_z_r2=0.83, cf_mx_r2=0.94, null_target="CF_mz"
+) -> dict:
     """A tiny metrics dict mirroring the committed metrics.json structure.
 
     ``null_target`` gets a JSON-``null`` (NaN-sentinel) config_mean_r2 to exercise rendering.
@@ -65,7 +67,7 @@ def _toy_metrics(*, cf_y_r2=-3.61, cf_z_r2=0.83, null_target="CF_mz") -> dict:
         "CF_x": {"config_mean_r2": 0.94, "within_config_variance_fraction": 0.978},
         "CF_y": {"config_mean_r2": cf_y_r2, "within_config_variance_fraction": 0.999},
         "CF_z": {"config_mean_r2": cf_z_r2, "within_config_variance_fraction": 0.999},
-        "CF_mx": {"config_mean_r2": 0.94, "within_config_variance_fraction": 0.999},
+        "CF_mx": {"config_mean_r2": cf_mx_r2, "within_config_variance_fraction": 0.999},
         "CF_my": {"config_mean_r2": 0.99, "within_config_variance_fraction": 0.442},
         "CF_mz": {"config_mean_r2": None, "within_config_variance_fraction": 0.999},
     }
@@ -313,6 +315,23 @@ def test_build_caption_discloses_everything():
     assert "uncalibrated" in low  # the quasi-steady reference is unfitted
     assert "readme" in low  # pointer
     assert ">1,000" in cap or ">1000" in cap
+
+
+def test_build_caption_off_panel_claims_are_data_driven_not_hardcoded():
+    """Scenario: caption's off-panel disclosure reflects the actual config-resolved R2 for
+    CF_y/CF_mx/CF_mz, not a hardcoded assumption (from one corpus) that CF_y is always the
+    negative "tell" and CF_mx/CF_mz always carry no between-config signal. A geometry fix that
+    flips which axis is inflation-revealing must not leave the caption asserting something
+    false (fix-force-surrogate-sweep-hinge: the corrected corpus made CF_y positive and gave
+    CF_mx a strong between-config R2, exposing this as hardcoded rather than data-driven).
+    """
+    metrics = _toy_metrics(cf_y_r2=0.81, cf_mx_r2=0.99, null_target=None)
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert "0.81 < 0" not in cap  # must not claim a positive number is negative
+    assert "no between-config signal" not in low  # CF_mx's own R2 says otherwise
+    assert "0.99" in cap  # the actual CF_mx number is disclosed instead
 
 
 def test_build_caption_mutates_with_metrics():

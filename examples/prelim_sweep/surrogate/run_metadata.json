@@ -1,12 +1,8 @@
 {
-  "run_id": "29116bf9-1c3e-44aa-ac93-88975dfcc06a",
-  "timestamp": "2026-06-21T00:00:00Z",
+  "run_id": "80a99f62-69f2-48d0-98de-57dd83e8fdcf",
+  "timestamp": "2026-08-21T19:28:38Z",
   "git": {
-    "commit": "df03abd0be8bca22aa4309e9dcc085ce63a9b79a",
-    "branch": "add-force-surrogate-train",
-    "dirty": true,
-    "diff_hash": "76b8ccbd1086",
-    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+    "error": "git not available or not a repository"
   },
   "hardware": {
     "hostname": "talmo-lab-02",
@@ -19,7 +15,7 @@
     ],
     "gpu_count": 1
   },
-  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:6f971036d44c75bafcd5f340cc28bc7309695a5513e9edcc6aa521e8edf994fb",
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
   "seeds": {
     "global": 1234
   },

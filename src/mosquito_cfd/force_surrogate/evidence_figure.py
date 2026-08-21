@@ -49,8 +49,13 @@ from mosquito_cfd.force_surrogate.sidecar import (  # noqa: E402
 )
 from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 
-# The three figure axes. CF_my is the headline moment (design D1): the only moment with
-# genuine config-resolved signal; labeled an "M_y component", not "pitch moment" (issue #1).
+# The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y
+# component", not "pitch moment" (issue #1). D1 originally picked CF_my because it was the
+# only moment with genuine config-resolved signal in the pre-hinge-fix corpus; that empirical
+# ranking is corpus-dependent (fix-force-surrogate-sweep-hinge found the corrected geometry
+# gives CF_mx a higher config-resolved R2 than CF_my) and is NOT re-derived here — the panel
+# set stays fixed, and build_caption() discloses the actual off-panel numbers instead of
+# assuming which axis (if any) is signal-free.
 PANEL_COEFFICIENTS: tuple[str, str, str] = ("CF_x", "CF_z", "CF_my")
 MOMENT_PANEL = "CF_my"
 LIFT_PANEL = "CF_z"
@@ -282,7 +287,9 @@ def build_caption(
 
     A positive headline (per-axis config-resolved R2/RMSE + the batched >1,000x speedup), a
     terse "Caveats:" line, a terse quasi-steady-reference line, and a README pointer.
-    CF_x/CF_my read as dominant; the off-panel CF_y negative R2 is a subordinate honesty flag.
+    Which off-panel target (CF_y/CF_mx/CF_mz) is flagged as negative, if any, is read from
+    ``metrics`` at call time (fix-force-surrogate-sweep-hinge) — earlier corpora always had
+    CF_y as the negative "tell", but that is a property of the data, not a fixed axis.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
@@ -294,7 +301,9 @@ def build_caption(
     """
     r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
     rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
-    cf_y = _config_mean_r2(metrics, "CF_y")
+    off_panel_r2 = {
+        c: _config_mean_r2(metrics, c) for c in ("CF_y", "CF_mx", "CF_mz")
+    }
     agg = _require(metrics, "aggregate", "aggregate metrics")["r2"]
     thr = speedup["throughput_speedup"]
     lat = speedup["latency_speedup"]
@@ -308,12 +317,23 @@ def build_caption(
         f"(batched GPU throughput ~{thr:.1e}x, N={batch} parallel evals vs sequential "
         f"coarse-grid A40 CFD; per-evaluation latency floor ~{lat:.0f}x)."
     )
+    negative_off_panel = {
+        c: v for c, v in off_panel_r2.items() if v is not None and v < 0
+    }
+    if negative_off_panel:
+        flag_c, flag_v = next(iter(negative_off_panel.items()))
+        off_panel_tell = f"{flag_c} config-resolved R² = {_fmt_r2(flag_v)} < 0"
+    else:
+        off_panel_tell = "no off-panel target's config-resolved R² is negative this run"
+    off_panel_disclosure = ", ".join(
+        f"{c} {_fmt_r2(v)}" for c, v in off_panel_r2.items() if c in ("CF_mx", "CF_mz")
+    )
     caveats = (
         f"Caveats: aggregate pointwise R²~{agg:.2f} is waveform-dominated and overstates "
-        f"skill (CF_y config-resolved R² = {_fmt_r2(cf_y)} < 0). Coarse 64x32x64 grid: "
+        f"skill ({off_panel_tell}). Coarse 64x32x64 grid: "
         f"pipeline readiness, not validated "
         f"aerodynamics. Moment is the M_y component (axis convention, issue #1); "
-        f"CF_mx/CF_mz omitted (waveform-only, no between-config signal)."
+        f"CF_mx/CF_mz omitted from panels (config-resolved R²: {off_panel_disclosure})."
     )
     reference = (
         f"Quasi-steady reference (not plotted): an uncalibrated translational Sane-Dickinson "
