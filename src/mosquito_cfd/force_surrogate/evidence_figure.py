@@ -288,9 +288,13 @@ def build_caption(
 
     A positive headline (per-axis config-resolved R2/RMSE + the batched >1,000x speedup), a
     terse "Caveats:" line, a terse quasi-steady-reference line, and a README pointer.
-    Which off-panel target (CF_y/CF_mx/CF_mz) is flagged as negative, if any, is read from
-    ``metrics`` at call time (fix-force-surrogate-sweep-hinge) — earlier corpora always had
-    CF_y as the negative "tell", but that is a property of the data, not a fixed axis.
+    Which target is flagged as the negative-R2 "tell" that the aggregate overstates skill, if
+    any, is read from **all six** targets at call time (fix-force-surrogate-sweep-hinge) —
+    earlier corpora always had the off-panel CF_y as the tell, but the corrected-hinge corpus
+    has it on-panel instead (CF_x). Scanning only the off-panel three would miss that case
+    entirely and silently fall back to a "nothing to report" message while an on-panel axis
+    sits negative three words earlier in the same caption's headline — checked deliberately,
+    not assumed to be off-panel.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
@@ -303,6 +307,10 @@ def build_caption(
     r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
     rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
     off_panel_r2 = {c: _config_mean_r2(metrics, c) for c in ("CF_y", "CF_mx", "CF_mz")}
+    all_config_r2 = {
+        c: _config_mean_r2(metrics, c)
+        for c in ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
+    }
     agg = _require(metrics, "aggregate", "aggregate metrics")["r2"]
     thr = speedup["throughput_speedup"]
     lat = speedup["latency_speedup"]
@@ -316,20 +324,25 @@ def build_caption(
         f"(batched GPU throughput ~{thr:.1e}x, N={batch} parallel evals vs sequential "
         f"coarse-grid A40 CFD; per-evaluation latency floor ~{lat:.0f}x)."
     )
-    negative_off_panel = {
-        c: v for c, v in off_panel_r2.items() if v is not None and v < 0
+    negative_targets = {
+        c: v for c, v in all_config_r2.items() if v is not None and v < 0
     }
-    if negative_off_panel:
-        flag_c, flag_v = next(iter(negative_off_panel.items()))
-        off_panel_tell = f"{flag_c} config-resolved R² = {_fmt_r2(flag_v)} < 0"
+    if negative_targets:
+        flag_c, flag_v = next(iter(negative_targets.items()))
+        where = (
+            "on-panel, see the headline above"
+            if flag_c in PANEL_COEFFICIENTS
+            else "off-panel"
+        )
+        tell = f"{flag_c} config-resolved R² = {_fmt_r2(flag_v)} < 0 ({where})"
     else:
-        off_panel_tell = "no off-panel target's config-resolved R² is negative this run"
+        tell = "no target's config-resolved R² is negative this run"
     off_panel_disclosure = ", ".join(
         f"{c} {_fmt_r2(v)}" for c, v in off_panel_r2.items() if c in ("CF_mx", "CF_mz")
     )
     caveats = (
-        f"Caveats: aggregate pointwise R²~{agg:.2f} is waveform-dominated and overstates "
-        f"skill ({off_panel_tell}). Coarse 64x32x64 grid: "
+        f"Caveats: aggregate pointwise R²~{agg:.3f} is waveform-dominated and overstates "
+        f"skill ({tell}). Coarse 64x32x64 grid: "
         f"pipeline readiness, not validated "
         f"aerodynamics. Moment is the M_y component (axis convention, issue #1); "
         f"CF_mx/CF_mz omitted from panels (config-resolved R²: {off_panel_disclosure})."

@@ -228,6 +228,22 @@ Phase 5's cluster-run commit):
     the fix), then regenerated the figure with the corrected caption. `PANEL_COEFFICIENTS` (the fixed
     3-axis panel choice, design D1) is unchanged — only the caption's off-panel prose is now
     data-driven rather than assuming one corpus's ranking holds for all future ones.
+    **Second deviation, found by this change's own pre-PR `/review-pr` self-review (3 of 5
+    reviewer lenses converged independently):** the first version of the fix above only scanned
+    the three *off-panel* targets (`CF_y`/`CF_mx`/`CF_mz`) for a negative "tell." But in the
+    actual regenerated corpus the negative axis is **on-panel** (`CF_x`, a headline target) — so
+    the fixed-but-incomplete code fell through to "no off-panel target's config-resolved R² is
+    negative this run," which is true but omits the real, on-panel evidence sitting three words
+    earlier in the same caption, defeating the caveat sentence's whole purpose. Root cause: the
+    first fix's own regression test only varied the off-panel targets, never the on-panel ones,
+    so it couldn't catch this. Fixed by scanning all 6 targets (`all_config_r2`) for the tell,
+    naming whichever is first negative in natural axis order and noting "(on-panel, see the
+    headline above)" when applicable; also widened the aggregate R²'s caption format from `:.2f`
+    to `:.3f` (a second, independently-found issue: `0.9989...` rendered as a literal `"1.00"`,
+    contradicting the surrounding prose's point that it's suspiciously high but not literally
+    perfect). Added `test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel`
+    (confirmed red against the once-fixed-but-still-incomplete code via `git stash`, green after
+    this second fix), then regenerated the figure again.
 37. [x] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
     once total) and commit its output under `examples/prelim_sweep/figures/`. Create
     `examples/prelim_sweep/figures/README.md` (new file, modeled on

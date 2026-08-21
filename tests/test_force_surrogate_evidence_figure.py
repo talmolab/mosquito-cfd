@@ -56,7 +56,7 @@ def _toy_predictions(configs=("s35_f085_p45", "s55_f115_p45"), n=8) -> pd.DataFr
 
 
 def _toy_metrics(
-    *, cf_y_r2=-3.61, cf_z_r2=0.83, cf_mx_r2=0.94, null_target="CF_mz"
+    *, cf_x_r2=0.94, cf_y_r2=-3.61, cf_z_r2=0.83, cf_mx_r2=0.94, null_target="CF_mz"
 ) -> dict:
     """A tiny metrics dict mirroring the committed metrics.json structure.
 
@@ -64,7 +64,7 @@ def _toy_metrics(
     """
     per_target = {t: {"rmse": 0.05, "mae": 0.03, "r2": 0.98} for t in TARGETS}
     config_resolved = {
-        "CF_x": {"config_mean_r2": 0.94, "within_config_variance_fraction": 0.978},
+        "CF_x": {"config_mean_r2": cf_x_r2, "within_config_variance_fraction": 0.978},
         "CF_y": {"config_mean_r2": cf_y_r2, "within_config_variance_fraction": 0.999},
         "CF_z": {"config_mean_r2": cf_z_r2, "within_config_variance_fraction": 0.999},
         "CF_mx": {"config_mean_r2": cf_mx_r2, "within_config_variance_fraction": 0.999},
@@ -325,13 +325,37 @@ def test_build_caption_off_panel_claims_are_data_driven_not_hardcoded():
     false (fix-force-surrogate-sweep-hinge: the corrected corpus made CF_y positive and gave
     CF_mx a strong between-config R2, exposing this as hardcoded rather than data-driven).
     """
-    metrics = _toy_metrics(cf_y_r2=0.81, cf_mx_r2=0.99, null_target=None)
+    metrics = _toy_metrics(cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
     sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
     cap = build_caption(metrics, sp, _TOY_BASELINE)
     low = cap.lower()
     assert "0.81 < 0" not in cap  # must not claim a positive number is negative
     assert "no between-config signal" not in low  # CF_mx's own R2 says otherwise
-    assert "0.99" in cap  # the actual CF_mx number is disclosed instead
+    # 0.77 is CF_mx-only (distinct from every other fixture value, incl. CF_my's 0.99), so
+    # this actually proves the disclosure ran, not a coincidental match elsewhere in the caption.
+    assert "0.77" in cap
+
+
+def test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel():
+    """Scenario: when the negative config-resolved R2 is an on-panel target (CF_x/CF_z/CF_my),
+    not an off-panel one, the caveats line must name IT, not silently fall through to "no
+    off-panel target is negative" — which is true but omits the actual, on-panel evidence that
+    the aggregate is inflated. This is exactly the shape of the real, committed
+    fix-force-surrogate-sweep-hinge corpus (CF_x negative, all of CF_y/CF_mx/CF_mz positive) —
+    a shape the original off-panel-only scan silently mishandled (caught by /review-pr, not by
+    the first version of this test).
+    """
+    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, cf_mx_r2=0.99, null_target=None)
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert (
+        "cf_x" in low and "-0.01" in cap and "< 0" in cap
+    )  # names the real on-panel tell
+    assert "no off-panel target" not in low  # must not use the misleading fallback
+    assert (
+        "no target's config-resolved" not in low
+    )  # must not use the "nothing found" fallback
 
 
 def test_build_caption_mutates_with_metrics():
