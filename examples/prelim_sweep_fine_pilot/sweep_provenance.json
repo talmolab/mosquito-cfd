@@ -5,5 +5,9 @@
   },
   "generated_at": "2026-07-29T00:00:00+00:00",
   "git_commit": "565930ed309ea3dffe74fecf0bf3f6c5066b4860",
-  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
+  "base_inputs_edited_after_generation": {
+    "reason": "fix-force-surrogate-sweep-hinge corrected this shared base deck's wing hinge in place (it is also the base for examples/prelim_sweep_fine/'s full-corpus regeneration). The sha256 above is preserved as an accurate historical record of the file's content at the time THIS pilot's 3-config decks/CFD output were generated -- it no longer matches the file's current on-disk content, which is expected, not a stale/unnoticed drift.",
+    "affected": "This pilot's own committed decks (examples/prelim_sweep_fine_pilot/inputs/) and raw CFD output (forces_*.csv, run_metadata_*.json) are untouched and correctly still describe the run that was actually executed, under the pre-fix hinge value."
+  }
 }

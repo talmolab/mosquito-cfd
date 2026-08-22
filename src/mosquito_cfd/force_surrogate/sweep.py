@@ -2,10 +2,15 @@
 
 Produces a reproducible corpus of IAMReX input decks over the Aedes-anchored 3-parameter
 kinematic grid (stroke amplitude x dimensionless frequency x pitch amplitude), reusing a
-**frozen snapshot** of the validated deck (``examples/prelim_sweep/base_inputs.3d.validation``)
-as the base. NB Tier T2a re-oriented the live ``examples/flapping_wing/inputs.3d.validation`` to
-the van Veen convention; the frozen corpus templates off the byte-identical snapshot so it is
-never regenerated (CC-V6). Pure and cluster-free: no RunAI, GPU, or plotfiles (roadmap CC-2, CC-6).
+snapshot of the validated deck (``examples/prelim_sweep/base_inputs.3d.validation``) as the base.
+NB Tier T2a re-oriented the live ``examples/flapping_wing/inputs.3d.validation`` to the van Veen
+convention; the corpus templates off a decoupled snapshot rather than the live deck so routine
+convention edits don't force a corpus regeneration (CC-V6). That decoupling itself let a
+geometry defect slip through once (the snapshot's hinge was correct only under the pre-refactor
+convention, once wing.vertex moved to the new one) -- fixed by ``fix-force-surrogate-sweep-hinge``,
+which corrected the hinge and regenerated the corpus as a documented, one-time exception; the
+snapshot remains decoupled from the live deck's future edits. Pure and cluster-free: no RunAI,
+GPU, or plotfiles (roadmap CC-2, CC-6).
 
 Design decisions are documented in the OpenSpec change ``add-force-surrogate-sweep-config``
 (``design.md`` D1-D9). Key points:

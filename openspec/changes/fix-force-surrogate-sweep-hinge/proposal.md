@@ -206,6 +206,24 @@ session, recorded here so the decision isn't silently assumed later):
    `surrogate/*`, and `figures/evidence_figure.png` in this change, so `main`'s Track B state stays
    trustworthy end-to-end.
 
+### Why N instead of M: a fourth bug, discovered mid-implementation
+
+`examples/prelim_sweep/generate_sweep.py`'s `BASE_INPUTS` constant pointed at the **live**
+`examples/flapping_wing/inputs.3d.validation`, not the frozen snapshot
+`examples/prelim_sweep/base_inputs.3d.validation` the test suite and the whole "frozen corpus,
+CC-V6" design depend on. This was correct at the driver's original commit (PR2, before T2a — the
+two files were still byte-identical then) but was never updated when T2a froze the snapshot
+specifically to decouple the corpus from the live deck's future edits. Discovered when regenerating
+the corpus for the first time since T2a: running the (buggy) driver as originally written would
+have regenerated all 27 decks from the *live* deck's full current content (new axis-convention
+headers, `ns.init_iter=2`, `ns.lo_bc/hi_bc`, etc.) — not the intended hinge-only fix. Caught before
+committing, by comparing the driver's output against `generate_sweep()` called directly with the
+correct snapshot (a much larger, incorrect diff on the first attempt was the tell). Fixed the
+constant, added a regression test pinning it
+(`test_driver_base_inputs_matches_the_frozen_snapshot`), and reverted the incorrect first
+regeneration before regenerating correctly. Not filed as a separate GitHub issue — fixed inline in
+this same change, not deferred as a workaround.
+
 ## Impact
 
 - **Affected specs:** `force-surrogate` (modified — frozen-corpus exception documented; added —

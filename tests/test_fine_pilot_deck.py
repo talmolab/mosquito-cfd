@@ -256,6 +256,32 @@ def test_pilot_report_covers_all_attempted_configs():
     )
 
 
+def test_pilot_provenance_documents_the_shared_base_deck_hash_mismatch():
+    """The pilot's committed sweep_provenance.json explains why its base-deck hash is now stale.
+
+    fix-force-surrogate-sweep-hinge edited examples/prelim_sweep_fine_pilot/base_inputs.3d.fine
+    in place (it's also the fine corpus's shared base deck) -- the pilot's own provenance sha256
+    now legitimately mismatches the live file. Without a note, this reads as unnoticed drift in a
+    codebase that otherwise treats hash-pinned provenance as reproducibility-critical ground truth.
+    """
+    provenance = json.loads(
+        (Path("examples/prelim_sweep_fine_pilot") / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance.get("base_inputs_edited_after_generation"), (
+        "sweep_provenance.json does not explain why its base_inputs sha256 no longer matches "
+        "the live examples/prelim_sweep_fine_pilot/base_inputs.3d.fine"
+    )
+
+    import hashlib
+
+    live_hash = hashlib.sha256(_FINE_BASE.read_bytes()).hexdigest()
+    assert live_hash != provenance["base_inputs"]["sha256"], (
+        "if this ever starts passing, the explanatory note above is stale and should be removed"
+    )
+
+
 def test_pilot_report_flags_the_hinge_geometry_defect_and_unconfirmed_stability():
     """The report's geometry note names the hinge defect and does NOT claim stability transfers.
 

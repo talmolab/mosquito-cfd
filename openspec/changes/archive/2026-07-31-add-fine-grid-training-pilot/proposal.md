@@ -17,6 +17,13 @@ surrogate trains on both components, and chord is badly wrong at the corpus's cu
 resolution. Fine 256³ is the resolution our own validation work shows is actually needed —
 medium is an improvement but does not reach a trustworthy regime for chord.
 
+> **Pointer (`fix-force-surrogate-sweep-hinge`, later change):** this pilot's own fine base deck
+> (`examples/prelim_sweep_fine_pilot/base_inputs.3d.fine`, below) carried a separate wing-hinge
+> geometry defect — a root hinge collapsed to a midspan pivot — until that later fix. The pilot's
+> 3 committed force CSVs were **not** regenerated when that fix landed (an intentional,
+> documented exception; see that change's `tasks.md` task 26), so this table's grid-convergence
+> comparison is unaffected by the hinge fix, but the pilot's own force numbers (below) predate it.
+
 Regenerating the full 27-config corpus at fine resolution is large and unproven: fine-grid CFD
 has only ever run once, locally, for a single config (the flapping-wing validation deck itself,
 stroke=70°/f*=1.0), and needed a manual CFL/dt fallback (`5e-4` → `2.5e-4`) to stay stable. The

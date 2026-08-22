@@ -1,0 +1,27 @@
+{
+  "run_id": "c89b9db9-20e4-4072-a1db-d52b22369d4c",
+  "timestamp": "2026-08-21T19:40:08Z",
+  "git": {
+    "commit": "b68e1a1fa774a755af0382c4a5662b244f0a27e7",
+    "branch": "fix-hinge-corpus-regen",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+  "inputs": {
+    "file": "examples\\flapping_wing\\wing.vertex",
+    "hash": "9fe1f07c209533b87d2f76df3bbe69183bff6e22f6fa9275f9fc326d3717f4b2"
+  },
+  "config_name": "s55_f115_p60"
+}

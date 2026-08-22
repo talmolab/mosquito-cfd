@@ -1,0 +1,19 @@
+{
+  "config_name": "s35_f085_p30",
+  "span_axis": "y",
+  "half_span": 1.475,
+  "span_arm": 1.5,
+  "center": [
+    4.0,
+    2.0,
+    4.0
+  ],
+  "hinge": [
+    4.0,
+    0.5,
+    4.0
+  ],
+  "stroke_amp_deg": 35.0,
+  "pitch_amp_deg": 30.0,
+  "frequency_fstar": 0.85
+}

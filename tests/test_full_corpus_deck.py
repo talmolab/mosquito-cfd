@@ -181,3 +181,29 @@ def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():
 
     assert full_corpus.WORKSPACE_HOSTPATH != _COARSE_WORKSPACE_HOSTPATH
     assert full_corpus.WORKSPACE_HOSTPATH != _PILOT_WORKSPACE_HOSTPATH
+
+
+def test_fine_corpus_provenance_flags_superseded_runs():
+    """The committed sweep_provenance.json names the stale cluster runs it supersedes.
+
+    fix-force-surrogate-sweep-hinge: the cluster workflows that previously generated this
+    corpus's raw CFD output (force-surrogate-sweep-vb8t5 + the retry force-surrogate-retry-
+    failed-trz9k) ran against the pre-fix, buggy-hinge decks -- a concrete, machine-checkable
+    flag rather than only a prose note, so a truncated/short corpus (or a stale one) is never
+    silently mistaken for current.
+    """
+    provenance = json.loads(
+        (Path("examples/prelim_sweep_fine") / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance.get("superseded_by"), (
+        "sweep_provenance.json is missing 'superseded_by'"
+    )
+    assert provenance["superseded_by"]["cluster_workflows"] == [
+        "force-surrogate-sweep-vb8t5",
+        "force-surrogate-retry-failed-trz9k",
+    ], (
+        "superseded_by.cluster_workflows must name exactly the two stale runs, not just be "
+        "non-empty -- a typo'd or wrong workflow name must not pass silently"
+    )

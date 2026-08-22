@@ -22,7 +22,14 @@ from pathlib import Path
 from mosquito_cfd.force_surrogate import generate_sweep, iso8601_timestamp
 
 # Paths relative to the repository root (run the driver from the repo root).
-BASE_INPUTS = Path("examples/flapping_wing/inputs.3d.validation")
+# BASE_INPUTS is the decoupled snapshot (examples/prelim_sweep/base_inputs.3d.validation), NOT
+# the live examples/flapping_wing/inputs.3d.validation -- the T2a refactor froze this snapshot
+# specifically so the corpus would not track the live deck's future edits (CC-V6). Regression
+# fixed by fix-force-surrogate-sweep-hinge: this constant pointed at the live deck since the
+# driver's original commit (correct only because the two files were still identical then); T2a
+# never updated it, silently reintroducing exactly the tracking the snapshot exists to prevent.
+# See tests/test_force_surrogate_sweep.py::test_driver_base_inputs_matches_the_frozen_snapshot.
+BASE_INPUTS = Path("examples/prelim_sweep/base_inputs.3d.validation")
 DEFAULT_OUTPUT = Path("examples/prelim_sweep")
 
 
