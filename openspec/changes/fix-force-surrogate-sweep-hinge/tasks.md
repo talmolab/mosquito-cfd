@@ -402,5 +402,13 @@ Phase 5's cluster-run commit):
     real corpus submission (task 35) exercised `provision` for real against the actual coarse
     corpus/workspace-hostpath and succeeded (all 27 configs completed), confirming it operates on
     the WSL-mounted path, not just its stub-based tests.
-49. [ ] `/pre-merge-check` for each of PR 1a, 1b, 1c independently; `/pre-merge-check` for PR 2 after
-    the cluster run completes and lands.
+49. [x] `/pre-merge-check` for each of PR 1a, 1b, 1c independently; `/pre-merge-check` for PR 2 after
+    the cluster run completes and lands. Done for PR 2 (this PR, #71) after rebasing onto current
+    `main` (resolved the one real conflict, in `openspec/project.md`'s "Pending" bullet — both
+    branches additively extended the same bullet). Full suite: 714 passed/19 skipped, ruff/format
+    clean, `openspec validate --strict` passes, all 3 GitHub CI checks (Dockerfile Lint/Lint/Test)
+    green, no Copilot comments (PR still draft), all posted reviews (mine, across 4 rounds) are
+    APPROVE. Added `docs/CHANGELOG.md` entries for the hinge fix, the caption on-panel-tell fix,
+    and the wing-phase diagnostic. PR #71 is now `mergeable: MERGEABLE`. **Still awaiting: explicit
+    user sign-off before merging or archiving the OpenSpec change** — per this session's standing
+    instruction, not a formality skipped.
