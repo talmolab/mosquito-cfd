@@ -126,6 +126,7 @@ jobs:
             AMREX_COMMIT=${{ steps.build-args.outputs.AMREX_COMMIT }}
             AMREX_HYDRO_COMMIT=${{ steps.build-args.outputs.AMREX_HYDRO_COMMIT }}
             CUDA_ARCH=${{ steps.build-args.outputs.CUDA_ARCH }}
+            MOSQUITO_CFD_COMMIT=${{ github.sha }}
           cache-from: ${{ inputs.no_cache && ' ' || 'type=gha,scope=fp64' }}
           cache-to: type=gha,mode=max,scope=fp64
           no-cache: ${{ inputs.no_cache || false }}

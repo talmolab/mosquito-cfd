@@ -118,6 +118,13 @@ ENV PATH="/root/.local/bin:${PATH}"
 # Set up Python environment for mosquito-cfd utilities
 WORKDIR /opt/cfd/mosquito-cfd
 
+# Declared here (not in the top ARG/LABEL block) so this per-commit-varying value doesn't
+# invalidate the cache for the expensive AMReX/IAMReX clone+build layers above -- github.sha
+# changes on every CI build, unlike the pinned dependency commits labeled above.
+ARG MOSQUITO_CFD_COMMIT=unknown
+ENV MOSQUITO_CFD_COMMIT=${MOSQUITO_CFD_COMMIT}
+LABEL com.mosquito-cfd.commit="${MOSQUITO_CFD_COMMIT}"
+
 # Copy Python project files (uv sync will auto-install Python)
 # LICENSE is required: pyproject's license-files = ["LICENSE"] makes uv_build error if it is
 # absent from the build context (the project wheel is built here during uv sync).
