@@ -261,6 +261,19 @@ check" convention in `openspec/project.md`.
   validation and be recorded as if correct. Mitigated by the CLI help text explicitly telling the
   operator this is unverified beyond format, and by the baked-commit path (which needs no
   human-supplied value at all) being the long-term fix for any run built by this updated CI.
+- **The baked-commit path has the identical residual risk, for the identical reason** — a
+  `MOSQUITO_CFD_COMMIT` that is well-formed but wrong (a stale value from a broken CI step, or a
+  future refactor wiring the wrong ref) passes `_baked_commit_env()`'s format check just as
+  readily as a mistyped `--git-commit` does; format validation can only catch malformed input, not
+  semantically wrong input, on either path (caught during `/review-pr`'s final self-review round —
+  the code already treats both paths identically, this bullet was just missing). Mitigated the
+  same way the CLI path is: `docker.yml` computes `MOSQUITO_CFD_COMMIT` from `github.sha` on the
+  same step that produces the image digest (see Decision 6), leaving no manual step where a human
+  could substitute the wrong value, unlike the CLI override which is manually supplied every time.
+  Separately: `force_surrogate/sweep.py`'s pre-existing `_git_commit()` (see Decision 8) discards
+  the `"source"` tag when reading `get_git_info()`'s result, so a `sweep_provenance.json` entry
+  produced from the baked-commit fallback is indistinguishable from a live `git rev-parse` result
+  at that specific call site (though, per Decision 8, it is now guaranteed well-formed either way).
 - **Images built before this change ships never gain `MOSQUITO_CFD_COMMIT`** — the fallback
   requires a rebuild. This is inherent to baking data in at build time and is explicitly accepted;
   the CLI override remains available indefinitely for metadata from older images.
