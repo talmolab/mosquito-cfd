@@ -6,10 +6,19 @@ which caught a hand-typed ``final_time`` bug and a truncated-SHA bug in all 3 co
 files). Every field in :func:`assemble_run_metadata`'s output is derived from an existing
 artifact — nothing is re-typed by a human:
 
-- ``run_id``, ``timestamp``, ``git`` (full 40-char SHA), ``hardware``: passed through from the
-  pod's own already-produced ``run_metadata.json`` (written by
+- ``run_id``, ``timestamp``, ``hardware``: passed through from the pod's own already-produced
+  ``run_metadata.json`` (written by
   :func:`mosquito_cfd.force_surrogate.run_one_config._write_run_metadata` on every cluster
   attempt via :func:`mosquito_cfd.force_surrogate.sidecar.capture_surrogate_run_metadata`).
+- ``git`` (always a full 40-char SHA, via :func:`resolve_git_info`): a caller-supplied
+  ``--git-commit`` override, used verbatim when present (for pod images with no ``.git``
+  directory at all, issue #66, that predate the baked-image fallback below) -- otherwise the
+  pod's own ``git`` block, verbatim (see :func:`extract_git_info`). A pod-produced ``git`` block
+  can itself already be a build-time-baked fallback rather than a live ``git`` query (see
+  :func:`mosquito_cfd.benchmarks.metadata.get_git_info`); either fallback path (CLI override or
+  baked-image) adds a ``source`` key (``"cli-override"`` / ``"docker-image-build-arg"``) absent
+  from a normal live-git-derived block, and omits ``branch``/``dirty``/``diff_hash``/
+  ``repository`` since none of those are knowable without an actual ``.git`` to inspect.
 - ``docker_image``: the pod file's validated ``sha256:...`` digest (single field — no separate
   mutable-tag field, unlike the committed t3c/pilot schema's ``docker_image``/``image_digest``
   split).
@@ -69,6 +78,9 @@ from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
 from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_CLI_OVERRIDE = (
+    "cli-override"  # mirrors benchmarks.metadata._SOURCE_DOCKER_BUILD_ARG
+)
 # Anchored to "[The Arena]" specifically -- a real GPU-build run.log typically also emits
 # "[The Device Arena]"/"[The Managed Arena]"/"[The Pinned Arena]" lines, which report different
 # (and sometimes larger) figures; matching "Arena" unanchored would silently report the wrong
@@ -349,6 +361,45 @@ def extract_git_info(pod_metadata: dict[str, Any]) -> dict[str, Any]:
     return git
 
 
+def resolve_git_info(
+    pod_metadata: dict[str, Any],
+    *,
+    git_commit_override: str | None = None,
+) -> dict[str, Any]:
+    """Resolve the run's git provenance, preferring a manual override over the pod's own value.
+
+    Mirrors :func:`resolve_wall_time_s`: when an override is supplied it is used verbatim (after
+    validation) and the pod's git block is never even consulted; only when no override is given
+    does this fall through to :func:`extract_git_info`'s existing pod-sourced validation.
+
+    Args:
+        pod_metadata: The loaded pod-side ``run_metadata.json``.
+        git_commit_override: A manually-supplied commit SHA (``--git-commit``), used verbatim
+            (after format validation) when present -- the pod's ``git.commit`` is never
+            consulted. Needed for pod images with no ``.git`` directory at all (issue #66) that
+            also predate the baked ``MOSQUITO_CFD_COMMIT`` build-arg fallback in
+            :func:`mosquito_cfd.benchmarks.metadata.get_git_info`.
+
+    Returns:
+        A git-info dict. When overridden: ``{"commit": ..., "source": "cli-override"}`` only --
+        branch/dirty/repository are not knowable for a commit supplied out-of-band. Otherwise:
+        the pod's own ``git`` sub-dict, as returned by :func:`extract_git_info`.
+
+    Raises:
+        ValueError: If ``git_commit_override`` is supplied but is not a full 40-character SHA, or
+            (when no override is supplied) if the pod's ``git.commit`` is missing/invalid -- see
+            :func:`extract_git_info`.
+    """
+    if git_commit_override is not None:
+        if not _FULL_SHA_RE.match(git_commit_override):
+            raise ValueError(
+                f"--git-commit override must be a full 40-character SHA; got "
+                f"{git_commit_override!r} (length {len(git_commit_override)})"
+            )
+        return {"commit": git_commit_override, "source": _SOURCE_CLI_OVERRIDE}
+    return extract_git_info(pod_metadata)
+
+
 # ---------------------------------------------------------------------------
 # Argo workflow status
 # ---------------------------------------------------------------------------
@@ -499,6 +550,7 @@ def assemble_run_metadata(
     wall_time_s: float | None = None,
     argo_status_query: Callable[[str], dict[str, Any]] = query_argo_workflow_status,
     notes: str | None = None,
+    git_commit: str | None = None,
 ) -> dict[str, Any]:
     """Assemble a normalized ``run_metadata_<config>.json`` from existing artifacts.
 
@@ -518,6 +570,9 @@ def assemble_run_metadata(
             entirely (for a workflow already garbage-collected).
         argo_status_query: Injectable Argo status-query function (tests pass a fake).
         notes: Optional free-text commentary; omitted from the output entirely when ``None``.
+        git_commit: Manual override for ``git.commit`` (``--git-commit``), bypassing the pod's
+            own ``git`` block entirely -- for pod images with no ``.git`` directory at all
+            (issue #66) that predate the baked ``MOSQUITO_CFD_COMMIT`` build-arg fallback.
 
     Returns:
         The assembled, normalized metadata dict.
@@ -533,7 +588,7 @@ def assemble_run_metadata(
     """
     pod_metadata = load_pod_run_metadata(pod_metadata_path)
     docker_image = extract_docker_image(pod_metadata)
-    git_info = extract_git_info(pod_metadata)
+    git_info = resolve_git_info(pod_metadata, git_commit_override=git_commit)
 
     pod_status = pod_metadata.get("status")
     if pod_status != STATUS_COMPLETED:

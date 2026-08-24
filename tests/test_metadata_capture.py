@@ -292,6 +292,65 @@ def test_git_commit_must_be_full_sha():
         mc.extract_git_info(pod_metadata)
 
 
+_MISSING_GIT_BLOCK = {"error": "git not available or not a repository"}
+
+
+def test_extract_git_info_rejects_missing_commit_key():
+    """The real #66 failure shape: a pod-side .git-less image's git block has no `commit` key at
+    all (not just a truncated one)."""
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = dict(_MISSING_GIT_BLOCK)
+    with pytest.raises(ValueError, match="40-character"):
+        mc.extract_git_info(pod_metadata)
+
+
+def test_resolve_git_info_falls_through_to_extract_git_info_when_no_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    assert mc.resolve_git_info(
+        pod_metadata, git_commit_override=None
+    ) == mc.extract_git_info(pod_metadata)
+
+
+def test_resolve_git_info_raises_when_no_override_and_pod_commit_missing():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = dict(_MISSING_GIT_BLOCK)
+    with pytest.raises(ValueError, match="40-character"):
+        mc.resolve_git_info(pod_metadata, git_commit_override=None)
+
+
+def test_resolve_git_info_raises_when_no_override_and_pod_commit_truncated():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"]["commit"] = "634c561"
+    with pytest.raises(ValueError, match="40-character"):
+        mc.resolve_git_info(pod_metadata, git_commit_override=None)
+
+
+def test_resolve_git_info_override_bypasses_pod_value():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = dict(_MISSING_GIT_BLOCK)
+    result = mc.resolve_git_info(pod_metadata, git_commit_override="a" * 40)
+    assert result == {"commit": "a" * 40, "source": "cli-override"}
+
+
+def test_resolve_git_info_override_wins_over_valid_differing_pod_commit():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"]["commit"] = "b" * 40
+    result = mc.resolve_git_info(pod_metadata, git_commit_override="c" * 40)
+    assert result == {"commit": "c" * 40, "source": "cli-override"}
+
+
+def test_resolve_git_info_rejects_malformed_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    with pytest.raises(ValueError, match="40-character"):
+        mc.resolve_git_info(pod_metadata, git_commit_override="634c561")
+
+
+def test_resolve_git_info_rejects_uppercase_hex_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    with pytest.raises(ValueError, match="40-character"):
+        mc.resolve_git_info(pod_metadata, git_commit_override="A" * 40)
+
+
 def test_pod_run_metadata_raises_on_missing_file(tmp_path):
     missing = tmp_path / "run_metadata.json"
     with pytest.raises(FileNotFoundError, match="run_metadata.json"):
@@ -460,6 +519,28 @@ def test_assemble_metadata_produces_normalized_schema():
     )
     assert result["orchestration"]["retry"] == "0"
     assert "run_platform" not in result
+
+
+def test_assemble_run_metadata_accepts_git_commit_override(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = dict(_MISSING_GIT_BLOCK)
+    no_git = tmp_path / "run_metadata.json"
+    no_git.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    result = _assemble(pod_metadata_path=no_git, git_commit="b" * 40)
+    assert result["git"]["commit"] == "b" * 40
+    assert result["git"]["source"] == "cli-override"
+
+
+def test_assemble_run_metadata_git_commit_override_wins_over_valid_pod_value(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"]["commit"] = "b" * 40
+    valid_pod_git = tmp_path / "run_metadata.json"
+    valid_pod_git.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    result = _assemble(pod_metadata_path=valid_pod_git, git_commit="c" * 40)
+    assert result["git"]["commit"] == "c" * 40
+    assert result["git"]["source"] == "cli-override"
 
 
 def test_assemble_metadata_includes_workflow_name_in_orchestration_when_supplied():

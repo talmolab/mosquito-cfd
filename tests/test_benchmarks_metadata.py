@@ -345,3 +345,137 @@ def test_get_git_info_handles_non_utf8_worktree_pointer(tmp_path, monkeypatch):
     result = mc.get_git_info(tmp_path)
 
     assert result == {"error": "git not available or not a repository"}
+
+
+# ---------------------------------------------------------------------------
+# 4. get_git_info build-time-baked-commit fallback (fix-git-provenance-no-git-override, #66)
+# ---------------------------------------------------------------------------
+
+
+def _always_fails_run(argv, **kwargs):
+    raise subprocess.CalledProcessError(1, argv)
+
+
+def test_get_git_info_uses_baked_commit_when_git_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "c" * 40)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"commit": "c" * 40, "source": "docker-image-build-arg"}
+
+
+def test_get_git_info_treats_unknown_sentinel_as_absent(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "unknown")
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_no_baked_commit_env_falls_through_unchanged(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.delenv("MOSQUITO_CFD_COMMIT", raising=False)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_ignores_baked_commit_when_direct_query_succeeds(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(mc.subprocess, "run", _fake_success_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "d" * 40)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result["commit"] == "abc123"
+    assert result["branch"] == "main"
+    assert result["dirty"] is False
+    assert result["repository"] == "git@github.com:talmolab/mosquito-cfd.git"
+    assert "source" not in result
+
+
+def test_get_git_info_ignores_baked_commit_when_worktree_retry_succeeds(
+    tmp_path, monkeypatch
+):
+    (tmp_path / ".git").write_text(
+        "gitdir: C:/repos/mosquito-cfd/.git/worktrees/foo\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "e" * 40)
+
+    def fake_run(argv, **kwargs):
+        env = kwargs.get("env")
+        if env is None:
+            raise subprocess.CalledProcessError(1, argv)
+        return _fake_success_run(argv, **kwargs)
+
+    monkeypatch.setattr(mc.subprocess, "run", fake_run)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result["commit"] == "abc123"
+    assert "source" not in result
+
+
+def test_get_git_info_attempts_direct_query_before_baked_commit_fallback(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr(mc.subprocess, "run", fake_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "c" * 40)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert calls, "the direct git query must actually be attempted, not skipped"
+    assert result == {"commit": "c" * 40, "source": "docker-image-build-arg"}
+
+
+def test_get_git_info_treats_malformed_baked_commit_as_absent_whitespace(
+    tmp_path, monkeypatch
+):
+    """A misconfigured build-arg (e.g. trailing whitespace from a heredoc/shell mistake) must
+    not be silently trusted as a commit -- unlike a well-formed baked value, it is treated the
+    same as an absent/"unknown" one, matching how the CLI-override path (`resolve_git_info`)
+    already validates format before trusting a human/build-supplied commit string."""
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", " ")
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_treats_malformed_baked_commit_as_absent_truncated(
+    tmp_path, monkeypatch
+):
+    """A truncated SHA (e.g. `git rev-parse --short` used by mistake in the build pipeline)
+    must not be silently trusted as a full commit."""
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "abc1234")
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_treats_malformed_baked_commit_as_absent_uppercase(
+    tmp_path, monkeypatch
+):
+    """Matches the CLI-override path's case-sensitivity behavior (design.md Decision 2): not
+    case-folded, an uppercase value is rejected rather than silently accepted."""
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "C" * 40)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}

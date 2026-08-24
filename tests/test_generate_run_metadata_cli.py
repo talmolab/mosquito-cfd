@@ -93,6 +93,44 @@ def test_cli_missing_workflow_name_and_wall_time_s_raises_clear_error(tmp_path):
     assert not output.exists()
 
 
+def test_cli_git_commit_flag_overrides_pod_value(tmp_path):
+    module = _load_script()
+    output = tmp_path / "run_metadata.json"
+
+    pod_metadata = json.loads(
+        (_FIXTURES / "pod_run_metadata.json").read_text(encoding="utf-8")
+    )
+    pod_metadata["git"] = {"error": "git not available or not a repository"}
+    no_git_pod_metadata = tmp_path / "pod_run_metadata.json"
+    with open(no_git_pod_metadata, "w", encoding="utf-8") as handle:
+        json.dump(pod_metadata, handle)
+
+    args = _base_args(output)
+    idx = args.index("--pod-metadata")
+    args[idx + 1] = str(no_git_pod_metadata)
+    args += ["--git-commit", "b" * 40]
+
+    rc = module.main(args)
+
+    assert rc == 0
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert written["git"]["commit"] == "b" * 40
+    assert written["git"]["source"] == "cli-override"
+
+
+def test_cli_git_commit_flag_rejects_malformed_override(tmp_path):
+    """Format validation must be enforced end-to-end through the CLI, not just at the
+    `resolve_git_info` unit level the wrapper delegates to."""
+    module = _load_script()
+    output = tmp_path / "run_metadata.json"
+    args = _base_args(output) + ["--git-commit", "not-a-real-sha"]
+
+    with pytest.raises(ValueError, match="40-character"):
+        module.main(args)
+
+    assert not output.exists()
+
+
 def test_cli_wall_time_s_flag_skips_argo_query(tmp_path, monkeypatch):
     module = _load_script()
     output = tmp_path / "run_metadata.json"

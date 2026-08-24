@@ -79,6 +79,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--notes", default=None, help="Optional free-text commentary.")
+    parser.add_argument(
+        "--git-commit",
+        default=None,
+        help=(
+            "Manual git.commit override (a full 40-character SHA), bypassing the pod's own "
+            "git block entirely (use if the pod image has no .git directory at all, e.g. "
+            "issue #66, and predates the baked MOSQUITO_CFD_COMMIT build-arg fallback)."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
 
@@ -94,6 +103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         wall_time_s=args.wall_time_s,
         argo_status_query=metadata_capture.query_argo_workflow_status,
         notes=args.notes,
+        git_commit=args.git_commit,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

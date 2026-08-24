@@ -13,6 +13,15 @@ from typing import Any
 
 _WINDOWS_GITDIR_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 
+# Mirrors force_surrogate.metadata_capture._FULL_SHA_RE -- kept as a separate constant (not a
+# cross-module import) since these two modules have no other shared-regex precedent and
+# force_surrogate already depends on benchmarks (not the reverse); duplicating one regex is
+# cheaper than introducing a new inter-module coupling for it.
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+_UNKNOWN_COMMIT_SENTINEL = "unknown"  # must match docker/Dockerfile.fp64's ARG default
+_SOURCE_DOCKER_BUILD_ARG = "docker-image-build-arg"
+
 
 def _translate_windows_worktree_gitdir(gitdir_line: str) -> str | None:
     """Translate a Windows-style worktree ``gitdir:`` pointer line to its WSL mount path.
@@ -99,6 +108,31 @@ def _collect_git_info(cwd: str, env: dict[str, str] | None) -> dict[str, Any]:
     return result
 
 
+def _baked_commit_env() -> str | None:
+    """Read the build-time-baked commit SHA from ``MOSQUITO_CFD_COMMIT``, if present and valid.
+
+    The ``:fp64`` image's Dockerfile bakes the mosquito-cfd repo's own commit into this env var
+    at build time (``ARG MOSQUITO_CFD_COMMIT``, defaulting to ``"unknown"`` for an
+    unparameterized local build) precisely because the image's ``COPY`` list never includes
+    ``.git``, so pod-side git queries can never succeed (issue #66). Returns ``None`` for
+    ``"unknown"`` (a local dev build with no ``--build-arg`` supplied) so such builds don't
+    silently claim a fake commit, and also for any value that isn't a full 40-character lowercase
+    hex SHA -- e.g. a misconfigured build-arg (trailing whitespace, a truncated short SHA) --
+    matching the same format validation :func:`mosquito_cfd.force_surrogate.metadata_capture.
+    resolve_git_info` already applies to a human-supplied ``--git-commit`` override, so this
+    fallback can't silently propagate an unverifiable value into a committed provenance file any
+    more than that one can.
+    """
+    commit = os.environ.get("MOSQUITO_CFD_COMMIT")
+    if (
+        not commit
+        or commit == _UNKNOWN_COMMIT_SENTINEL
+        or not _FULL_SHA_RE.match(commit)
+    ):
+        return None
+    return commit
+
+
 def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
     """Get git repository information for provenance tracking.
 
@@ -106,16 +140,25 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
         repo_path: Path to git repository. If None, uses current directory.
 
     Returns:
-        Dictionary with git commit, branch, dirty status, and diff hash.
+        Dictionary with git commit, branch, dirty status, and diff hash -- or, when git itself is
+        completely unavailable and a build-time-baked commit was supplied (see below), the
+        reduced ``{"commit": ..., "source": "docker-image-build-arg"}`` shape with no
+        branch/dirty/diff_hash/repository keys, since none of those are knowable without an
+        actual ``.git`` to inspect.
 
     A Windows-created git worktree's ``.git`` pointer file names its real gitdir with a
     drive-letter path that a Linux ``git`` binary (e.g. invoked from WSL) can't resolve, causing
     every command to fail as if the repo didn't exist at all. If the first attempt fails, this
     retries once with GIT_DIR/GIT_WORK_TREE translated to their WSL ``/mnt/<drive>`` mount
-    equivalents (only that convention is supported; other cross-platform mount schemes are not),
-    before falling back to the existing honest error. Never raises: any OS-level failure (a
-    missing/unreadable repo directory, a deleted cwd, permissions) is reported the same way as
-    "not a repository", not propagated to the caller.
+    equivalents (only that convention is supported; other cross-platform mount schemes are not).
+
+    If both the direct query and that retry fail, this checks for a ``MOSQUITO_CFD_COMMIT``
+    environment variable (baked into the ``:fp64`` image at build time, see
+    :func:`_baked_commit_env`) before finally falling back to the existing honest error -- this is
+    how a pod-side container with no ``.git`` directory at all (issue #66) still yields git
+    provenance. Never raises: any OS-level failure (a missing/unreadable repo directory, a deleted
+    cwd, permissions) is reported the same way as "not a repository", not propagated to the
+    caller.
     """
     try:
         repo_dir = repo_path if repo_path is not None else Path.cwd()
@@ -134,6 +177,10 @@ def get_git_info(repo_path: Path | None = None) -> dict[str, Any]:
             return _collect_git_info(cwd, env={**os.environ, **override})
         except (subprocess.CalledProcessError, OSError):
             pass
+
+    baked_commit = _baked_commit_env()
+    if baked_commit is not None:
+        return {"commit": baked_commit, "source": _SOURCE_DOCKER_BUILD_ARG}
 
     return {"error": "git not available or not a repository"}
 
