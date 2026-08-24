@@ -118,8 +118,10 @@ the worktree, not an explicitly-passed path.
 before doing anything else, and pass that same `repo_dir` to both the initial git invocation
 (as `cwd=`) and to `_worktree_retry_env(repo_dir)` on retry. This was missed in the first draft
 of this proposal (caught by `/review-openspec`'s spec-quality pass, which noted the design and
-tests as drafted only exercised the explicit-`repo_path` path) — see finding #1 in
-[`review-reconciliation.md`](review-reconciliation.md). Tests for the no-argument call path use
+tests as drafted only exercised the explicit-`repo_path` path) — see PR #78's review history for
+the full finding → fix trail (the review-process record that once lived alongside this file was
+squashed into the PR description/comments and removed before archiving, per its own note). Tests
+for the no-argument call path use
 `monkeypatch.chdir()` into a fixture worktree directory (with `subprocess.run` mocked exactly as
 in the explicit-`repo_path` retry test) rather than passing `repo_path` explicitly, so the exact
 production call shape is covered.
@@ -229,10 +231,10 @@ git-info dict; no other case's output changes). No data migration, no config fla
 
 None outstanding. The four pre-proposal scoping questions (retry design, env scope, test
 strategy, and scope boundary re: issue #66 and retroactive patching) were confirmed with the
-user before this proposal was written. Five rounds of `/review-openspec` subsequently surfaced
-twenty-one findings across all five passes (three BLOCKING, thirteen IMPORTANT, five SUGGESTION)
-— see [`review-reconciliation.md`](review-reconciliation.md) for the full finding → fix → location
-mapping, including two separate instances of a review round under-reporting its own prior
-round's fix count (rounds 2 and 3 each did this once; both were caught by the next round) and one
-instance of stale prose in the reconciliation file itself (round 5). All five reviewer lenses
-converged on "ready for implementation, no further review round needed" as of round 5.
+user before this proposal was written. Five rounds of `/review-openspec` (proposal-stage) and
+three further rounds of `/review-pr` (implementation-stage, two of which found real BLOCKING
+bugs — an unguarded `PermissionError` path and two uncaught-exception cases, both fixed and
+verified via mutation testing) reviewed this change end to end; the full finding → fix → PR-round
+trail lived in a `review-reconciliation.md` file during development and was squashed into PR #78's
+description and review comments before archiving, per that file's own note that it documented
+review process, not spec content. See PR #78 on GitHub for the complete history.
