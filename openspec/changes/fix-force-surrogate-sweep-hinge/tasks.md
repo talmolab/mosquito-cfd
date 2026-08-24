@@ -138,73 +138,203 @@ Phase 5's cluster-run commit):
 
 ### Phase 1 — fix the two base decks (PR 2 — begins the coupled sequence)
 
-23. [ ] Edit `examples/prelim_sweep/base_inputs.3d.validation`: `hinge_y = 2.0 → 0.5`,
+23. [x] Edit `examples/prelim_sweep/base_inputs.3d.validation`: `hinge_y = 2.0 → 0.5`,
     `hinge_z = 2.5 → 4.0`. Update the deck's inline comment.
-24. [ ] Edit `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` identically.
-25. [ ] Run Phase 0's test 5 — now green. Run
+24. [x] Edit `examples/prelim_sweep_fine_pilot/base_inputs.3d.fine` identically.
+25. [x] Run Phase 0's test 5 — now green. Run
     `tests/test_fine_pilot_deck.py::test_fine_pilot_deck_matches_coarse_base_except_n_cell` — must
     still pass (both bases changed identically).
-26. [ ] Regenerate `tests/fixtures/run_metadata/inputs.3d.s35_f085_p45` from the corrected fine base
-    deck; confirm `tests/test_metadata_capture.py` still passes.
+26. [x] **Deviation from the original plan (discovered during implementation):** do NOT regenerate
+    `tests/fixtures/run_metadata/inputs.3d.s35_f085_p45`. Its own README documents it as an "exact
+    copy of the committed deck," cross-checked as read-only ground truth against the real,
+    already-committed pilot config alongside sibling fixtures (`forces_s35_f085_p45.csv`,
+    `run_metadata_s35_f085_p45.json`, `argo_status_*.json`) that all pertain to that SAME real,
+    un-regenerated CFD run (the pilot's actual CFD is intentionally not re-run by this change).
+    Regenerating just this one fixture with the corrected hinge would silently diverge it from the
+    real deck it claims to mirror and from its own sibling fixtures — breaking the invariant this
+    task was meant to preserve, not fixing anything. Confirmed unchanged (byte-identical to
+    `examples/prelim_sweep_fine_pilot/inputs/inputs.3d.s35_f085_p45`, which itself is correctly
+    *not* touched) and `tests/test_metadata_capture.py` passes (39/39) with no edit.
 
 ### Phase 2 — update the tests/docstrings this fix intentionally supersedes
 
-27. [ ] Update `tests/test_force_surrogate_sweep.py`'s `BASE_INPUTS` comment ("frozen snapshot...
+27. [x] Update `tests/test_force_surrogate_sweep.py`'s `BASE_INPUTS` comment ("frozen snapshot...
     never regenerated") to reference this change and the one-time exception.
-28. [ ] Update `src/mosquito_cfd/force_surrogate/sweep.py`'s docstring(s) similarly.
-29. [ ] **Update `tests/test_force_surrogate_scale_invariance.py`'s `_FROZEN_RAW_FORCE_SHA`** to the
+28. [x] Update `src/mosquito_cfd/force_surrogate/sweep.py`'s docstring(s) similarly.
+29. [x] **Update `tests/test_force_surrogate_scale_invariance.py`'s `_FROZEN_RAW_FORCE_SHA`** to the
     post-regeneration hash. `_FROZEN_RAW_FORCE_SHA` hashes `dataset.parquet`'s raw columns, which
     only exist after Phase 5's extract/train step (task 36) — update this in the **same commit** as
-    task 36, not earlier (the new hash isn't known until `dataset.parquet` exists).
-30. [ ] `test_committed_sweep_matches_regeneration` requires no code change — passes by construction
+    task 36, not earlier (the new hash isn't known until `dataset.parquet` exists). Done: new hash
+    `02b04f46a99655122f402433e4d0c1afb8cd0e5b28c9b85236ed96cbab14486e` (differs from the pre-fix
+    value, confirming the corrected hinge geometry changed the raw CFD forces as expected).
+30. [x] `test_committed_sweep_matches_regeneration` requires no code change — passes by construction
     once Phase 5 regenerates and commits the corpus together. Do not weaken or delete it.
 
 ### Phase 5 — regenerate the coarse corpus end-to-end (still PR 2)
 
-31. [ ] Regenerate `examples/prelim_sweep/` decks + `sweep_manifest.json` + `sweep_manifest.units.json`
-    via `generate_sweep()`'s CLI with the corrected base deck and an explicit fresh timestamp (now
-    mandatory per Phase 4 task 19). Commit together with Phase 1 (tasks 23-26) —
-    `test_committed_sweep_matches_regeneration` reads the live base deck and byte-compares against
-    the committed corpus, so these cannot land in separate pushes. (Task 29's `_FROZEN_RAW_FORCE_SHA`
+31. [x] **Deviation discovered here:** `examples/prelim_sweep/generate_sweep.py`'s `BASE_INPUTS`
+    pointed at the live `examples/flapping_wing/inputs.3d.validation`, not the frozen snapshot the
+    tests/CC-V6 design depend on (correct only at the driver's original pre-T2a commit; never
+    updated when T2a froze the snapshot). Caught before committing by comparing the driver's output
+    against a direct `generate_sweep()` call with the correct base — see proposal.md "Why N instead
+    of M." Fixed the constant, added `test_driver_base_inputs_matches_the_frozen_snapshot`
+    (`tests/test_force_surrogate_sweep.py`), reverted the incorrect first regeneration attempt, then
+    regenerated `examples/prelim_sweep/` decks + `sweep_manifest.json` + `sweep_manifest.units.json`
+    correctly via `generate_sweep()`'s CLI with the corrected base deck and an explicit fresh
+    timestamp (now mandatory per Phase 4 task 19). Commit together with Phase 1 (tasks 23-26) —
+    `test_committed_sweep_matches_regeneration` reads the frozen-snapshot base deck and byte-compares
+    against the committed corpus, so these cannot land in separate pushes. (Task 29's `_FROZEN_RAW_FORCE_SHA`
     update lands later, with task 36 — `dataset.parquet` doesn't exist yet at this point.)
-32. [ ] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
+32. [x] Run the Phase 3 diagnostic's CLI (its default sample) against the regenerated coarse decks
     as a manual, visual pre-submission sanity check — an operator looking at the PNG, not a pytest
     assertion. Run once (task 37 supersedes it; do not duplicate).
-33. [ ] **Fetch a fresh `:fp64` digest for this change's own merge**: per `cluster/argo/README.md`'s
+33. [x] **Fetch a fresh `:fp64` digest for this change's own merge**: per `cluster/argo/README.md`'s
     Prerequisites, wait for `docker.yml`'s `build-fp64` job triggered by this change's own merge
     (PR 1a/1b/1c all add new files under `src/`/`cluster/`, each triggering a rebuild on merge to
     `main` — use the digest from whichever of those merges is most recent by the time PR 2 submits,
-    not any digest noted earlier in this process).
-34. [ ] **Checkpoint with user before cluster submission.** Confirm no stale `WORKSPACE_HOSTPATH` /
+    not any digest noted earlier in this process). Done: `sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3`,
+    verified present in every one of the 27 configs' `run_metadata.json` on the cluster NFS share.
+34. [x] **Checkpoint with user before cluster submission.** Confirm no stale `WORKSPACE_HOSTPATH` /
     `CORPUS_DIR` env var is exported (echo the resolved values before submitting — Phase 4's
     basename-mismatch guard is a safety net, not a substitute for checking); note there is no
-    scripted RunAI quota-headroom check in this repo.
-35. [ ] Submit the 27-config coarse re-run via `cluster/argo/scripts/submit_workflow.sh full`
-    (Phase 4's `provision` step now runs automatically) using the digest from task 33.
-36. [ ] Verify completion, then re-run extract → train → evidence-figure to regenerate
+    scripted RunAI quota-headroom check in this repo. Done in a prior session (see
+    cluster-submission-handoff memory) — checkpoint occurred before the two Argo submissions below.
+35. [x] Submit the 27-config coarse re-run via `cluster/argo/scripts/submit_workflow.sh full`
+    (Phase 4's `provision` step now runs automatically) using the digest from task 33. Done across
+    two Argo workflows in a prior session: `force-surrogate-sweep-9454x` (5/27 before a 24h
+    `activeDeadlineSeconds` ceiling from cluster-wide GPU saturation) and `force-surrogate-sweep-8nbjt`
+    (the remaining 22). Independently re-verified this session: all 27 configs have `status:
+    "completed"` in their `run_metadata.json`, rows matching the manifest's `max_step`, the pinned
+    digest from task 33, and a `deck_sha256` matching the corrected-geometry deck bytes on disk.
+36. [x] Verify completion, then re-run extract → train → evidence-figure to regenerate
     `dataset.parquet`, `surrogate/{holdout_predictions.parquet,metrics.json,surrogate.pt,run_metadata.json}`,
-    and `figures/{evidence_figure.png,evidence_figure_metrics.json,run_metadata.json}`.
-37. [ ] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
+    and `figures/{evidence_figure.png,evidence_figure_metrics.json,run_metadata.json}`. Done: extract
+    via `scripts/extract_forces.py` (109,656 rows, no configs dropped), train via
+    `scripts/train_surrogate.py --device cuda` on the local A5000 (holdout aggregate R²=0.999), then
+    `scripts/make_evidence_figure.py`.
+    **Deviation discovered here:** the regenerated `metrics.json` flipped which off-panel axis has
+    a negative config-resolved R² and which has genuine between-config signal — the corrected-geometry
+    corpus gives `CF_x` (an on-panel headline axis) R²≈-0.01 and `CF_y` (off-panel) R²≈0.81, whereas
+    the pre-fix corpus had it the other way (`CF_y` negative, `CF_x`≈0.94); `CF_mx`≈0.99 now clearly
+    beats `CF_my`≈0.51 for between-config moment skill. `evidence_figure.py::build_caption` had
+    hardcoded this old ranking as literal prose — `f"CF_y config-resolved R² = {r2} < 0"` (always
+    claiming CF_y is negative) and `"CF_mx/CF_mz omitted (waveform-only, no between-config signal)"`
+    — so the regenerated caption would have asserted "CF_y config-resolved R² = 0.81 < 0", a false
+    claim baked into a committed evidence artifact. Fixed by computing the off-panel disclosure from
+    `metrics` at call time (whichever axis is actually negative, if any; the real CF_mx/CF_mz numbers
+    instead of an assumed "no signal") — TDD: added
+    `test_build_caption_off_panel_claims_are_data_driven_not_hardcoded` in
+    `tests/test_force_surrogate_evidence_figure.py` (confirmed red against the old code, green after
+    the fix), then regenerated the figure with the corrected caption. `PANEL_COEFFICIENTS` (the fixed
+    3-axis panel choice, design D1) is unchanged — only the caption's off-panel prose is now
+    data-driven rather than assuming one corpus's ranking holds for all future ones.
+    **Second deviation, found by this change's own pre-PR `/review-pr` self-review (3 of 5
+    reviewer lenses converged independently):** the first version of the fix above only scanned
+    the three *off-panel* targets (`CF_y`/`CF_mx`/`CF_mz`) for a negative "tell." But in the
+    actual regenerated corpus the negative axis is **on-panel** (`CF_x`, a headline target) — so
+    the fixed-but-incomplete code fell through to "no off-panel target's config-resolved R² is
+    negative this run," which is true but omits the real, on-panel evidence sitting three words
+    earlier in the same caption, defeating the caveat sentence's whole purpose. Root cause: the
+    first fix's own regression test only varied the off-panel targets, never the on-panel ones,
+    so it couldn't catch this. Fixed by scanning all 6 targets (`all_config_r2`) for the tell,
+    naming whichever is first negative in natural axis order and noting "(on-panel, see the
+    headline above)" when applicable; also widened the aggregate R²'s caption format from `:.2f`
+    to `:.3f` (a second, independently-found issue: `0.9989...` rendered as a literal `"1.00"`,
+    contradicting the surrounding prose's point that it's suspiciously high but not literally
+    perfect). Added `test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel`
+    (confirmed red against the once-fixed-but-still-incomplete code via `git stash`, green after
+    this second fix), then regenerated the figure again.
+    **Third round, from PR #71's own posted `/review-pr` (5-agent pass against the real PR
+    diff, 4 of 5 lenses independently converged on overlapping findings):**
+    - Fixed the tie-break when more than one target is negative: was `next(iter(...))` (first
+      in fixed axis order, so a mild on-panel dip could silently bury a severe off-panel
+      failure); now `min(..., key=lambda kv: kv[1])` (the worst/most-negative offender). Added
+      `test_build_caption_names_the_worst_offender_when_multiple_targets_are_negative`
+      (confirmed red against the old tie-break, green after).
+    - Removed the now-redundant `off_panel_r2` dict (superseded by `all_config_r2`, which the
+      first-round fix added without removing the original) — `off_panel_disclosure` now reads
+      directly from `all_config_r2`.
+    - Softened the "(on-panel, see the headline above)" phrasing to "(on-panel — one of the
+      three plotted axes above)" — the literal substring `"CF_my"` never appears in the
+      headline (it renders as `"CF_m (M_y)"`), so the original phrasing's implied
+      text-cross-reference wasn't generically true for all three panel axes.
+    - Added `test_build_caption_aggregate_r2_does_not_round_to_a_literal_1_00` locking in the
+      `:.2f`→`:.3f` fix from the prior round (previously unguarded by any test; confirmed red
+      against `:.2f`, green against `:.3f`).
+    - **BLOCKING finding, fixed:** `examples/prelim_sweep/sweep_provenance.json`'s
+      `downstream_artifacts_pending_regeneration` field (added by an earlier commit in this
+      same PR, before the go/no-go landed) was left stale — it claimed `dataset.parquet`/
+      `surrogate/*`/`figures/*` had NOT been regenerated, contradicting this PR's own later
+      commits which regenerated them all. Replaced with
+      `downstream_artifacts_regenerated_from` (naming the two cluster workflows and the pinned
+      digest that produced the final artifacts, mirroring the fine corpus's `superseded_by`
+      pattern) and updated `test_coarse_corpus_provenance_flags_pending_downstream_regeneration`
+      (renamed to `..._flags_downstream_regeneration_source`) to assert the stale field's
+      absence and the new field's presence/shape.
+    - Aligned a minor rounding inconsistency: the caption's own `{lat:.0f}x` render of
+      `467.575...` is `"468x"`, while `README.md`/`roadmap.md` prose independently rounded to
+      `"~470×"`. Changed the prose to `"~468×"` to match the figure's own printed number exactly
+      (and updated the test asserting for `"470"` in the README to `"468"`).
+    - **Investigated but deliberately NOT fixed:** `examples/prelim_sweep/surrogate/run_metadata.json`'s
+      `git` block is `{"error": "git not available or not a repository"}` instead of a real
+      commit — caused by running `train_surrogate.py` from WSL against a Windows-created git
+      worktree, whose `.git` file contains a Windows-style path (`C:/repos/...`) that WSL's
+      Linux git cannot resolve as a gitdir. Confirmed fixable going forward with explicit
+      `GIT_DIR`/`GIT_WORK_TREE` env vars set to the WSL-mounted equivalent path before invoking
+      training. **Not patched retroactively**: the correct historical commit (`7740c70`, matching
+      the dataset-extraction run's own `git.commit`, since training ran in the same git state
+      before either was committed) is knowable, but the working tree's dirty/`diff_hash` state
+      differed between the two capture moments (training's own output files existed as
+      additional uncommitted changes by the time IT was captured) and can't be reconstructed
+      without literally checking out that historical commit — a materially riskier operation
+      than leaving the honest `"error"` marker in place. The current `{"error": ...}` behavior
+      is exactly this project's own documented design intent for unresolvable metadata (an
+      explicit marker, not a fabricated or silently blank value) — so this is a disclosed,
+      accepted residual, not a silently-ignored gap. Retraining to fix it was also rejected: the
+      GPU run is seeded but not bitwise-reproducible, so a re-run would very likely perturb the
+      already-verified R²/RMSE numbers now written into `README.md`/`roadmap.md`, trading one
+      real-but-minor provenance gap for a much larger re-verification cost.
+37. [x] Run the Phase 3 diagnostic against the final regenerated decks (same sample as task 32, run
     once total) and commit its output under `examples/prelim_sweep/figures/`. Create
     `examples/prelim_sweep/figures/README.md` (new file, modeled on
     `examples/flapping_wing/figures/README.md`'s file-table + "Regenerate" section), and add a
     one-line cross-reference from `examples/prelim_sweep/README.md`'s existing
-    "Figure (`figures/`)" section (confirmed present at that exact header).
-38. [ ] **Refresh every hardcoded result number** that changes with the regenerated corpus — this is
+    "Figure (`figures/`)" section (confirmed present at that exact header). Done: default sample
+    (`validated`, `s35_f085_p30`, `s55_f115_p60`), hinge visually confirmed at the span root
+    `(4.0, 0.5, 4.0)` (black triangle) at all four phases in all three renders.
+38. [x] **Refresh every hardcoded result number** that changes with the regenerated corpus — this is
     NOT limited to `evidence_figure_metrics.json`-sourced values: also check `surrogate/metrics.json`-
     sourced numbers, which appear separately in `docs/force_surrogate/roadmap.md`'s PR-table row for
     `add-force-surrogate-train` ("Held-out-config R²≈0.98 (config-mean R²≈0.75–0.94)") and in
     `examples/prelim_sweep/README.md`'s "honest reading" section ("pointwise aggregate R² ~0.98").
     Search both files for every number traceable to either JSON artifact and replace with the
-    regenerated values.
+    regenerated values. Done: updated both files' aggregate/config-resolved R² numbers, the
+    overshoot factor (2.3×→1.3×), and the speedup decomposition (latency floor 310×→470×,
+    parallelism factor ~12,000×→~8,050×, corrected to note it's measured independently from batch
+    size rather than assumed equal to it). Also found and fixed two more spots task 38's own wording
+    didn't anticipate: `docs/force_surrogate/roadmap.md`'s PR6 table row and
+    `evidence_figure.py`'s own module docstring both separately hardcoded "~310x latency floor."
+    Also updated `tests/test_force_surrogate_evidence_figure.py::test_readme_carries_full_disclosures`'s
+    hardcoded "~310" assertion to "~470" (same commit — the test checks the README's literal text).
 
 ### Phase 6 — regenerate the fine corpus's decks only (no CFD run; still PR 2 — needs Phase 1's fix)
 
-39. [ ] Regenerate `examples/prelim_sweep_fine/` decks + manifest via `generate_full_corpus.py`
+39. [x] Regenerate `examples/prelim_sweep_fine/` decks + manifest via `generate_full_corpus.py`
     against the corrected fine base deck (task 24), passing an explicit fresh `--timestamp` (now
     required by task 19 — the CLI itself enforces it, no separate reminder needed).
-40. [ ] Run the Phase 3 diagnostic (manual/visual) against a sample of the regenerated fine decks.
-41. [ ] Add a `superseded_by` field to `examples/prelim_sweep_fine/sweep_provenance.json` naming the
+40. [x] Run the Phase 3 diagnostic (manual/visual) against a sample of the regenerated fine decks.
+    **Note (attribution corrected post-review):** running this against the fine corpus is what
+    surfaced a bug in the diagnostic CLI's `_sweep_config_kwargs` (it hardcoded
+    `<corpus-dir>/base_inputs.3d.validation` as the hinge/centre source, which happened to work for
+    the coarse corpus but not the fine one, whose base deck lives under
+    `examples/prelim_sweep_fine_pilot/` with a different name) — but the fix itself (reading
+    hinge/centre from each config's own generated deck instead) and its regression test
+    (`test_cli_runs_against_a_corpus_with_no_base_deck_of_its_own`,
+    `tests/test_wing_phase_diagnostic_cli.py`) were relocated to PR 1b's (#69) own review-fix commit
+    during this change's stacked-PR review, since that is the PR that introduced the CLI in the
+    first place — not implemented fresh in this PR's commit. `git blame`/`git log -S` on those two
+    files confirms the fix lives on the `fix-hinge-geometry-guard` branch, not this one.
+41. [x] Add a `superseded_by` field to `examples/prelim_sweep_fine/sweep_provenance.json` naming the
     now-stale cluster workflows `force-surrogate-sweep-vb8t5` and
     `force-surrogate-retry-failed-trz9k` (noting their NFS `wing.vertex` was already-correct — only
     the hinge was stale for that run), plus a `test_fine_corpus_provenance_flags_superseded_runs`
@@ -227,7 +357,7 @@ Phase 5's cluster-run commit):
 
 **PR 2 (claims the fix is done, so gated on Phase 5/6 actually landing):**
 
-45. [ ] `openspec/project.md` "Current State" — add a bullet: "Fixed a wing-hinge geometry defect
+45. [x] `openspec/project.md` "Current State" — add a bullet: "Fixed a wing-hinge geometry defect
     (root hinge collapsed to a midspan pivot in the git-committed base decks) dating to the
     2026-07-02 axis-convention refactor; separately found and fixed a stale/incorrect `wing.vertex`
     on the coarse corpus's cluster NFS share (issue #62) that had been running the pre-T2a axis
@@ -240,23 +370,45 @@ Phase 5's cluster-run commit):
     `add-fine-grid-training-pilot` proposals' own force-accuracy/validity discussion, per this
     proposal's "What Changes" item 10 ("Documentation pointers") — flagged in PR #70's review as
     promised by `proposal.md` but not yet covered by any task (PR 1c's tasks 42-44 only touch
-    `docs/`).
+    `docs/`). Done: added the pointer to `add-fine-grid-training-pilot/proposal.md`'s CF_chord
+    grid-resolution table (clarifying that table itself is unaffected — it's from the
+    already-correct `examples/flapping_wing/` deck — but the pilot's own 3 committed force CSVs,
+    generated from the buggy `base_inputs.3d.fine`, predate the fix) and to
+    `add-fine-grid-corpus-full/proposal.md`'s "Why" section (which reuses that same buggy base deck
+    unmodified). `docs/force_surrogate/fine-grid-pilot-report.md` already had its pointer from
+    task 44.
 
 ### Phase 8 — verification and sign-off
 
-46. [ ] Per-PR: `uv run pytest` and `uv run ruff check .` green for that PR's own diff. Note PR 1b
+46. [x] Per-PR: `uv run pytest` and `uv run ruff check .` green for that PR's own diff. Note PR 1b
     intentionally ships with Phase 0 task 5 red (asserts against the not-yet-fixed decks) — since
     `pytest`'s default run includes the whole suite, PR 1b must either mark test 5
     `xfail(reason="fixed in the follow-on PR 2, see fix-force-surrogate-sweep-hinge")` or PR 1b and
     PR 1's other slices must land in an order where test 5 is never the tip of a pushed/reviewed
     state without an accompanying `xfail` — decide and document whichever approach is used at
-    implementation time; do not leave a genuinely red, unmarked test in any pushed branch.
-47. [ ] For PR 2: confirm `tests/test_force_surrogate_scale_invariance.py` passes (task 29's updated
+    implementation time; do not leave a genuinely red, unmarked test in any pushed branch. PR 1a/1b/1c
+    already merged to `main` (this branch is rebased on top of them) — their own CI gated this at
+    merge time. PR 2's own diff on top: `uv run pytest` 608 passed/14 skipped, `uv run ruff check .`
+    clean on every file this change touches (27 pre-existing errors remain in unrelated files, not
+    touched by this change).
+47. [x] For PR 2: confirm `tests/test_force_surrogate_scale_invariance.py` passes (task 29's updated
     hash) and `tests/test_no_false_diffused_ib_claim.py` passes against the regenerated figure.
-    Re-verify `test_radius_of_gyration_traced_from_wing_vertex` still passes unchanged.
-48. [ ] Close issue #62 in PR 1a's description (`Closes #62`) — only once task 15's fix is
+    Re-verify `test_radius_of_gyration_traced_from_wing_vertex` still passes unchanged. Confirmed:
+    all pass, run individually and as part of the full suite.
+48. [x] Close issue #62 in PR 1a's description (`Closes #62`) — only once task 15's fix is
     confirmed to actually operate on the WSL-mounted path, not just pass its stub-based tests (spot
     check: run `provision` for real, once, against a scratch NFS subdirectory before relying on it
-    for the real corpus in task 35).
-49. [ ] `/pre-merge-check` for each of PR 1a, 1b, 1c independently; `/pre-merge-check` for PR 2 after
-    the cluster run completes and lands.
+    for the real corpus in task 35). Issue #62 already closed (2026-08-11T04:02:49Z) via PR 1a; the
+    real corpus submission (task 35) exercised `provision` for real against the actual coarse
+    corpus/workspace-hostpath and succeeded (all 27 configs completed), confirming it operates on
+    the WSL-mounted path, not just its stub-based tests.
+49. [x] `/pre-merge-check` for each of PR 1a, 1b, 1c independently; `/pre-merge-check` for PR 2 after
+    the cluster run completes and lands. Done for PR 2 (this PR, #71) after rebasing onto current
+    `main` (resolved the one real conflict, in `openspec/project.md`'s "Pending" bullet — both
+    branches additively extended the same bullet). Full suite: 714 passed/19 skipped, ruff/format
+    clean, `openspec validate --strict` passes, all 3 GitHub CI checks (Dockerfile Lint/Lint/Test)
+    green, no Copilot comments (PR still draft), all posted reviews (mine, across 4 rounds) are
+    APPROVE. Added `docs/CHANGELOG.md` entries for the hinge fix, the caption on-panel-tell fix,
+    and the wing-phase diagnostic. PR #71 is now `mergeable: MERGEABLE`. **Still awaiting: explicit
+    user sign-off before merging or archiving the OpenSpec change** — per this session's standing
+    instruction, not a formality skipped.

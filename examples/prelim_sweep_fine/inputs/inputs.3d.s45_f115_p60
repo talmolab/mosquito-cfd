@@ -123,9 +123,14 @@ particle_inputs.radius = 1.5
 particle_inputs.geometry_type = 4
 particle_inputs.geometry_file = wing.vertex
 
+# Hinge (wing root): chord centre (x=4), span root (y=0.5, the low-y end of the span 0.5..3.5),
+# vertical centre (z=4). Matches examples/flapping_wing/inputs.3d.validation exactly (van Veen
+# convention). Corrected by fix-force-surrogate-sweep-hinge: this deck previously froze
+# hinge_y=2.0 (the wing CENTRE, i.e. a midspan pivot, not a root hinge) and hinge_z=2.5 (a
+# spurious offset left over from the pre-refactor span-along-z convention).
 particle_inputs.hinge_x = 4.0
-particle_inputs.hinge_y = 2.0
-particle_inputs.hinge_z = 2.5
+particle_inputs.hinge_y = 0.5
+particle_inputs.hinge_z = 4.0
 
 particle_inputs.do_prescribed_motion = 1
 

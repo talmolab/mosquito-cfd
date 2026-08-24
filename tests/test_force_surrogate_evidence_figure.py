@@ -55,17 +55,19 @@ def _toy_predictions(configs=("s35_f085_p45", "s55_f115_p45"), n=8) -> pd.DataFr
     return pd.concat(frames, ignore_index=True)
 
 
-def _toy_metrics(*, cf_y_r2=-3.61, cf_z_r2=0.83, null_target="CF_mz") -> dict:
+def _toy_metrics(
+    *, cf_x_r2=0.94, cf_y_r2=-3.61, cf_z_r2=0.83, cf_mx_r2=0.94, null_target="CF_mz"
+) -> dict:
     """A tiny metrics dict mirroring the committed metrics.json structure.
 
     ``null_target`` gets a JSON-``null`` (NaN-sentinel) config_mean_r2 to exercise rendering.
     """
     per_target = {t: {"rmse": 0.05, "mae": 0.03, "r2": 0.98} for t in TARGETS}
     config_resolved = {
-        "CF_x": {"config_mean_r2": 0.94, "within_config_variance_fraction": 0.978},
+        "CF_x": {"config_mean_r2": cf_x_r2, "within_config_variance_fraction": 0.978},
         "CF_y": {"config_mean_r2": cf_y_r2, "within_config_variance_fraction": 0.999},
         "CF_z": {"config_mean_r2": cf_z_r2, "within_config_variance_fraction": 0.999},
-        "CF_mx": {"config_mean_r2": 0.94, "within_config_variance_fraction": 0.999},
+        "CF_mx": {"config_mean_r2": cf_mx_r2, "within_config_variance_fraction": 0.999},
         "CF_my": {"config_mean_r2": 0.99, "within_config_variance_fraction": 0.442},
         "CF_mz": {"config_mean_r2": None, "within_config_variance_fraction": 0.999},
     }
@@ -313,6 +315,78 @@ def test_build_caption_discloses_everything():
     assert "uncalibrated" in low  # the quasi-steady reference is unfitted
     assert "readme" in low  # pointer
     assert ">1,000" in cap or ">1000" in cap
+
+
+def test_build_caption_off_panel_claims_are_data_driven_not_hardcoded():
+    """Scenario: caption's off-panel disclosure reflects the actual config-resolved R2 for
+    CF_y/CF_mx/CF_mz, not a hardcoded assumption (from one corpus) that CF_y is always the
+    negative "tell" and CF_mx/CF_mz always carry no between-config signal. A geometry fix that
+    flips which axis is inflation-revealing must not leave the caption asserting something
+    false (fix-force-surrogate-sweep-hinge: the corrected corpus made CF_y positive and gave
+    CF_mx a strong between-config R2, exposing this as hardcoded rather than data-driven).
+    """
+    metrics = _toy_metrics(cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert "0.81 < 0" not in cap  # must not claim a positive number is negative
+    assert "no between-config signal" not in low  # CF_mx's own R2 says otherwise
+    # 0.77 is CF_mx-only (distinct from every other fixture value, incl. CF_my's 0.99), so
+    # this actually proves the disclosure ran, not a coincidental match elsewhere in the caption.
+    assert "0.77" in cap
+
+
+def test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel():
+    """Scenario: when the negative config-resolved R2 is an on-panel target (CF_x/CF_z/CF_my),
+    not an off-panel one, the caveats line must name IT, not silently fall through to "no
+    off-panel target is negative" — which is true but omits the actual, on-panel evidence that
+    the aggregate is inflated. This is exactly the shape of the real, committed
+    fix-force-surrogate-sweep-hinge corpus (CF_x negative, all of CF_y/CF_mx/CF_mz positive) —
+    a shape the original off-panel-only scan silently mishandled (caught by /review-pr, not by
+    the first version of this test).
+    """
+    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert (
+        "cf_x" in low and "-0.01" in cap and "< 0" in cap
+    )  # names the real on-panel tell
+    assert "no off-panel target" not in low  # must not use the misleading fallback
+    assert (
+        "no target's config-resolved" not in low
+    )  # must not use the "nothing found" fallback
+
+
+def test_build_caption_names_the_worst_offender_when_multiple_targets_are_negative():
+    """Scenario: with two simultaneously-negative targets, the caveats line must name the
+    MOST negative (worst) one, not just the first in axis order. A mild on-panel dip
+    (CF_x=-0.01) must not bury a severe off-panel failure (CF_mz=-5.0) — picking "first found"
+    by axis order would report the harmless one and hide the alarming one, which is exactly
+    the "silently wrong output" the disclosure mechanism exists to prevent.
+    """
+    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, null_target=None)
+    metrics["config_resolved"]["CF_mz"]["config_mean_r2"] = -5.0
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    low = cap.lower()
+    assert "cf_mz" in low and "-5.0" in cap  # the worst offender is named
+    assert "cf_x config-resolved r² = -0.01" not in low  # not the milder on-panel one
+    assert "off-panel" in low  # correctly labeled off-panel, not "on-panel"
+
+
+def test_build_caption_aggregate_r2_does_not_round_to_a_literal_1_00():
+    """Scenario: an aggregate R2 of 0.9989... must not render as a literal "1.00" — that
+    contradicts the surrounding prose's point that the aggregate is suspiciously close to,
+    but not literally, a perfect fit (a real bug: :.2f rounded 0.9989899... to "1.00" until
+    fixed to :.3f, found by /review-pr against the real committed corpus).
+    """
+    metrics = _toy_metrics(null_target=None)
+    metrics["aggregate"]["r2"] = 0.9989907931930803
+    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
+    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    assert "1.00" not in cap
+    assert "0.999" in cap
 
 
 def test_build_caption_mutates_with_metrics():
@@ -711,7 +785,7 @@ def test_readme_carries_full_disclosures():
     assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
-    assert "~310" in readme or "310×" in readme or "310x" in low  # latency floor
+    assert "~468" in readme or "468×" in readme or "468x" in low  # latency floor
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------

@@ -80,7 +80,7 @@ def test_unscaled_r2_matches_committed_metrics(coef):
 # is pinned in uv.lock, so this is stable in CI; if pandas is upgraded and this digest trips
 # on unchanged data, re-pin it (it is a corpus tripwire, not phantom data corruption).
 _FROZEN_RAW_FORCE_SHA = (
-    "d709c6cd458b47f037652a8719deeb68c70c314077bcddb3a26224a9b26de41d"
+    "02b04f46a99655122f402433e4d0c1afb8cd0e5b28c9b85236ed96cbab14486e"
 )
 
 

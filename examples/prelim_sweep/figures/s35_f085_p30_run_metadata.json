@@ -1,11 +1,10 @@
 {
-  "run_id": "1681261b-473d-42f0-9d6c-814a49e62134",
-  "timestamp": "2026-08-21T19:23:37Z",
+  "run_id": "f5e211df-7665-47ba-b859-ae623227157e",
+  "timestamp": "2026-08-21T19:40:08Z",
   "git": {
-    "commit": "7740c70cf6bd79b66552e44b8462ca4583d9f56d",
+    "commit": "b68e1a1fa774a755af0382c4a5662b244f0a27e7",
     "branch": "fix-hinge-corpus-regen",
-    "dirty": true,
-    "diff_hash": "54056da79a3f",
+    "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -21,8 +20,8 @@
   },
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
   "inputs": {
-    "file": "examples\\prelim_sweep\\sweep_manifest.json",
-    "hash": "8b6fd56d4d4f637ca756c2f3889f3279bbfd0408cfbf825001447a5324bdf69c"
+    "file": "examples\\flapping_wing\\wing.vertex",
+    "hash": "9fe1f07c209533b87d2f76df3bbe69183bff6e22f6fa9275f9fc326d3717f4b2"
   },
-  "dropped_configs": []
+  "config_name": "s35_f085_p30"
 }

@@ -1,9 +1,15 @@
 {
   "base_inputs": {
     "path": "examples/prelim_sweep/base_inputs.3d.validation",
-    "sha256": "dfb1e24b15ce0ab5307414743d2455d8c399d004d2face7146aa45c1a107aa0d"
+    "sha256": "6a2a2f1663e7e42573fe8922e900f01f37a7ddc15c2154a353bb8c0c582ad3ff"
   },
-  "generated_at": "2026-06-09T00:00:00+00:00",
-  "git_commit": "f6bc1b7c45aaee12bb56137ca5c6ac7bdb7e0531",
-  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
+  "generated_at": "2026-08-11T03:00:00+00:00",
+  "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
+  "downstream_artifacts_regenerated_from": {
+    "reason": "fix-force-surrogate-sweep-hinge corrected this corpus's base deck's wing hinge and regenerated dataset.parquet/surrogate/*/figures/* end-to-end against the corrected geometry, superseding the earlier cluster run against the pre-fix, buggy midspan-pivot decks.",
+    "cluster_workflows": ["force-surrogate-sweep-9454x", "force-surrogate-sweep-8nbjt"],
+    "docker_image_digest": "sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+    "affected": ["dataset.parquet", "surrogate/holdout_predictions.parquet", "surrogate/metrics.json", "surrogate/surrogate.pt", "surrogate/run_metadata.json", "figures/evidence_figure.png", "figures/evidence_figure_metrics.json", "figures/run_metadata.json"]
+  }
 }

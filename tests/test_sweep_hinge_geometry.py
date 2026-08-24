@@ -147,14 +147,6 @@ def test_wing_half_span_uses_max_minus_min_not_max_alone(tmp_path):
     assert wing_half_span(asymmetric_vertex, span_axis="y") == pytest.approx(1.5)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Expected to fail until PR 2 of fix-force-surrogate-sweep-hinge lands "
-        "(Phase 1: the base decks' hinge_y/hinge_z fix). This test proves the guard genuinely "
-        "detects the real bug -- see openspec/changes/fix-force-surrogate-sweep-hinge/tasks.md."
-    ),
-    strict=True,
-)
 def test_hinge_at_span_root_for_coarse_and_fine_base_decks():
     """The real regression check: both sweep base decks against the real canonical geometry."""
     assert_hinge_at_span_root(_COARSE_BASE.read_text(), _CANONICAL_VERTEX)
