@@ -179,6 +179,46 @@ the exact subject of round-1 finding #14). No GitHub issue was filed — this wa
 within the same implementation session, before any PR existed, so there was no external-facing
 bug to track.
 
+### Why N instead of M? (round 2) — an unguarded call site survived the round-1 fix
+
+After PR #78 was opened, `/review-pr` was run a second time in PR mode (posting to GitHub). Two
+independent reviewer lenses — Behavioral Correctness and TDD/Testing — each found, independently,
+that the round-1 fix above was incomplete: `get_git_info()`'s `override =
+_worktree_retry_env(repo_dir)` call site had **no** `try`/`except` around it at all, unlike both
+`_collect_git_info` call sites. Inside `_worktree_retry_env`, `git_pointer.is_file()` was called
+*before* the function's own `try`/`except OSError` (which only wrapped `read_text`).
+`pathlib.Path.is_file()` swallows some `OSError`s internally (`ENOENT`, `ENOTDIR`, a few Windows
+equivalents) but **not** `PermissionError`/`EACCES` — so a transient permission problem on the
+`.git` stat (a locked file, an ACL issue, momentary CIFS unavailability — all realistic on this
+project's Windows/WSL/CIFS-mounted deployments per `openspec/project.md`'s Cluster Path Mappings)
+would still propagate an uncaught `PermissionError` out of `get_git_info()`, directly
+contradicting both the function's own docstring ("any OS-level failure ... is reported the same
+way as 'not a repository'") and the spec requirement ("SHALL NOT raise any exception").
+
+The TDD reviewer separately found that two of the round-1 regression tests didn't actually pin
+what they claimed to: `test_get_git_info_returns_error_dict_for_nonexistent_repo_path` used a
+path that never existed, which already raised `FileNotFoundError` — caught even by the
+*original*, narrower exception set — so it never exercised the `OSError`-widening it was meant to
+guard. The real gap was an *existing file* passed as `repo_path` (confirmed empirically on this
+Windows dev machine: `subprocess.run(cwd=<a file>)` raises `NotADirectoryError`, not
+`FileNotFoundError`), which no test exercised at all.
+
+**Fix**: moved `git_pointer.is_file()` inside `_worktree_retry_env`'s existing `try`/`except
+OSError` block (a single `try` now wraps both the stat and the read). Added four tests, verified
+RED against the pre-fix code before being confirmed GREEN: `test_get_git_info_returns_error_dict_when_repo_path_is_a_file_not_directory`
+(genuinely exercises `NotADirectoryError`, unlike the round-1 nonexistent-path test),
+`test_get_git_info_returns_error_dict_when_cwd_resolution_raises_oserror`,
+`test_worktree_retry_env_returns_none_when_is_file_raises_permission_error`, and
+`test_get_git_info_does_not_crash_when_worktree_check_raises_permission_error`.
+
+**Why this survived one full pre-PR review round**: the round-1 fix correctly widened the two
+call sites that were already inside a `try` block, but didn't audit for call sites *outside* any
+`try` block entirely — `_worktree_retry_env`'s own internal `is_file()`/`read_text()` split had a
+gap between "before the try" and "inside the try" that no round-1 reviewer traced line-by-line.
+This is exactly why a second review pass in PR mode (not just re-trusting the round-1 fix) was
+worth running. No GitHub issue was filed — caught and fixed before merge, no external-facing bug
+to track.
+
 ## Migration Plan
 
 None required — this is a pure bugfix to a currently-broken code path with no schema change to

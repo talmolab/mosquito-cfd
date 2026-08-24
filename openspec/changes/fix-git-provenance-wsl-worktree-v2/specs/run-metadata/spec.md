@@ -74,9 +74,11 @@ the same honest error dict in every unresolvable case instead.
 
 #### Scenario: pathological inputs degrade to the honest error, never an unhandled exception
 
-- **GIVEN** either (a) a `repo_path` pointing at a directory that does not exist (or a file, not
-  a directory), or (b) a `.git` pointer file whose content is not valid UTF-8
+- **GIVEN** any of: (a) a `repo_path` pointing at a directory that does not exist (or a file, not
+  a directory), (b) a `.git` pointer file whose content is not valid UTF-8, (c) the process's
+  current working directory having been deleted when no `repo_path` is given, or (d) a
+  permission error while checking or reading the `.git` pointer file
 - **WHEN** `get_git_info(repo_path)` is called
 - **THEN** it returns `{"error": "git not available or not a repository"}` without raising
-  `NotADirectoryError`, `FileNotFoundError`, `UnicodeDecodeError`, or any other exception to the
-  caller
+  `NotADirectoryError`, `FileNotFoundError`, `UnicodeDecodeError`, `PermissionError`, or any other
+  exception to the caller

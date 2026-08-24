@@ -261,6 +261,67 @@ def test_get_git_info_returns_error_dict_for_nonexistent_repo_path(tmp_path):
     assert result == {"error": "git not available or not a repository"}
 
 
+def test_get_git_info_returns_error_dict_when_repo_path_is_a_file_not_directory(
+    tmp_path,
+):
+    # Unlike a nonexistent path (FileNotFoundError, already caught pre-widening), an existing
+    # FILE passed as cwd raises NotADirectoryError — this is the case that actually needs the
+    # broadened `except (subprocess.CalledProcessError, OSError)` (FileNotFoundError alone
+    # would not have caught it).
+    not_a_dir = tmp_path / "some_file.txt"
+    not_a_dir.write_text("not a directory", encoding="utf-8")
+
+    result = mc.get_git_info(not_a_dir)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_returns_error_dict_when_cwd_resolution_raises_oserror(
+    monkeypatch,
+):
+    def _raise_cwd():
+        raise FileNotFoundError("current working directory no longer exists")
+
+    monkeypatch.setattr(mc.Path, "cwd", staticmethod(_raise_cwd))
+
+    result = mc.get_git_info()
+
+    assert result == {"error": "git not available or not a repository"}
+
+
+def test_worktree_retry_env_returns_none_when_is_file_raises_permission_error(
+    tmp_path, monkeypatch
+):
+    # Path.is_file() swallows ENOENT/ENOTDIR internally but NOT PermissionError/EACCES — a
+    # transient permission hiccup on the `.git` stat (locked file, ACL issue, momentary CIFS
+    # unavailability, all realistic on this project's Windows/WSL/CIFS-mounted deployments)
+    # must not propagate out of this function.
+    def _raise_permission(self):
+        raise PermissionError("simulated permission denial on .git stat")
+
+    monkeypatch.setattr(mc.Path, "is_file", _raise_permission)
+
+    assert mc._worktree_retry_env(tmp_path) is None
+
+
+def test_get_git_info_does_not_crash_when_worktree_check_raises_permission_error(
+    tmp_path, monkeypatch
+):
+    def _raise_permission(self):
+        raise PermissionError("simulated permission denial on .git stat")
+
+    monkeypatch.setattr(mc.Path, "is_file", _raise_permission)
+
+    def fake_run(argv, **kwargs):
+        raise subprocess.CalledProcessError(1, argv)
+
+    monkeypatch.setattr(mc.subprocess, "run", fake_run)
+
+    result = mc.get_git_info(tmp_path)
+
+    assert result == {"error": "git not available or not a repository"}
+
+
 def test_worktree_retry_env_handles_non_utf8_pointer_content(tmp_path):
     # Invalid UTF-8 bytes must never raise UnicodeDecodeError; `errors="replace"` substitutes
     # U+FFFD, so the regex still matches around the garbled bytes and produces a (harmless,

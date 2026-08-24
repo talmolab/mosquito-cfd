@@ -41,9 +41,11 @@ def _worktree_retry_env(repo_dir: Path) -> dict[str, str] | None:
     real gitdir directory), or when its content isn't a Windows drive-letter gitdir path.
     """
     git_pointer = repo_dir / ".git"
-    if not git_pointer.is_file():
-        return None
     try:
+        # `Path.is_file()` swallows some OSErrors (ENOENT, ENOTDIR) internally but NOT
+        # PermissionError/EACCES, so it must be inside this same try, not called before it.
+        if not git_pointer.is_file():
+            return None
         # errors="replace": a corrupted/non-UTF-8 pointer file must fail the
         # regex match below (returning None), not raise UnicodeDecodeError.
         content = git_pointer.read_text(encoding="utf-8", errors="replace")

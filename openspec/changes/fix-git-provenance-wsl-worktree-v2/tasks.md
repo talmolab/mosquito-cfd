@@ -120,6 +120,26 @@
       found this was the one unexercised assertion tied directly to Decision 5/finding #14, the
       most-debated design point in the whole proposal — the implementation was already correct,
       but nothing would have caught a regression.)*
+- [x] 3.11 Move `git_pointer.is_file()` inside `_worktree_retry_env`'s existing `try`/`except
+      OSError` block (a single `try` now wraps both the stat and the `read_text` call), since
+      `is_file()` does not swallow `PermissionError`/`EACCES` the way it swallows `ENOENT`/
+      `ENOTDIR`. Write (and verify RED against the pre-fix code, then GREEN after) two tests:
+      `test_worktree_retry_env_returns_none_when_is_file_raises_permission_error` and
+      `test_get_git_info_does_not_crash_when_worktree_check_raises_permission_error`. *(Added
+      during a second, PR-mode `/review-pr` pass on PR #78 — Behavioral-Correctness and TDD
+      reviewers independently found this exact gap: `get_git_info()`'s
+      `_worktree_retry_env(repo_dir)` call site had no `try`/`except` of its own, so a
+      `PermissionError` from the stat propagated uncaught despite round-1's exception-widening
+      fix. See design.md's second "Why N instead of M?" section.)*
+- [x] 3.12 Strengthen the round-1 nonexistent-path regression test: the TDD reviewer found
+      `test_get_git_info_returns_error_dict_for_nonexistent_repo_path` didn't actually pin the
+      `OSError` widening (a truly nonexistent path already raised `FileNotFoundError`, caught even
+      by the original narrower exception set). Added
+      `test_get_git_info_returns_error_dict_when_repo_path_is_a_file_not_directory` (an *existing
+      file* passed as `repo_path`, empirically confirmed to raise `NotADirectoryError` — the case
+      that actually needs the widening) and
+      `test_get_git_info_returns_error_dict_when_cwd_resolution_raises_oserror` (direct coverage
+      of the `Path.cwd()` `try`/`except` branch, previously untested).
 
 ## 4. Verification
 
@@ -183,3 +203,8 @@
       regress anything. *(Added post-hoc to document `/pre-merge-check` Phase 3.5, which this
       change's implementation actually went through — three BLOCKING findings surfaced and were
       fixed; see design.md's "Why N instead of M?" section.)*
+- [x] 4.8 After PR #78 was opened, run `/review-pr` again in PR mode (posting to GitHub) as a
+      second independent pass — not a rubber-stamp of round 4.7's fixes. Address every BLOCKING
+      finding (task 3.11 above), then re-run 4.1-4.3 and 4.6 again. *(One more BLOCKING finding
+      surfaced — an unguarded call site that survived round 4.7's fix — found independently by
+      two reviewer lenses; see design.md's second "Why N instead of M?" section.)*
