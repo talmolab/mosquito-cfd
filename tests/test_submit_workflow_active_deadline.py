@@ -12,6 +12,7 @@ defaults or the real default corpus-dir's ``provision()`` preconditions here).
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -89,6 +90,22 @@ def _run_submit_workflow(
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _make_manifest_corpus(root: Path, name: str, n_configs: int) -> Path:
+    """Build a fixture corpus dir with just a ``sweep_manifest.json`` (the real production
+    schema, ``{"configs": [...]}`` -- confirmed against ``examples/prelim_sweep_fine/
+    sweep_manifest.json``; NOT ``{"n_configs": N}``, since ``compute_auto_deadline_seconds``
+    reads ``json.load(...)["configs"]``). ``inputs/`` is deliberately omitted: with
+    ``--no-provision`` baked in, ``provision()`` never runs, so only the manifest matters.
+    """
+    corpus = root / name
+    corpus.mkdir(parents=True)
+    configs = [{"name": f"config_{i}"} for i in range(n_configs)]
+    (corpus / "sweep_manifest.json").write_text(
+        json.dumps({"configs": configs}), encoding="utf-8"
+    )
+    return corpus
 
 
 # ---------------------------------------------------------------------------
@@ -180,3 +197,106 @@ def test_help_documents_active_deadline_seconds_and_the_coupling_risk():
     assert "--active-deadline-seconds" in result.stdout
     lowered = result.stdout.lower()
     assert "coupled" in lowered or "coupling" in lowered
+
+
+# ---------------------------------------------------------------------------
+# 3. Auto-scale fallback when --parallelism is overridden without an explicit deadline
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_value", ["0", "-1", "abc"])
+def test_invalid_parallelism_still_rejected_cleanly_when_autoscale_would_fire(
+    tmp_path, bad_value
+):
+    """Regression test: an earlier draft resolved effective_deadline (and called the auto-scale
+    python one-liner) BEFORE validating $PARALLELISM's format, so `0` reached a
+    ZeroDivisionError and `abc` reached a ValueError -- both uncaught Python tracebacks instead
+    of a clean die(). The real default --corpus-dir (examples/prelim_sweep) has a real manifest,
+    so auto-scale would actually be attempted if the validation-ordering bug were reintroduced.
+    """
+    result, _capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path, ["--parallelism", bad_value]
+    )
+
+    assert result.returncode != 0
+    assert "positive integer" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not invoked_marker.exists()
+
+
+@pytest.mark.parametrize("parallelism,expected", [("1", 43200), ("3", 25200)])
+def test_parallelism_without_explicit_deadline_autoscales(
+    tmp_path, parallelism, expected
+):
+    # ceil(3 * 2.4 / parallelism + 4) * 3600:
+    #   parallelism=1: ceil(7.2/1 + 4)  = ceil(11.2) = 12 -> 43200
+    #   parallelism=3: ceil(7.2/3 + 4)  = ceil(6.4)  = 7  -> 25200
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        ["--parallelism", parallelism, "--corpus-dir", str(corpus)],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert f"activeDeadlineSeconds: {expected}" in capture_file.read_text()
+
+
+def test_autoscale_zero_configs_degenerates_to_retry_margin_only(tmp_path):
+    corpus = _make_manifest_corpus(tmp_path, "empty_corpus", n_configs=0)
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path, ["--parallelism", "1", "--corpus-dir", str(corpus)]
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert "activeDeadlineSeconds: 14400" in capture_file.read_text()
+
+
+def test_autoscale_with_very_large_parallelism_does_not_crash_or_underflow(tmp_path):
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path, ["--parallelism", "1000000", "--corpus-dir", str(corpus)]
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    # ceil(3*2.4/1000000 + 4)*3600 = ceil(4.0000072)*3600 = 5*3600 = 18000 (not 14400 --
+    # math.ceil rounds up past any nonzero fractional remainder, however tiny).
+    assert "activeDeadlineSeconds: 18000" in capture_file.read_text()
+
+
+def test_explicit_active_deadline_takes_precedence_over_autoscale(tmp_path):
+    missing_corpus = tmp_path / "does_not_exist"
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--active-deadline-seconds",
+            "999999",
+            "--corpus-dir",
+            str(missing_corpus),
+        ],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert "activeDeadlineSeconds: 999999" in capture_file.read_text()
+
+
+def test_autoscale_missing_manifest_fails_with_clear_message_not_a_traceback(tmp_path):
+    corpus = tmp_path / "corpus_without_manifest"
+    corpus.mkdir()
+
+    result, _capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path, ["--parallelism", "2", "--corpus-dir", str(corpus)]
+    )
+
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert not invoked_marker.exists()

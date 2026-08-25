@@ -20,8 +20,11 @@
 #              COUPLED to --parallelism: the committed 24h deadline was sized for the committed
 #              parallelism: 3, so overriding parallelism alone without also adjusting the
 #              deadline can silently doom a submission to a deadline-kill partway through (this
-#              is exactly what happened to force-surrogate-sweep-7wrk7, issue #63) -- always
-#              consider setting both together when overriding either.
+#              is exactly what happened to force-surrogate-sweep-7wrk7, issue #63). If
+#              --parallelism is overridden and --active-deadline-seconds is omitted, this script
+#              auto-computes a safe replacement deadline from the manifest's real config count
+#              instead of leaving the stale default in place; pass --active-deadline-seconds
+#              explicitly to override the auto-scaled value too.
 #
 # `smoke` and `full` both provision WORKSPACE_HOSTPATH from CORPUS_DIR before submitting (issue
 # #62: nothing previously staged the NFS workspace from the committed corpus, so a stale/wrong
@@ -83,8 +86,9 @@ POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
 # that could drift from the committed file's actual value). Only sed-patch a temp copy when this
 # is explicitly set via --parallelism.
 PARALLELISM=""
-# Empty = flag not given. Same idiom as PARALLELISM -- only sed-patch a temp copy when this is
-# explicitly set via --active-deadline-seconds.
+# Empty = flag not given. Same idiom as PARALLELISM. If left empty while --parallelism IS given,
+# `full` auto-computes a safe replacement instead of silently submitting the committed 24h
+# default unchanged (see compute_auto_deadline_seconds below) -- issue #63.
 ACTIVE_DEADLINE_SECONDS=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -156,6 +160,45 @@ provision() {
   [[ "$expected" == "$actual" ]] || die "provisioned wing.vertex hash mismatch after copy"
 }
 
+# Auto-scale activeDeadlineSeconds from the manifest's real config count when --parallelism is
+# overridden without an explicit --active-deadline-seconds (issue #63): the committed 24h
+# default was sized for the committed parallelism: 3 and silently stops fitting once parallelism
+# is overridden down. PER_CONFIG_HOURS is the measured mean wall_time_s across all 27 configs of
+# the real force-surrogate-sweep-vb8t5 run; RETRY_MARGIN_HOURS matches the retryStrategy.backoff.
+# maxDuration bump (issue #64) so one retried config's full backoff sequence still fits.
+compute_auto_deadline_seconds() {
+  local manifest_path="$1" parallelism="$2"
+  # `command -v python3` alone is not a reliable presence check: on Windows, a non-functional
+  # App-Execution-Alias stub can shadow a real interpreter and still resolve via `command -v`,
+  # only failing (with a non-Python "install from the Microsoft Store" message) when actually
+  # run. Probe candidates by actually invoking them, not just checking PATH resolution, and fall
+  # back from python3 to python (this script's real target environment is WSL/Linux, where
+  # python3 is the standard and this loop picks it first attempt; the fallback exists for
+  # environments -- including this repo's own Windows dev/test setup -- where only `python`
+  # resolves to a working interpreter).
+  local python_bin=""
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "" >/dev/null 2>&1; then
+      python_bin="$candidate"
+      break
+    fi
+  done
+  [[ -n "$python_bin" ]] \
+    || die "python3 (or python) is required to auto-scale --active-deadline-seconds; none found working on PATH"
+  [[ -f "$manifest_path" ]] \
+    || die "auto-scaling the deadline needs $manifest_path, but it does not exist"
+  "$python_bin" -c '
+import json, math, sys
+manifest_path, parallelism = sys.argv[1], int(sys.argv[2])
+PER_CONFIG_HOURS = 2.4
+RETRY_MARGIN_HOURS = 4
+n = len(json.load(open(manifest_path))["configs"])
+hours = math.ceil(n * PER_CONFIG_HOURS / parallelism + RETRY_MARGIN_HOURS)
+print(hours * 3600)
+' "$manifest_path" "$parallelism" \
+    || die "failed to compute auto-scaled --active-deadline-seconds from $manifest_path"
+}
+
 # Parse: first arg is the command, the rest are --flag value overrides.
 COMMAND="${1:-help}"; shift || true
 while [[ $# -gt 0 ]]; do
@@ -209,11 +252,23 @@ case "$COMMAND" in
     [[ -n "$NO_PROVISION" ]] || provision "$CORPUS_DIR" "$WORKSPACE_HOSTPATH" true
     workflow_file="$SWEEP_WORKFLOW_FILE"
 
+    # Validate $PARALLELISM's format immediately, before it is used for anything else --
+    # including auto-scale below. This ordering is load-bearing: compute_auto_deadline_seconds
+    # divides by $PARALLELISM and int()-parses it in Python, so an unvalidated "0" or "abc"
+    # reaching that call would raise an uncaught ZeroDivisionError/ValueError (a raw traceback),
+    # not a die() message.
     if [[ -n "$PARALLELISM" ]]; then
       [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
         || die "--parallelism must be a positive integer (got: $PARALLELISM)"
     fi
+
+    # Resolve the deadline to apply: an explicit --active-deadline-seconds always wins; otherwise,
+    # if --parallelism was overridden, auto-scale from the manifest instead of silently leaving
+    # the committed 24h default in place (issue #63).
     effective_deadline="$ACTIVE_DEADLINE_SECONDS"
+    if [[ -z "$effective_deadline" && -n "$PARALLELISM" ]]; then
+      effective_deadline="$(compute_auto_deadline_seconds "$CORPUS_DIR/sweep_manifest.json" "$PARALLELISM")"
+    fi
 
     if [[ -n "$PARALLELISM" || -n "$effective_deadline" ]]; then
       tmp="$(mktemp --suffix=.yaml)"
