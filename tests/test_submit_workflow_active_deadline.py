@@ -336,18 +336,34 @@ def test_autoscale_missing_manifest_fails_with_clear_message_not_a_traceback(tmp
     assert not invoked_marker.exists()
 
 
-def test_autoscale_malformed_manifest_configs_fails_with_clear_message_not_a_traceback(
-    tmp_path,
+@pytest.mark.parametrize(
+    "case_id,manifest_text",
+    [
+        ("invalid_json", "not valid json {{{"),
+        ("missing_configs_key", json.dumps({"no_configs_key": []})),
+        ("configs_is_null", json.dumps({"configs": None})),
+        ("configs_is_a_string", json.dumps({"configs": "not-a-list"})),
+        ("configs_is_a_dict", json.dumps({"configs": {"a": 1}})),
+    ],
+    ids=[
+        "invalid_json",
+        "missing_configs_key",
+        "configs_is_null",
+        "configs_is_a_string",
+        "configs_is_a_dict",
+    ],
+)
+def test_autoscale_malformed_manifest_fails_with_clear_message_not_a_traceback(
+    tmp_path, case_id, manifest_text
 ):
-    """Regression test: a manifest that EXISTS but has "configs" as a non-list (or is
-    otherwise malformed) must not leak a raw Python traceback -- the exact gap a code-quality
-    review round found by live-reproducing a KeyError from a manifest missing "configs".
+    """Regression test covering every malformed shape the delta spec enumerates (invalid JSON,
+    a missing "configs" key, and "configs" present but not a list) -- not just the single
+    non-list case a code-quality review round found by live-reproducing a KeyError. None of
+    these must leak a raw Python traceback.
     """
-    corpus = tmp_path / "malformed_corpus"
+    corpus = tmp_path / f"malformed_corpus_{case_id}"
     corpus.mkdir()
-    (corpus / "sweep_manifest.json").write_text(
-        json.dumps({"configs": "not-a-list"}), encoding="utf-8"
-    )
+    (corpus / "sweep_manifest.json").write_text(manifest_text, encoding="utf-8")
 
     result, _capture_file, invoked_marker = _run_submit_workflow(
         tmp_path,
@@ -417,31 +433,38 @@ def test_explicit_deadline_skips_the_basename_check_entirely(tmp_path):
     assert "activeDeadlineSeconds: 999999" in capture_file.read_text()
 
 
-@pytest.mark.parametrize("working_candidate", ["python3", "python"])
-def test_autoscale_falls_back_to_working_interpreter(tmp_path, working_candidate):
-    """Exercise compute_auto_deadline_seconds's python3-then-python probe directly: stub BOTH
-    candidate names on PATH, make exactly one of them actually work, and confirm auto-scale
-    still succeeds -- the real gap this closes is a non-functional `python3` (e.g. Windows's
-    App-Execution-Alias stub) that resolves via `command -v` but fails when actually invoked.
+def _write_fake_interpreter(path: Path, marker: Path) -> None:
+    """A self-contained fake interpreter -- no real Python needed (avoids Windows-path/exec
+    portability issues entirely). It only needs to satisfy the two call shapes
+    compute_auto_deadline_seconds actually uses: the presence probe (`-c ""`, must exit 0) and
+    the real computation (`-c '<code>' manifest_path parallelism`, must print the expected
+    result for this test file's fixed n_configs=3/parallelism=1 inputs). It also touches
+    `marker` on the REAL computation call (not the presence probe) so tests can prove WHICH
+    interpreter actually ran, not just that auto-scale succeeded somehow.
     """
+    path.write_text(
+        f'#!/bin/sh\nif [ -z "$2" ]; then exit 0; fi\ntouch "{marker}"\necho 43200\n',
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _write_broken_interpreter(path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\necho 'not a real interpreter' >&2\nexit 1\n", encoding="utf-8"
+    )
+    path.chmod(0o755)
+
+
+def test_autoscale_prefers_python3_when_it_works(tmp_path):
+    """python3 is tried FIRST -- when it works, python (the fallback) must never even run."""
     corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
     interpreter_dir = tmp_path / "interpreter_bin"
     interpreter_dir.mkdir()
-    broken_candidate = "python" if working_candidate == "python3" else "python3"
-    (interpreter_dir / broken_candidate).write_text(
-        "#!/bin/sh\necho 'not a real interpreter' >&2\nexit 1\n", encoding="utf-8"
-    )
-    (interpreter_dir / broken_candidate).chmod(0o755)
-    # A self-contained fake interpreter -- no real Python needed (avoids Windows-path/exec
-    # portability issues entirely). It only needs to satisfy the two call shapes
-    # compute_auto_deadline_seconds actually uses: the presence probe (`-c ""`, must exit 0)
-    # and the real computation (`-c '<code>' manifest_path parallelism`, must print the
-    # expected result for this test's fixed n_configs=3/parallelism=1 inputs).
-    (interpreter_dir / working_candidate).write_text(
-        '#!/bin/sh\nif [ -z "$2" ]; then exit 0; fi\necho 43200\n',
-        encoding="utf-8",
-    )
-    (interpreter_dir / working_candidate).chmod(0o755)
+    python3_marker = tmp_path / "python3_ran"
+    python_marker = tmp_path / "python_ran"
+    _write_fake_interpreter(interpreter_dir / "python3", python3_marker)
+    _write_fake_interpreter(interpreter_dir / "python", python_marker)
 
     result, capture_file, invoked_marker = _run_submit_workflow(
         tmp_path,
@@ -466,6 +489,45 @@ def test_autoscale_falls_back_to_working_interpreter(tmp_path, working_candidate
     assert result.returncode == 0, result.stderr
     assert invoked_marker.exists()
     assert "activeDeadlineSeconds: 43200" in capture_file.read_text()
+    assert python3_marker.exists(), "python3 should have run the real computation"
+    assert not python_marker.exists(), (
+        "python (the fallback) must never run when python3 works"
+    )
+
+
+def test_autoscale_falls_back_to_python_when_python3_is_broken(tmp_path):
+    """The real gap this closes: a non-functional `python3` (e.g. Windows's App-Execution-Alias
+    stub) that resolves via `command -v` but fails when actually invoked. python3 is present
+    but broken; python must be tried next and actually used.
+    """
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+    interpreter_dir = tmp_path / "interpreter_bin"
+    interpreter_dir.mkdir()
+    python_marker = tmp_path / "python_ran"
+    _write_broken_interpreter(interpreter_dir / "python3")
+    _write_fake_interpreter(interpreter_dir / "python", python_marker)
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(corpus),
+        ],
+        extra_env={
+            "PATH": f"{interpreter_dir}{os.pathsep}{tmp_path / 'stub_bin'}{os.pathsep}{os.environ['PATH']}"
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert "activeDeadlineSeconds: 43200" in capture_file.read_text()
+    assert python_marker.exists(), (
+        "python (the fallback) should have run the real computation"
+    )
 
 
 def test_autoscale_dies_clearly_when_no_interpreter_works(tmp_path):
@@ -474,10 +536,7 @@ def test_autoscale_dies_clearly_when_no_interpreter_works(tmp_path):
     interpreter_dir = tmp_path / "interpreter_bin"
     interpreter_dir.mkdir()
     for name in ("python3", "python"):
-        (interpreter_dir / name).write_text(
-            "#!/bin/sh\necho 'not a real interpreter' >&2\nexit 1\n", encoding="utf-8"
-        )
-        (interpreter_dir / name).chmod(0o755)
+        _write_broken_interpreter(interpreter_dir / name)
 
     result, _capture_file, invoked_marker = _run_submit_workflow(
         tmp_path,

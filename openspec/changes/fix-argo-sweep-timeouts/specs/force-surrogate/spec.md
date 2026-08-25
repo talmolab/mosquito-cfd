@@ -100,6 +100,16 @@ auto-scale computation SHALL be attempted when an explicit value is given.
   auto-scale computation is never attempted, so an unreadable manifest under this combination of
   flags does not cause a failure
 
+#### Scenario: Auto-scale falls back to a working Python interpreter
+
+- **Given** a `full` invocation where auto-scale is eligible to fire, and `python3` resolves on
+  `PATH` but is non-functional (e.g. a Windows App-Execution-Alias stub), while `python` on
+  `PATH` is a genuinely working interpreter
+- **When** the command runs
+- **Then** auto-scale succeeds by falling back to `python` — the script probes each candidate
+  by actually invoking it, not merely checking that `PATH` resolution succeeds, and the broken
+  `python3` is never used for the real computation
+
 #### Scenario: Auto-scale fails clearly, not with a raw crash, when the manifest is unreadable
 
 - **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 2 --no-provision` with a

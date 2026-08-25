@@ -89,7 +89,12 @@ deadline-kill partway through** (this is exactly what happened to
   config count (`ceil(config_count × 2.4h ÷ parallelism + 4h)`, rounded up to a whole hour)
   instead of silently leaving the stale committed default in place. Pass
   `--active-deadline-seconds` explicitly if you want a different value than the auto-scaled one
-  — an explicit value always wins.
+  — an explicit value always wins. **Auto-scale reads `--corpus-dir`'s manifest directly, not
+  whatever is actually staged at `--workspace-hostpath`** — if the two flags' basenames don't
+  match (the same coarse/fine mismatch `--no-provision` skipping `provision()`'s own guard could
+  otherwise let through undetected), the script refuses to auto-scale rather than silently
+  computing a deadline from the wrong corpus's config count; pass a matching `--corpus-dir`, or
+  an explicit `--active-deadline-seconds` to skip auto-scale (and this check) entirely.
   ```bash
   wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml \
     && cluster/argo/scripts/submit_workflow.sh full --image ghcr.io/talmolab/mosquito-cfd@sha256:<DIGEST> \

@@ -164,8 +164,16 @@ provision() {
 # overridden without an explicit --active-deadline-seconds (issue #63): the committed 24h
 # default was sized for the committed parallelism: 3 and silently stops fitting once parallelism
 # is overridden down. PER_CONFIG_HOURS is the measured mean wall_time_s across all 27 configs of
-# the real force-surrogate-sweep-vb8t5 run; RETRY_MARGIN_HOURS matches the retryStrategy.backoff.
-# maxDuration bump (issue #64) so one retried config's full backoff sequence still fits.
+# the real force-surrogate-sweep-vb8t5 run (the fine-grid corpus); RETRY_MARGIN_HOURS matches the
+# retryStrategy.backoff.maxDuration bump (issue #64) so one retried config's full backoff
+# sequence still fits.
+# CAVEAT: PER_CONFIG_HOURS is a constant calibrated from THAT ONE corpus's measured per-config
+# cost -- it scales with the manifest's config COUNT (via --corpus-dir), not with each config's
+# actual runtime. A future corpus with a materially different per-config cost (a coarser/finer
+# grid, a different kinematic range) could silently under-provision the deadline again -- the
+# same failure class issue #63 itself describes, just via a different corpus. Re-derive this
+# constant (see design.md D2 for the measurement method) if auto-scale is ever applied against a
+# corpus this wasn't calibrated for.
 compute_auto_deadline_seconds() {
   local manifest_path="$1" parallelism="$2"
   # `command -v python3` alone is not a reliable presence check: on Windows, a non-functional
@@ -176,7 +184,7 @@ compute_auto_deadline_seconds() {
   # python3 is the standard and this loop picks it first attempt; the fallback exists for
   # environments -- including this repo's own Windows dev/test setup -- where only `python`
   # resolves to a working interpreter).
-  local python_bin=""
+  local python_bin="" candidate=""
   for candidate in python3 python; do
     if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "" >/dev/null 2>&1; then
       python_bin="$candidate"

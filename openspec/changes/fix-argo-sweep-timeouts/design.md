@@ -393,3 +393,44 @@ didn't exist yet to review). All three are fixed in the shipped diff, not just n
    test's known inputs) rather than trying to exec a real Python interpreter from a stub (a first
    attempt at this hit exactly the Windows-path/`exec`-portability problem this whole function
    exists to work around — self-contained fakes avoid it entirely).
+
+### Why: second round of fixes (found by `/review-pr`'s 5-agent team, post-PR-open)
+
+A further round of adversarial review — this time against the opened PR #82, after the first
+self-review round above had already landed — found five more real, non-blocking gaps. All are
+fixed in the shipped diff:
+
+1. **Vacuous test parametrization**: `test_autoscale_falls_back_to_working_interpreter
+   [python3]` never actually exercised the fallback branch — when `python3` is the "working"
+   candidate, the probe loop finds it on the first iteration and never touches the `python`
+   stub at all, so that parametrization only proved "the primary candidate works," not
+   "fallback works." Fixed: split into two clearly-named, non-vacuous tests —
+   `test_autoscale_prefers_python3_when_it_works` (asserts the `python` stub's own invocation
+   marker is NOT created) and `test_autoscale_falls_back_to_python_when_python3_is_broken`
+   (asserts `python`'s marker IS created) — each interpreter stub now touches a marker file on
+   the real computation call, making "which interpreter actually ran" directly provable rather
+   than inferred from success alone.
+2. **Malformed-manifest test coverage gap**: only the `"configs"` non-list case was tested,
+   despite the delta spec's own scenario text enumerating three distinct malformed shapes
+   (invalid JSON, missing `"configs"` key, non-list `"configs"`). Fixed: parametrized the test
+   over five shapes (invalid JSON, missing key, `null`, string, dict) — all confirmed to already
+   behave correctly (the `try/except` + `isinstance` check from the first self-review round
+   already covers them), so this closes a coverage gap, not a functional bug.
+3. **Missing spec scenario for the interpreter fallback**: the fallback logic and its tests were
+   documented in `design.md` but had no corresponding `#### Scenario:` in the delta spec, despite
+   this proposal's own stated "1:1 scenario-to-test" discipline. Fixed: added "Auto-scale falls
+   back to a working Python interpreter" under the auto-scale requirement.
+4. **`PER_CONFIG_HOURS` staleness risk undocumented**: the constant is calibrated from one
+   specific corpus's measured cost and scales with config *count*, not each config's actual
+   runtime — a future corpus with a materially different per-config cost could silently
+   under-provision the deadline again, the same failure class issue #63 itself describes, just
+   via a different corpus. Fixed: added an explicit caveat comment at the constant's definition
+   site pointing back to this note.
+5. **README didn't document the basename-consistency guard**: a real, newly-introduced
+   operator-facing failure mode (auto-scale refuses to fire when `--corpus-dir`/
+   `--workspace-hostpath` basenames mismatch) was undocumented outside the code/tests/spec.
+   Fixed: added to the README's "Concurrency and deadline are coupled" section.
+
+Also applied as a cheap correctness cleanup (SUGGESTION, not a real bug): the `for candidate in
+python3 python` loop variable is now declared via `local python_bin="" candidate=""` rather than
+leaking into the function's/script's global scope after the loop exits.
