@@ -71,6 +71,41 @@ month.
   defaults to **on**; opt-in skipping is exactly how the original gap went undetected, so make this
   an explicit, deliberate choice, not a habit.
 
+### Concurrency and deadline are coupled — override both together (issues #63/#64)
+
+`full`'s `--parallelism N` overrides the submitted workflow's concurrency without editing the
+committed `force-surrogate-sweep.yaml` (default: its own committed value, `3`). The committed
+`activeDeadlineSeconds` (24h) was sized for that committed default — **overriding
+`--parallelism` alone without also adjusting the deadline can silently doom a submission to a
+deadline-kill partway through** (this is exactly what happened to
+`force-surrogate-sweep-7wrk7`, killed at 24h with 0/27 configs done, when submitted with
+`--parallelism 1` and no matching deadline change).
+
+- **`--active-deadline-seconds N`** — overrides `activeDeadlineSeconds` the same way
+  (anchored, self-verifying temp-copy patch; never edits the committed file). Compose freely
+  with `--parallelism` — both land on the same patched temp copy.
+- **Auto-scale fallback** — if `--parallelism` is overridden and `--active-deadline-seconds` is
+  *omitted*, the script auto-computes a safe replacement deadline from the manifest's real
+  config count (`ceil(config_count × 2.4h ÷ parallelism + 4h)`, rounded up to a whole hour)
+  instead of silently leaving the stale committed default in place. Pass
+  `--active-deadline-seconds` explicitly if you want a different value than the auto-scaled one
+  — an explicit value always wins. **Auto-scale reads `--corpus-dir`'s manifest directly, not
+  whatever is actually staged at `--workspace-hostpath`** — if the two flags' basenames don't
+  match (the same coarse/fine mismatch `--no-provision` skipping `provision()`'s own guard could
+  otherwise let through undetected), the script refuses to auto-scale rather than silently
+  computing a deadline from the wrong corpus's config count; pass a matching `--corpus-dir`, or
+  an explicit `--active-deadline-seconds` to skip auto-scale (and this check) entirely.
+  ```bash
+  wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml \
+    && cluster/argo/scripts/submit_workflow.sh full --image ghcr.io/talmolab/mosquito-cfd@sha256:<DIGEST> \
+       --parallelism 1"   # deadline auto-scales; or add --active-deadline-seconds N to override it explicitly
+  ```
+- **`retryStrategy.backoff.maxDuration`** (in `force-surrogate-single-config.yaml`, shared by
+  `full` and `smoke`) is `4h` — enough for all `limit: 5` configured retries
+  (`2m→4m→8m→16m→32m = 62m`) to actually run under talmo-lab's persistent GPU-quota-overrun
+  preemption, not just the first 3 (the old `30m` cap exhausted after 3 of 5 retries, which is
+  what lost `force-surrogate-sweep-vb8t5`'s 3 longest-running configs to preemption).
+
 ## Monitor
 
 ```bash

@@ -193,4 +193,4 @@ spec:
       backoff:
         duration: "2m"
         factor: 2
-        maxDuration: "30m"
+        maxDuration: "4h"

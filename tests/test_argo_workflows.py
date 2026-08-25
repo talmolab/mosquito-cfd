@@ -53,6 +53,10 @@ def test_single_config_template_retry_strategy():
         "retryStrategy must set limit: 5"
     )
     assert 'retryPolicy: "OnFailure"' in text or "retryPolicy: OnFailure" in text
+    assert re.search(r"backoff:\s*\n(?:\s+\S.*\n)*?\s+maxDuration:\s*\"4h\"", text), (
+        'backoff.maxDuration must be "4h" (30m exhausts after only 3 of the 5 configured '
+        "retries; see issue #64)"
+    )
 
 
 def test_single_config_template_runs_venv_python_not_uv_run():

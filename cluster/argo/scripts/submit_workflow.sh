@@ -15,6 +15,16 @@
 #              committed force-surrogate-sweep.yaml's own value, unpatched) by submitting an
 #              anchored, self-verifying sed-patched temp copy -- the committed file is never
 #              edited. Omit the flag to submit the committed file exactly as-is.
+#              --active-deadline-seconds N overrides activeDeadlineSeconds the same way (same
+#              anchored, self-verifying temp-copy patch; never edits the committed file).
+#              COUPLED to --parallelism: the committed 24h deadline was sized for the committed
+#              parallelism: 3, so overriding parallelism alone without also adjusting the
+#              deadline can silently doom a submission to a deadline-kill partway through (this
+#              is exactly what happened to force-surrogate-sweep-7wrk7, issue #63). If
+#              --parallelism is overridden and --active-deadline-seconds is omitted, this script
+#              auto-computes a safe replacement deadline from the manifest's real config count
+#              instead of leaving the stale default in place; pass --active-deadline-seconds
+#              explicitly to override the auto-scaled value too.
 #
 # `smoke` and `full` both provision WORKSPACE_HOSTPATH from CORPUS_DIR before submitting (issue
 # #62: nothing previously staged the NFS workspace from the committed corpus, so a stale/wrong
@@ -76,6 +86,10 @@ POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
 # that could drift from the committed file's actual value). Only sed-patch a temp copy when this
 # is explicitly set via --parallelism.
 PARALLELISM=""
+# Empty = flag not given. Same idiom as PARALLELISM. If left empty while --parallelism IS given,
+# `full` auto-computes a safe replacement instead of silently submitting the committed 24h
+# default unchanged (see compute_auto_deadline_seconds below) -- issue #63.
+ACTIVE_DEADLINE_SECONDS=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -146,6 +160,64 @@ provision() {
   [[ "$expected" == "$actual" ]] || die "provisioned wing.vertex hash mismatch after copy"
 }
 
+# Auto-scale activeDeadlineSeconds from the manifest's real config count when --parallelism is
+# overridden without an explicit --active-deadline-seconds (issue #63): the committed 24h
+# default was sized for the committed parallelism: 3 and silently stops fitting once parallelism
+# is overridden down. PER_CONFIG_HOURS is the measured mean wall_time_s across all 27 configs of
+# the real force-surrogate-sweep-vb8t5 run (the fine-grid corpus); RETRY_MARGIN_HOURS matches the
+# retryStrategy.backoff.maxDuration bump (issue #64) so one retried config's full backoff
+# sequence still fits.
+# CAVEAT: PER_CONFIG_HOURS is a constant calibrated from THAT ONE corpus's measured per-config
+# cost -- it scales with the manifest's config COUNT (via --corpus-dir), not with each config's
+# actual runtime. A future corpus with a materially different per-config cost (a coarser/finer
+# grid, a different kinematic range) could silently under-provision the deadline again -- the
+# same failure class issue #63 itself describes, just via a different corpus. Re-derive this
+# constant (see design.md D2 for the measurement method) if auto-scale is ever applied against a
+# corpus this wasn't calibrated for.
+compute_auto_deadline_seconds() {
+  local manifest_path="$1" parallelism="$2"
+  # `command -v python3` alone is not a reliable presence check: on Windows, a non-functional
+  # App-Execution-Alias stub can shadow a real interpreter and still resolve via `command -v`,
+  # only failing (with a non-Python "install from the Microsoft Store" message) when actually
+  # run. Probe candidates by actually invoking them, not just checking PATH resolution, and fall
+  # back from python3 to python (this script's real target environment is WSL/Linux, where
+  # python3 is the standard and this loop picks it first attempt; the fallback exists for
+  # environments -- including this repo's own Windows dev/test setup -- where only `python`
+  # resolves to a working interpreter).
+  local python_bin="" candidate=""
+  for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "" >/dev/null 2>&1; then
+      python_bin="$candidate"
+      break
+    fi
+  done
+  [[ -n "$python_bin" ]] \
+    || die "python3 (or python) is required to auto-scale --active-deadline-seconds; none found working on PATH"
+  [[ -f "$manifest_path" ]] \
+    || die "auto-scaling the deadline needs $manifest_path, but it does not exist"
+  # The whole body is wrapped in try/except: a manifest that EXISTS but is malformed JSON, or
+  # is valid JSON missing/misshaping the "configs" key, must fail with one clean message here
+  # -- not an uncaught traceback bleeding into the operator's terminal (the exact failure mode
+  # this function otherwise guards against for the missing-file case above).
+  "$python_bin" -c '
+import json, math, sys
+manifest_path, parallelism = sys.argv[1], int(sys.argv[2])
+PER_CONFIG_HOURS = 2.4
+RETRY_MARGIN_HOURS = 4
+try:
+    configs = json.load(open(manifest_path))["configs"]
+    if not isinstance(configs, list):
+        raise TypeError(f"\"configs\" must be a list, got {type(configs).__name__}")
+    n = len(configs)
+    hours = math.ceil(n * PER_CONFIG_HOURS / parallelism + RETRY_MARGIN_HOURS)
+    print(hours * 3600)
+except Exception as exc:
+    print(f"malformed manifest {manifest_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
+' "$manifest_path" "$parallelism" \
+    || die "failed to compute auto-scaled --active-deadline-seconds from $manifest_path"
+}
+
 # Parse: first arg is the command, the rest are --flag value overrides.
 COMMAND="${1:-help}"; shift || true
 while [[ $# -gt 0 ]]; do
@@ -160,6 +232,7 @@ while [[ $# -gt 0 ]]; do
     --pod-memory-limit) POD_MEMORY_LIMIT="$2"; shift 2;;
     --pod-memory-request) POD_MEMORY_REQUEST="$2"; shift 2;;
     --parallelism) PARALLELISM="$2"; shift 2;;
+    --active-deadline-seconds) ACTIVE_DEADLINE_SECONDS="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
 done
@@ -197,22 +270,64 @@ case "$COMMAND" in
     require_image
     [[ -n "$NO_PROVISION" ]] || provision "$CORPUS_DIR" "$WORKSPACE_HOSTPATH" true
     workflow_file="$SWEEP_WORKFLOW_FILE"
+
+    # Validate $PARALLELISM's format immediately, before it is used for anything else --
+    # including auto-scale below. This ordering is load-bearing: compute_auto_deadline_seconds
+    # divides by $PARALLELISM and int()-parses it in Python, so an unvalidated "0" or "abc"
+    # reaching that call would raise an uncaught ZeroDivisionError/ValueError (a raw traceback),
+    # not a die() message.
     if [[ -n "$PARALLELISM" ]]; then
       [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
         || die "--parallelism must be a positive integer (got: $PARALLELISM)"
-      # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits non-zero,
-      # which would otherwise kill the script here instead of reaching the die() message below.
-      n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$SWEEP_WORKFLOW_FILE" || true)
-      [[ "$n_matches" -eq 1 ]] \
-        || die "expected exactly one top-level 'parallelism:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+    fi
+
+    # Resolve the deadline to apply: an explicit --active-deadline-seconds always wins; otherwise,
+    # if --parallelism was overridden, auto-scale from the manifest instead of silently leaving
+    # the committed 24h default in place (issue #63).
+    effective_deadline="$ACTIVE_DEADLINE_SECONDS"
+    if [[ -z "$effective_deadline" && -n "$PARALLELISM" ]]; then
+      # Auto-scale reads $CORPUS_DIR's manifest directly -- NOT whatever provision() actually
+      # staged onto $WORKSPACE_HOSTPATH (skipped entirely under --no-provision, and provision()'s
+      # own basename-match guard with it). Without this check, --no-provision plus a
+      # --workspace-hostpath that doesn't match --corpus-dir would silently auto-scale the
+      # deadline from the WRONG corpus's config count. Scoped to only when auto-scale is about
+      # to fire -- not a blanket requirement on every `full` invocation (an explicit
+      # --active-deadline-seconds already skips this entirely, same as it skips auto-scale).
+      [[ "$(basename "$CORPUS_DIR")" == "$(basename "$WORKSPACE_HOSTPATH")" ]] \
+        || die "auto-scaling the deadline needs --corpus-dir and --workspace-hostpath to name the same corpus (got '$CORPUS_DIR' vs '$WORKSPACE_HOSTPATH') -- pass a matching --corpus-dir, or an explicit --active-deadline-seconds to skip auto-scale"
+      effective_deadline="$(compute_auto_deadline_seconds "$CORPUS_DIR/sweep_manifest.json" "$PARALLELISM")"
+    fi
+
+    if [[ -n "$PARALLELISM" || -n "$effective_deadline" ]]; then
       tmp="$(mktemp --suffix=.yaml)"
       trap 'rm -f "$tmp"' EXIT
-      sed -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$SWEEP_WORKFLOW_FILE" > "$tmp"
-      grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
-        || die "parallelism patch did not apply as expected"
+      cp "$SWEEP_WORKFLOW_FILE" "$tmp"
+      if [[ -n "$PARALLELISM" ]]; then
+        # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits
+        # non-zero, which would otherwise kill the script here instead of reaching die() below.
+        n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$tmp" || true)
+        [[ "$n_matches" -eq 1 ]] \
+          || die "expected exactly one top-level 'parallelism:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+        sed -i -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$tmp"
+        grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
+          || die "parallelism patch did not apply as expected"
+      fi
+      if [[ -n "$effective_deadline" ]]; then
+        # Defense-in-depth on the explicit-flag path (an auto-scaled value is already
+        # well-formed by construction -- compute_auto_deadline_seconds only ever prints a
+        # positive integer or fails the script outright via die()).
+        [[ "$effective_deadline" =~ ^[1-9][0-9]*$ ]] \
+          || die "--active-deadline-seconds must be a positive integer (got: $effective_deadline)"
+        n_matches=$(grep -c '^  activeDeadlineSeconds: [0-9]\+$' "$tmp" || true)
+        [[ "$n_matches" -eq 1 ]] \
+          || die "expected exactly one top-level 'activeDeadlineSeconds:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+        sed -i -E "s/^(  activeDeadlineSeconds: )[0-9]+\$/\1${effective_deadline}/" "$tmp"
+        grep -q "^  activeDeadlineSeconds: ${effective_deadline}\$" "$tmp" \
+          || die "activeDeadlineSeconds patch did not apply as expected"
+      fi
       workflow_file="$tmp"
     fi
-    echo "Submitting the full fan-out sweep ($workflow_file; image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}) ..."
+    echo "Submitting the full fan-out sweep ($workflow_file; image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}, active-deadline-seconds=${effective_deadline:-unchanged}) ..."
     argo submit "$workflow_file" -n "$NAMESPACE" --watch \
       --parameter image="$IMAGE" \
       --parameter docker-digest="$IMAGE" \
@@ -223,7 +338,7 @@ case "$COMMAND" in
       --parameter pod-memory-request="$POD_MEMORY_REQUEST"
     ;;
   help|--help|-h)
-    sed -n '2,30p' "${BASH_SOURCE[0]}"
+    sed -n '2,40p' "${BASH_SOURCE[0]}"
     ;;
   *)
     die "unknown command: $COMMAND (try: template | lint | smoke | full | help)"
