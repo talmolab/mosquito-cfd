@@ -380,6 +380,56 @@ def test_provision_fails_on_corpus_workspace_basename_mismatch(
     assert f"'{workspace}'" in result.stderr
 
 
+def test_provision_dies_before_deleting_inputs_when_corpus_dir_equals_workspace_hostpath(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: provision() did `rm -rf "$local_workspace/inputs"` immediately followed by
+    `cp -r "$corpus_dir/inputs" ...` with no check that the two paths are actually different
+    real locations. When --corpus-dir and --workspace-hostpath are the SAME path, the rm -rf
+    deletes the corpus's own inputs/ before the cp can read from it -- a raw `cp: cannot stat`
+    error, not a clean die(), and real data loss (the corpus's inputs/ is gone from disk).
+
+    The load-bearing assertion is that inputs/ still exists afterward -- proving the new check
+    runs BEFORE the destructive rm -rf, not merely that the command eventually failed somehow.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(corpus)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr, "must fail via die(), not a raw cp error"
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists(), (
+        "the corpus's own inputs/ must survive -- the check must run before rm -rf"
+    )
+
+
+def test_provision_dies_when_corpus_dir_and_workspace_hostpath_resolve_to_the_same_real_path(
+    tmp_path, canonical_wing_vertex
+):
+    """Same real directory, but spelled differently (a trailing slash) -- the basename-match
+    guard alone cannot catch this (basenames are identical strings either way), so the fix must
+    resolve both paths to their real filesystem location, not compare the literal strings.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    differently_spelled = f"{corpus}{os.sep}"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", differently_spelled],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
 def test_no_provision_flag_skips_copy_but_still_submits(
     tmp_path, canonical_wing_vertex
 ):
