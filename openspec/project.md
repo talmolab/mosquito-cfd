@@ -160,10 +160,16 @@ mosquito-cfd/
 - [ ] Multi-GPU / multi-node validation
 - [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
   — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
-  explicit go-ahead (shared lab GPU quota, unverified preemption/retry path). **Superseded run:**
-  this already happened once (`force-surrogate-sweep-vb8t5` +
-  `force-surrogate-retry-failed-trz9k`), but it ran against the stale wing-hinge geometry
-  (`fix-force-surrogate-sweep-hinge`) and needs re-submission against the corrected decks; see
+  explicit go-ahead (shared lab GPU quota). The two bugs that sank the prior two attempts —
+  `activeDeadlineSeconds` not scaling with an overridden `--parallelism` (issue #63, killed
+  `force-surrogate-sweep-7wrk7` at 24h with 0/27 done) and `retryStrategy.backoff.maxDuration`
+  exhausting after only 3 of 5 configured retries under preemption (issue #64, lost 3 configs
+  from `force-surrogate-sweep-vb8t5`) — are fixed in `fix-argo-sweep-timeouts`:
+  `submit_workflow.sh full` now has an `--active-deadline-seconds` override with an auto-scale
+  fallback, and `maxDuration` is `4h` (covers the full `limit: 5` sequence). **Superseded run:**
+  `force-surrogate-sweep-vb8t5` + `force-surrogate-retry-failed-trz9k` already completed once,
+  but against the stale wing-hinge geometry (`fix-force-surrogate-sweep-hinge`) — still needs
+  re-submission against the corrected decks; see
   `examples/prelim_sweep_fine/sweep_provenance.json`'s `superseded_by` field.
 - [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
   `docs/visualization/diagnostic_config_mean_collapse.png` once
