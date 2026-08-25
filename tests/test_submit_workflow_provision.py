@@ -430,6 +430,57 @@ def test_provision_dies_when_corpus_dir_and_workspace_hostpath_resolve_to_the_sa
     assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
 
 
+def test_provision_dies_when_corpus_dir_is_nested_inside_workspace_hostpaths_inputs(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: an EXACT-identity check alone is not enough. If --corpus-dir lives nested
+    inside --workspace-hostpath's own inputs/ tree (a coincidentally-matching basename deep in
+    the path, e.g. corpus=<workspace>/inputs/prelim_sweep, workspace=<parent>), the two paths
+    are genuinely DIFFERENT real paths (an exact-match check would not catch this) -- yet
+    `rm -rf "$local_workspace/inputs"` still destroys corpus-dir entirely, since corpus-dir is
+    a descendant of exactly what gets deleted.
+    """
+    workspace = tmp_path / "staging" / "prelim_sweep"
+    corpus = _make_corpus(workspace / "inputs", "prelim_sweep", with_manifest=True)
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists(), (
+        "corpus-dir must survive -- nesting, not just exact identity, must be rejected"
+    )
+
+
+def test_provision_dies_when_workspace_hostpath_is_a_symlink_to_corpus_dir(
+    tmp_path, canonical_wing_vertex
+):
+    """The same-real-path check must resolve symlinks, not just literal path spelling."""
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    symlinked_workspace = tmp_path / "workspace_link" / "prelim_sweep"
+    symlinked_workspace.parent.mkdir(parents=True)
+    try:
+        symlinked_workspace.symlink_to(corpus, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"cannot create symlinks in this environment: {exc}")
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(symlinked_workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
 def test_no_provision_flag_skips_copy_but_still_submits(
     tmp_path, canonical_wing_vertex
 ):

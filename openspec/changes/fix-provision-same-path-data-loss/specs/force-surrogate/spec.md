@@ -72,14 +72,61 @@ pointer).
 - **When** `submit_workflow.sh full` runs for each
 - **Then** each fails with a clear error naming the specific missing file, before any copy or the stub `argo` is invoked — distinct from the `smoke` scenario above, where the identical corpus-dir provisions successfully because `smoke` never requires either manifest file
 
+#### Scenario: A missing canonical `wing.vertex` source fails clearly
+
+- **Given** `WING_VERTEX_SOURCE` resolving to a path that does not exist
+- **When** provisioning runs
+- **Then** it fails with a clear error naming the missing source, before the stub `argo` is invoked — not a bare `cp: cannot stat` message
+
+#### Scenario: A corpus-dir/workspace-hostpath basename mismatch is rejected
+
+- **Given** `--corpus-dir examples/prelim_sweep` (the coarse corpus) together with `--workspace-hostpath .../examples/prelim_sweep_fine` (the fine corpus's path) — the exact mistake of overriding one flag without the other
+- **When** `submit_workflow.sh full` runs
+- **Then** it fails with a clear error naming both mismatched paths, before any copy or the stub `argo` is invoked
+
+#### Scenario: `--no-provision` skips the copy but still submits
+
+- **Given** `submit_workflow.sh full --no-provision`, with a `--workspace-hostpath` that already contains different content than the local corpus-dir
+- **When** the command runs
+- **Then** the workspace-hostpath's existing content is left unchanged (no copy attempted), and the stub `argo` is still invoked with the submission proceeding normally
+
+#### Scenario: Provisioned `wing.vertex` always matches the canonical file, independent of which corpus-dir is used
+
+- **Given** at least two different `--corpus-dir`/`--workspace-hostpath` pairs (coarse and fine), neither of which carries its own committed `wing.vertex`
+- **When** provisioning runs for each independently
+- **Then** each resolved workspace's `wing.vertex` is byte-identical to the single canonical `examples/flapping_wing/wing.vertex`, never a different or stale copy, **for every corpus-dir tested** — this is the specific defect this requirement exists to prevent (this session found the live coarse corpus's NFS `wing.vertex` did not match any git-committed version)
+
+#### Scenario: The script's own hardcoded defaults name the same corpus
+
+- **Given** `submit_workflow.sh`'s built-in `CORPUS_DIR` and `WORKSPACE_HOSTPATH` defaults, with neither overridden
+- **When** their basenames are compared
+- **Then** they match — a static guard so a future edit to only one default (exactly the failure class this requirement fixes) is caught before it ever reaches the runtime basename-mismatch check on a real submission
+
+#### Scenario: `--help` documents the new flags
+
+- **Given** `submit_workflow.sh help`
+- **When** the command runs
+- **Then** its output names both `--corpus-dir` and `--no-provision`
+
 #### Scenario: A `--corpus-dir`/`--workspace-hostpath` pair resolving to the same real path is rejected before any deletion
 
 - **Given** a `--corpus-dir` and a `--workspace-hostpath` that either are the identical literal
   path, or are two differently-spelled paths (e.g. one with a trailing slash, or a `./`-relative
-  spelling) that resolve to the same real directory
+  spelling, or one reached via a symlink) that resolve to the same real directory
 - **When** `submit_workflow.sh full` (or `smoke`) runs
 - **Then** it fails fast with a clear, `die`-style error message before any filesystem mutation
   — in particular, before the `rm -rf` that would otherwise delete the corpus's own `inputs/`
   before the subsequent `cp -r` could read from it — and the corpus directory's `inputs/`
   contents are verified to still exist on disk afterward, not just that the command exited
   non-zero
+
+#### Scenario: A `--corpus-dir` nested inside `--workspace-hostpath`'s own tree is rejected, not just an exact path match
+
+- **Given** a `--corpus-dir` whose real path is a descendant of `--workspace-hostpath`'s real
+  path (or vice versa) — e.g. a coincidentally-matching basename deep inside the other's
+  `inputs/` tree — even though the two real paths are not byte-identical
+- **When** `submit_workflow.sh full` (or `smoke`) runs
+- **Then** it fails fast with a clear error before any filesystem mutation, the same as the
+  exact-match case — an identity-only check is insufficient, since `rm -rf
+  "$local_workspace/inputs"` destroys anything nested beneath it regardless of whether the
+  nested path is byte-identical to `$local_workspace` itself

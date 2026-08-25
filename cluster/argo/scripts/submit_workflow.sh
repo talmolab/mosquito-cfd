@@ -122,16 +122,26 @@ provision() {
     || die "corpus-dir '$corpus_dir' and workspace-hostpath '$workspace_hostpath' name different corpora -- pass matching --corpus-dir/--workspace-hostpath"
   # A basename match alone doesn't rule out --corpus-dir and --workspace-hostpath naming the
   # SAME real directory (the identical literal path, or two differently-spelled paths -- a
-  # trailing slash, a relative spelling, a symlink -- that resolve to the same place). Without
-  # this check, staging a corpus onto itself would `rm -rf` the corpus's own inputs/ below
-  # before the subsequent `cp -r` could read from it -- real data loss via a raw `cp` error, not
-  # a clean die(). `realpath -m` canonicalizes without requiring the target to exist yet (this
-  # local_workspace path may not exist -- that's what mkdir -p below is for).
+  # trailing slash, a relative spelling, a symlink -- that resolve to the same place), OR one
+  # being NESTED inside the other's `inputs/` tree with a coincidentally-matching basename
+  # (e.g. corpus-dir=/data/staging/inputs/staging, workspace-hostpath=/data/staging -- distinct
+  # real paths, but `rm -rf "$local_workspace/inputs"` still destroys corpus-dir entirely).
+  # Without this check, staging a corpus onto (or inside) itself would `rm -rf` the corpus's own
+  # inputs/ before the subsequent `cp -r` could read from it -- real data loss via a raw `cp`
+  # error, not a clean die(). `realpath -m` canonicalizes without requiring the target to exist
+  # yet (this local_workspace path may not exist -- that's what mkdir -p below is for).
+  # NOTE: this comparison is a case-sensitive string comparison of canonicalized paths. On a
+  # case-INsensitive filesystem (e.g. this repo's own Windows/Git-Bash dev environment, NOT the
+  # real WSL/Linux production target this script is written for), two differently-cased paths
+  # that are actually the same real directory would not be caught here. Not fixed: the real
+  # target environment is case-sensitive, and detecting filesystem case-sensitivity at runtime
+  # is disproportionate complexity for a dev-environment-only gap.
   local corpus_real workspace_real
   corpus_real="$(realpath -m "$corpus_dir")"
   workspace_real="$(realpath -m "$local_workspace")"
-  [[ "$corpus_real" != "$workspace_real" ]] \
-    || die "corpus-dir '$corpus_dir' and workspace-hostpath '$workspace_hostpath' resolve to the same real path ($corpus_real) -- provisioning would delete the corpus's own inputs/ before copying from it"
+  if [[ "${corpus_real}/" == "${workspace_real}/"* || "${workspace_real}/" == "${corpus_real}/"* ]]; then
+    die "corpus-dir '$corpus_dir' ($corpus_real) and workspace-hostpath '$workspace_hostpath' ($workspace_real) are the same directory or one is nested inside the other -- provisioning would delete data at or under one of them while trying to read from the other; pass distinct, non-nested paths"
+  fi
 
   mkdir -p "$local_workspace" || die "cannot create/access local workspace path $local_workspace (resolved from $workspace_hostpath)"
   # Replace, don't merge: `cp -r`/`cp` into existing content only adds/overwrites, so a config or

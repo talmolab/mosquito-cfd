@@ -61,3 +61,36 @@ TDD throughout. Branch: `fix-provision-same-path-data-loss` (off `main`). Cluste
   splitting by concern the way `fix-argo-sweep-timeouts` did.
 - [x] 5.2 Open PR referencing the finding's origin (PR #82's second review round) without an
   unintended closing keyword on any unrelated issue.
+
+## 6. Fixes found by `/review-pr`'s 5-agent team on PR #83 itself
+
+- [x] 6.1 **BLOCKING (spec)**: the `## MODIFIED Requirements` delta silently dropped 6 of the
+  base requirement's 13 scenarios (only 7 existing + 1 new were included) — would have deleted
+  those scenarios from the canonical spec on archive. Fixed: regenerated the delta from the
+  actual current committed spec text, all 13 existing scenarios plus 2 new ones (see 6.2) = 15.
+- [x] 6.2 **BLOCKING (correctness), live-reproduced by the reviewer**: an exact-path-identity
+  check alone is insufficient — if `--corpus-dir` is nested inside `--workspace-hostpath`'s own
+  `inputs/` tree (coincidentally-matching basename deep in the path), the two real paths are
+  genuinely different, yet `rm -rf "$local_workspace/inputs"` still destroys `corpus_dir`
+  entirely. Fixed: the check is now a symmetric ancestor-or-equal comparison
+  (`"${corpus_real}/" == "${workspace_real}/"* || "${workspace_real}/" == "${corpus_real}/"*`),
+  not a bare `!=`. New regression test:
+  `test_provision_dies_when_corpus_dir_is_nested_inside_workspace_hostpaths_inputs`.
+- [x] 6.3 **Documented, not fixed**: on a case-**in**sensitive filesystem (this repo's own
+  Windows/Git-Bash dev environment, empirically confirmed by the reviewer — NOT the real
+  WSL/Linux production target), two differently-cased paths naming the same real directory
+  bypass the check (`realpath -m` does not case-fold). Accepted as a known, documented
+  limitation (code comment + proposal.md) rather than adding runtime filesystem-case-sensitivity
+  detection — disproportionate complexity for a gap that doesn't reach the real target
+  environment.
+- [x] 6.4 **IMPORTANT (testing)**: the symlink case was asserted in the code comment/proposal
+  but never tested, despite being feasible on `ubuntu-latest` CI. Fixed: new test
+  `test_provision_dies_when_workspace_hostpath_is_a_symlink_to_corpus_dir` (skips gracefully on
+  a dev machine that can't create symlinks without elevation — still runs fully on CI).
+- [x] 6.5 **IMPORTANT (docs)**: `proposal.md`'s GNU-coreutils justification cited `sed -i` as an
+  existing precedent in this script — factually wrong (only `sed -n`/`sed -E` are used, no
+  `sed -i`). Fixed: corrected to accurately say `realpath` is a genuinely new dependency,
+  justified by the real `mktemp --suffix=` precedent instead.
+- [x] 6.6 **Verify**: `uv run pytest tests/test_submit_workflow_provision.py -v` — 26 passed, 1
+  skipped (symlink test, environment-gated); `openspec validate fix-provision-same-path-data-loss
+  --strict` passes; full suite green.

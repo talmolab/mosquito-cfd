@@ -33,11 +33,24 @@ change per the user's explicit choice.
   discipline): resolve both `$corpus_dir` and the translated `$local_workspace` via `realpath -m`
   (GNU coreutils; canonicalizes symlinks and `.`/`..`/trailing-slash without requiring the target
   to already exist — needed since `local_workspace` may not exist yet, that's what `mkdir -p`
-  right after this check is for) and `die` with a clear message if they resolve to the same real
-  path, before the destructive `rm -rf`.
-- `realpath` is GNU coreutils, already implicitly relied on elsewhere in this script (`sed -i`,
-  `mktemp --suffix=`, `grep -c`) and confirmed present in every environment this script actually
-  runs in: this repo's own Windows dev/test setup (via Git Bash's MSYS2 coreutils), `ubuntu-latest`
+  right after this check is for), and `die` with a clear message if either path is a real
+  ancestor-or-equal of the other (not merely byte-identical) — a pure identity check is not
+  enough: if `--corpus-dir` happens to live *nested inside* `--workspace-hostpath`'s own
+  `inputs/` tree (a coincidentally-matching basename deep in the path), the two paths are
+  genuinely different, yet `rm -rf "$local_workspace/inputs"` still destroys `corpus_dir`
+  entirely as a side effect. The check is symmetric (catches nesting in either direction) and
+  the identical-path case falls out of it for free.
+- **Known, accepted limitation**: the comparison is case-sensitive string matching of
+  canonicalized paths. On a case-**in**sensitive filesystem (this repo's own Windows/Git-Bash
+  dev environment — NOT the real WSL/Linux production target this script is written for), two
+  differently-cased paths that are actually the same real directory would not be caught. Not
+  fixed: detecting filesystem case-sensitivity at runtime is disproportionate complexity for a
+  gap that doesn't reach the real target environment (WSL/Linux is case-sensitive). Documented
+  as a code comment at the check site.
+- `realpath -m` is a genuinely new dependency for this script (confirmed via grep: no prior use
+  of `realpath` anywhere in it), but is GNU coreutils just like the already-present `mktemp
+  --suffix=` usage, and confirmed present in every environment this script actually runs in:
+  this repo's own Windows dev/test setup (via Git Bash's MSYS2 coreutils), `ubuntu-latest`
   CI, and the real WSL/Linux production target.
 
 ## Non-goals (explicit)
