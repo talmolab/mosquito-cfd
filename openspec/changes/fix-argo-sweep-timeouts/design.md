@@ -339,15 +339,57 @@ proposal never changes the *committed* default, only adds an override path.
   author's repo association could not be verified), deferred to a follow-up issue, not built
   here. The auto-scale fallback already closes the specific silent-mismatch failure mode issue
   #63 itself describes; the sanity-check idea is a distinct, broader pre-flight-estimate feature.
-- **Should there be an automated test for "`python3` genuinely absent from `PATH`"?** No —
-  reliably hiding `python3` from `PATH` cross-platform (this repo's shell tests run under Git Bash
-  on Windows and bash on Linux CI alike) without also breaking other `PATH`-dependent tooling the
-  test harness itself needs is disproportionately fragile for what it would catch. The
-  `command -v python3` precondition check (added to `compute_auto_deadline_seconds` above) is
-  cheap insurance for a real environment risk (a minimal WSL rootfs without Python preinstalled),
-  documented here and in the script's usage header, without a dedicated flaky test.
+- **Should there be an automated test for "`python3` genuinely absent from `PATH`"?**
+  **Superseded during implementation** — see "### Why: post-self-review fixes" below. A
+  dedicated test was added after all, using self-contained fake-interpreter shell stubs rather
+  than trying to hide the real `python3`/`python` cross-platform (which is what this note
+  originally, correctly, flagged as too fragile).
 - **Does task 2.6's help-text test need its own spec scenario?** Yes — added (see the delta
   spec's Requirement 1, new scenario "Help text documents the flag and the coupling risk").
   The precedent that the base `--parallelism` requirement also lacks such a scenario is a
   pre-existing gap in that requirement, not a reason to repeat it here now that a reviewer has
   flagged it.
+
+### Why: post-self-review fixes (found by `/review-pr`'s 5-agent team, after implementation)
+
+Three real, adversarially-verified gaps surfaced during the pre-PR self-review pass (Phase 3.5
+of `/pre-merge-check`), none caught by the 4 rounds of proposal-time review (implementation
+didn't exist yet to review). All three are fixed in the shipped diff, not just noted:
+
+1. **BLOCKING, live-reproduced**: `compute_auto_deadline_seconds`'s inline `python3 -c '...'`
+   only guarded the manifest-file-missing case. A manifest that *exists* but is malformed JSON,
+   or is valid JSON with `"configs"` missing or not a list, reached the one-liner unguarded and
+   raised an uncaught `KeyError`/`JSONDecodeError`/`TypeError` — a raw traceback, directly
+   contradicting this function's own stated purpose (every other failure mode is a clean
+   `die()`). Fixed: the one-liner's body is now wrapped in `try/except Exception`, with an
+   explicit `isinstance(configs, list)` check (closing a sibling gap: a dict `"configs"` value
+   would otherwise make `len()` silently return a *wrong but plausible* key count instead of
+   erroring). New regression test:
+   `test_autoscale_malformed_manifest_configs_fails_with_clear_message_not_a_traceback`.
+2. **IMPORTANT, traced**: `provision()`'s corpus/workspace basename-match guard is skipped
+   entirely under `--no-provision` (which every auto-scale-triggering test in this file already
+   sets). Since `compute_auto_deadline_seconds` reads `$CORPUS_DIR/sweep_manifest.json`
+   independently of `$WORKSPACE_HOSTPATH`, an operator who overrides `--workspace-hostpath`
+   (pointing at a real, different corpus) without also updating `--corpus-dir` — while passing
+   `--no-provision` — would get a deadline silently auto-scaled from the *wrong* corpus's config
+   count. Fixed: a basename-consistency check now runs unconditionally, but **only** inside the
+   auto-scale trigger branch (`-z "$effective_deadline" && -n "$PARALLELISM"`) — not on every
+   `full` invocation, since an explicit `--active-deadline-seconds` never needs `$CORPUS_DIR` to
+   match anything. This required updating `tests/test_submit_workflow_active_deadline.py`'s
+   auto-scale-triggering tests (3.1, 3.1a, 3.1b) to pass a `--workspace-hostpath` with a
+   matching basename (harmless under `--no-provision`, which never actually touches the path —
+   only its basename is compared). New regression tests:
+   `test_autoscale_dies_on_corpus_workspace_basename_mismatch` and
+   `test_explicit_deadline_skips_the_basename_check_entirely`.
+3. **IMPORTANT**: the `python3`→`python` interpreter-fallback loop itself (added earlier in this
+   same design to fix a *different*, already-shipped bug — the Windows App-Execution-Alias
+   false-positive) had zero test coverage of its own fallback/failure branches; `ubuntu-latest`
+   CI never exercises them since `python3` always resolves and works there first. Fixed: two new
+   tests — `test_autoscale_falls_back_to_working_interpreter` (parametrized over which of
+   `python3`/`python` is the "broken" one) and `test_autoscale_dies_clearly_when_no_interpreter_
+   works` — using self-contained fake-interpreter shell stubs that satisfy the two call shapes
+   `compute_auto_deadline_seconds` actually uses (the `-c ""` presence probe, and the real `-c
+   '<code>' manifest parallelism` computation, faked to print the fixed expected value for this
+   test's known inputs) rather than trying to exec a real Python interpreter from a stub (a first
+   attempt at this hit exactly the Windows-path/`exec`-portability problem this whole function
+   exists to work around — self-contained fakes avoid it entirely).

@@ -231,11 +231,21 @@ def test_parallelism_without_explicit_deadline_autoscales(
     # ceil(3 * 2.4 / parallelism + 4) * 3600:
     #   parallelism=1: ceil(7.2/1 + 4)  = ceil(11.2) = 12 -> 43200
     #   parallelism=3: ceil(7.2/3 + 4)  = ceil(6.4)  = 7  -> 25200
+    # --workspace-hostpath's basename must match --corpus-dir's (the new consistency check that
+    # scopes auto-scale to a workspace/corpus pair it can trust) -- any path works since
+    # --no-provision means it's never actually touched, only its basename is compared.
     corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
 
     result, capture_file, invoked_marker = _run_submit_workflow(
         tmp_path,
-        ["--parallelism", parallelism, "--corpus-dir", str(corpus)],
+        [
+            "--parallelism",
+            parallelism,
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(tmp_path / corpus.name),
+        ],
     )
 
     assert result.returncode == 0, result.stderr
@@ -247,7 +257,15 @@ def test_autoscale_zero_configs_degenerates_to_retry_margin_only(tmp_path):
     corpus = _make_manifest_corpus(tmp_path, "empty_corpus", n_configs=0)
 
     result, capture_file, invoked_marker = _run_submit_workflow(
-        tmp_path, ["--parallelism", "1", "--corpus-dir", str(corpus)]
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(tmp_path / corpus.name),
+        ],
     )
 
     assert result.returncode == 0, result.stderr
@@ -259,7 +277,15 @@ def test_autoscale_with_very_large_parallelism_does_not_crash_or_underflow(tmp_p
     corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
 
     result, capture_file, invoked_marker = _run_submit_workflow(
-        tmp_path, ["--parallelism", "1000000", "--corpus-dir", str(corpus)]
+        tmp_path,
+        [
+            "--parallelism",
+            "1000000",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(tmp_path / corpus.name),
+        ],
     )
 
     assert result.returncode == 0, result.stderr
@@ -294,9 +320,181 @@ def test_autoscale_missing_manifest_fails_with_clear_message_not_a_traceback(tmp
     corpus.mkdir()
 
     result, _capture_file, invoked_marker = _run_submit_workflow(
-        tmp_path, ["--parallelism", "2", "--corpus-dir", str(corpus)]
+        tmp_path,
+        [
+            "--parallelism",
+            "2",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(tmp_path / corpus.name),
+        ],
     )
 
     assert result.returncode != 0
     assert "Traceback" not in result.stderr
+    assert not invoked_marker.exists()
+
+
+def test_autoscale_malformed_manifest_configs_fails_with_clear_message_not_a_traceback(
+    tmp_path,
+):
+    """Regression test: a manifest that EXISTS but has "configs" as a non-list (or is
+    otherwise malformed) must not leak a raw Python traceback -- the exact gap a code-quality
+    review round found by live-reproducing a KeyError from a manifest missing "configs".
+    """
+    corpus = tmp_path / "malformed_corpus"
+    corpus.mkdir()
+    (corpus / "sweep_manifest.json").write_text(
+        json.dumps({"configs": "not-a-list"}), encoding="utf-8"
+    )
+
+    result, _capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "2",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(tmp_path / corpus.name),
+        ],
+    )
+
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert not invoked_marker.exists()
+
+
+def test_autoscale_dies_on_corpus_workspace_basename_mismatch(tmp_path):
+    """Regression test: --no-provision skips provision()'s own basename-match guard, so without
+    a separate check, auto-scale would silently compute a deadline from the WRONG corpus's
+    manifest if --workspace-hostpath doesn't match --corpus-dir.
+    """
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+    mismatched_workspace = tmp_path / "a_totally_different_corpus_name"
+
+    result, _capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(mismatched_workspace),
+        ],
+    )
+
+    assert result.returncode != 0
+    assert "same corpus" in result.stderr
+    assert not invoked_marker.exists()
+
+
+def test_explicit_deadline_skips_the_basename_check_entirely(tmp_path):
+    """An explicit --active-deadline-seconds never triggers auto-scale, so a mismatched
+    --corpus-dir/--workspace-hostpath pair (which WOULD block auto-scale) does not block this.
+    """
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+    mismatched_workspace = tmp_path / "a_totally_different_corpus_name"
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--active-deadline-seconds",
+            "999999",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(mismatched_workspace),
+        ],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert "activeDeadlineSeconds: 999999" in capture_file.read_text()
+
+
+@pytest.mark.parametrize("working_candidate", ["python3", "python"])
+def test_autoscale_falls_back_to_working_interpreter(tmp_path, working_candidate):
+    """Exercise compute_auto_deadline_seconds's python3-then-python probe directly: stub BOTH
+    candidate names on PATH, make exactly one of them actually work, and confirm auto-scale
+    still succeeds -- the real gap this closes is a non-functional `python3` (e.g. Windows's
+    App-Execution-Alias stub) that resolves via `command -v` but fails when actually invoked.
+    """
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+    interpreter_dir = tmp_path / "interpreter_bin"
+    interpreter_dir.mkdir()
+    broken_candidate = "python" if working_candidate == "python3" else "python3"
+    (interpreter_dir / broken_candidate).write_text(
+        "#!/bin/sh\necho 'not a real interpreter' >&2\nexit 1\n", encoding="utf-8"
+    )
+    (interpreter_dir / broken_candidate).chmod(0o755)
+    # A self-contained fake interpreter -- no real Python needed (avoids Windows-path/exec
+    # portability issues entirely). It only needs to satisfy the two call shapes
+    # compute_auto_deadline_seconds actually uses: the presence probe (`-c ""`, must exit 0)
+    # and the real computation (`-c '<code>' manifest_path parallelism`, must print the
+    # expected result for this test's fixed n_configs=3/parallelism=1 inputs).
+    (interpreter_dir / working_candidate).write_text(
+        '#!/bin/sh\nif [ -z "$2" ]; then exit 0; fi\necho 43200\n',
+        encoding="utf-8",
+    )
+    (interpreter_dir / working_candidate).chmod(0o755)
+
+    result, capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(corpus),
+        ],
+        # NOTE: extra_env overwrites (not merges with) the helper's own PATH, which prepends
+        # its stub_dir (always tmp_path / "stub_bin") ahead of the real PATH so the stub `argo`
+        # is found -- reconstruct that same ordering here with interpreter_dir prepended first,
+        # or the argo stub would silently stop being found (and the real `argo`, if any is on
+        # PATH, could be invoked instead).
+        extra_env={
+            "PATH": f"{interpreter_dir}{os.pathsep}{tmp_path / 'stub_bin'}{os.pathsep}{os.environ['PATH']}"
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert "activeDeadlineSeconds: 43200" in capture_file.read_text()
+
+
+def test_autoscale_dies_clearly_when_no_interpreter_works(tmp_path):
+    """Both python3 and python are on PATH but neither actually runs -- must die() cleanly."""
+    corpus = _make_manifest_corpus(tmp_path, "fixture_corpus", n_configs=3)
+    interpreter_dir = tmp_path / "interpreter_bin"
+    interpreter_dir.mkdir()
+    for name in ("python3", "python"):
+        (interpreter_dir / name).write_text(
+            "#!/bin/sh\necho 'not a real interpreter' >&2\nexit 1\n", encoding="utf-8"
+        )
+        (interpreter_dir / name).chmod(0o755)
+
+    result, _capture_file, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        [
+            "--parallelism",
+            "1",
+            "--corpus-dir",
+            str(corpus),
+            "--workspace-hostpath",
+            str(corpus),
+        ],
+        # See the sibling fallback test for why PATH must include the helper's stub_dir.
+        extra_env={
+            "PATH": f"{interpreter_dir}{os.pathsep}{tmp_path / 'stub_bin'}{os.pathsep}{os.environ['PATH']}"
+        },
+    )
+
+    assert result.returncode != 0
+    assert "none found working" in result.stderr
     assert not invoked_marker.exists()

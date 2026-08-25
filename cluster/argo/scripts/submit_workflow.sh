@@ -187,14 +187,25 @@ compute_auto_deadline_seconds() {
     || die "python3 (or python) is required to auto-scale --active-deadline-seconds; none found working on PATH"
   [[ -f "$manifest_path" ]] \
     || die "auto-scaling the deadline needs $manifest_path, but it does not exist"
+  # The whole body is wrapped in try/except: a manifest that EXISTS but is malformed JSON, or
+  # is valid JSON missing/misshaping the "configs" key, must fail with one clean message here
+  # -- not an uncaught traceback bleeding into the operator's terminal (the exact failure mode
+  # this function otherwise guards against for the missing-file case above).
   "$python_bin" -c '
 import json, math, sys
 manifest_path, parallelism = sys.argv[1], int(sys.argv[2])
 PER_CONFIG_HOURS = 2.4
 RETRY_MARGIN_HOURS = 4
-n = len(json.load(open(manifest_path))["configs"])
-hours = math.ceil(n * PER_CONFIG_HOURS / parallelism + RETRY_MARGIN_HOURS)
-print(hours * 3600)
+try:
+    configs = json.load(open(manifest_path))["configs"]
+    if not isinstance(configs, list):
+        raise TypeError(f"\"configs\" must be a list, got {type(configs).__name__}")
+    n = len(configs)
+    hours = math.ceil(n * PER_CONFIG_HOURS / parallelism + RETRY_MARGIN_HOURS)
+    print(hours * 3600)
+except Exception as exc:
+    print(f"malformed manifest {manifest_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
 ' "$manifest_path" "$parallelism" \
     || die "failed to compute auto-scaled --active-deadline-seconds from $manifest_path"
 }
@@ -267,6 +278,15 @@ case "$COMMAND" in
     # the committed 24h default in place (issue #63).
     effective_deadline="$ACTIVE_DEADLINE_SECONDS"
     if [[ -z "$effective_deadline" && -n "$PARALLELISM" ]]; then
+      # Auto-scale reads $CORPUS_DIR's manifest directly -- NOT whatever provision() actually
+      # staged onto $WORKSPACE_HOSTPATH (skipped entirely under --no-provision, and provision()'s
+      # own basename-match guard with it). Without this check, --no-provision plus a
+      # --workspace-hostpath that doesn't match --corpus-dir would silently auto-scale the
+      # deadline from the WRONG corpus's config count. Scoped to only when auto-scale is about
+      # to fire -- not a blanket requirement on every `full` invocation (an explicit
+      # --active-deadline-seconds already skips this entirely, same as it skips auto-scale).
+      [[ "$(basename "$CORPUS_DIR")" == "$(basename "$WORKSPACE_HOSTPATH")" ]] \
+        || die "auto-scaling the deadline needs --corpus-dir and --workspace-hostpath to name the same corpus (got '$CORPUS_DIR' vs '$WORKSPACE_HOSTPATH') -- pass a matching --corpus-dir, or an explicit --active-deadline-seconds to skip auto-scale"
       effective_deadline="$(compute_auto_deadline_seconds "$CORPUS_DIR/sweep_manifest.json" "$PARALLELISM")"
     fi
 

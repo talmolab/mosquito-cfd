@@ -108,6 +108,36 @@ auto-scale computation SHALL be attempted when an explicit value is given.
 - **Then** it fails fast with a clear, `die`-style error message before invoking `argo submit`,
   not an uncaught interpreter traceback
 
+#### Scenario: Auto-scale fails clearly, not with a raw crash, when the manifest exists but is malformed
+
+- **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 2 --no-provision` with a
+  `--corpus-dir` whose `sweep_manifest.json` exists but is malformed (invalid JSON, missing the
+  `"configs"` key, or `"configs"` present but not a list), and no `--active-deadline-seconds`
+- **When** the command runs
+- **Then** it fails fast with a clear error message before invoking `argo submit`, not an
+  uncaught interpreter traceback and not a silently wrong deadline computed from a misread value
+
+#### Scenario: Auto-scale refuses to fire when `--corpus-dir` and `--workspace-hostpath` name different corpora
+
+- **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 1 --no-provision` with a
+  `--corpus-dir` and `--workspace-hostpath` whose basenames do not match, and no
+  `--active-deadline-seconds`
+- **When** the command runs
+- **Then** it fails fast with a clear error before invoking `argo submit` — `--no-provision`
+  skips `provision()`'s own basename-match guard, so auto-scale (which reads `--corpus-dir`'s
+  manifest independently of `--workspace-hostpath`) must not silently compute a deadline from
+  the wrong corpus's config count
+
+#### Scenario: An explicit deadline never triggers the basename-consistency check
+
+- **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 1 --active-deadline-
+  seconds 999999 --no-provision` with a `--corpus-dir` and `--workspace-hostpath` whose
+  basenames do not match
+- **When** the command runs
+- **Then** the command succeeds with `activeDeadlineSeconds: 999999` — the basename-consistency
+  check is scoped to the auto-scale trigger path only, and an explicit `--active-deadline-
+  seconds` never enters that path
+
 #### Scenario: An invalid `--parallelism` is rejected before auto-scale is ever attempted
 
 - **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 0` (or `-1` or `abc`),
