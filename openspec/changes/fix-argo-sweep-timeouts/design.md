@@ -394,6 +394,15 @@ didn't exist yet to review). All three are fixed in the shipped diff, not just n
    attempt at this hit exactly the Windows-path/`exec`-portability problem this whole function
    exists to work around — self-contained fakes avoid it entirely).
 
+   **[Superseded — see "### Why: second round of fixes" below]** The parametrized
+   `test_autoscale_falls_back_to_working_interpreter` named above turned out to be vacuous for
+   its `python3`-working case (the loop never reaches `python` at all when `python3` already
+   works, so that parametrization never exercised fallback) and was replaced by two non-vacuous
+   tests: `test_autoscale_prefers_python3_when_it_works` and
+   `test_autoscale_falls_back_to_python_when_python3_is_broken`.
+   `test_autoscale_dies_clearly_when_no_interpreter_works` is unaffected and still exists exactly
+   as named above.
+
 ### Why: second round of fixes (found by `/review-pr`'s 5-agent team, post-PR-open)
 
 A further round of adversarial review — this time against the opened PR #82, after the first
@@ -424,8 +433,10 @@ fixed in the shipped diff:
    specific corpus's measured cost and scales with config *count*, not each config's actual
    runtime — a future corpus with a materially different per-config cost could silently
    under-provision the deadline again, the same failure class issue #63 itself describes, just
-   via a different corpus. Fixed: added an explicit caveat comment at the constant's definition
-   site pointing back to this note.
+   via a different corpus. Fixed: added an explicit caveat comment directly above
+   `compute_auto_deadline_seconds`'s definition (not literally adjacent to the `PER_CONFIG_HOURS
+   = 2.4` line itself, which sits inside the embedded Python heredoc ~30 lines below) pointing
+   back to this note.
 5. **README didn't document the basename-consistency guard**: a real, newly-introduced
    operator-facing failure mode (auto-scale refuses to fire when `--corpus-dir`/
    `--workspace-hostpath` basenames mismatch) was undocumented outside the code/tests/spec.

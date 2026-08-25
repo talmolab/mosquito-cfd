@@ -110,6 +110,14 @@ auto-scale computation SHALL be attempted when an explicit value is given.
   by actually invoking it, not merely checking that `PATH` resolution succeeds, and the broken
   `python3` is never used for the real computation
 
+#### Scenario: Auto-scale fails clearly when no working interpreter is found at all
+
+- **Given** a `full` invocation where auto-scale is eligible to fire, and neither `python3` nor
+  `python` on `PATH` is a genuinely working interpreter
+- **When** the command runs
+- **Then** it fails fast with a clear, `die`-style error message before invoking `argo submit`,
+  not an uncaught interpreter error
+
 #### Scenario: Auto-scale fails clearly, not with a raw crash, when the manifest is unreadable
 
 - **Given** `cluster/argo/scripts/submit_workflow.sh full --parallelism 2 --no-provision` with a

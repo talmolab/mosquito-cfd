@@ -170,8 +170,9 @@ separate flag the test must remember to add itself.
   `provision()`'s own manifest-existence check would otherwise fire first, testing the wrong code
   path.
 - [x] 3.4 **Implement:** add a `compute_auto_deadline_seconds(manifest_path, parallelism)` shell
-  function per `design.md` D2's corrected version: a `command -v python3` precondition check
-  (clear `die` message if absent — this script has no prior Python dependency, so this is a new,
+  function per `design.md` D2's corrected version: a `python3`-then-`python` working-interpreter
+  probe (each candidate actually invoked, not just checked via `command -v`; clear `die` message
+  if neither works — this script has no prior Python dependency, so this is a new,
   explicitly-guarded precondition, not an assumed one), an explicit `[[ -f "$manifest_path" ]]`
   existence check (clear `die` message, not a bare python crash), then the stdlib-only `python3
   -c` one-liner (`PER_CONFIG_HOURS = 2.4`, `RETRY_MARGIN_HOURS = 4`, `math.ceil(n *

@@ -98,7 +98,7 @@ own future change.
 - Affected specs: `force-surrogate` (`ADDED Requirements` delta).
 - Affected code:
   - `cluster/argo/scripts/submit_workflow.sh` (new `--active-deadline-seconds` flag, auto-scale
-    fallback with a `python3`-on-PATH precondition check, usage-header doc) + new
+    fallback with a `python3`-then-`python` working-interpreter probe, usage-header doc) + new
     `tests/test_submit_workflow_active_deadline.py`.
   - `cluster/argo/workflow-templates/force-surrogate-single-config.yaml` (`maxDuration: 30m` →
     `4h`) + updated assertion in `tests/test_argo_workflows.py`.
