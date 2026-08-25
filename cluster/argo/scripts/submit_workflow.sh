@@ -15,6 +15,13 @@
 #              committed force-surrogate-sweep.yaml's own value, unpatched) by submitting an
 #              anchored, self-verifying sed-patched temp copy -- the committed file is never
 #              edited. Omit the flag to submit the committed file exactly as-is.
+#              --active-deadline-seconds N overrides activeDeadlineSeconds the same way (same
+#              anchored, self-verifying temp-copy patch; never edits the committed file).
+#              COUPLED to --parallelism: the committed 24h deadline was sized for the committed
+#              parallelism: 3, so overriding parallelism alone without also adjusting the
+#              deadline can silently doom a submission to a deadline-kill partway through (this
+#              is exactly what happened to force-surrogate-sweep-7wrk7, issue #63) -- always
+#              consider setting both together when overriding either.
 #
 # `smoke` and `full` both provision WORKSPACE_HOSTPATH from CORPUS_DIR before submitting (issue
 # #62: nothing previously staged the NFS workspace from the committed corpus, so a stale/wrong
@@ -76,6 +83,9 @@ POD_MEMORY_REQUEST="${POD_MEMORY_REQUEST:-32Gi}"
 # that could drift from the committed file's actual value). Only sed-patch a temp copy when this
 # is explicitly set via --parallelism.
 PARALLELISM=""
+# Empty = flag not given. Same idiom as PARALLELISM -- only sed-patch a temp copy when this is
+# explicitly set via --active-deadline-seconds.
+ACTIVE_DEADLINE_SECONDS=""
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -160,6 +170,7 @@ while [[ $# -gt 0 ]]; do
     --pod-memory-limit) POD_MEMORY_LIMIT="$2"; shift 2;;
     --pod-memory-request) POD_MEMORY_REQUEST="$2"; shift 2;;
     --parallelism) PARALLELISM="$2"; shift 2;;
+    --active-deadline-seconds) ACTIVE_DEADLINE_SECONDS="$2"; shift 2;;
     *) die "unknown option: $1";;
   esac
 done
@@ -197,22 +208,43 @@ case "$COMMAND" in
     require_image
     [[ -n "$NO_PROVISION" ]] || provision "$CORPUS_DIR" "$WORKSPACE_HOSTPATH" true
     workflow_file="$SWEEP_WORKFLOW_FILE"
+
     if [[ -n "$PARALLELISM" ]]; then
       [[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] \
         || die "--parallelism must be a positive integer (got: $PARALLELISM)"
-      # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits non-zero,
-      # which would otherwise kill the script here instead of reaching the die() message below.
-      n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$SWEEP_WORKFLOW_FILE" || true)
-      [[ "$n_matches" -eq 1 ]] \
-        || die "expected exactly one top-level 'parallelism:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+    fi
+    effective_deadline="$ACTIVE_DEADLINE_SECONDS"
+
+    if [[ -n "$PARALLELISM" || -n "$effective_deadline" ]]; then
       tmp="$(mktemp --suffix=.yaml)"
       trap 'rm -f "$tmp"' EXIT
-      sed -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$SWEEP_WORKFLOW_FILE" > "$tmp"
-      grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
-        || die "parallelism patch did not apply as expected"
+      cp "$SWEEP_WORKFLOW_FILE" "$tmp"
+      if [[ -n "$PARALLELISM" ]]; then
+        # `|| true` is required under `set -euo pipefail`: grep -c on ZERO matches exits
+        # non-zero, which would otherwise kill the script here instead of reaching die() below.
+        n_matches=$(grep -c '^  parallelism: [0-9]\+$' "$tmp" || true)
+        [[ "$n_matches" -eq 1 ]] \
+          || die "expected exactly one top-level 'parallelism:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+        sed -i -E "s/^(  parallelism: )[0-9]+\$/\1${PARALLELISM}/" "$tmp"
+        grep -q "^  parallelism: ${PARALLELISM}\$" "$tmp" \
+          || die "parallelism patch did not apply as expected"
+      fi
+      if [[ -n "$effective_deadline" ]]; then
+        # Defense-in-depth on the explicit-flag path (an auto-scaled value is already
+        # well-formed by construction -- compute_auto_deadline_seconds only ever prints a
+        # positive integer or fails the script outright via die()).
+        [[ "$effective_deadline" =~ ^[1-9][0-9]*$ ]] \
+          || die "--active-deadline-seconds must be a positive integer (got: $effective_deadline)"
+        n_matches=$(grep -c '^  activeDeadlineSeconds: [0-9]\+$' "$tmp" || true)
+        [[ "$n_matches" -eq 1 ]] \
+          || die "expected exactly one top-level 'activeDeadlineSeconds:' line in $SWEEP_WORKFLOW_FILE, found $n_matches"
+        sed -i -E "s/^(  activeDeadlineSeconds: )[0-9]+\$/\1${effective_deadline}/" "$tmp"
+        grep -q "^  activeDeadlineSeconds: ${effective_deadline}\$" "$tmp" \
+          || die "activeDeadlineSeconds patch did not apply as expected"
+      fi
       workflow_file="$tmp"
     fi
-    echo "Submitting the full fan-out sweep ($workflow_file; image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}) ..."
+    echo "Submitting the full fan-out sweep ($workflow_file; image=$IMAGE, timestamp=$TIMESTAMP, parallelism=${PARALLELISM:-unchanged}, active-deadline-seconds=${effective_deadline:-unchanged}) ..."
     argo submit "$workflow_file" -n "$NAMESPACE" --watch \
       --parameter image="$IMAGE" \
       --parameter docker-digest="$IMAGE" \
@@ -223,7 +255,7 @@ case "$COMMAND" in
       --parameter pod-memory-request="$POD_MEMORY_REQUEST"
     ;;
   help|--help|-h)
-    sed -n '2,30p' "${BASH_SOURCE[0]}"
+    sed -n '2,40p' "${BASH_SOURCE[0]}"
     ;;
   *)
     die "unknown command: $COMMAND (try: template | lint | smoke | full | help)"
