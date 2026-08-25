@@ -236,7 +236,7 @@ separate flag the test must remember to add itself.
 
 ## 6. Commit & PR discipline
 
-- [ ] 6.1 Commit grouping, each individually green under local verification (this repo
+- [x] 6.1 Commit grouping, each individually green under local verification (this repo
   squash-merges to `main` — confirmed via `git log --oneline` showing every merged PR as exactly
   one commit on `main`, so only the PR tip is CI-checked; intermediate-commit-green is purely
   local discipline, not a CI-enforced one, but still followed here for reviewability/
@@ -256,13 +256,13 @@ separate flag the test must remember to add itself.
      for smaller, more bisectable diffs).
   5. `docs(cluster): document --active-deadline-seconds and update project.md` — task group 4a
      (`cluster/argo/README.md`, `openspec/project.md`).
-- [ ] 6.2 PR body/commits reference `#63` and `#64` without an unintended closing keyword unless
+- [x] 6.2 PR body/commits reference `#63` and `#64` without an unintended closing keyword unless
   actually closing them, **and must not accidentally close #65** (explicitly out of scope,
   deferred to its own future change) — grep case-insensitively over the full commit-message set
   and PR body draft before opening: `grep -inE '(clos|fix|resolv)[a-z]*:?\s*(#63|#64|#65|,\s*#
   (63|64|65))'` (widened from a #63/#64-only pattern to also catch a comma-listed `#65` sharing a
   closing verb's scope, e.g. "fixes #63, #64; see also #65" — GitHub's parser can associate a
   single leading closing verb across a comma-separated issue list).
-- [ ] 6.3 Single PR, opened after the full commit sequence is locally green — both issues bundled
+- [x] 6.3 Single PR, opened after the full commit sequence is locally green — both issues bundled
   by design (same subsystem, diagnosed from the same two failed runs, a partial fix still leaves
   resubmission broken), not split into two PRs.
