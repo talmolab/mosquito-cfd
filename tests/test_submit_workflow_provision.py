@@ -380,6 +380,157 @@ def test_provision_fails_on_corpus_workspace_basename_mismatch(
     assert f"'{workspace}'" in result.stderr
 
 
+def test_provision_dies_before_deleting_inputs_when_corpus_dir_equals_workspace_hostpath(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: provision() did `rm -rf "$local_workspace/inputs"` immediately followed by
+    `cp -r "$corpus_dir/inputs" ...` with no check that the two paths are actually different
+    real locations. When --corpus-dir and --workspace-hostpath are the SAME path, the rm -rf
+    deletes the corpus's own inputs/ before the cp can read from it -- a raw `cp: cannot stat`
+    error, not a clean die(), and real data loss (the corpus's inputs/ is gone from disk).
+
+    The load-bearing assertion is that inputs/ still exists afterward -- proving the new check
+    runs BEFORE the destructive rm -rf, not merely that the command eventually failed somehow.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(corpus)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr, "must fail via die(), not a raw cp error"
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists(), (
+        "the corpus's own inputs/ must survive -- the check must run before rm -rf"
+    )
+
+
+def test_provision_dies_when_corpus_dir_and_workspace_hostpath_resolve_to_the_same_real_path(
+    tmp_path, canonical_wing_vertex
+):
+    """Same real directory, but spelled differently (a trailing slash) -- the basename-match
+    guard alone cannot catch this (basenames are identical strings either way), so the fix must
+    resolve both paths to their real filesystem location, not compare the literal strings.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    differently_spelled = f"{corpus}{os.sep}"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", differently_spelled],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
+def test_provision_dies_when_corpus_dir_is_nested_inside_workspace_hostpaths_inputs(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: an EXACT-identity check alone is not enough. If --corpus-dir lives nested
+    inside --workspace-hostpath's own inputs/ tree (a coincidentally-matching basename deep in
+    the path, e.g. corpus=<workspace>/inputs/prelim_sweep, workspace=<parent>), the two paths
+    are genuinely DIFFERENT real paths (an exact-match check would not catch this) -- yet
+    `rm -rf "$local_workspace/inputs"` still destroys corpus-dir entirely, since corpus-dir is
+    a descendant of exactly what gets deleted.
+    """
+    workspace = tmp_path / "staging" / "prelim_sweep"
+    corpus = _make_corpus(workspace / "inputs", "prelim_sweep", with_manifest=True)
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists(), (
+        "corpus-dir must survive -- nesting, not just exact identity, must be rejected"
+    )
+
+
+def test_provision_dies_when_workspace_hostpath_is_a_symlink_to_corpus_dir(
+    tmp_path, canonical_wing_vertex
+):
+    """The same-real-path check must resolve symlinks, not just literal path spelling."""
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    symlinked_workspace = tmp_path / "workspace_link" / "prelim_sweep"
+    symlinked_workspace.parent.mkdir(parents=True)
+    try:
+        symlinked_workspace.symlink_to(corpus, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"cannot create symlinks in this environment: {exc}")
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(symlinked_workspace)],
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr
+    assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
+def test_provision_dies_when_wing_vertex_source_is_inside_workspace_hostpath(tmp_path):
+    """Regression: the same nested-path hazard as corpus-dir/workspace-hostpath applies to
+    WING_VERTEX_SOURCE too. If it resolves at or under $local_workspace (e.g. somewhere inside
+    the inputs/ tree that `rm -rf` wipes, or exactly at the destination `wing.vertex` path),
+    provisioning can delete or corrupt the canonical source before the final `cp` reads from it
+    -- the identical "raw cp error instead of a clean die()" defect class, just for the wing
+    source instead of the corpus.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    wing_vertex_inside_workspace = workspace / "inputs" / "wing.vertex"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+        extra_env={"WING_VERTEX_SOURCE": str(wing_vertex_inside_workspace)},
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr, "must fail via die(), not a raw cp error"
+
+
+def test_provision_does_not_false_positive_on_sibling_prefix_paths(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: two paths with MATCHING basenames (so the check below actually runs, unlike
+    a "prelim_sweep" vs "prelim_sweep_fine" pair, which the earlier basename-mismatch guard
+    already rejects before ever reaching this check) whose PARENT directories share a long
+    string prefix but are genuinely distinct siblings (e.g. ".../staging" vs
+    ".../staging_other") must NOT be rejected as "nested" -- a naive substring-based check
+    (missing the trailing-path-separator boundary) would false-positive here.
+    """
+    corpus = _make_corpus(
+        tmp_path / "staging" / "corpus", "prelim_sweep", with_manifest=True
+    )
+    workspace = tmp_path / "staging_other" / "workspace" / "prelim_sweep"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
 def test_no_provision_flag_skips_copy_but_still_submits(
     tmp_path, canonical_wing_vertex
 ):
