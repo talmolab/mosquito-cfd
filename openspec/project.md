@@ -324,11 +324,29 @@ uv run python scripts/make_config_mean_collapse_diagnostic.py \
     --timestamp 2026-08-12T00:00:00+00:00
 ```
 
-**Mid-sweep partial-corpus check**: once just a few of the 27-config corpus's cluster runs
-finish (before the full sweep completes), run `make_flow_video.py --field-mode wake-slice`
-against those configs' plotfiles and eyeball the result — a wing geometry/kinematics bug (the
-exact class `fix-force-surrogate-sweep-hinge` fixed) is cheaper to catch on 2-3 finished configs
-than after burning the remaining GPU-hours on all 27.
+**Mid-sweep partial-corpus check** (corrected 2026-08-31 — the previous version of this note
+recommended a plotfile-based video check that cannot work against this corpus's design intent;
+see `.claude/commands/submit-cluster-sweep.md` for the full runbook this note now defers to):
+once just a few of the 27-config corpus's cluster runs finish (before the full sweep completes),
+check those configs' force output directly — **not** `make_flow_video.py`'s multi-frame
+workflow, which needs a time series of AMReX plotfiles this corpus is not designed to produce
+(every deck's `amr.plot_int` is forced to `-1` by `generate_sweep()`, force-only by design, per
+`openspec/specs/force-surrogate/spec.md` and `cluster/argo/README.md`'s "Force-only (CC-6)"
+note). Instead:
+1. For each finished config, confirm `runs/<config>/IB_Particle_1.csv` has the expected row
+   count (`check_completion`'s own logic, matching `sweep_manifest.json`'s `max_step`) and
+   `run_metadata.json`'s `stability` field is `stable_at_5e-4` (not a `_fallback` suffix).
+2. Build a partial dataset from just the finished configs and eyeball actual force values:
+   `uv run python scripts/extract_forces.py --allow-missing ...` (the `--allow-missing` flag
+   exists exactly for this — skips configs with no CSV yet instead of hard-failing), then check
+   each config's CF_x/CF_z for NaN/Inf, non-zero magnitude, and oscillation at the config's own
+   kinematic frequency.
+
+A wing geometry/kinematics bug (the exact class `fix-force-surrogate-sweep-hinge` fixed) is
+cheaper to catch this way on 2-3 finished configs than after burning the remaining GPU-hours on
+all 27. Before submitting at all, also cluster-freely check wing geometry itself with
+`scripts/make_wing_phase_diagnostic.py` (no cluster run needed) as an even earlier, zero-cost
+gate. See `.claude/commands/submit-cluster-sweep.md` for the full submission runbook.
 
 ## References
 
