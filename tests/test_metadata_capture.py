@@ -458,12 +458,16 @@ def test_wall_time_raises_clear_error_on_unmatched_pod_name_against_empty_status
         mc.compute_wall_time_s({}, pod_name="my-pod")
 
 
-def test_wall_time_pod_scoped_lookup_excludes_retry_wrapper_in_multi_config_fan_out():
+def test_wall_time_pod_scoped_lookup_in_multi_config_fan_out_with_retry():
     """The real 27-config resubmission will combine BOTH multi-config fan-out and
     per-config retries (that's the entire reason PR #82/#83 fixed retryStrategy.backoff
-    at all) -- this pins that a retried config's own succeeded attempt is selected
-    correctly (not its Retry wrapper's inflated span, and not another config's node)
-    when both shapes coexist in the same workflow status."""
+    at all). Pins two things against that combined shape: (1) direct pod-name lookup for
+    the retried config's own succeeded attempt returns that attempt's own span (900s),
+    not the wrapper's inflated 1200s span or any of the other three disjoint configs'
+    durations (1800s/3600s/9200s) -- the dict-key convention alone keeps these apart, with
+    no filtering logic involved; (2) supplying the Retry wrapper's own key is correctly
+    REJECTED (this is the actual exclusion check, exercised via the matched-node validation
+    path, not the direct-lookup path above)."""
     status = _load_json(_ARGO_MULTI)
     retried_wrapper_key = "force-surrogate-sweep-vb8t5-run-config-4000000000"
     retried_failed_key = "force-surrogate-sweep-vb8t5-run-config-4111111111"
@@ -489,12 +493,11 @@ def test_wall_time_pod_scoped_lookup_excludes_retry_wrapper_in_multi_config_fan_
         "startedAt": "2026-08-04T09:05:00Z",
         "finishedAt": "2026-08-04T09:20:00Z",
     }
-    # The successful retry attempt's own span (900s), not the wrapper's inflated
-    # 1200s span (which includes the failed first attempt) and not any of the
-    # other three disjoint configs' durations (1800s/3600s/9200s).
     assert mc.compute_wall_time_s(
         status, pod_name=retried_succeeded_key
     ) == pytest.approx(900.0)
+    with pytest.raises(ValueError, match="Retry"):
+        mc.compute_wall_time_s(status, pod_name=retried_wrapper_key)
 
 
 def test_wall_time_raises_when_matched_pod_node_has_wrong_phase():

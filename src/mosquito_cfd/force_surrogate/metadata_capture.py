@@ -524,16 +524,22 @@ def compute_wall_time_s(
                 key
                 for key, candidate in nodes.items()
                 if _is_succeeded_non_retry(candidate)
+                and candidate.get("startedAt")
+                and candidate.get("finishedAt")
             )
             raise ValueError(
                 f"No node named {pod_name!r} in Argo workflow status; available candidate "
-                f"keys (Succeeded, non-Retry): {candidate_keys}"
+                f"keys (Succeeded, non-Retry, fully-timestamped): {candidate_keys}"
             )
         started_raw, finished_raw = node.get("startedAt"), node.get("finishedAt")
-        if node.get("phase") != "Succeeded":
-            reason = f"phase is {node.get('phase')!r}, not 'Succeeded'"
-        elif node.get("type") == "Retry":
-            reason = "node is a 'Retry' wrapper, not the underlying Pod attempt"
+        if not _is_succeeded_non_retry(node):
+            # The pass/fail decision itself is gated on the shared predicate (so a future
+            # change to it can't silently diverge here); only the differentiated message text
+            # below is computed by re-inspecting which specific check failed.
+            if node.get("phase") != "Succeeded":
+                reason = f"phase is {node.get('phase')!r}, not 'Succeeded'"
+            else:
+                reason = "node is a 'Retry' wrapper, not the underlying Pod attempt"
         elif not started_raw or not finished_raw:
             reason = "missing startedAt and/or finishedAt"
         else:

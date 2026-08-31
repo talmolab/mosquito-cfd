@@ -307,3 +307,38 @@ improvements, converging across multiple reviewers:
 - [x] 32. Re-run `openspec validate --strict`, the full CI-equivalent `ruff check`/`ruff format
     --check`, and the targeted + full-repo test suites after tasks 26-31; confirm everything
     passes.
+
+### 9. `/review-pr` round 2 (fresh pass against the pushed PR, after tasks 26-32)
+
+A second fresh 5-lens pass against the actual open PR (not the working tree) found no BLOCKING
+issues. Three of five lenses independently converged on the same real gap task 29 introduced
+without fully closing:
+
+- [x] 33. Task 29's own claim — that `_is_succeeded_non_retry()` is "used by the global-max
+    fallback, the matched-node validation, and the unmatched-pod-name error's candidate-key
+    listing" — was only 2/3 true: the matched-node validation's `if/elif` chain still
+    re-implemented the phase/type checks inline (to produce a differentiated reason message per
+    failure), never actually calling the helper. Independently caught by the code-quality,
+    testing, and scientific-rigor reviewers. Fixed: the matched-node branch now gates its
+    pass/fail decision on `if not _is_succeeded_non_retry(node):`, falling into the
+    differentiated-message `if/else` only on failure — the helper's docstring claim is now
+    genuinely true for all three sites, not just two.
+- [x] 34. The testing reviewer found `test_wall_time_pod_scoped_lookup_excludes_retry_wrapper_in_multi_config_fan_out`
+    (task 26) didn't test what its name/docstring claimed: since pod-scoped lookup is a direct
+    `nodes.get(pod_name)`, calling it with the succeeded attempt's own key can never touch the
+    Retry wrapper at all — the test proved the dict-key convention holds, not that a Retry-typed
+    node is rejected. Renamed to `test_wall_time_pod_scoped_lookup_in_multi_config_fan_out_with_retry`,
+    rewrote the docstring to describe both properties it actually pins, and added a second
+    assertion that IS the real exclusion check: calling `compute_wall_time_s` with the wrapper's
+    own key against this same combined fixture correctly raises.
+- [x] 35. The behavioral-correctness reviewer found the unmatched-pod-name error's
+    `candidate_keys` listing filtered on `_is_succeeded_non_retry` but not on timestamp
+    presence — unlike the real global-max `candidates` list, which requires both. A node could
+    be listed as an "available candidate key" that would itself raise if selected. Fixed: the
+    listing now also requires `startedAt`/`finishedAt`, and the error message says
+    "fully-timestamped" accordingly.
+- [x] 36. The code-quality reviewer found `proposal.md`'s citation of
+    `metadata_capture.py:634` (for where `orchestration` is built) had drifted to line 707 after
+    earlier edits in this same PR. Fixed: updated the citation.
+- [x] 37. Re-run `openspec validate --strict`, `ruff check`/`ruff format --check`, and the
+    targeted + full-repo test suites after tasks 33-36; confirm everything passes.

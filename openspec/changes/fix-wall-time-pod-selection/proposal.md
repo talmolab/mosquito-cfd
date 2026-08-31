@@ -32,7 +32,7 @@ change, no `run_one_config.py` change:
    unaffected — `pod_name` is irrelevant when `wall_time_s_override` is supplied).
 3. **`assemble_run_metadata`** auto-derives `pod_name` from
    `orchestration.get("pod")` (the `orchestration` dict is already built at
-   `metadata_capture.py:634` from the pod's own `run_metadata.json`, itself populated from Argo's
+   `metadata_capture.py:707` from the pod's own `run_metadata.json`, itself populated from Argo's
    `{{pod.name}}` template variable via `run_one_config.py`'s `--pod` argument — see
    `cluster/argo/workflow-templates/force-surrogate-single-config.yaml`). It passes that value to
    `resolve_wall_time_s`. No new parameter is added to `assemble_run_metadata`'s own signature and
