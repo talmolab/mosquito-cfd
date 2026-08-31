@@ -94,3 +94,33 @@ TDD throughout. Branch: `fix-provision-same-path-data-loss` (off `main`). Cluste
 - [x] 6.6 **Verify**: `uv run pytest tests/test_submit_workflow_provision.py -v` — 26 passed, 1
   skipped (symlink test, environment-gated); `openspec validate fix-provision-same-path-data-loss
   --strict` passes; full suite green.
+
+## 7. Fixes found by round-2 `/review-pr` on PR #83 (verifying round 1's fixes + fresh findings)
+
+- [x] 7.1 **IMPORTANT (correctness), live-reproduced by the reviewer**: the fix only guarded
+  `--corpus-dir`/`--workspace-hostpath`; `WING_VERTEX_SOURCE` had no analogous same-path/nesting
+  check against the resolved workspace. If `WING_VERTEX_SOURCE` resolves at or under
+  `$local_workspace` (e.g. inside the `inputs/` tree the replace-not-merge step wipes, or
+  exactly at the destination `wing.vertex` path), the canonical source could be deleted or
+  corrupted before the final `cp` reads from it — the identical defect class, just for the wing
+  source. Fixed: the same equal-to-or-nested-inside check now also applies to
+  `WING_VERTEX_SOURCE`. New regression test:
+  `test_provision_dies_when_wing_vertex_source_is_inside_workspace_hostpath`.
+- [x] 7.2 **IMPORTANT (testing)**: the sibling-prefix disambiguation (e.g. `.../staging` vs
+  `.../staging_other`) was verified correct by hand-tracing the bash glob logic, but had zero
+  regression-test coverage — a future "simplification" to a bare substring comparison could
+  silently reintroduce a false positive with nothing to catch it. Fixed: new test
+  `test_provision_does_not_false_positive_on_sibling_prefix_paths`, using matching basenames
+  with prefix-related parent directories so it actually reaches the new check's logic (a
+  `prelim_sweep`/`prelim_sweep_fine`-style pair never reaches it at all — the pre-existing
+  basename-mismatch guard rejects it first).
+- [x] 7.3 **IMPORTANT (spec fidelity)**: the requirement's normative SHALL prose only described
+  rejecting "the same real filesystem path" (identity/aliasing) — it never stated the
+  ancestor/nesting rule in SHALL language, even though task 6.2's scenario and the shipped code
+  both enforce it. Fixed: the SHALL prose now states the equal-to-or-nested-inside rule
+  directly, and a new sentence extends it to `WING_VERTEX_SOURCE` per 7.1. Two new scenarios
+  added (`WING_VERTEX_SOURCE` nesting, sibling-prefix non-false-positive) — 15 → 17 total
+  scenarios in the delta.
+- [x] 7.4 **Verify**: `uv run pytest tests/test_submit_workflow_provision.py -v` — 28 passed, 1
+  skipped; `openspec validate fix-provision-same-path-data-loss --strict` passes; full suite
+  (`uv run pytest`) — 766 passed, 20 skipped, 0 failed.

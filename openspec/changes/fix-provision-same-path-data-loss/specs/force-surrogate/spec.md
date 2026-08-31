@@ -17,12 +17,21 @@ manifest rely on the replace-not-merge behavior plus `cp`'s own failure under `s
 and SHALL reject a `--corpus-dir`/`--workspace-hostpath` pair whose basenames don't match
 (preventing one corpus's decks from being silently provisioned onto a different corpus's
 workspace). Provisioning SHALL additionally reject a `--corpus-dir`/`--workspace-hostpath` pair
-that resolves to the **same real filesystem path** (whether via an identical literal path, or two
-differently-spelled paths — relative vs. absolute, a trailing slash, a symlink — that name the
-same real directory), checked **before** the destructive replace-not-merge step: without this
-check, staging a corpus onto itself deletes the corpus's own `inputs/` via `rm -rf` before the
-subsequent `cp -r` can read from it, since a basename-only comparison cannot distinguish this case
-from two genuinely distinct corpora. It fails fast and loudly rather than causing the submitted
+whose real (canonicalized) paths are **equal to, or nested inside, one another** — whether via an
+identical literal path, two differently-spelled paths (relative vs. absolute, a trailing slash, a
+symlink) naming the same real directory, or one path's real location being a descendant of the
+other's (e.g. a coincidentally-matching basename deep inside the other's `inputs/` tree, even
+though the two real paths are not byte-identical) — checked **before** the destructive
+replace-not-merge step: an identity-only check is not enough, since `rm -rf
+"$local_workspace/inputs"` destroys anything nested beneath it regardless of whether the nested
+path is byte-identical to `$local_workspace` itself, and a basename-only comparison cannot
+distinguish either hazard from two genuinely distinct corpora. Provisioning SHALL apply the
+identical equal-to-or-nested-inside rejection to `WING_VERTEX_SOURCE` against the resolved
+`--workspace-hostpath`: without it, a `WING_VERTEX_SOURCE` located at or under the workspace
+(e.g. inside the `inputs/` tree the replace-not-merge step wipes, or exactly at the destination
+`wing.vertex` path) can be deleted or corrupted by the same replace-not-merge step before the
+final copy reads from it. It fails fast and loudly rather
+than causing the submitted
 workflow's pods to retry a mount for hours (issue #62) or, worse, silently run against stale or
 mismatched geometry. Provisioning SHALL default to on and SHALL be skippable via an explicit
 `--no-provision` flag for an operator who has already verified the workspace is current. This is
@@ -130,3 +139,23 @@ pointer).
   exact-match case — an identity-only check is insufficient, since `rm -rf
   "$local_workspace/inputs"` destroys anything nested beneath it regardless of whether the
   nested path is byte-identical to `$local_workspace` itself
+
+#### Scenario: A `WING_VERTEX_SOURCE` at or inside `--workspace-hostpath` is rejected before any deletion
+
+- **Given** `WING_VERTEX_SOURCE` resolving to a real path that is equal to, or a descendant of,
+  the resolved `--workspace-hostpath` (e.g. somewhere inside the `inputs/` tree the
+  replace-not-merge step wipes, or exactly at the destination `wing.vertex` path)
+- **When** `submit_workflow.sh full` (or `smoke`) runs
+- **Then** it fails fast with a clear, `die`-style error message before any filesystem mutation
+  — the identical hazard class as the `--corpus-dir`/`--workspace-hostpath` check above, just
+  for the canonical wing.vertex source
+
+#### Scenario: A `--corpus-dir`/`--workspace-hostpath` pair sharing a long path prefix but naming genuinely distinct siblings is not falsely rejected
+
+- **Given** a `--corpus-dir` and a `--workspace-hostpath` with matching basenames whose parent
+  directories share a long string prefix (e.g. `.../staging` and `.../staging_other`) but are
+  genuinely distinct, non-nested sibling directories
+- **When** `submit_workflow.sh full` (or `smoke`) runs
+- **Then** provisioning succeeds normally — the same-path/nesting check is boundary-aware (a
+  trailing path separator before comparing), so a shared string prefix alone never triggers a
+  false rejection

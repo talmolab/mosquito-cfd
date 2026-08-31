@@ -136,11 +136,21 @@ provision() {
   # that are actually the same real directory would not be caught here. Not fixed: the real
   # target environment is case-sensitive, and detecting filesystem case-sensitivity at runtime
   # is disproportionate complexity for a dev-environment-only gap.
-  local corpus_real workspace_real
+  local corpus_real workspace_real wing_vertex_real
   corpus_real="$(realpath -m "$corpus_dir")"
   workspace_real="$(realpath -m "$local_workspace")"
   if [[ "${corpus_real}/" == "${workspace_real}/"* || "${workspace_real}/" == "${corpus_real}/"* ]]; then
     die "corpus-dir '$corpus_dir' ($corpus_real) and workspace-hostpath '$workspace_hostpath' ($workspace_real) are the same directory or one is nested inside the other -- provisioning would delete data at or under one of them while trying to read from the other; pass distinct, non-nested paths"
+  fi
+  # The identical hazard applies to WING_VERTEX_SOURCE: if it resolves at or under
+  # $local_workspace (e.g. equal to the destination `$local_workspace/wing.vertex`, or
+  # somewhere under `$local_workspace/inputs/`), the `rm -rf "$local_workspace/inputs"` below
+  # can delete the canonical source before the later `cp "$WING_VERTEX_SOURCE" ...` reads from
+  # it -- the same "raw cp error instead of a clean die(), possible data loss" defect class as
+  # the corpus-dir/workspace-hostpath check above, just for the wing.vertex source.
+  wing_vertex_real="$(realpath -m "$WING_VERTEX_SOURCE")"
+  if [[ "$wing_vertex_real" == "$workspace_real" || "$wing_vertex_real" == "${workspace_real}/"* ]]; then
+    die "canonical wing.vertex source '$WING_VERTEX_SOURCE' ($wing_vertex_real) is at or inside workspace-hostpath '$workspace_hostpath' ($workspace_real) -- provisioning could delete or corrupt it before copying; point WING_VERTEX_SOURCE at a location outside the workspace"
   fi
 
   mkdir -p "$local_workspace" || die "cannot create/access local workspace path $local_workspace (resolved from $workspace_hostpath)"

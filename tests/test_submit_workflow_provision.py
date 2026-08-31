@@ -481,6 +481,56 @@ def test_provision_dies_when_workspace_hostpath_is_a_symlink_to_corpus_dir(
     assert (corpus / "inputs" / "inputs.3d.s35_f085_p30").exists()
 
 
+def test_provision_dies_when_wing_vertex_source_is_inside_workspace_hostpath(tmp_path):
+    """Regression: the same nested-path hazard as corpus-dir/workspace-hostpath applies to
+    WING_VERTEX_SOURCE too. If it resolves at or under $local_workspace (e.g. somewhere inside
+    the inputs/ tree that `rm -rf` wipes, or exactly at the destination `wing.vertex` path),
+    provisioning can delete or corrupt the canonical source before the final `cp` reads from it
+    -- the identical "raw cp error instead of a clean die()" defect class, just for the wing
+    source instead of the corpus.
+    """
+    corpus = _make_corpus(tmp_path / "corpus", "prelim_sweep", with_manifest=True)
+    workspace = tmp_path / "workspace" / "prelim_sweep"
+    wing_vertex_inside_workspace = workspace / "inputs" / "wing.vertex"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+        extra_env={"WING_VERTEX_SOURCE": str(wing_vertex_inside_workspace)},
+    )
+
+    assert result.returncode != 0
+    assert not invoked_marker.exists()
+    assert "cp:" not in result.stderr, "must fail via die(), not a raw cp error"
+
+
+def test_provision_does_not_false_positive_on_sibling_prefix_paths(
+    tmp_path, canonical_wing_vertex
+):
+    """Regression: two paths with MATCHING basenames (so the check below actually runs, unlike
+    a "prelim_sweep" vs "prelim_sweep_fine" pair, which the earlier basename-mismatch guard
+    already rejects before ever reaching this check) whose PARENT directories share a long
+    string prefix but are genuinely distinct siblings (e.g. ".../staging" vs
+    ".../staging_other") must NOT be rejected as "nested" -- a naive substring-based check
+    (missing the trailing-path-separator boundary) would false-positive here.
+    """
+    corpus = _make_corpus(
+        tmp_path / "staging" / "corpus", "prelim_sweep", with_manifest=True
+    )
+    workspace = tmp_path / "staging_other" / "workspace" / "prelim_sweep"
+
+    result, invoked_marker = _run_submit_workflow(
+        tmp_path,
+        "full",
+        ["--corpus-dir", str(corpus), "--workspace-hostpath", str(workspace)],
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert invoked_marker.exists()
+    assert (workspace / "inputs" / "inputs.3d.s35_f085_p30").exists()
+
+
 def test_no_provision_flag_skips_copy_but_still_submits(
     tmp_path, canonical_wing_vertex
 ):
