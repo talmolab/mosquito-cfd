@@ -23,6 +23,12 @@ _MANIFEST = _FIXTURES / "sweep_manifest.json"
 _DECK = _FIXTURES / "inputs.3d.s35_f085_p45"
 _ARGO_SIMPLE = _FIXTURES / "argo_status_simple.json"
 _ARGO_RETRY = _FIXTURES / "argo_status_with_retry.json"
+_ARGO_MULTI = _FIXTURES / "argo_status_multi_config.json"
+
+_MULTI_POD_EARLIEST = "force-surrogate-sweep-vb8t5-run-config-1111111111"
+_MULTI_POD_MIDDLE = "force-surrogate-sweep-vb8t5-run-config-2222222222"
+_MULTI_POD_LATEST = "force-surrogate-sweep-vb8t5-run-config-3333333333"
+_MULTI_POD_UNMATCHED = "force-surrogate-sweep-vb8t5-run-config-9999999999"
 
 _REPO_ROOT = Path(__file__).parent.parent
 _REAL_COMMITTED_METADATA = (
@@ -381,6 +387,100 @@ def test_wall_time_reflects_only_final_successful_attempt():
     assert mc.compute_wall_time_s(status) == pytest.approx(10096.466969)
 
 
+def test_wall_time_selects_matching_pod_node_in_multi_config_status():
+    status = _load_json(_ARGO_MULTI)
+    # The middle pod's own window is 01:00:00 -> 02:00:00 = 3600s -- neither the
+    # shortest (earliest pod, 1800s) nor the longest/latest-finishing (latest pod, 9200s).
+    # Under the old unfiltered global-max behavior this would wrongly return 9200s.
+    assert mc.compute_wall_time_s(status, pod_name=_MULTI_POD_MIDDLE) == pytest.approx(
+        3600.0
+    )
+
+
+def test_wall_time_pod_name_none_preserves_global_max_behavior_on_multi_config_status():
+    status = _load_json(_ARGO_MULTI)
+    # Latest pod's own window is 03:00:00 -> 05:33:20 = 9200s, which is also the
+    # globally-latest-finishing node across the whole multi-config workflow -- the
+    # unfiltered fallback (pod_name=None) and an explicit lookup of that same pod agree.
+    assert mc.compute_wall_time_s(status, pod_name=None) == pytest.approx(9200.0)
+    assert mc.compute_wall_time_s(status) == pytest.approx(9200.0)
+    assert mc.compute_wall_time_s(status, pod_name=_MULTI_POD_LATEST) == pytest.approx(
+        9200.0
+    )
+
+
+def test_wall_time_raises_on_unmatched_pod_name():
+    status = _load_json(_ARGO_MULTI)
+    with pytest.raises(ValueError, match=_MULTI_POD_UNMATCHED) as exc_info:
+        mc.compute_wall_time_s(status, pod_name=_MULTI_POD_UNMATCHED)
+    assert _MULTI_POD_EARLIEST in str(exc_info.value)
+
+
+def test_wall_time_unmatched_pod_error_excludes_non_candidate_keys():
+    status = _load_json(_ARGO_MULTI)
+    status["status"]["nodes"]["retry-wrapper"] = {
+        "displayName": "run-config",
+        "type": "Retry",
+        "phase": "Succeeded",
+        "startedAt": "2026-08-04T06:00:00Z",
+        "finishedAt": "2026-08-04T06:10:00Z",
+    }
+    status["status"]["nodes"]["failed-pod"] = {
+        "displayName": "run-config",
+        "type": "Pod",
+        "phase": "Failed",
+        "startedAt": "2026-08-04T06:20:00Z",
+        "finishedAt": "2026-08-04T06:30:00Z",
+    }
+    with pytest.raises(ValueError, match=_MULTI_POD_UNMATCHED) as exc_info:
+        mc.compute_wall_time_s(status, pod_name=_MULTI_POD_UNMATCHED)
+    message = str(exc_info.value)
+    assert _MULTI_POD_EARLIEST in message
+    assert "retry-wrapper" not in message
+    assert "failed-pod" not in message
+
+
+def test_wall_time_raises_when_matched_pod_node_has_wrong_phase():
+    status = _load_json(_ARGO_MULTI)
+    status["status"]["nodes"]["bad-pod"] = {
+        "displayName": "run-config",
+        "type": "Pod",
+        "phase": "Failed",
+        "startedAt": "2026-08-04T06:00:00Z",
+        "finishedAt": "2026-08-04T06:10:00Z",
+    }
+    with pytest.raises(ValueError, match="bad-pod") as exc_info:
+        mc.compute_wall_time_s(status, pod_name="bad-pod")
+    assert "phase is 'Failed'" in str(exc_info.value)
+
+
+def test_wall_time_raises_when_matched_pod_node_is_retry_type():
+    status = _load_json(_ARGO_MULTI)
+    status["status"]["nodes"]["bad-pod"] = {
+        "displayName": "run-config",
+        "type": "Retry",
+        "phase": "Succeeded",
+        "startedAt": "2026-08-04T06:00:00Z",
+        "finishedAt": "2026-08-04T06:10:00Z",
+    }
+    with pytest.raises(ValueError, match="bad-pod") as exc_info:
+        mc.compute_wall_time_s(status, pod_name="bad-pod")
+    assert "'Retry' wrapper" in str(exc_info.value)
+
+
+def test_wall_time_raises_when_matched_pod_node_missing_timestamps():
+    status = _load_json(_ARGO_MULTI)
+    status["status"]["nodes"]["bad-pod"] = {
+        "displayName": "run-config",
+        "type": "Pod",
+        "phase": "Succeeded",
+        "startedAt": "2026-08-04T06:00:00Z",
+    }
+    with pytest.raises(ValueError, match="bad-pod") as exc_info:
+        mc.compute_wall_time_s(status, pod_name="bad-pod")
+    assert "missing startedAt" in str(exc_info.value)
+
+
 def test_argo_status_missing_timestamps_raises_clear_error():
     status = {
         "status": {
@@ -468,6 +568,38 @@ def test_wall_time_s_override_bypasses_argo_query():
     assert calls == []
 
 
+def test_resolve_wall_time_s_passes_pod_name_through_to_argo_query_path():
+    status = _load_json(_ARGO_MULTI)
+
+    def _fake_query(workflow_name):
+        return status
+
+    result = mc.resolve_wall_time_s(
+        workflow_name="force-surrogate-sweep-vb8t5",
+        wall_time_s_override=None,
+        pod_name=_MULTI_POD_MIDDLE,
+        argo_status_query=_fake_query,
+    )
+    assert result == pytest.approx(3600.0)
+
+
+def test_resolve_wall_time_s_override_ignores_pod_name():
+    calls = []
+
+    def _spy_query(workflow_name):
+        calls.append(workflow_name)
+        raise AssertionError("should never be called when an override is supplied")
+
+    result = mc.resolve_wall_time_s(
+        workflow_name="some-workflow",
+        wall_time_s_override=7032.46,
+        pod_name="anything",
+        argo_status_query=_spy_query,
+    )
+    assert result == 7032.46
+    assert calls == []
+
+
 # ---------------------------------------------------------------------------
 # 7. Schema assembler
 # ---------------------------------------------------------------------------
@@ -546,6 +678,70 @@ def test_assemble_run_metadata_git_commit_override_wins_over_valid_pod_value(tmp
 def test_assemble_metadata_includes_workflow_name_in_orchestration_when_supplied():
     result = _assemble(workflow_name="force-surrogate-smoke-xwm4b")
     assert result["orchestration"]["workflow_name"] == "force-surrogate-smoke-xwm4b"
+
+
+def test_assemble_metadata_wall_time_selects_matching_pod_in_multi_config_workflow(
+    tmp_path,
+):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["orchestration"]["pod"] = _MULTI_POD_MIDDLE
+    pod_metadata_path = tmp_path / "run_metadata.json"
+    pod_metadata_path.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    multi_status = _load_json(_ARGO_MULTI)
+
+    def _fake_query(workflow_name):
+        return multi_status
+
+    result = _assemble(
+        pod_metadata_path=pod_metadata_path,
+        workflow_name="force-surrogate-sweep-vb8t5",
+        wall_time_s=None,
+        argo_status_query=_fake_query,
+    )
+    assert result["timing"]["wall_time_s"] == pytest.approx(3600.0)
+
+
+def test_assemble_metadata_wall_time_falls_back_when_orchestration_pod_missing(
+    tmp_path,
+):
+    pod_metadata = _load_json(_POD_METADATA)
+    del pod_metadata["orchestration"]["pod"]
+    pod_metadata_path = tmp_path / "run_metadata.json"
+    pod_metadata_path.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    simple_status = _load_json(_ARGO_SIMPLE)
+
+    def _fake_query(workflow_name):
+        return simple_status
+
+    result = _assemble(
+        pod_metadata_path=pod_metadata_path,
+        workflow_name="force-surrogate-smoke-xwm4b",
+        wall_time_s=None,
+        argo_status_query=_fake_query,
+    )
+    assert result["timing"]["wall_time_s"] == pytest.approx(9448.466969)
+
+
+def test_assemble_metadata_raises_when_orchestration_pod_unmatched(tmp_path):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["orchestration"]["pod"] = _MULTI_POD_UNMATCHED
+    pod_metadata_path = tmp_path / "run_metadata.json"
+    pod_metadata_path.write_text(json.dumps(pod_metadata), encoding="utf-8")
+
+    multi_status = _load_json(_ARGO_MULTI)
+
+    def _fake_query(workflow_name):
+        return multi_status
+
+    with pytest.raises(ValueError, match=_MULTI_POD_UNMATCHED):
+        _assemble(
+            pod_metadata_path=pod_metadata_path,
+            workflow_name="force-surrogate-sweep-vb8t5",
+            wall_time_s=None,
+            argo_status_query=_fake_query,
+        )
 
 
 def test_assemble_metadata_notes_field_optional():

@@ -41,7 +41,11 @@ artifact — nothing is re-typed by a human:
 - ``timing.wall_time_s``: computed from a completed Argo workflow's persisted status timestamps
   (:func:`query_argo_workflow_status`), reflecting only the final successful attempt — or a
   caller-supplied ``--wall-time-s`` override if the source workflow has already been
-  garbage-collected.
+  garbage-collected. In a multi-config fan-out workflow (several configs sharing one Argo
+  workflow), the node is selected by the pod's own name (``orchestration.pod``, already recorded
+  in the pod file) rather than an unfiltered global maximum across every node in the workflow —
+  raising ``ValueError`` if that pod name has no matching node, or the matching node isn't
+  itself a valid candidate, rather than silently falling back to the global maximum.
 - ``orchestration``: passed through from the pod file (``workflow_uid``/``pod``/``node``/
   ``retry``), plus ``workflow_name`` if supplied.
 - ``notes``: optional free-text field for genuinely exceptional commentary; omitted entirely
@@ -462,7 +466,9 @@ def _parse_argo_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def compute_wall_time_s(status: dict[str, Any]) -> float:
+def compute_wall_time_s(
+    status: dict[str, Any], *, pod_name: str | None = None
+) -> float:
     """Compute wall-clock duration from a completed Argo workflow's node timestamps.
 
     Reflects only the final **successful** attempt's duration — a failed attempt followed by a
@@ -474,18 +480,63 @@ def compute_wall_time_s(status: dict[str, Any]) -> float:
     failed attempt's duration. Timestamps are parsed to ``datetime`` (not compared as raw
     strings) so mixed sub-second-precision formatting can't misorder attempts.
 
+    When ``pod_name`` is supplied, the node belonging to that specific pod is selected directly
+    (Argo status node dict keys are the pod's own full name) instead of the unfiltered global
+    maximum across every node in the workflow -- required for a multi-config fan-out workflow,
+    where several configs' pods share one workflow and an unfiltered maximum would return
+    whichever pod finished last for every config. When ``pod_name`` is omitted, behavior is
+    unchanged: the global maximum across every Succeeded, non-Retry candidate node.
+
     Args:
         status: The parsed Argo workflow status (as returned by
             :func:`query_argo_workflow_status`).
+        pod_name: The specific pod's own name to select, disambiguating a multi-config fan-out
+            workflow. When ``None``, the unfiltered global maximum is used (correct for a
+            single-config workflow, where there is only one real candidate). An empty string is
+            treated as a literal (and virtually certain to be unmatched) pod name, not as
+            "omitted" -- only ``None`` falls back to the unfiltered maximum, matching this
+            function's no-silent-fallback design (a real pod name is never empty in practice).
 
     Returns:
         The successful attempt's duration in seconds.
 
     Raises:
-        ValueError: If no non-Retry node has phase ``"Succeeded"`` with both ``startedAt`` and
-            ``finishedAt`` timestamps.
+        ValueError: If ``pod_name`` is supplied but no node has that key, or the matched node is
+            not itself a valid candidate (not ``"Succeeded"``, is a ``"Retry"`` node, or is
+            missing a timestamp). If ``pod_name`` is omitted, raised when no non-Retry node has
+            phase ``"Succeeded"`` with both ``startedAt`` and ``finishedAt`` timestamps.
     """
     nodes = status.get("status", {}).get("nodes", {})
+    if pod_name is not None:
+        node = nodes.get(pod_name)
+        if node is None:
+            candidate_keys = sorted(
+                key
+                for key, candidate in nodes.items()
+                if candidate.get("phase") == "Succeeded"
+                and candidate.get("type") != "Retry"
+            )
+            raise ValueError(
+                f"No node named {pod_name!r} in Argo workflow status; available candidate "
+                f"keys (Succeeded, non-Retry): {candidate_keys}"
+            )
+        started_raw, finished_raw = node.get("startedAt"), node.get("finishedAt")
+        if node.get("phase") != "Succeeded":
+            reason = f"phase is {node.get('phase')!r}, not 'Succeeded'"
+        elif node.get("type") == "Retry":
+            reason = "node is a 'Retry' wrapper, not the underlying Pod attempt"
+        elif not started_raw or not finished_raw:
+            reason = "missing startedAt and/or finishedAt"
+        else:
+            reason = None
+        if reason is not None:
+            raise ValueError(
+                f"Node {pod_name!r} is not a valid candidate for wall_time_s: {reason}"
+            )
+        started = _parse_argo_timestamp(started_raw)
+        finished = _parse_argo_timestamp(finished_raw)
+        return (finished - started).total_seconds()
+
     candidates = []
     for node in nodes.values():
         if node.get("phase") != "Succeeded" or node.get("type") == "Retry":
@@ -509,6 +560,7 @@ def resolve_wall_time_s(
     *,
     workflow_name: str | None,
     wall_time_s_override: float | None = None,
+    pod_name: str | None = None,
     argo_status_query: Callable[[str], dict[str, Any]] = query_argo_workflow_status,
 ) -> float:
     """Resolve ``wall_time_s``, preferring a manual override over an Argo query.
@@ -516,7 +568,10 @@ def resolve_wall_time_s(
     Args:
         workflow_name: The Argo workflow's name; required unless an override is supplied.
         wall_time_s_override: A manually-supplied wall time (``--wall-time-s``), used verbatim
-            when present — the Argo query is never attempted.
+            when present — the Argo query is never attempted, and ``pod_name`` is ignored.
+        pod_name: The specific pod's own name, passed through to :func:`compute_wall_time_s` to
+            disambiguate a multi-config fan-out workflow. Ignored when ``wall_time_s_override``
+            is supplied.
         argo_status_query: Injectable query function (tests pass a fake).
 
     Returns:
@@ -529,7 +584,7 @@ def resolve_wall_time_s(
         return float(wall_time_s_override)
     if not workflow_name:
         raise ValueError("workflow_name is required unless --wall-time-s is supplied")
-    return compute_wall_time_s(argo_status_query(workflow_name))
+    return compute_wall_time_s(argo_status_query(workflow_name), pod_name=pod_name)
 
 
 # ---------------------------------------------------------------------------
@@ -581,8 +636,11 @@ def assemble_run_metadata(
         FileNotFoundError: If any input file is missing.
         ValueError: If any input is malformed, the docker digest or git commit fails validation,
             the pod-reported status is not ``"completed"``, the ``--deck`` file's hash doesn't
-            match the pod-recorded ``deck_sha256``, or the pod-reported row count is missing or
-            disagrees with the CSV-derived timestep count.
+            match the pod-recorded ``deck_sha256``, the pod-reported row count is missing or
+            disagrees with the CSV-derived timestep count, or (in a multi-config fan-out
+            workflow) the pod's own ``orchestration.pod`` name has no matching node in the Argo
+            workflow status, or the matching node is not itself a valid ``wall_time_s``
+            candidate -- see :func:`compute_wall_time_s`.
         KeyError: If ``config_name`` is not present in the manifest, or the manifest entry/deck
             is missing a required field.
     """
@@ -638,6 +696,7 @@ def assemble_run_metadata(
     resolved_wall_time_s = resolve_wall_time_s(
         workflow_name=workflow_name,
         wall_time_s_override=wall_time_s,
+        pod_name=orchestration.get("pod"),
         argo_status_query=argo_status_query,
     )
 
