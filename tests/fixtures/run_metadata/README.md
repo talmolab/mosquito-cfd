@@ -33,5 +33,14 @@ written back to that directory.
   successful **Pod** attempt's duration (not the full span including the failed attempt) and that
   the `Retry` wrapper node is excluded rather than winning the tie. Not tied to a real pilot
   config (synthetic workflow/pod names).
+- `argo_status_multi_config.json` — a canned response modeling a multi-config fan-out sweep
+  (issue #65), with **three** distinct `Succeeded` `Pod`-type nodes keyed by three distinct pod
+  names (following the real `force-surrogate-sweep-vb8t5` naming pattern), each with a
+  sequential, non-overlapping `startedAt`/`finishedAt` window: `...-1111111111` (1800s),
+  `...-2222222222` (3600s), `...-3333333333` (9200s, both the longest-duration AND the
+  latest-finishing of the three). Used to prove that pod-scoped lookup in `compute_wall_time_s`
+  selects the correct node matching a given `pod_name` — e.g. `...-2222222222`'s own 3600s
+  duration — rather than the unfiltered global maximum across the whole workflow (which would
+  wrongly return `...-3333333333`'s 9200s for every config sharing this workflow).
 
 Test data only — do not import fixtures from anywhere outside `tests/`.
