@@ -253,3 +253,57 @@ confirmed gap:
     reverted the swap and confirmed 69/69 pass again.
 - [x] 25. Re-run the targeted test suite and `ruff check`/`ruff format --check` after task 24;
     confirm everything passes (69 passed, both clean).
+
+### 8. `/review-pr` PR-mode review (after opening PR #84)
+
+A fresh, independent 5-lens review against the actual open PR (not the working-tree self-review)
+found no BLOCKING issues. Two real IMPORTANT findings and several free/cheap coverage
+improvements, converging across multiple reviewers:
+
+- [x] 26. The scientific-rigor reviewer found the real production scenario this fix must handle
+    — a multi-config fan-out workflow where one config was ALSO preempted-and-retried (the exact
+    combination the pending 27-config resubmission will hit, since PR #82/#83 exists specifically
+    because retries happen under preemption) — had zero test coverage, even though manually
+    verified correct. Fixed: added
+    `test_wall_time_pod_scoped_lookup_excludes_retry_wrapper_in_multi_config_fan_out`, combining
+    the multi-config fixture with an injected Retry-wrapper + failed-attempt + succeeded-attempt
+    triple for a 4th config, asserting the succeeded attempt's own 900s span is selected (not the
+    wrapper's inflated 1200s, not any other config's duration).
+- [x] 27. The TDD reviewer found a real documentation-accuracy gap: task 3's own description
+    claimed `test_wall_time_selects_matching_pod_node_in_multi_config_status` computes its
+    expected value "independently... not copy-pasted from the fixture-authoring step," but the
+    test body actually hardcoded `3600.0`. Fixed: the test now parses the fixture's own
+    `startedAt`/`finishedAt` via `mc._parse_argo_timestamp` to derive the expected duration itself,
+    with the literal `3600.0` kept only as a sanity-check assertion on that derivation.
+- [x] 28. Free/cheap coverage gaps independently flagged by 2+ reviewers each (all verified
+    correct by hand before adding a test, per the reviewers' own traces): added
+    `test_wall_time_empty_string_pod_name_is_treated_as_a_literal_unmatched_name` (`pod_name=""`),
+    `test_wall_time_raises_clear_error_on_unmatched_pod_name_against_empty_status`
+    (`status={}` with `pod_name` supplied), and
+    `test_assemble_metadata_wall_time_falls_back_when_orchestration_pod_is_explicit_null`
+    (explicit JSON `null` vs. an absent `orchestration.pod` key, alongside the existing
+    absent-key test).
+- [x] 29. Code-quality suggestion (the exact predicate that already drifted once, per 22a):
+    factored `phase == "Succeeded" and type != "Retry"` into a single `_is_succeeded_non_retry()`
+    helper, reused by the global-max fallback loop, the matched-node candidate-keys filter, and
+    (implicitly, via the same helper) kept the three call sites from being able to silently
+    diverge again. Zero behavior change — pure refactor, covered by the full existing suite.
+- [x] 30. Scientific-rigor's own positive finding: `design.md`'s Risks section previously hedged
+    that this fix's correctness "depends on an invariant... this PR can't itself verify." Verified
+    directly against `cluster/argo/workflows/force-surrogate-sweep.yaml`: its `run-all-configs`
+    DAG task fans out via `templateRef: {name: force-surrogate-single-config, ...}` — the exact
+    same container template (and `--pod {{pod.name}}` arg) already proven by the single-config
+    path. Rewrote the hedge as a verified citation, keeping only the narrower (correct) caveat
+    that template-mechanism-sharing doesn't guarantee a specific run's own output wasn't
+    separately corrupted.
+- [x] 31. Deferred, with written justification, per 2 reviewers' suggestion (not required —
+    explicitly a SUGGESTION, not IMPORTANT/BLOCKING from either): tightening matched-node
+    validation from `type != "Retry"` to `type == "Pod"`. Not applied because
+    `argo_status_simple.json`'s real single-config fixture node has **no `type` key at all** —
+    real Argo leaf-pod nodes can apparently omit `type` entirely, so a strict `type == "Pod"`
+    check would incorrectly reject that shape and regress the single-config path this fix must
+    not touch. Documented in `design.md`'s Risks section as a fast-follow if ever needed, per
+    this project's preference for minimal, tightly-scoped changes over speculative hardening.
+- [x] 32. Re-run `openspec validate --strict`, the full CI-equivalent `ruff check`/`ruff format
+    --check`, and the targeted + full-repo test suites after tasks 26-31; confirm everything
+    passes.

@@ -466,6 +466,16 @@ def _parse_argo_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _is_succeeded_non_retry(node: dict[str, Any]) -> bool:
+    """Whether an Argo status node is a Succeeded, non-Retry wall-time candidate.
+
+    The single source of truth for this predicate -- used by the global-max fallback, the
+    matched-node validation, and the unmatched-pod-name error's candidate-key listing, so the
+    three branches can't silently drift out of sync with each other.
+    """
+    return node.get("phase") == "Succeeded" and node.get("type") != "Retry"
+
+
 def compute_wall_time_s(
     status: dict[str, Any], *, pod_name: str | None = None
 ) -> float:
@@ -513,8 +523,7 @@ def compute_wall_time_s(
             candidate_keys = sorted(
                 key
                 for key, candidate in nodes.items()
-                if candidate.get("phase") == "Succeeded"
-                and candidate.get("type") != "Retry"
+                if _is_succeeded_non_retry(candidate)
             )
             raise ValueError(
                 f"No node named {pod_name!r} in Argo workflow status; available candidate "
@@ -539,7 +548,7 @@ def compute_wall_time_s(
 
     candidates = []
     for node in nodes.values():
-        if node.get("phase") != "Succeeded" or node.get("type") == "Retry":
+        if not _is_succeeded_non_retry(node):
             continue
         started_raw, finished_raw = node.get("startedAt"), node.get("finishedAt")
         if not started_raw or not finished_raw:

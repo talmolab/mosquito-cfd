@@ -75,15 +75,28 @@ first place — it is exactly the single-candidate case the old behavior was wri
   (differently) wrong `wall_time_s`. This is treated as a feature, not a risk: an operator seeing
   a loud, specific error is better positioned to diagnose a corrupted pod metadata file than one
   silently trusting a wrong global-max value with no error at all.
-- This fix does not address the sweep/fan-out-level Argo WorkflowTemplate itself (not located in
-  `cluster/argo/workflow-templates/force-surrogate-single-config.yaml`, and out of scope per the
-  proposal) — it assumes that whatever fan-out template exists reuses the same per-pod
-  `orchestration.pod`-recording mechanism already in place for single-config runs. This is
-  consistent with the real `vb8t5` data already having exactly that field per config. Before the
-  next full-corpus resubmission, spot-check one config's actual `run_metadata.json` from that run
-  to confirm `orchestration.pod` is still populated exactly as it was for `vb8t5` — this fix's
-  correctness depends on that invariant holding, not on anything this change itself can verify
-  from the single-config template alone.
+- This fix's correctness depends on the sweep/fan-out-level Argo Workflow reusing the same per-pod
+  `orchestration.pod`-recording mechanism already in place for single-config runs. **Verified, not
+  merely assumed**: `cluster/argo/workflows/force-surrogate-sweep.yaml`'s `run-all-configs` DAG
+  task fans out over the manifest via `withParam` using
+  `templateRef: {name: force-surrogate-single-config, template: run-config}` — the exact same
+  container template (including its `--pod {{pod.name}}` arg) already proven correct by the
+  single-config path's own `pod_run_metadata.json`/`argo_status_simple.json` fixtures. This is
+  also consistent with the real `vb8t5` data already having exactly that field per config. Before
+  the next full-corpus resubmission, still worth spot-checking one config's actual
+  `run_metadata.json` from that specific run to confirm `orchestration.pod` was populated as
+  expected — the template reuse guarantees the *mechanism* is shared, not that a given run's
+  output wasn't corrupted by some unrelated issue.
+- **Deferred (not applied)**: matched-node validation checks `type != "Retry"` (excluding only the
+  wrapper), not `type == "Pod"` (excluding every non-Pod type). A `Succeeded`, non-`Retry`,
+  fully-timestamped `Steps`/`DAG` container node could in principle collide with a `pod_name` and
+  pass validation. Not tightened here because `argo_status_simple.json`'s real single-config
+  fixture node has **no `type` key at all** (only `phase`/`startedAt`/`finishedAt`) — real Argo
+  leaf-pod nodes can apparently omit `type` entirely, so a strict `type == "Pod"` check would
+  reject that shape and regress the single-config path this fix must not touch. Tightening
+  correctly would require confirming real Argo's actual `type` semantics across the API versions
+  in use, which is out of scope for this issue; flagged as a fast-follow if it ever proves
+  necessary in practice, per this project's preference for minimal, tightly-scoped changes.
 
 ### Rollback / recovery if the `ValueError` fires unexpectedly in production
 
