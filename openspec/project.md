@@ -166,7 +166,11 @@ mosquito-cfd/
   exhausting after only 3 of 5 configured retries under preemption (issue #64, lost 3 configs
   from `force-surrogate-sweep-vb8t5`) — are fixed in `fix-argo-sweep-timeouts`:
   `submit_workflow.sh full` now has an `--active-deadline-seconds` override with an auto-scale
-  fallback, and `maxDuration` is `4h` (covers the full `limit: 5` sequence). **Superseded run:**
+  fallback, and `maxDuration` is `4h` (covers the full `limit: 5` sequence). A third,
+  metadata-only bug (issue #65: `compute_wall_time_s` picked the globally-latest-finishing pod's
+  duration for every config in a multi-config fan-out workflow) is fixed in
+  `fix-wall-time-pod-selection` — the resubmission is now blocked only on the user's explicit
+  go-ahead, not any known bug. **Superseded run:**
   `force-surrogate-sweep-vb8t5` + `force-surrogate-retry-failed-trz9k` already completed once,
   but against the stale wing-hinge geometry (`fix-force-surrogate-sweep-hinge`) — still needs
   re-submission against the corrected decks; see
