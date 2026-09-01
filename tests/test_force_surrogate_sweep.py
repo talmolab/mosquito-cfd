@@ -354,10 +354,67 @@ def test_render_inputs_rejects_duplicate_key():
     assert "duplicate" in str(exc.value) and "max_step" in str(exc.value)
 
 
-def test_render_inputs_forces_plot_int_minus_one():
-    """plot_int is forced to -1 even though the base has 100 (force-only)."""
-    out = _render_default(BASE_INPUTS.read_text(encoding="utf-8"))
+def test_render_inputs_defaults_to_force_only():
+    """With no plot_int/init_iter argument, plot_int defaults to -1 and init_iter is untouched.
+
+    ``plot_int`` is a *default*, not an unconditional *force* -- ``render_inputs`` already
+    accepts an explicit override (see ``test_render_inputs_accepts_plot_int_override``); this
+    pins today's exact no-override behavior as a regression guard.
+    """
+    base = BASE_INPUTS.read_text(encoding="utf-8")
+    out = _render_default(base)
     assert _parse_inputs(out)["amr.plot_int"] == "-1"
+    assert _parse_inputs(out)["ns.init_iter"] == _parse_inputs(base)["ns.init_iter"]
+
+
+def test_render_inputs_accepts_plot_int_override():
+    """plot_int=100 is written verbatim; no other targeted key is affected."""
+    base = BASE_INPUTS.read_text(encoding="utf-8")
+    out = _render_default(base, plot_int=100)
+    out_map = _parse_inputs(out)
+    assert out_map["amr.plot_int"] == "100"
+    for key in TARGET_KEYS - {"amr.plot_int"}:
+        assert out_map[key] == _parse_inputs(_render_default(base))[key]
+
+
+def test_render_inputs_accepts_init_iter_override():
+    """init_iter=2 rewrites ns.init_iter even though the base has 0."""
+    base = BASE_INPUTS.read_text(encoding="utf-8")
+    assert _parse_inputs(base)["ns.init_iter"] == "0"
+    out = _render_default(base, init_iter=2)
+    assert _parse_inputs(out)["ns.init_iter"] == "2"
+
+
+def test_render_inputs_init_iter_none_preserves_base_value():
+    """init_iter=None (the default) leaves a non-zero base ns.init_iter untouched."""
+    base = (
+        "max_step        = 2000\n"
+        "stop_time = 1.0\n"
+        "amr.plot_int = -1\n"
+        "ns.init_iter = 3\n"
+        "particle_inputs.kinematics_stroke_amp = 70.0\n"
+        "particle_inputs.kinematics_frequency = 1.0\n"
+        "particle_inputs.kinematics_pitch_amp = 45.0\n"
+    )
+    out = _render_default(base, init_iter=None)
+    assert _parse_inputs(out)["ns.init_iter"] == "3"
+
+
+def test_render_inputs_missing_init_iter_key_raises_when_overridden():
+    """init_iter is only validated as a required key when an override is actually requested."""
+    base = (
+        "max_step        = 2000\n"
+        "stop_time = 1.0\n"
+        "amr.plot_int = -1\n"
+        "particle_inputs.kinematics_stroke_amp = 70.0\n"
+        "particle_inputs.kinematics_frequency = 1.0\n"
+        "particle_inputs.kinematics_pitch_amp = 45.0\n"
+    )
+    # No init_iter override requested: no ns.init_iter key needed, no error.
+    _render_default(base, init_iter=None)
+    with pytest.raises(ValueError) as exc:
+        _render_default(base, init_iter=2)
+    assert "ns.init_iter" in str(exc.value)
 
 
 @pytest.mark.parametrize("key", sorted(TARGET_KEYS))
@@ -485,6 +542,261 @@ def test_regeneration_byte_identical(tmp_path):
         assert fa.read_bytes() == (run_b / "inputs" / fa.name).read_bytes()
     for name in ("sweep_manifest.json", "sweep_manifest.units.json"):
         assert (run_a / name).read_bytes() == (run_b / name).read_bytes()
+
+
+# --- 1.22-1.25: generate_sweep() field-capture parameter threading --------------------
+
+
+def test_generate_sweep_defaults_are_byte_identical_to_before(tmp_path):
+    """No plot_int/init_iter argument -> byte-identical to the committed coarse corpus.
+
+    Mirrors test_committed_sweep_matches_regeneration's byte-identity pattern (not a per-key
+    spot-check) -- the load-bearing regression pin proving this change is purely additive for
+    every caller (the coarse corpus especially) that doesn't opt in.
+    """
+    manifest = json.loads(
+        (PRELIM_SWEEP / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    provenance = json.loads(
+        (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        seed=manifest["holdout"]["seed"],
+        n_holdout=manifest["holdout"]["n_holdout"],
+        timestamp=provenance["generated_at"],
+    )
+    committed = sorted((PRELIM_SWEEP / "inputs").glob("inputs.3d.*"))
+    for deck in committed:
+        assert deck.read_bytes() == (tmp_path / "inputs" / deck.name).read_bytes()
+    for name in ("sweep_manifest.json", "sweep_manifest.units.json"):
+        assert (PRELIM_SWEEP / name).read_bytes() == (tmp_path / name).read_bytes()
+
+
+def test_generate_sweep_threads_plot_int_and_init_iter_to_every_config(tmp_path):
+    """Both overrides land in every deck AND every manifest record (both hardcode sites)."""
+    manifest = generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=json.loads(MICRO_SWEEP.read_text(encoding="utf-8")),
+        n_holdout=0,
+        plot_int=100,
+        init_iter=2,
+        timestamp=TS,
+    )
+    for f in (tmp_path / "inputs").glob("inputs.3d.*"):
+        out_map = _parse_inputs(f.read_text(encoding="utf-8"))
+        assert out_map["amr.plot_int"] == "100"
+        assert out_map["ns.init_iter"] == "2"
+    for record in manifest["configs"]:
+        assert record["plot_int"] == 100
+        assert record["init_iter"] == 2
+
+
+def test_generate_sweep_plot_int_override_alone_leaves_init_iter_at_default(tmp_path):
+    """plot_int alone doesn't implicitly thread init_iter (independence at generate_sweep level)."""
+    manifest = generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=json.loads(MICRO_SWEEP.read_text(encoding="utf-8")),
+        n_holdout=0,
+        plot_int=100,
+        timestamp=TS,
+    )
+    base_init_iter = _parse_inputs(BASE_INPUTS.read_text(encoding="utf-8"))[
+        "ns.init_iter"
+    ]
+    for f in (tmp_path / "inputs").glob("inputs.3d.*"):
+        out_map = _parse_inputs(f.read_text(encoding="utf-8"))
+        assert out_map["amr.plot_int"] == "100"
+        assert out_map["ns.init_iter"] == base_init_iter
+    for record in manifest["configs"]:
+        assert record["plot_int"] == 100
+        assert "init_iter" not in record
+
+
+def test_generate_sweep_init_iter_override_alone_leaves_plot_int_at_default(tmp_path):
+    """init_iter alone doesn't implicitly thread plot_int (independence at generate_sweep level)."""
+    manifest = generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=json.loads(MICRO_SWEEP.read_text(encoding="utf-8")),
+        n_holdout=0,
+        init_iter=2,
+        timestamp=TS,
+    )
+    for f in (tmp_path / "inputs").glob("inputs.3d.*"):
+        out_map = _parse_inputs(f.read_text(encoding="utf-8"))
+        assert out_map["ns.init_iter"] == "2"
+        assert out_map["amr.plot_int"] == "-1"
+    for record in manifest["configs"]:
+        assert record["init_iter"] == 2
+        assert record["plot_int"] == -1
+
+
+def test_generate_sweep_explicit_init_iter_zero_is_recorded_as_requested(tmp_path):
+    """init_iter=0 (falsy but not None) is still treated as an explicit override, not "omit".
+
+    Distinguishes "explicitly requested 0" from "not requested" (None) -- the exact seam an
+    `is not None` check protects against a future truthiness-check regression.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest = generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=micro,
+        n_holdout=0,
+        init_iter=0,
+        timestamp=TS,
+    )
+    for record in manifest["configs"]:
+        assert record["init_iter"] == 0
+    provenance = json.loads(
+        (tmp_path / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["field_capture"]["init_iter"] == 0
+
+
+def test_generate_sweep_plot_int_zero_and_explicit_default_are_both_accepted(tmp_path):
+    """plot_int=0 (unvalidated but accepted) and plot_int=-1 passed explicitly (still "no
+    override", matching the omitted-default case) both behave as documented, not by accident.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest_zero = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "zero",
+        configs=micro,
+        n_holdout=0,
+        plot_int=0,
+        timestamp=TS,
+    )
+    for record in manifest_zero["configs"]:
+        assert record["plot_int"] == 0
+    provenance_zero = json.loads(
+        (tmp_path / "zero" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance_zero["field_capture"]["plot_int"] == 0
+    # amr.plot_int's real enabling gate (AMReX's own writePlotNow()) is `plot_int > 0`, not
+    # `plot_int != -1` -- 0 is neither the force-only default nor a real periodic-write interval,
+    # so the rationale must not claim output is enabled for it.
+    assert "enabled" not in provenance_zero["field_capture"]["rationale"].lower()
+
+    manifest_explicit_default = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "explicit_default",
+        configs=micro,
+        n_holdout=0,
+        plot_int=-1,
+        timestamp=TS,
+    )
+    for record in manifest_explicit_default["configs"]:
+        assert record["plot_int"] == -1
+    provenance_explicit_default = json.loads(
+        (tmp_path / "explicit_default" / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "field_capture" not in provenance_explicit_default
+
+
+# --- 1.26-1.27: manifest/provenance field-capture schema -------------------------------
+
+
+def test_manifest_records_init_iter_per_config(tmp_path):
+    """init_iter present when overridden; absent entirely (not null) when left at default."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with_override = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "with",
+        configs=micro,
+        n_holdout=0,
+        init_iter=2,
+        timestamp=TS,
+    )
+    for record in with_override["configs"]:
+        assert record["init_iter"] == 2
+
+    without_override = generate_sweep(
+        BASE_INPUTS, tmp_path / "without", configs=micro, n_holdout=0, timestamp=TS
+    )
+    for record in without_override["configs"]:
+        assert "init_iter" not in record
+
+
+def test_provenance_records_field_capture_block(tmp_path):
+    """field_capture block present + populated only when an override was actually requested.
+
+    The block's `init_iter` key follows the same omit-not-null convention as the manifest's
+    own per-config `init_iter` field (rather than encoding "not requested" two different ways
+    across the two sidecars) -- checked explicitly via the plot_int-only case below.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "with",
+        configs=micro,
+        n_holdout=0,
+        plot_int=100,
+        init_iter=2,
+        timestamp=TS,
+    )
+    provenance = json.loads(
+        (tmp_path / "with" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["field_capture"]["plot_int"] == 100
+    assert provenance["field_capture"]["init_iter"] == 2
+    assert "CC-F1" in provenance["field_capture"]["rationale"]
+
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "plot_int_only",
+        configs=micro,
+        n_holdout=0,
+        plot_int=100,
+        timestamp=TS,
+    )
+    provenance_plot_int_only = json.loads(
+        (tmp_path / "plot_int_only" / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance_plot_int_only["field_capture"]["plot_int"] == 100
+    assert "init_iter" not in provenance_plot_int_only["field_capture"]
+
+    generate_sweep(
+        BASE_INPUTS, tmp_path / "without", configs=micro, n_holdout=0, timestamp=TS
+    )
+    provenance_default = json.loads(
+        (tmp_path / "without" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert "field_capture" not in provenance_default
+
+
+def test_field_capture_rationale_does_not_overclaim_when_init_iter_alone_is_set(
+    tmp_path,
+):
+    """The rationale text must not say "output enabled" when plot_int is still -1.
+
+    init_iter alone (plot_int left at its force-only default) is a real, spec'd, independent
+    override -- but it produces no plotfile at all (amr.plot_int=-1 means no field output),
+    so a rationale that unconditionally claims "field-capture output enabled" would mislead a
+    reader of the provenance record into thinking a plotfile was actually written.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=micro,
+        n_holdout=0,
+        init_iter=2,
+        timestamp=TS,
+    )
+    provenance = json.loads(
+        (tmp_path / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    rationale = provenance["field_capture"]["rationale"]
+    assert "enabled" not in rationale.lower()
 
 
 # --- 4. Artifact tests (depend on the committed examples/prelim_sweep/ corpus) ---------

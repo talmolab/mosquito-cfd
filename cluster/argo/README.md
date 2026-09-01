@@ -127,8 +127,20 @@ wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml \
   *not* duplicated here — they are pinned by the manifest (by config name) and the deck hash.
 - **Completeness, not just exit.** `verify-complete` runs `check_completion` over **every** config's
   `IB_Particle_1.csv` and fails the workflow if any is short — overall success means a complete corpus.
-- **Force-only (CC-6).** The workflow produces the per-config IB-particle CSV corpus only; PR4's
-  `scripts/extract_forces.py → dataset.parquet` stays the downstream **local** step.
+- **Corpus-agnostic, CSV-only workflow steps (CC-6).** The workflow's own steps (`validate`, the
+  fan-out, `verify-complete`) only ever read/write the per-config IB-particle CSV — regardless of
+  whether the submitted corpus's decks are force-only (`amr.plot_int=-1`, e.g.
+  `examples/prelim_sweep/`) or field-capture-enabled (e.g. `examples/prelim_sweep_fine/` as of
+  `add-fine-corpus-field-capture`). The workflow neither inspects nor constrains
+  `amr.plot_int`/`ns.init_iter`; any plotfiles a field-capture corpus's CFD run produces land on
+  disk as a side effect of the deck, not as something this workflow reads, gates, or reports on.
+  PR4's `scripts/extract_forces.py → dataset.parquet` stays the downstream **local** step either
+  way. **Storage headroom is not gated anywhere in this workflow** — no `ephemeral-storage`
+  request/limit exists in the WorkflowTemplate. A field-capture corpus's `amr.plot_int` interval
+  directly controls how many plotfiles land on the NFS-mounted workspace per config
+  (`add-fine-corpus-field-capture`'s own `design.md` flags this as explicitly unmeasured until
+  the real cluster run); check headroom on the first few finished configs before letting the
+  full fan-out run unattended, same pattern as the existing mid-sweep force check.
 
 ## Outputs
 

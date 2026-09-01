@@ -104,6 +104,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             "(fix-force-surrogate-sweep-hinge)."
         ),
     )
+    parser.add_argument(
+        "--plot-int",
+        type=int,
+        default=-1,
+        help=(
+            "amr.plot_int override threaded to every deck and manifest record. Default -1 "
+            "(force-only); pass a positive interval to enable field-capture plotfile output."
+        ),
+    )
+    parser.add_argument(
+        "--init-iter",
+        type=int,
+        default=None,
+        help=(
+            "ns.init_iter override threaded to every deck. Default None (pass-through from the "
+            "base deck). Field-capture decks must pass 2 -- see CC-F1 in "
+            "docs/field_surrogate/roadmap.md."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # BASE_INPUTS is repo-root-relative (kept relative so the committed provenance path is
@@ -123,6 +142,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         BASE_INPUTS,
         args.output,
         timestamp=args.timestamp,
+        plot_int=args.plot_int,
+        init_iter=args.init_iter,
     )
     n_configs = len(manifest["configs"])
     n_holdout = manifest["holdout"]["n_holdout"]
