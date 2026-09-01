@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -188,8 +189,10 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
 
     Mirrors the coarse corpus's own `test_committed_sweep_matches_regeneration` (byte-identity,
     not a spot-check) -- this corpus has now been regenerated twice (hinge fix, then field
-    capture) with no equivalent permanent regression test, which let a stale `git_commit`
-    provenance value slip through undetected until a manual review round caught it by hand.
+    capture) with no equivalent permanent regression test before this one. Deliberately does
+    NOT assert anything about `sweep_provenance.json`'s `git_commit` -- that value legitimately
+    varies from run to run and can't be pinned here; see
+    `test_fine_corpus_git_commit_is_a_capable_ancestor` for that separate property.
     """
     fine_corpus = Path("examples/prelim_sweep_fine")
     manifest = json.loads(
@@ -215,6 +218,45 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
     assert (fine_corpus / "sweep_manifest.json").read_bytes() == (
         tmp_path / "sweep_manifest.json"
     ).read_bytes()
+
+
+def test_fine_corpus_git_commit_is_a_capable_ancestor():
+    """`sweep_provenance.json`'s `git_commit` must name a real ancestor of the checkout.
+
+    Regression guard for a real bug caught only by a manual review round: the recorded
+    `git_commit` once named a commit whose checked-out code had no `plot_int`/`init_iter`
+    parameters at all -- the regeneration had actually run on a dirty working tree before the
+    code was committed. `test_committed_fine_corpus_matches_regeneration` doesn't (and can't)
+    catch this, since it only proves the CURRENTLY checked-out code can reproduce the file, not
+    that the specific commit recorded in provenance could have. This test checks the narrower,
+    audit-trail property directly via git ancestry.
+
+    Skips (doesn't fail) in a shallow clone that doesn't have the recorded commit locally --
+    e.g. CI's default `actions/checkout` depth -- rather than reporting a false failure for an
+    environment limitation unrelated to the corpus's actual correctness.
+    """
+    provenance = json.loads(
+        Path("examples/prelim_sweep_fine/sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    commit = provenance["git_commit"]
+    have_commit = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        capture_output=True,
+    )
+    if have_commit.returncode != 0:
+        pytest.skip(
+            f"commit {commit} not present locally (shallow clone?) -- cannot check ancestry"
+        )
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        capture_output=True,
+    )
+    assert result.returncode == 0, (
+        f"sweep_provenance.json's git_commit={commit!r} is not an ancestor of HEAD -- it "
+        "cannot be the commit whose checked-out code produced this corpus"
+    )
 
 
 def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path):
