@@ -677,6 +677,10 @@ def test_generate_sweep_plot_int_zero_and_explicit_default_are_both_accepted(tmp
         (tmp_path / "zero" / "sweep_provenance.json").read_text(encoding="utf-8")
     )
     assert provenance_zero["field_capture"]["plot_int"] == 0
+    # amr.plot_int's real enabling gate (AMReX's own writePlotNow()) is `plot_int > 0`, not
+    # `plot_int != -1` -- 0 is neither the force-only default nor a real periodic-write interval,
+    # so the rationale must not claim output is enabled for it.
+    assert "enabled" not in provenance_zero["field_capture"]["rationale"].lower()
 
     manifest_explicit_default = generate_sweep(
         BASE_INPUTS,
