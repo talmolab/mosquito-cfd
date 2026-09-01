@@ -8,8 +8,8 @@
     "plot_int": 100,
     "rationale": "Field-capture output enabled for downstream Stage-2 (field-surrogate) work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
   },
-  "generated_at": "2026-09-01T00:00:00+00:00",
-  "git_commit": "6a79e0aedaf1d6c8f72ea97a2ccc5c5bd37debb1",
+  "generated_at": "2026-09-01T09:30:00+00:00",
+  "git_commit": "5c367596c5f1b7a28ff9369184c5e840c4f9c164",
   "superseded_by": {
     "cluster_workflows": [
       "force-surrogate-sweep-vb8t5",
