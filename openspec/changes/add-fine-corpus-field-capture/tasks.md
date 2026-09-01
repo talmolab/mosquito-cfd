@@ -25,6 +25,14 @@
 > merge before PR A does**, even though its PR can be opened and reviewed in parallel. Both PRs go
 > through `/review-pr` independently before merge; Section 7 (below) is deliberately not marked
 > wholesale PR A or PR B — see its own text for why.
+>
+> **Do NOT run `openspec archive add-fine-corpus-field-capture` until BOTH PRs have merged.** The
+> committed spec delta's ADDED "Field-capture plotfile velocity verification (CC-F1)" requirement
+> is implemented entirely in PR B — if this change is archived after PR A merges but before PR B
+> does, the live `openspec/specs/force-surrogate/spec.md` would assert CC-F1 exists with zero
+> implementing code anywhere in the repo. Nothing mechanically enforces this ordering (a
+> self-review round flagged that only PR-body prose currently says so) — this note is the
+> enforcement mechanism until/unless a stronger one exists.
 
 ### 1. `render_inputs()` gains an `init_iter` parameter; `plot_int` becomes overridable [TDD] [PR A]
 

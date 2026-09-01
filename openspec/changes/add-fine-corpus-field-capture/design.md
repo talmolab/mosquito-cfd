@@ -124,6 +124,17 @@ bidirectional independence.
   corpus, which stays at `init_iter=0` (inherited, untouched) — force-only and field-capture-enabled
   corpora can coexist with different `ns.init_iter` values with no cross-contamination, since neither
   corpus's downstream pipeline (dataset extraction, training) ever reads plotfiles.
+- **`sweep_provenance.json`'s `field_capture.rationale` describes AMReX's *periodic* plot-write
+  gate (`plot_int > 0`), not necessarily every plotfile IAMReX could ever write.** A self-review
+  round traced IAMReX's `main.cpp` and found an unconditional final `writePlotFile()` call after
+  the time-stepping loop exits (gated by a separate, always-on `amr.plot_files_output` flag, not
+  by `plot_int`) — so a force-only run (`plot_int=-1`) that completes naturally could still emit
+  one final plotfile, in principle. Unverified in practice for this corpus: sweep configs are run
+  under Argo with an `activeDeadlineSeconds` wall-time kill, and it's not confirmed whether any
+  config actually reaches natural completion rather than being killed first. Flagged here as an
+  operational caveat for whoever reviews the real cluster run's output, not a code change — this
+  proposal's rationale text is accurate about the *periodic* gate, which is the property it's
+  actually describing.
 
 ## Migration Plan
 
