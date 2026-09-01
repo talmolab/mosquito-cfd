@@ -22,8 +22,8 @@ defect); the pilot report's own pre-run projection for a full 27-config fine-gri
 ~61 hours (~2.55 days) — the two numbers describe different things (actual sunk cost vs. a
 separate projection), not a discrepancy. Rather than pay for a second full regeneration later,
 **F1's standalone field-capture pilot below is superseded**: the corrected fine-grid re-run is
-bundled with full 27-config field capture directly, in the follow-on change to
-`fix-force-surrogate-sweep-hinge` — an explicit, deliberate deviation from this roadmap's own
+bundled with full 27-config field capture directly, in `add-fine-corpus-field-capture` — an
+explicit, deliberate deviation from this roadmap's own
 CC-F3 "measure storage on a small pilot before committing to the full corpus" default, decided
 with the user rather than assumed. That follow-on change measures storage from the real run instead
 of a preceding pilot (see its proposal's "Deviation and scoping decisions"). It must also re-confirm
@@ -114,8 +114,8 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
     (preserves resolution, maps onto DoMINO's point-cloud input more naturally, per
     `ml-surrogate-notes.md` "Moving Boundary Handling").
 
-> **Superseded 2026-08-10 (see the Sequencing note above):** the follow-on change to
-> `fix-force-surrogate-sweep-hinge` measures storage from the full corrected 27-config run itself,
+> **Superseded 2026-08-10 (see the Sequencing note above):** `add-fine-corpus-field-capture`
+> measures storage from the full corrected 27-config run itself,
 > not a preceding small pilot — a deliberate, user-approved deviation from this CC's own default,
 > made necessary by that corpus needing to be regenerated regardless of the field-capture decision.
 
@@ -132,7 +132,7 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 
 | # | OpenSpec change-id (proposed) | Scope | Env | Status |
 |---|---|---|---|---|
-| F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in the follow-on change to `fix-force-surrogate-sweep-hinge` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
+| F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
 | F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ⬜ |
 | F3 | `add-field-surrogate-encoder` | DoMINO encoder training scaffold: field snapshot → latent **z** (64–256 dim). Trained first at pilot scale (F1's small corpus) to get an early, honest read on the open "DoMINO for rapidly-moving geometry" question (CC-F5) before committing to the full corpus. | A5000 | ⬜ |
 | F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. | cluster | ⬜ |
@@ -142,8 +142,8 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 **Dependency order:** F1 → F2 (can start in parallel once the fixture exists, cluster-free) → F3
 (needs F1's pilot data + F2's reader) → F4 (only after F1's go/no-go + F3's pilot-scale training
 gives an early skill read) → F5 (needs F3's encoder + Track B's existing force labels) → F6 (needs
-F5's predictions). **F1 is superseded (see above); F2 onward now depend on the follow-on change to
-`fix-force-surrogate-sweep-hinge` for corpus data instead.**
+F5's predictions). **F1 is superseded (see above); F2 onward now depend on
+`add-fine-corpus-field-capture` for corpus data instead.**
 
 ## How to execute (per-PR loop)
 

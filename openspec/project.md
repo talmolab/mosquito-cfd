@@ -160,7 +160,11 @@ mosquito-cfd/
 - [ ] Multi-GPU / multi-node validation
 - [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
   — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
-  explicit go-ahead (shared lab GPU quota). The two bugs that sank the prior two attempts —
+  explicit go-ahead (shared lab GPU quota). As of `add-fine-corpus-field-capture`, the fine
+  corpus's decks now include field capture (`amr.plot_int=100`, `ns.init_iter=2`) alongside the
+  corrected wing-hinge geometry, so this pending submission's deliverable is both the
+  corrected-geometry force data AND field-capture plotfiles in one run (Stage 2 / field-surrogate
+  input — see `docs/field_surrogate/roadmap.md`). The two bugs that sank the prior two attempts —
   `activeDeadlineSeconds` not scaling with an overridden `--parallelism` (issue #63, killed
   `force-surrogate-sweep-7wrk7` at 24h with 0/27 done) and `retryStrategy.backoff.maxDuration`
   exhausting after only 3 of 5 configured retries under preemption (issue #64, lost 3 configs
@@ -324,15 +328,19 @@ uv run python scripts/make_config_mean_collapse_diagnostic.py \
     --timestamp 2026-08-12T00:00:00+00:00
 ```
 
-**Mid-sweep partial-corpus check** (corrected 2026-08-31 — the previous version of this note
-recommended a plotfile-based video check that cannot work against this corpus's design intent;
-see `.claude/commands/submit-cluster-sweep.md` for the full runbook this note now defers to):
-once just a few of the 27-config corpus's cluster runs finish (before the full sweep completes),
-check those configs' force output directly — **not** `make_flow_video.py`'s multi-frame
-workflow, which needs a time series of AMReX plotfiles this corpus is not designed to produce
-(every deck's `amr.plot_int` is forced to `-1` by `generate_sweep()`, force-only by design, per
-`openspec/specs/force-surrogate/spec.md` and `cluster/argo/README.md`'s "Force-only (CC-6)"
-note). Instead:
+**Mid-sweep partial-corpus check** (corrected 2026-08-31, then 2026-09-01 — the previous version
+of this note recommended a plotfile-based video check that cannot work against this corpus's
+design intent; see `.claude/commands/submit-cluster-sweep.md` for the full runbook this note now
+defers to): once just a few of the 27-config corpus's cluster runs finish (before the full sweep
+completes), check those configs' force output directly — the CSV/force-based check below is the
+recommended default for **either** corpus, coarse or fine. As of `add-fine-corpus-field-capture`,
+the fine corpus's decks are no longer force-only (`amr.plot_int=100`, `ns.init_iter=2` — see
+`docs/field_surrogate/roadmap.md`); only the coarse corpus (`examples/prelim_sweep/`) still forces
+`amr.plot_int=-1` unconditionally, per `openspec/specs/force-surrogate/spec.md` and
+`cluster/argo/README.md`'s "Force-only (CC-6)" note (both scoped accordingly). A
+`make_flow_video.py`-style multi-frame check is no longer categorically impossible for the fine
+corpus, but the CSV/force check remains the recommended default — it doesn't need a completed
+plotfile time series and is cheaper to run mid-sweep. Steps:
 1. For each finished config, confirm `runs/<config>/IB_Particle_1.csv` has the expected row
    count (`check_completion`'s own logic, matching `sweep_manifest.json`'s `max_step`) and
    `run_metadata.json`'s `stability` field is `stable_at_5e-4` (not a `_fallback` suffix).
