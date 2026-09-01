@@ -328,6 +328,59 @@ def sphere_cv_drag_cd(
     }
 
 
+def check_field_capture_velocity(
+    plotfile_path: str,
+    *,
+    lo: tuple[float, float, float] = (-np.inf, -np.inf, -np.inf),
+    hi: tuple[float, float, float] = (np.inf, np.inf, np.inf),
+) -> dict[str, float]:
+    """Assert a field-capture plotfile's ``x_velocity`` is not silently zero (CC-F1).
+
+    Guards against a known, previously-hit defect: with ``ns.init_iter = 0``, IAMReX computes the
+    induced velocity field internally but never persists it to the plotfile -- every
+    ``x_velocity`` value reads as exactly zero, with no other symptom (see
+    ``examples/flapping_wing/RESULTS.md``, "Note on the velocity field"). The check is scoped to
+    ``x_velocity`` specifically, not every velocity component: a physically valid field can have a
+    legitimately-zero component (e.g. a purely 2D flow's out-of-plane velocity), and a check that
+    rejected any zero component would false-positive on real, correct data. Built on
+    :func:`extract_eulerian_box` -- no new plotfile reader.
+
+    Args:
+        plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
+        lo: Physical lower corner to read (default: full domain extent).
+        hi: Physical upper corner to read (default: full domain extent).
+
+    Returns:
+        Dict with ``x_velocity_min``, ``x_velocity_max``, ``x_velocity_abs_max``.
+
+    Raises:
+        ValueError: If every ``x_velocity`` value in the region is exactly zero, or if any value
+            is NaN (a NaN-contaminated field must never be reported as a passing, genuinely
+            non-zero result).
+    """
+    box = extract_eulerian_box(plotfile_path, lo=lo, hi=hi)
+    x_velocity = box["u"]
+    if np.any(np.isnan(x_velocity)):
+        raise ValueError(
+            f"x_velocity contains NaN in {plotfile_path!r} -- a NaN-contaminated field cannot be "
+            "trusted as training data regardless of whether any value is also non-zero; "
+            "investigate the run before trusting any of its output."
+        )
+    if not np.any(x_velocity != 0.0):
+        raise ValueError(
+            f"x_velocity is entirely zero in {plotfile_path!r} -- this is the signature of the "
+            "ns.init_iter=0 defect (IAMReX computes the induced velocity field internally but "
+            "never persists it to the plotfile when ns.init_iter=0; see "
+            "examples/flapping_wing/RESULTS.md's 'Note on the velocity field'). Check the deck's "
+            "ns.init_iter setting -- CC-F1 requires ns.init_iter=2 for any field-capture deck."
+        )
+    return {
+        "x_velocity_min": float(np.min(x_velocity)),
+        "x_velocity_max": float(np.max(x_velocity)),
+        "x_velocity_abs_max": float(np.max(np.abs(x_velocity))),
+    }
+
+
 def unsteady_momentum_force(
     u_cv_old: np.ndarray,
     u_cv_new: np.ndarray,
