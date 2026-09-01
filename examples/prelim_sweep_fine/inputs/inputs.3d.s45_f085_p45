@@ -22,7 +22,7 @@ stop_time       = 2.3529411764705883
 
 ns.fixed_dt     = 0.0005
 ns.cfl          = 0.3
-ns.init_iter    = 0
+ns.init_iter    = 2
 
 # Diffused IB input file
 particle.input  = particle_inputs
@@ -46,7 +46,7 @@ amr.v                   = 1
 # I/O - frequent output for validation
 #*******************************************************************************
 amr.check_int       = 1000
-amr.plot_int        = -1
+amr.plot_int        = 100
 
 #*******************************************************************************
 # Physics

@@ -3,12 +3,20 @@
     "path": "examples/prelim_sweep_fine_pilot/base_inputs.3d.fine",
     "sha256": "135ccd38437e56ae04812299162f3bcf02ec7c8bfe1dce2470fb9899063ed6a0"
   },
-  "generated_at": "2026-08-11T03:00:00+00:00",
-  "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
-  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
+  "field_capture": {
+    "init_iter": 2,
+    "plot_int": 100,
+    "rationale": "Field-capture output enabled for downstream Stage-2 (field-surrogate) work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
+  },
+  "generated_at": "2026-09-01T00:00:00+00:00",
+  "git_commit": "6a79e0aedaf1d6c8f72ea97a2ccc5c5bd37debb1",
   "superseded_by": {
-    "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by the cluster runs below, whose raw CFD output on NFS predates this fix and is now stale.",
-    "cluster_workflows": ["force-surrogate-sweep-vb8t5", "force-surrogate-retry-failed-trz9k"],
-    "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale."
-  }
+    "cluster_workflows": [
+      "force-surrogate-sweep-vb8t5",
+      "force-surrogate-retry-failed-trz9k"
+    ],
+    "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale.",
+    "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by the cluster runs below, whose raw CFD output on NFS predates this fix and is now stale."
+  },
+  "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
 }
