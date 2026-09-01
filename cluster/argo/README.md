@@ -135,7 +135,12 @@ wsl -e bash -c "export KUBECONFIG=~/.kube/kubeconfig-runai-talmo-lab.yaml \
   `amr.plot_int`/`ns.init_iter`; any plotfiles a field-capture corpus's CFD run produces land on
   disk as a side effect of the deck, not as something this workflow reads, gates, or reports on.
   PR4's `scripts/extract_forces.py → dataset.parquet` stays the downstream **local** step either
-  way.
+  way. **Storage headroom is not gated anywhere in this workflow** — no `ephemeral-storage`
+  request/limit exists in the WorkflowTemplate. A field-capture corpus's `amr.plot_int` interval
+  directly controls how many plotfiles land on the NFS-mounted workspace per config
+  (`add-fine-corpus-field-capture`'s own `design.md` flags this as explicitly unmeasured until
+  the real cluster run); check headroom on the first few finished configs before letting the
+  full fan-out run unattended, same pattern as the existing mid-sweep force check.
 
 ## Outputs
 

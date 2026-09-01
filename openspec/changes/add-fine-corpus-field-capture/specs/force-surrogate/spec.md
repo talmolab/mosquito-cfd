@@ -229,7 +229,12 @@ IAMReX computes the induced velocity field internally but never persists it to t
 is scoped to `x_velocity` specifically (the documented defect signature), not to every velocity
 component being non-zero — a physically valid field can have a legitimately-zero component (e.g. a
 purely 2D flow's out-of-plane velocity), and a check that rejected any zero component would produce
-false positives on real, correct data. The check SHALL be built on the existing
+false positives on real, correct data. Independently, the module SHALL also reject a
+NaN- or Inf-contaminated field — but this second check is scoped across ALL THREE velocity
+components (`x_velocity`, `y_velocity`, `z_velocity`), not `x_velocity` alone: unlike zero, there is
+no physically valid scenario where a converged solve legitimately produces NaN or Inf in any
+velocity component, so the reasoning that narrows the zero-check to `x_velocity` does not extend to
+NaN/Inf. The check SHALL be built on the existing
 `mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box` reader rather than a new plotfile
 reader.
 
@@ -248,6 +253,16 @@ reader.
 - **When** the check is run against it
 - **Then** it raises a clear, actionable error naming the defect (not a generic assertion failure),
   so an operator sees immediately that the deck's `ns.init_iter` setting is the likely cause
+
+#### Scenario: A NaN- or Inf-contaminated field is rejected regardless of which component carries it
+
+- **Given** a plotfile whose `x_velocity`, `y_velocity`, or `z_velocity` field contains NaN or Inf
+  in at least one cell — including the case where `x_velocity` itself is clean and genuinely
+  non-zero but a different component is contaminated
+- **When** the check is run against it
+- **Then** it raises, naming the contamination (not the `ns.init_iter=0` defect, a different
+  failure mode) — a corrupted/diverged field must never be reported as a passing result solely
+  because `x_velocity` happens to look clean
 
 #### Scenario: The check runs cluster-free in CI
 
