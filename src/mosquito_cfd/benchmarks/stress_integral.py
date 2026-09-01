@@ -360,13 +360,21 @@ def check_field_capture_velocity(
         Dict with ``x_velocity_min``, ``x_velocity_max``, ``x_velocity_abs_max``.
 
     Raises:
-        ValueError: If every ``x_velocity`` value in the region is exactly zero, or if any value
-            in ``x_velocity``, ``y_velocity``, or ``z_velocity`` is NaN or Inf (a
-            NaN/Inf-contaminated field must never be reported as a passing, genuinely non-zero
-            result, regardless of which component carries the contamination).
+        ValueError: If the region selects no cells at all, if every ``x_velocity`` value in the
+            region is exactly zero, or if any value in ``x_velocity``, ``y_velocity``, or
+            ``z_velocity`` is NaN or Inf (a NaN/Inf-contaminated field must never be reported as
+            a passing, genuinely non-zero result, regardless of which component carries the
+            contamination).
     """
     box = extract_eulerian_box(plotfile_path, lo=lo, hi=hi)
     x_velocity = box["u"]
+    if x_velocity.size == 0:
+        raise ValueError(
+            f"the selected region of {plotfile_path!r} is empty (0 cells) -- check the lo/hi "
+            "region bounds or the plotfile itself; an empty selection is not a defect signature "
+            "IAMReX itself would produce (which would give an all-zero field of the expected "
+            "shape, not an empty one)."
+        )
     non_finite = {
         name: arr
         for name, arr in (
@@ -377,10 +385,11 @@ def check_field_capture_velocity(
         if not np.all(np.isfinite(arr))
     }
     if non_finite:
-        bad = ", ".join(sorted(non_finite))
+        bad = sorted(non_finite)
+        verb = "contains" if len(bad) == 1 else "contain"
         raise ValueError(
-            f"{bad} contains NaN or Inf in {plotfile_path!r} -- a NaN/Inf-contaminated field "
-            "cannot be trusted as training data regardless of whether x_velocity is also "
+            f"{', '.join(bad)} {verb} NaN or Inf in {plotfile_path!r} -- a NaN/Inf-contaminated "
+            "field cannot be trusted as training data regardless of whether x_velocity is also "
             "non-zero; investigate the run before trusting any of its output."
         )
     if not np.any(x_velocity != 0.0):

@@ -553,6 +553,46 @@ def test_velocity_check_raises_on_inf_in_other_component(monkeypatch):
     assert "inf" in str(exc.value).lower()
 
 
+def test_velocity_check_raises_a_distinct_error_on_empty_region(monkeypatch):
+    """An empty x_velocity selection (e.g. a mistyped lo/hi region) does not get misdiagnosed.
+
+    np.isfinite/np.any are both vacuously True/False on an empty array, so this falls through to
+    the all-zero branch (np.any(empty != 0.0) is False) and previously raised the ns.init_iter=0
+    defect message -- misleading, since the real cause is an empty read region, not the defect
+    this check was built for. It must fail safe either way (never a false "OK"), but with the
+    right diagnosis.
+    """
+    empty_box = {
+        "u": np.array([]),
+        "v": np.array([]),
+        "w": np.array([]),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: empty_box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "empty" in str(exc.value).lower()
+    assert "init_iter" not in str(exc.value)
+
+
+def test_velocity_check_raises_on_nan_in_two_components_and_lists_both(monkeypatch):
+    """Simultaneous contamination in more than one component is reported, not silently narrowed
+    to just the first one found -- pins the check's actual "list every bad component" behavior,
+    which no prior test exercised (each prior test contaminated exactly one component).
+    """
+    box = {
+        "u": np.full((3, 3), np.nan),
+        "v": np.zeros((3, 3)),
+        "w": np.full((3, 3), np.inf),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    message = str(exc.value)
+    assert "x_velocity" in message
+    assert "z_velocity" in message
+    assert "y_velocity" not in message
+
+
 def test_fixture_is_regenerable(tmp_path):
     """The committed fixture matches a fresh generator run — auditable + regenerable, not an opaque blob."""
     import importlib.util
