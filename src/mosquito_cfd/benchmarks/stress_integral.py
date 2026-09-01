@@ -339,11 +339,17 @@ def check_field_capture_velocity(
     Guards against a known, previously-hit defect: with ``ns.init_iter = 0``, IAMReX computes the
     induced velocity field internally but never persists it to the plotfile -- every
     ``x_velocity`` value reads as exactly zero, with no other symptom (see
-    ``examples/flapping_wing/RESULTS.md``, "Note on the velocity field"). The check is scoped to
-    ``x_velocity`` specifically, not every velocity component: a physically valid field can have a
-    legitimately-zero component (e.g. a purely 2D flow's out-of-plane velocity), and a check that
-    rejected any zero component would false-positive on real, correct data. Built on
-    :func:`extract_eulerian_box` -- no new plotfile reader.
+    ``examples/flapping_wing/RESULTS.md``, "Note on the velocity field"). The all-zero check is
+    scoped to ``x_velocity`` specifically, not every velocity component: a physically valid field
+    can have a legitimately-zero component (e.g. a purely 2D flow's out-of-plane velocity), and a
+    check that rejected any zero component would false-positive on real, correct data.
+
+    The NaN/Inf check is deliberately scoped differently -- across ALL THREE velocity components,
+    not just ``x_velocity``. Unlike zero, there is no physically valid scenario where a converged
+    solve legitimately produces NaN or Inf in any velocity component; a field with a NaN/Inf in
+    ``y_velocity``/``z_velocity`` is corrupted/diverged data even if ``x_velocity`` itself looks
+    clean, so the same reasoning that justifies narrowing the zero-check to ``x_velocity`` does
+    NOT extend to NaN/Inf. Built on :func:`extract_eulerian_box` -- no new plotfile reader.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
@@ -355,16 +361,27 @@ def check_field_capture_velocity(
 
     Raises:
         ValueError: If every ``x_velocity`` value in the region is exactly zero, or if any value
-            is NaN (a NaN-contaminated field must never be reported as a passing, genuinely
-            non-zero result).
+            in ``x_velocity``, ``y_velocity``, or ``z_velocity`` is NaN or Inf (a
+            NaN/Inf-contaminated field must never be reported as a passing, genuinely non-zero
+            result, regardless of which component carries the contamination).
     """
     box = extract_eulerian_box(plotfile_path, lo=lo, hi=hi)
     x_velocity = box["u"]
-    if np.any(np.isnan(x_velocity)):
+    non_finite = {
+        name: arr
+        for name, arr in (
+            ("x_velocity", box["u"]),
+            ("y_velocity", box["v"]),
+            ("z_velocity", box["w"]),
+        )
+        if not np.all(np.isfinite(arr))
+    }
+    if non_finite:
+        bad = ", ".join(sorted(non_finite))
         raise ValueError(
-            f"x_velocity contains NaN in {plotfile_path!r} -- a NaN-contaminated field cannot be "
-            "trusted as training data regardless of whether any value is also non-zero; "
-            "investigate the run before trusting any of its output."
+            f"{bad} contains NaN or Inf in {plotfile_path!r} -- a NaN/Inf-contaminated field "
+            "cannot be trusted as training data regardless of whether x_velocity is also "
+            "non-zero; investigate the run before trusting any of its output."
         )
     if not np.any(x_velocity != 0.0):
         raise ValueError(

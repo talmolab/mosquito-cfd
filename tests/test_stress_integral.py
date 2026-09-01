@@ -499,6 +499,60 @@ def test_velocity_check_raises_on_all_nan_x_velocity(monkeypatch):
     assert "nan" in str(exc.value).lower()
 
 
+def test_velocity_check_raises_on_nan_in_other_component_even_if_x_velocity_clean(
+    monkeypatch,
+):
+    """NaN in y_velocity/z_velocity raises even when x_velocity is itself clean and non-zero.
+
+    Unlike the all-zero check (deliberately scoped to x_velocity only, since a legitimately-zero
+    y/z component is physically valid), NaN is never legitimate in ANY velocity component -- a
+    solver that has diverged in v/w has also produced untrustworthy training data, even if u
+    happens to look fine. A check scoped to np.isnan(box["u"]) alone would miss this.
+    """
+    box = {
+        "u": np.full((4, 4, 4), 3.0),
+        "v": np.full((4, 4, 4), np.nan),
+        "w": np.zeros((4, 4, 4)),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "nan" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_inf_in_x_velocity(monkeypatch):
+    """An Inf-contaminated x_velocity raises -- the same silent-false-OK failure mode as NaN.
+
+    np.isnan(inf) is False and inf != 0.0 is True, so neither the original NaN guard nor the
+    all-zero check would have caught this: a blown-up/overflowed field would otherwise print a
+    false "OK" with abs_max=inf.
+    """
+    box = {
+        "u": np.array([0.0, np.inf, -1.0]),
+        "v": np.zeros(3),
+        "w": np.zeros(3),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "inf" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_inf_in_other_component(monkeypatch):
+    """Inf in y_velocity/z_velocity raises even when x_velocity is clean -- same reasoning as the
+    NaN-in-other-component case: Inf is never legitimate in any component.
+    """
+    box = {
+        "u": np.full((3, 3), 3.0),
+        "v": np.zeros((3, 3)),
+        "w": np.full((3, 3), -np.inf),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "inf" in str(exc.value).lower()
+
+
 def test_fixture_is_regenerable(tmp_path):
     """The committed fixture matches a fresh generator run — auditable + regenerable, not an opaque blob."""
     import importlib.util
