@@ -14,8 +14,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import mosquito_cfd.benchmarks.stress_integral as si
 from mosquito_cfd.benchmarks.stress_integral import (
     cd_from_drag,
+    check_field_capture_velocity,
     extract_eulerian_box,
     periodic_duct_drag,
     sphere_cv_drag_cd,
@@ -452,6 +454,143 @@ def test_synthetic_fixture_reads_through_eulerian_box():
     for a in ("x", "y", "z"):
         assert box[a].ndim == 1
     assert box["current_time"] == pytest.approx(0.5)
+
+
+# --- CC-F1: field-capture non-zero-velocity check ------------------------------------------
+
+
+def test_velocity_check_passes_on_nonzero_field():
+    """The real committed fixture's genuinely non-zero x_velocity passes, mixed-zero-component
+    fixture included (z_velocity is legitimately zero everywhere -- must not false-reject).
+    """
+    result = check_field_capture_velocity(str(_LEV_FIXTURE), lo=_FULL[0], hi=_FULL[1])
+    assert result["x_velocity_abs_max"] > 0.0
+
+
+def test_velocity_check_raises_clear_error_on_all_zero_x_velocity(monkeypatch):
+    """An all-zero x_velocity field raises, naming the ns.init_iter=0 defect specifically."""
+    zero_box = {
+        "u": np.zeros((4, 4, 4)),
+        "v": np.ones(
+            (4, 4, 4)
+        ),  # non-x components may be non-zero; irrelevant to this check
+        "w": np.zeros((4, 4, 4)),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: zero_box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "ns.init_iter=0" in str(exc.value)
+    assert "zero" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_all_nan_x_velocity(monkeypatch):
+    """An all-NaN x_velocity field raises too -- NaN != 0.0 is True in IEEE 754, so a naive
+    `np.any(x != 0.0)` check would otherwise silently pass a corrupted/blown-up field and print
+    a false "OK", exactly the kind of result this check exists to prevent.
+    """
+    nan_box = {
+        "u": np.full((4, 4, 4), np.nan),
+        "v": np.ones((4, 4, 4)),
+        "w": np.zeros((4, 4, 4)),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: nan_box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "nan" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_nan_in_other_component_even_if_x_velocity_clean(
+    monkeypatch,
+):
+    """NaN in y_velocity/z_velocity raises even when x_velocity is itself clean and non-zero.
+
+    Unlike the all-zero check (deliberately scoped to x_velocity only, since a legitimately-zero
+    y/z component is physically valid), NaN is never legitimate in ANY velocity component -- a
+    solver that has diverged in v/w has also produced untrustworthy training data, even if u
+    happens to look fine. A check scoped to np.isnan(box["u"]) alone would miss this.
+    """
+    box = {
+        "u": np.full((4, 4, 4), 3.0),
+        "v": np.full((4, 4, 4), np.nan),
+        "w": np.zeros((4, 4, 4)),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "nan" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_inf_in_x_velocity(monkeypatch):
+    """An Inf-contaminated x_velocity raises -- the same silent-false-OK failure mode as NaN.
+
+    np.isnan(inf) is False and inf != 0.0 is True, so neither the original NaN guard nor the
+    all-zero check would have caught this: a blown-up/overflowed field would otherwise print a
+    false "OK" with abs_max=inf.
+    """
+    box = {
+        "u": np.array([0.0, np.inf, -1.0]),
+        "v": np.zeros(3),
+        "w": np.zeros(3),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "inf" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_on_inf_in_other_component(monkeypatch):
+    """Inf in y_velocity/z_velocity raises even when x_velocity is clean -- same reasoning as the
+    NaN-in-other-component case: Inf is never legitimate in any component.
+    """
+    box = {
+        "u": np.full((3, 3), 3.0),
+        "v": np.zeros((3, 3)),
+        "w": np.full((3, 3), -np.inf),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "inf" in str(exc.value).lower()
+
+
+def test_velocity_check_raises_a_distinct_error_on_empty_region(monkeypatch):
+    """An empty x_velocity selection (e.g. a mistyped lo/hi region) does not get misdiagnosed.
+
+    np.isfinite/np.any are both vacuously True/False on an empty array, so this falls through to
+    the all-zero branch (np.any(empty != 0.0) is False) and previously raised the ns.init_iter=0
+    defect message -- misleading, since the real cause is an empty read region, not the defect
+    this check was built for. It must fail safe either way (never a false "OK"), but with the
+    right diagnosis.
+    """
+    empty_box = {
+        "u": np.array([]),
+        "v": np.array([]),
+        "w": np.array([]),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: empty_box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    assert "empty" in str(exc.value).lower()
+    assert "init_iter" not in str(exc.value)
+
+
+def test_velocity_check_raises_on_nan_in_two_components_and_lists_both(monkeypatch):
+    """Simultaneous contamination in more than one component is reported, not silently narrowed
+    to just the first one found -- pins the check's actual "list every bad component" behavior,
+    which no prior test exercised (each prior test contaminated exactly one component).
+    """
+    box = {
+        "u": np.full((3, 3), np.nan),
+        "v": np.zeros((3, 3)),
+        "w": np.full((3, 3), np.inf),
+    }
+    monkeypatch.setattr(si, "extract_eulerian_box", lambda *a, **k: box)
+    with pytest.raises(ValueError) as exc:
+        check_field_capture_velocity("fake/path")
+    message = str(exc.value)
+    assert "x_velocity" in message
+    assert "z_velocity" in message
+    assert "y_velocity" not in message
 
 
 def test_fixture_is_regenerable(tmp_path):

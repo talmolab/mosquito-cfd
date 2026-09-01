@@ -47,11 +47,20 @@ There are two 27-config corpora: `examples/prelim_sweep` (coarse) and `examples/
 --workspace-hostpath /hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine
 ```
 
-**Every deck in both corpora forces `amr.plot_int = -1`** (force-only design, `generate_sweep()` /
-`openspec/specs/force-surrogate/spec.md`) — neither corpus is designed to produce a time series
-of AMReX plotfiles. Don't reach for `make_flow_video.py`/`make_kinematics_video.py`'s multi-frame
-workflow mid-sweep; it needs exactly the kind of output these decks don't produce. Use Step 4's
-CSV/force-based check instead.
+**The coarse corpus (`examples/prelim_sweep`) still forces `amr.plot_int = -1`** unconditionally
+(force-only design, `generate_sweep()` / `openspec/specs/force-surrogate/spec.md`) — it is not
+designed to produce a time series of AMReX plotfiles. **Once `add-fine-corpus-field-capture`'s
+code+regeneration PR has landed on `main`** (check `git log --oneline -- examples/prelim_sweep_fine/inputs/`
+if unsure — the fine corpus's own deck content is the source of truth, not this note), the **fine
+corpus** (`examples/prelim_sweep_fine`) is no longer force-only — its decks carry
+`amr.plot_int=100, ns.init_iter=2` — so a real run against it does produce plotfiles. Before that
+PR lands, the fine corpus is still force-only exactly like the coarse one, and Step 2's CC-F1
+check below does not apply. Either way,
+Step 4's CSV/force-based check remains the recommended mid-sweep default (cheaper, doesn't need a
+completed plotfile time series); don't reach for `make_flow_video.py`/`make_kinematics_video.py`'s
+multi-frame workflow mid-sweep purely as a substitute for it. For a **fine-corpus** run
+specifically, also run Step 2's `check_plotfile_velocity.py` check against the smoke config's
+plotfile before proceeding to `full` — that's the CC-F1 defect this check exists to catch.
 
 **Stale committed metadata warning** — before submitting anything, check whether
 `<corpus-dir>/run_metadata_<config>.json` files already exist from a prior, superseded run (see
@@ -127,6 +136,17 @@ cluster/argo/scripts/monitor_workflow.sh get force-surrogate-smoke-<id>
 `argo submit --watch`'s stream has died mid-run before while the workflow kept running fine
 server-side — never conclude success or failure from the CLI's own exit code alone. Inspect the
 smoke config's `IB_Particle_1.csv`/`run.log`/`run_metadata.json` by hand before proceeding.
+
+**Field-capture corpora only (CC-F1)** — if the smoke run's corpus has field capture enabled
+(e.g. the fine corpus as of `add-fine-corpus-field-capture`, `amr.plot_int>0`), also check the
+smoke config's plotfile before trusting any of it as future training data:
+```bash
+uv run python scripts/check_plotfile_velocity.py --plotfile <workspace-hostpath>/runs/<config>/plt00100
+```
+This guards against a known defect: with `ns.init_iter=0`, IAMReX silently never persists the
+velocity field to the plotfile — forces are unaffected (marker-derived, not plotfile-derived), so
+this defect would otherwise go unnoticed until Stage 2 (field-surrogate) work tries to consume the
+plotfiles later. Not needed for a force-only corpus (no plotfiles exist to check).
 
 ## Step 3: Submit `full`
 
@@ -228,7 +248,8 @@ it done before that DAG node passes. Then, independently:
 | Mistake | Fix |
 |---|---|
 | Assuming which corpus (fine vs. coarse) without asking | Always confirm with the user first (Step 0) |
-| Reaching for `make_flow_video.py` mid-sweep | These corpora aren't designed to produce plotfile time series — use Step 4's CSV/force check instead |
+| Reaching for `make_flow_video.py` mid-sweep as a substitute for Step 4 | Step 4's CSV/force check is cheaper and doesn't need a completed plotfile time series — use it as the default even for the field-capture-enabled fine corpus |
+| Skipping the CC-F1 `check_plotfile_velocity.py` check on a field-capture corpus's smoke plotfile | `ns.init_iter=0` silently zeroes the velocity field with no other symptom — forces still look fine, only Stage 2 work would notice later |
 | Overriding `--parallelism` without touching the deadline | They're coupled — always pass one of the two (Step 3) |
 | Submitting `full` with no flags, assuming "committed default" means "safe" | It's margin-free (24h, no retry buffer) — always pass `--active-deadline-seconds` or `--parallelism` explicitly (Step 3) |
 | Treating a `runai` auth error as a real cluster problem | It's usually just an expired RunAI login token — `runai login` and retry |

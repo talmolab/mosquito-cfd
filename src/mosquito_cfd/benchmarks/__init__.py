@@ -17,6 +17,7 @@ from mosquito_cfd.benchmarks.metadata import (
 )
 from mosquito_cfd.benchmarks.stress_integral import (
     cd_from_drag,
+    check_field_capture_velocity,
     extract_eulerian_box,
     periodic_duct_drag,
     sphere_cv_drag_cd,
@@ -42,4 +43,5 @@ __all__ = [
     "sphere_cv_drag_cd",
     "sphere_cv_steadiness_fraction",
     "unsteady_momentum_force",
+    "check_field_capture_velocity",
 ]
