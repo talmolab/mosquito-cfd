@@ -183,6 +183,40 @@ def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():
     assert full_corpus.WORKSPACE_HOSTPATH != _PILOT_WORKSPACE_HOSTPATH
 
 
+def test_committed_fine_corpus_matches_regeneration(tmp_path):
+    """The committed fine corpus is byte-identical to a fresh regen with its recorded settings.
+
+    Mirrors the coarse corpus's own `test_committed_sweep_matches_regeneration` (byte-identity,
+    not a spot-check) -- this corpus has now been regenerated twice (hinge fix, then field
+    capture) with no equivalent permanent regression test, which let a stale `git_commit`
+    provenance value slip through undetected until a manual review round caught it by hand.
+    """
+    fine_corpus = Path("examples/prelim_sweep_fine")
+    manifest = json.loads(
+        (fine_corpus / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    provenance = json.loads(
+        (fine_corpus / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    field_capture = provenance.get("field_capture", {})
+    generate_sweep(
+        _FINE_BASE,
+        tmp_path,
+        seed=manifest["holdout"]["seed"],
+        n_holdout=manifest["holdout"]["n_holdout"],
+        timestamp=provenance["generated_at"],
+        plot_int=field_capture.get("plot_int", -1),
+        init_iter=field_capture.get("init_iter"),
+    )
+    committed = sorted((fine_corpus / "inputs").glob("inputs.3d.*"))
+    assert len(committed) == 27
+    for deck in committed:
+        assert deck.read_bytes() == (tmp_path / "inputs" / deck.name).read_bytes()
+    assert (fine_corpus / "sweep_manifest.json").read_bytes() == (
+        tmp_path / "sweep_manifest.json"
+    ).read_bytes()
+
+
 def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path):
     """--plot-int/--init-iter are wired through main() to generate_sweep()'s new parameters."""
     full_corpus = _load_full_corpus_script()

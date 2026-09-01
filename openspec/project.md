@@ -337,7 +337,8 @@ recommended default for **either** corpus, coarse or fine. As of `add-fine-corpu
 the fine corpus's decks are no longer force-only (`amr.plot_int=100`, `ns.init_iter=2` — see
 `docs/field_surrogate/roadmap.md`); only the coarse corpus (`examples/prelim_sweep/`) still forces
 `amr.plot_int=-1` unconditionally, per `openspec/specs/force-surrogate/spec.md` and
-`cluster/argo/README.md`'s "Force-only (CC-6)" note (both scoped accordingly). A
+`cluster/argo/README.md`'s "Corpus-agnostic, CSV-only workflow steps (CC-6)" note (both scoped
+accordingly). A
 `make_flow_video.py`-style multi-frame check is no longer categorically impossible for the fine
 corpus, but the CSV/force check remains the recommended default — it doesn't need a completed
 plotfile time series and is cheaper to run mid-sweep. Steps:

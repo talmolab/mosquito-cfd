@@ -90,7 +90,7 @@ this change's own git-workflow review round.
 
 **PR A**: `render_inputs()`/`generate_sweep()` parameter threading (Sections 1-3), the
 `generate_full_corpus.py` CLI flags and the real fine-corpus regeneration (Section 4), the module
-docstring update, and the spec delta's three MODIFIED requirements. **PR B**: the CC-F1
+docstring update, and the spec delta's four MODIFIED requirements. **PR B**: the CC-F1
 non-zero-velocity check (Section 5), which is genuinely independent of PR A's code — it only reads
 the already-existing `tests/fixtures/lev_boxlib_plt` fixture through the already-existing
 `extract_eulerian_box` reader — plus the one documentation row that's specifically about the check
