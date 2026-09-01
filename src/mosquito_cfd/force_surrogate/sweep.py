@@ -518,12 +518,23 @@ def generate_sweep(
         },
     }
     if plot_int != -1 or init_iter is not None:
-        field_capture: dict[str, Any] = {
-            "plot_int": plot_int,
-            "rationale": (
+        if plot_int != -1:
+            # amr.plot_int != -1 is what actually causes IAMReX to write plotfiles.
+            rationale = (
                 "Field-capture output enabled for downstream Stage-2 (field-surrogate) "
                 "work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
-            ),
+            )
+        else:
+            # init_iter overridden alone: plot_int is still -1, so no plotfile is actually
+            # written by this override -- don't claim "output enabled" when it isn't.
+            rationale = (
+                "ns.init_iter overridden without enabling amr.plot_int -- no plotfile output "
+                "is actually produced by this override alone; see "
+                "docs/field_surrogate/roadmap.md CC-F1/CC-F3."
+            )
+        field_capture: dict[str, Any] = {
+            "plot_int": plot_int,
+            "rationale": rationale,
         }
         if init_iter is not None:
             field_capture["init_iter"] = init_iter

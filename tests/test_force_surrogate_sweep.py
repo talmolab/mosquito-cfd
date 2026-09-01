@@ -769,6 +769,32 @@ def test_provenance_records_field_capture_block(tmp_path):
     assert "field_capture" not in provenance_default
 
 
+def test_field_capture_rationale_does_not_overclaim_when_init_iter_alone_is_set(
+    tmp_path,
+):
+    """The rationale text must not say "output enabled" when plot_int is still -1.
+
+    init_iter alone (plot_int left at its force-only default) is a real, spec'd, independent
+    override -- but it produces no plotfile at all (amr.plot_int=-1 means no field output),
+    so a rationale that unconditionally claims "field-capture output enabled" would mislead a
+    reader of the provenance record into thinking a plotfile was actually written.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=micro,
+        n_holdout=0,
+        init_iter=2,
+        timestamp=TS,
+    )
+    provenance = json.loads(
+        (tmp_path / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    rationale = provenance["field_capture"]["rationale"]
+    assert "enabled" not in rationale.lower()
+
+
 # --- 4. Artifact tests (depend on the committed examples/prelim_sweep/ corpus) ---------
 
 PRELIM_SWEEP = REPO_ROOT / "examples" / "prelim_sweep"
