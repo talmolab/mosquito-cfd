@@ -22,7 +22,11 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-swe
   force-normalization arm ``R_GYRATION`` (the van Veen radius of gyration) used by
   :func:`compute_force_reference`.
 - **Run duration (D3):** each config is scaled to cover ``N_WINGBEATS`` whole wingbeats.
-- **Force-only (D6):** ``amr.plot_int`` is forced to -1; only the swept/derived keys change.
+- **Force-only by default (D6), field-capture opt-in:** ``amr.plot_int`` defaults to -1 and
+  ``ns.init_iter`` defaults to pass-through, so every existing caller is byte-for-byte unaffected;
+  both are overridable via explicit ``plot_int``/``init_iter`` parameters for corpora that
+  intentionally enable field-capture plotfile output (``add-fine-corpus-field-capture``). Only the
+  swept/derived keys and these two optional overrides ever change.
 - **Reproducibility (D5-D7):** ``generate_sweep`` writes a deterministic ``sweep_manifest.json``
   (byte-reproducible), a ``sweep_manifest.units.json``, and a separate ``sweep_provenance.json``
   (git/timestamp/base-hash, kept out of the manifest so the git SHA cannot defeat byte-identity).
@@ -222,6 +226,7 @@ def render_inputs(
     max_step: int,
     stop_time: float,
     plot_int: int = -1,
+    init_iter: int | None = None,
 ) -> str:
     """Rewrite only the swept/derived keys of an IAMReX inputs deck, preserving the rest.
 
@@ -238,13 +243,19 @@ def render_inputs(
         pitch_amp_deg: Pitch amplitude [deg].
         max_step: Maximum step count.
         stop_time: Stop time [dimensionless].
-        plot_int: Plotfile interval; forced to -1 (force-only) by default.
+        plot_int: Plotfile interval; defaults to -1 (force-only). Pass a positive interval to
+            enable field-capture output.
+        init_iter: Initial-iteration count for ``ns.init_iter``. Defaults to ``None``, meaning
+            pass-through -- the base deck's own value is left untouched. Set to ``2`` for any
+            field-capture deck (CC-F1): with ``init_iter=0``, IAMReX never persists the velocity
+            field to the plotfile.
 
     Returns:
         The rewritten deck text (LF-terminated).
 
     Raises:
-        ValueError: If any targeted key is absent from ``base_text``.
+        ValueError: If any targeted key is absent from ``base_text`` (``ns.init_iter`` is only
+            required when ``init_iter`` is not ``None``).
     """
     replacements = {
         "particle_inputs.kinematics_stroke_amp": str(float(stroke_amp_deg)),
@@ -254,6 +265,8 @@ def render_inputs(
         "stop_time": str(float(stop_time)),
         "amr.plot_int": str(int(plot_int)),
     }
+    if init_iter is not None:
+        replacements["ns.init_iter"] = str(int(init_iter))
     remaining = set(replacements)
     out_lines: list[str] = []
     for line in base_text.splitlines():
@@ -365,6 +378,8 @@ def generate_sweep(
     seed: int = HOLDOUT_SEED,
     dt: float = DT,
     r_mid: float = R_MID,
+    plot_int: int = -1,
+    init_iter: int | None = None,
 ) -> dict[str, Any]:
     """Generate the sweep corpus: one input deck per config plus manifest sidecars.
 
@@ -385,6 +400,12 @@ def generate_sweep(
         seed: Holdout selection seed. Defaults to :data:`HOLDOUT_SEED`.
         dt: Fixed timestep. Defaults to :data:`DT`.
         r_mid: Midspan arm for Reynolds. Defaults to :data:`R_MID`.
+        plot_int: Plotfile interval threaded to every config's deck and manifest record.
+            Defaults to -1 (force-only); every existing caller that doesn't pass this is
+            byte-for-byte unaffected.
+        init_iter: ``ns.init_iter`` override threaded to every config's deck. Defaults to
+            ``None`` (pass-through from the base deck, recorded in no manifest field). When
+            supplied, also recorded per-config in the manifest.
 
     Returns:
         The manifest dict (also written to ``sweep_manifest.json``).
@@ -437,26 +458,28 @@ def generate_sweep(
             pitch_amp_deg=config["pitch_amp_deg"],
             max_step=max_step,
             stop_time=stop_time,
-            plot_int=-1,
+            plot_int=plot_int,
+            init_iter=init_iter,
         )
         with open(output_dir / rel_path, "w", encoding="utf-8", newline="") as handle:
             handle.write(deck)
-        config_records.append(
-            {
-                "index": index,
-                "name": name,
-                "input_file": rel_path,
-                "stroke_amp_deg": config["stroke_amp_deg"],
-                "frequency_fstar": config["frequency_fstar"],
-                "pitch_amp_deg": config["pitch_amp_deg"],
-                "nu_star": nu_star,
-                "reynolds": reynolds,
-                "max_step": max_step,
-                "stop_time": stop_time,
-                "plot_int": -1,
-                "split": "holdout" if index in holdout_idx else "train",
-            }
-        )
+        record = {
+            "index": index,
+            "name": name,
+            "input_file": rel_path,
+            "stroke_amp_deg": config["stroke_amp_deg"],
+            "frequency_fstar": config["frequency_fstar"],
+            "pitch_amp_deg": config["pitch_amp_deg"],
+            "nu_star": nu_star,
+            "reynolds": reynolds,
+            "max_step": max_step,
+            "stop_time": stop_time,
+            "plot_int": plot_int,
+            "split": "holdout" if index in holdout_idx else "train",
+        }
+        if init_iter is not None:
+            record["init_iter"] = init_iter
+        config_records.append(record)
 
     holdout_names = [r["name"] for r in config_records if r["split"] == "holdout"]
     manifest = {
@@ -490,5 +513,14 @@ def generate_sweep(
             "sha256": hash_file(base_path),
         },
     }
+    if plot_int != -1 or init_iter is not None:
+        provenance["field_capture"] = {
+            "plot_int": plot_int,
+            "init_iter": init_iter,
+            "rationale": (
+                "Field-capture output enabled for downstream Stage-2 (field-surrogate) "
+                "work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
+            ),
+        }
     _write_json(output_dir / "sweep_provenance.json", provenance)
     return manifest
