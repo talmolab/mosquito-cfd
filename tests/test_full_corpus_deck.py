@@ -221,15 +221,23 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
 
 
 def test_fine_corpus_git_commit_is_a_capable_ancestor():
-    """`sweep_provenance.json`'s `git_commit` must name a real ancestor of the checkout.
+    """`sweep_provenance.json`'s `git_commit` must name a commit CAPABLE of producing this corpus.
 
     Regression guard for a real bug caught only by a manual review round: the recorded
     `git_commit` once named a commit whose checked-out code had no `plot_int`/`init_iter`
     parameters at all -- the regeneration had actually run on a dirty working tree before the
     code was committed. `test_committed_fine_corpus_matches_regeneration` doesn't (and can't)
     catch this, since it only proves the CURRENTLY checked-out code can reproduce the file, not
-    that the specific commit recorded in provenance could have. This test checks the narrower,
-    audit-trail property directly via git ancestry.
+    that the specific commit recorded in provenance could have.
+
+    An earlier version of this test checked ONLY topological ancestry
+    (`git merge-base --is-ancestor`) -- but on a linear branch, ancestry is satisfied by almost
+    any older commit, including the exact pre-feature commit this test is supposed to catch: a
+    self-review round confirmed `git merge-base --is-ancestor <original-buggy-commit> HEAD`
+    trivially succeeds, since that commit IS an ancestor (it's `main`'s own tip). Ancestry alone
+    is not a capability check. This test now additionally reads the recorded commit's own tree
+    and asserts it actually contains the CLI flags this corpus's `field_capture` block claims
+    were used -- a real, discriminating capability check, not just a topological one.
 
     Skips (doesn't fail) in a shallow clone that doesn't have the recorded commit locally --
     e.g. CI's default `actions/checkout` depth -- rather than reporting a false failure for an
@@ -249,14 +257,31 @@ def test_fine_corpus_git_commit_is_a_capable_ancestor():
         pytest.skip(
             f"commit {commit} not present locally (shallow clone?) -- cannot check ancestry"
         )
-    result = subprocess.run(
+    ancestor_check = subprocess.run(
         ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
         capture_output=True,
     )
-    assert result.returncode == 0, (
+    assert ancestor_check.returncode == 0, (
         f"sweep_provenance.json's git_commit={commit!r} is not an ancestor of HEAD -- it "
         "cannot be the commit whose checked-out code produced this corpus"
     )
+    # The real, discriminating check: does that commit's OWN tree have the code capable of
+    # writing this field-capture corpus? Not "is it old enough" (ancestry) but "does it have the
+    # feature at all."
+    script_at_commit = subprocess.run(
+        ["git", "show", f"{commit}:examples/prelim_sweep_fine/generate_full_corpus.py"],
+        capture_output=True,
+        text=True,
+    )
+    assert script_at_commit.returncode == 0, (
+        f"could not read generate_full_corpus.py at commit {commit!r}"
+    )
+    for required_flag in ("--plot-int", "--init-iter"):
+        assert required_flag in script_at_commit.stdout, (
+            f"commit {commit!r} predates {required_flag} support in "
+            "generate_full_corpus.py -- it cannot have produced this field-capture-enabled "
+            "corpus, regardless of whether it's topologically an ancestor of HEAD"
+        )
 
 
 def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path):
