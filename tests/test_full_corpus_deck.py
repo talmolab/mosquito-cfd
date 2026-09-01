@@ -183,6 +183,42 @@ def test_full_corpus_output_dir_and_workspace_differ_from_coarse_and_pilot():
     assert full_corpus.WORKSPACE_HOSTPATH != _PILOT_WORKSPACE_HOSTPATH
 
 
+def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path):
+    """--plot-int/--init-iter are wired through main() to generate_sweep()'s new parameters."""
+    full_corpus = _load_full_corpus_script()
+    out = tmp_path / "field_capture_run"
+
+    rc = full_corpus.main(
+        [
+            "--output",
+            str(out),
+            "--timestamp",
+            _TIMESTAMP,
+            "--plot-int",
+            "100",
+            "--init-iter",
+            "2",
+        ]
+    )
+    assert rc == 0
+
+    manifest = json.loads((out / "sweep_manifest.json").read_text(encoding="utf-8"))
+    for record in manifest["configs"]:
+        assert record["plot_int"] == 100
+        assert record["init_iter"] == 2
+
+    # Omitting both flags reproduces today's exact force-only default.
+    out_default = tmp_path / "default_run"
+    rc = full_corpus.main(["--output", str(out_default), "--timestamp", _TIMESTAMP])
+    assert rc == 0
+    manifest_default = json.loads(
+        (out_default / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    for record in manifest_default["configs"]:
+        assert record["plot_int"] == -1
+        assert "init_iter" not in record
+
+
 def test_fine_corpus_provenance_flags_superseded_runs():
     """The committed sweep_provenance.json names the stale cluster runs it supersedes.
 
