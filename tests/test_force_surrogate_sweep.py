@@ -635,6 +635,67 @@ def test_generate_sweep_init_iter_override_alone_leaves_plot_int_at_default(tmp_
         assert record["plot_int"] == -1
 
 
+def test_generate_sweep_explicit_init_iter_zero_is_recorded_as_requested(tmp_path):
+    """init_iter=0 (falsy but not None) is still treated as an explicit override, not "omit".
+
+    Distinguishes "explicitly requested 0" from "not requested" (None) -- the exact seam an
+    `is not None` check protects against a future truthiness-check regression.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest = generate_sweep(
+        BASE_INPUTS,
+        tmp_path,
+        configs=micro,
+        n_holdout=0,
+        init_iter=0,
+        timestamp=TS,
+    )
+    for record in manifest["configs"]:
+        assert record["init_iter"] == 0
+    provenance = json.loads(
+        (tmp_path / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["field_capture"]["init_iter"] == 0
+
+
+def test_generate_sweep_plot_int_zero_and_explicit_default_are_both_accepted(tmp_path):
+    """plot_int=0 (unvalidated but accepted) and plot_int=-1 passed explicitly (still "no
+    override", matching the omitted-default case) both behave as documented, not by accident.
+    """
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest_zero = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "zero",
+        configs=micro,
+        n_holdout=0,
+        plot_int=0,
+        timestamp=TS,
+    )
+    for record in manifest_zero["configs"]:
+        assert record["plot_int"] == 0
+    provenance_zero = json.loads(
+        (tmp_path / "zero" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance_zero["field_capture"]["plot_int"] == 0
+
+    manifest_explicit_default = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "explicit_default",
+        configs=micro,
+        n_holdout=0,
+        plot_int=-1,
+        timestamp=TS,
+    )
+    for record in manifest_explicit_default["configs"]:
+        assert record["plot_int"] == -1
+    provenance_explicit_default = json.loads(
+        (tmp_path / "explicit_default" / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "field_capture" not in provenance_explicit_default
+
+
 # --- 1.26-1.27: manifest/provenance field-capture schema -------------------------------
 
 
@@ -660,7 +721,12 @@ def test_manifest_records_init_iter_per_config(tmp_path):
 
 
 def test_provenance_records_field_capture_block(tmp_path):
-    """field_capture block present + populated only when an override was actually requested."""
+    """field_capture block present + populated only when an override was actually requested.
+
+    The block's `init_iter` key follows the same omit-not-null convention as the manifest's
+    own per-config `init_iter` field (rather than encoding "not requested" two different ways
+    across the two sidecars) -- checked explicitly via the plot_int-only case below.
+    """
     micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
     generate_sweep(
         BASE_INPUTS,
@@ -676,6 +742,23 @@ def test_provenance_records_field_capture_block(tmp_path):
     )
     assert provenance["field_capture"]["plot_int"] == 100
     assert provenance["field_capture"]["init_iter"] == 2
+    assert "CC-F1" in provenance["field_capture"]["rationale"]
+
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "plot_int_only",
+        configs=micro,
+        n_holdout=0,
+        plot_int=100,
+        timestamp=TS,
+    )
+    provenance_plot_int_only = json.loads(
+        (tmp_path / "plot_int_only" / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert provenance_plot_int_only["field_capture"]["plot_int"] == 100
+    assert "init_iter" not in provenance_plot_int_only["field_capture"]
 
     generate_sweep(
         BASE_INPUTS, tmp_path / "without", configs=micro, n_holdout=0, timestamp=TS

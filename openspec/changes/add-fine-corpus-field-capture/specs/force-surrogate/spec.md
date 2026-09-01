@@ -112,9 +112,12 @@ measured column. It SHALL emit a separate `sweep_provenance.json` carrying envir
 provenance — git commit, base-inputs SHA256, and a **caller-supplied** timestamp, and **no** Docker
 image digest (PR2 runs no container). When the caller requests a field-capture override (a
 non-default `plot_int` and/or `init_iter`), `sweep_provenance.json` SHALL additionally carry a
-top-level `field_capture` block recording the resolved policy (`plot_int`, `init_iter`, a one-line
-rationale, a pointer to CC-F1/CC-F3); when no override is requested, no `field_capture` block is
-present. Provenance is kept out of the manifest so the manifest stays byte-reproducible: the
+top-level `field_capture` block recording the resolved policy (`plot_int`, a one-line rationale, a
+pointer to CC-F1/CC-F3, and `init_iter` when it was itself overridden — omitted, not recorded as
+`null`, when only `plot_int` was overridden, mirroring the manifest's own omit-not-null convention
+for `init_iter` rather than introducing a second, differently-encoded "not requested" representation);
+when no override is requested at all, no `field_capture` block is present. Provenance is kept out
+of the manifest so the manifest stays byte-reproducible: the
 `git_commit` is inherently non-reproducible across checkouts, so it must not contaminate the
 byte-identity guarantee. Regenerating the sweep with the recorded seed and timestamp SHALL produce
 byte-identical input files and a byte-identical manifest + units sidecar, for either the force-only

@@ -514,13 +514,15 @@ def generate_sweep(
         },
     }
     if plot_int != -1 or init_iter is not None:
-        provenance["field_capture"] = {
+        field_capture: dict[str, Any] = {
             "plot_int": plot_int,
-            "init_iter": init_iter,
             "rationale": (
                 "Field-capture output enabled for downstream Stage-2 (field-surrogate) "
                 "work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
             ),
         }
+        if init_iter is not None:
+            field_capture["init_iter"] = init_iter
+        provenance["field_capture"] = field_capture
     _write_json(output_dir / "sweep_provenance.json", provenance)
     return manifest
