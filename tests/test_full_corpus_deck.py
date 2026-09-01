@@ -220,7 +220,7 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
     ).read_bytes()
 
 
-def test_fine_corpus_git_commit_is_a_capable_ancestor():
+def test_fine_corpus_git_commit_names_a_capable_commit():
     """`sweep_provenance.json`'s `git_commit` must name a commit CAPABLE of producing this corpus.
 
     Regression guard for a real bug caught only by a manual review round: the recorded
@@ -230,18 +230,23 @@ def test_fine_corpus_git_commit_is_a_capable_ancestor():
     catch this, since it only proves the CURRENTLY checked-out code can reproduce the file, not
     that the specific commit recorded in provenance could have.
 
-    An earlier version of this test checked ONLY topological ancestry
-    (`git merge-base --is-ancestor`) -- but on a linear branch, ancestry is satisfied by almost
-    any older commit, including the exact pre-feature commit this test is supposed to catch: a
-    self-review round confirmed `git merge-base --is-ancestor <original-buggy-commit> HEAD`
-    trivially succeeds, since that commit IS an ancestor (it's `main`'s own tip). Ancestry alone
-    is not a capability check. This test now additionally reads the recorded commit's own tree
-    and asserts it actually contains the CLI flags this corpus's `field_capture` block claims
-    were used -- a real, discriminating capability check, not just a topological one.
+    An earlier version of this test checked topological ancestry (`git merge-base
+    --is-ancestor`) -- two real problems with that, found across two rounds of self-review:
+    (1) on a linear branch, ancestry is satisfied by almost any older commit, including the exact
+    pre-feature commit this test is supposed to catch; and (2) this repo merges PRs via
+    **squash-merge** (confirmed: `git log --format='%P' -1 <merge-commit>` shows a single parent),
+    which means the commit recorded during development on a feature branch is -- correctly and
+    expectedly -- NOT part of `main`'s ancestry at all once merged; that squashed-away commit
+    still exists in the local object database (if fetched) but `--is-ancestor` against it will
+    always fail post-merge, for a perfectly legitimate corpus. Ancestry is not the right question
+    for either reason. This test instead reads the recorded commit's own tree directly and
+    asserts it contains the CLI flags this corpus's `field_capture` block claims were used -- a
+    real, discriminating capability check that doesn't depend on the branch/merge topology at all.
 
-    Skips (doesn't fail) in a shallow clone that doesn't have the recorded commit locally --
-    e.g. CI's default `actions/checkout` depth -- rather than reporting a false failure for an
-    environment limitation unrelated to the corpus's actual correctness.
+    Skips (doesn't fail) when the recorded commit isn't present in the local object database --
+    e.g. CI's default shallow `actions/checkout`, which (especially post-squash-merge) may not
+    have fetched a since-squashed feature-branch commit at all -- rather than reporting a false
+    failure for an environment/history limitation unrelated to the corpus's actual correctness.
     """
     provenance = json.loads(
         Path("examples/prelim_sweep_fine/sweep_provenance.json").read_text(
@@ -255,19 +260,12 @@ def test_fine_corpus_git_commit_is_a_capable_ancestor():
     )
     if have_commit.returncode != 0:
         pytest.skip(
-            f"commit {commit} not present locally (shallow clone?) -- cannot check ancestry"
+            f"commit {commit} not present locally (shallow clone, or squashed away and never "
+            "fetched?) -- cannot check capability"
         )
-    ancestor_check = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
-        capture_output=True,
-    )
-    assert ancestor_check.returncode == 0, (
-        f"sweep_provenance.json's git_commit={commit!r} is not an ancestor of HEAD -- it "
-        "cannot be the commit whose checked-out code produced this corpus"
-    )
     # The real, discriminating check: does that commit's OWN tree have the code capable of
-    # writing this field-capture corpus? Not "is it old enough" (ancestry) but "does it have the
-    # feature at all."
+    # writing this field-capture corpus? Not "is it reachable from HEAD" (ancestry -- broken by
+    # squash-merge, see docstring) but "does it have the feature at all."
     script_at_commit = subprocess.run(
         ["git", "show", f"{commit}:examples/prelim_sweep_fine/generate_full_corpus.py"],
         capture_output=True,
