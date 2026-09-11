@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Isosurface threshold, colorbar ranges, and mesh translucency are documented, overridable CLI parameters, never auto-computed
+### Requirement: Isosurface threshold and colorbar ranges are documented, overridable CLI parameters, never auto-computed
 
 `make_flow_video.py`'s `lev-3d` and `zvelocity-3d` modes SHALL expose `--q-threshold`,
 `--vort-vmin`, `--vort-vmax`, and (`lev-3d` only) `--lev-mesh-alpha` (and the corresponding
