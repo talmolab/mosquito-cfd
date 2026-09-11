@@ -16,6 +16,7 @@ import pytest
 import mosquito_cfd.visualization.flow_video as flow_video
 from mosquito_cfd.benchmarks.lev import q_criterion
 from mosquito_cfd.visualization.flow_video import (
+    DEFAULT_LEV_MESH_ALPHA,
     DEFAULT_Q_THRESHOLD,
     FIELD_MODES,
     _box_origin,
@@ -249,6 +250,57 @@ def test_q_threshold_override_reaches_marching_cubes(monkeypatch):
     assert result is not None
 
 
+def test_render_lev_frame_facecolors_are_translucent_by_default():
+    """Regression for issue #88: the isosurface's facecolors must carry the documented
+    DEFAULT_LEV_MESH_ALPHA, not the plasma colormap's fully-opaque default -- a fully opaque
+    mesh is part of why the wing (drawn afterward) could fully hide it.
+    """
+    n = 24
+    dx = 0.1
+    coords = (np.arange(n) - n / 2) * dx
+    x, y, z = np.meshgrid(coords, coords, coords, indexing="ij")
+    r2 = x**2 + y**2 + z**2
+    omega = 50.0 * np.exp(-r2 / (2.0 * 0.4**2))
+    u = -omega * y
+    v = omega * x
+    w = np.zeros_like(x)
+
+    result = render_lev_frame(
+        u, v, w, dx, q_threshold=300.0, vort_vmin=0.0, vort_vmax=200.0
+    )
+
+    assert result is not None
+    np.testing.assert_allclose(result["facecolors"][:, 3], DEFAULT_LEV_MESH_ALPHA)
+
+
+def test_render_lev_frame_mesh_alpha_is_overridable():
+    """An explicit mesh_alpha replaces the DEFAULT_LEV_MESH_ALPHA default."""
+    n = 24
+    dx = 0.1
+    coords = (np.arange(n) - n / 2) * dx
+    x, y, z = np.meshgrid(coords, coords, coords, indexing="ij")
+    r2 = x**2 + y**2 + z**2
+    omega = 50.0 * np.exp(-r2 / (2.0 * 0.4**2))
+    u = -omega * y
+    v = omega * x
+    w = np.zeros_like(x)
+
+    custom_alpha = 0.4
+    result = render_lev_frame(
+        u,
+        v,
+        w,
+        dx,
+        q_threshold=300.0,
+        vort_vmin=0.0,
+        vort_vmax=200.0,
+        mesh_alpha=custom_alpha,
+    )
+
+    assert result is not None
+    np.testing.assert_allclose(result["facecolors"][:, 3], custom_alpha)
+
+
 def _synthetic_box(n: int = 6) -> dict:
     dx = np.array([0.1, 0.1, 0.1])
     return {
@@ -327,7 +379,7 @@ def _synthetic_lev_box(n: int = 20) -> dict:
     }
 
 
-@pytest.mark.parametrize("field_mode", ["combined-3d", "lev-3d", "zvelocity-3d"])
+@pytest.mark.parametrize("field_mode", ["combined-3d", "zvelocity-3d"])
 def test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field(
     tmp_path, monkeypatch, field_mode
 ):
@@ -338,6 +390,11 @@ def test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field(
     invisible with computed_zorder left at its default). computed_zorder=False makes mplot3d use
     a real painter's algorithm honoring the explicit zorder values instead, so the wing (zorder
     20-22) always draws above the field (zorder 1) regardless of view angle.
+
+    ``lev-3d`` is deliberately excluded here -- see
+    ``test_lev3d_scene_does_not_force_computed_zorder_false`` for the opposite invariant issue
+    #88 requires for that mode (a thin slice plane vs. a real 3-D isosurface volume are not the
+    same depth-relationship problem).
     """
     plotfile_dir = tmp_path / "plotfiles"
     (plotfile_dir / "plt00000").mkdir(parents=True)
@@ -369,6 +426,44 @@ def test_3d_scenes_disable_computed_zorder_so_wing_renders_above_the_field(
     threed_calls = [k for k in captured_kwargs if k.get("projection") == "3d"]
     assert len(threed_calls) == 1
     assert threed_calls[0].get("computed_zorder") is False
+
+
+def test_lev3d_scene_does_not_force_computed_zorder_false(tmp_path, monkeypatch):
+    """Regression for issue #88: lev-3d's isosurface is a real 3-D volume that interleaves in
+    depth with the wing (unlike combined-3d/zvelocity-3d's thin slice plane), so forcing a
+    static computed_zorder=False makes the opaque wing fully occlude the mesh every frame. This
+    mode must fall back to mplot3d's default per-artist depth sort instead.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(_synthetic_lev_box()),
+    )
+
+    captured_kwargs = []
+    real_add_axes = matplotlib.figure.Figure.add_axes
+
+    def spy_add_axes(self, *args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return real_add_axes(self, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "add_axes", spy_add_axes)
+
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode="lev-3d",
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="lev-zorder-test",
+        **_KINEMATICS_KWARGS,
+    )
+
+    threed_calls = [k for k in captured_kwargs if k.get("projection") == "3d"]
+    assert len(threed_calls) == 1
+    assert threed_calls[0].get("computed_zorder") is not False
 
 
 @pytest.mark.parametrize("field_mode", ["combined-3d", "lev-3d", "zvelocity-3d"])
@@ -752,3 +847,52 @@ def test_lev_3d_axis_limits_are_stable_across_frames_with_different_isosurfaces(
     assert len(set(captured_zlims)) == 1, (
         f"axis limits changed across frames despite identical box coordinates: {captured_zlims}"
     )
+
+
+def test_lev3d_mesh_alpha_override_reaches_the_rendered_collection(
+    tmp_path, monkeypatch
+):
+    """End-to-end regression for issue #88: a `mesh_alpha` passed to `build_flow_video` must
+    actually reach the `Poly3DCollection` constructed for the isosurface, not just
+    `render_lev_frame` in isolation -- confirming the parameter is threaded through `_draw_lev`,
+    not merely accepted. Captures the `facecolors` kwarg at `Poly3DCollection.__init__` time
+    (rather than reading back `get_facecolor()` after rendering) since mplot3d's projected
+    facecolor cache is only populated during a draw pass and unavailable once the figure is
+    closed.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        lambda plotfile_path, *, lo, hi, halo=0: dict(_synthetic_lev_box()),
+    )
+
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    captured_facecolors = []
+    real_init = Poly3DCollection.__init__
+
+    def spy_init(self, verts, *args, facecolors=None, **kwargs):
+        if facecolors is not None:
+            captured_facecolors.append(np.asarray(facecolors).copy())
+        return real_init(self, verts, *args, facecolors=facecolors, **kwargs)
+
+    monkeypatch.setattr(Poly3DCollection, "__init__", spy_init)
+
+    custom_alpha = 0.4
+    build_flow_video(
+        plotfile_dir=plotfile_dir,
+        field_mode="lev-3d",
+        vertex_path=_VERTEX_PATH,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        label="mesh-alpha-test",
+        mesh_alpha=custom_alpha,
+        **_KINEMATICS_KWARGS,
+    )
+
+    assert len(captured_facecolors) >= 1
+    for facecolors in captured_facecolors:
+        assert facecolors.shape[0] > 0
+        np.testing.assert_allclose(facecolors[:, 3], custom_alpha)

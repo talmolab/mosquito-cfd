@@ -53,19 +53,30 @@ _TIE_TOLERANCE = 1e-6
 _TRAJECTORY_SAMPLES = 300
 
 
-def _span_tip_index(local_markers: np.ndarray) -> int:
-    """Index of the local marker at max ``|span (y)|``, nearest the chord centerline (``x~0``).
+def _span_tip_index(local_markers: np.ndarray, hinge: np.ndarray) -> int:
+    """Index of the local marker at max ``|span (y)|``, farthest from ``hinge`` (the true tip).
 
-    The committed ``wing.vertex`` has 3 tied markers at max span (chord positions ~-0.06, 0,
-    +0.06 per `tasks.md` task 19) -- picking the one nearest ``x=0`` keeps the tip's own
-    chord-axis rest offset minimal, closest to a pure span-offset point from the hinge.
+    The committed ``wing.vertex`` has 3 tied markers at max span on EACH side (chord positions
+    ~-0.06, 0, +0.06 per `tasks.md` task 19) -- among tied candidates, the true tip is the one
+    farthest from the hinge (issue #87: a hinge/center offset in ``y`` means the two tied sides
+    are the root and the tip, not interchangeable). The nearest-``x=0`` rule is kept only as a
+    secondary tie-break, for the residual case where candidates are tied on both span and
+    distance from the hinge.
+
+    ``hinge`` must be in the same local (pre-``center``-offset) frame as ``local_markers``.
     """
     span_col = local_markers[:, 1]
     max_abs_span = float(np.abs(span_col).max())
     candidates = np.flatnonzero(
         np.abs(np.abs(span_col) - max_abs_span) < _TIE_TOLERANCE
     )
-    return int(candidates[np.argmin(np.abs(local_markers[candidates, 0]))])
+    dist_from_hinge = np.linalg.norm(local_markers[candidates] - hinge, axis=1)
+    farthest = np.flatnonzero(
+        np.abs(dist_from_hinge - dist_from_hinge.max()) < _TIE_TOLERANCE
+    )
+    return int(
+        candidates[farthest[np.argmin(np.abs(local_markers[candidates[farthest], 0]))]]
+    )
 
 
 def _swept_bounding_box(
@@ -208,7 +219,7 @@ def build_kinematics_video(
     outline_ref = wing_outline(local_markers) + center_arr
     is_leading = leading_edge_mask(local_markers)
 
-    tip_idx = _span_tip_index(local_markers)
+    tip_idx = _span_tip_index(local_markers, hinge_arr - center_arr)
     tip_reference = ref_markers[tip_idx]
     span_arm = float(np.linalg.norm(tip_reference - hinge_arr))
 
