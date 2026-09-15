@@ -29,6 +29,7 @@ from pathlib import Path
 from mosquito_cfd.visualization.flow_video import (
     DEFAULT_BOX_MARGIN,
     DEFAULT_FPS,
+    DEFAULT_LEV_MESH_ALPHA,
     DEFAULT_Q_THRESHOLD,
     DEFAULT_VORT_VMAX,
     DEFAULT_VORT_VMIN,
@@ -125,6 +126,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--vort-vmin", type=float, default=DEFAULT_VORT_VMIN)
     parser.add_argument("--vort-vmax", type=float, default=DEFAULT_VORT_VMAX)
     parser.add_argument(
+        "--lev-mesh-alpha",
+        type=float,
+        default=DEFAULT_LEV_MESH_ALPHA,
+        help="Isosurface mesh facecolor alpha (lev-3d only); keeps the mesh visible where the "
+        f"wing overlay's depth sort orders it in front. Default: {DEFAULT_LEV_MESH_ALPHA}.",
+    )
+    parser.add_argument(
         "--box-margin",
         type=float,
         default=DEFAULT_BOX_MARGIN,
@@ -153,6 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         q_threshold=args.q_threshold,
         vort_vmin=args.vort_vmin,
         vort_vmax=args.vort_vmax,
+        mesh_alpha=args.lev_mesh_alpha,
         box_margin=args.box_margin,
         fps=args.fps,
     )

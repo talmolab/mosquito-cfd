@@ -13,6 +13,7 @@ import pytest
 
 from mosquito_cfd.geometry.vertex_io import read_vertex_file, write_vertex_file
 from mosquito_cfd.visualization.kinematics_video import (
+    _span_tip_index,
     _swept_bounding_box,
     build_kinematics_video,
 )
@@ -108,24 +109,84 @@ def test_explicit_hinge_override_takes_precedence_over_deck(tmp_path):
     assert result["center"] == (4.0, 2.0, 4.0)  # unaffected -- still read from the deck
 
 
+def test_span_tip_index_picks_side_farthest_from_hinge_on_exact_tie():
+    """Regression for issue #87: the committed wing.vertex has an exact 3-way tie at max
+    |span| on BOTH y=-1.475 and y=+1.475. With prelim_sweep_fine's real convention
+    (center=(4,2,4), hinge=(4,0.5,4) -- hinge on the negative-y side of center), the true tip
+    is the y=+1.475 side (farthest from the hinge), not y=-1.475 (the root, next to the
+    hinge) -- which is what the pre-fix nearest-x=0-only tie-break always picked, being the
+    first array occurrence on an exact tie.
+    """
+    local_markers = read_vertex_file(str(_VERTEX_PATH))
+    center = np.asarray(_VALIDATED_CENTER)
+    hinge_local = np.asarray(_VALIDATED_HINGE) - center
+
+    tip_idx = _span_tip_index(local_markers, hinge_local)
+
+    assert local_markers[tip_idx, 1] == pytest.approx(1.475, abs=1e-3)
+
+
+def test_span_tip_index_unique_max_span_ignores_hinge():
+    """A non-regression control: when there's no tie, the unique max-|span| marker is always
+    selected, regardless of where the hinge is.
+    """
+    markers = np.array(
+        [
+            [0.0, 0.5, 0.0],
+            [0.0, -0.9, 0.0],  # unique max |span|
+            [0.1, 0.3, 0.0],
+        ]
+    )
+
+    for hinge in (np.array([0.0, 0.0, 0.0]), np.array([0.0, -5.0, 0.0])):
+        assert _span_tip_index(markers, hinge) == 1
+
+
+def test_span_tip_index_falls_back_to_nearest_x_when_hinge_distances_also_tie():
+    """design.md D2's secondary tie-break: when candidates are tied at BOTH max |span| and
+    distance from the hinge, the nearest-chord-axis-to-zero candidate wins (the original,
+    pre-#87 rule), now demoted to a tie-break of last resort.
+
+    Hinge is deliberately off the x=0 axis (x=0.1) so two candidates with DIFFERENT |x| can
+    still tie on distance from the hinge (dx=+0.2 and dx=-0.2 respectively); a third candidate
+    (x=0.15) is closer to the hinge and correctly excluded from the farthest-distance tie.
+    """
+    markers = np.array(
+        [
+            [0.3, 1.0, 0.0],  # tied farthest from hinge (dx=+0.2)
+            [
+                -0.1,
+                1.0,
+                0.0,
+            ],  # tied farthest from hinge (dx=-0.2), nearest x=0 -- should win
+            [
+                0.15,
+                1.0,
+                0.0,
+            ],  # tied max |span| but NOT tied farthest (dx=+0.05, nearer hinge)
+            [0.0, 0.0, 0.0],
+        ]
+    )
+    hinge = np.array([0.1, 0.0, 0.0])
+
+    assert _span_tip_index(markers, hinge) == 1
+
+
 def test_chord_axis_extent_matches_root_hinge_arm(tmp_path):
     """The span-tip marker's chord-axis extent over one wingbeat matches
     2 * span_arm * sin(radians(stroke_amp_deg)) -- derived independently in this test (not
     read back from the function's own returned span_arm) so the test can't pass on a
-    self-consistently-wrong implementation.
+    self-consistently-wrong implementation. Also asserts span_arm directly (not just the
+    derived chord_axis_extent), so a hinge-farthest-tip regression is caught unambiguously
+    rather than only transitively through the trigonometric formula.
     """
-    from mosquito_cfd.geometry.vertex_io import read_vertex_file
-
     stroke_amp_deg = 70.0
     local_markers = read_vertex_file(str(_VERTEX_PATH))
-    span_col = local_markers[:, 1]
-    max_abs_span = np.abs(span_col).max()
-    tie_idx = np.flatnonzero(np.abs(np.abs(span_col) - max_abs_span) < 1e-6)
-    tip_idx = tie_idx[np.argmin(np.abs(local_markers[tie_idx, 0]))]
-    tip_reference = local_markers[tip_idx] + np.asarray(_VALIDATED_CENTER)
-    expected_span_arm = float(
-        np.linalg.norm(tip_reference - np.asarray(_VALIDATED_HINGE))
-    )
+    center = np.asarray(_VALIDATED_CENTER)
+    hinge = np.asarray(_VALIDATED_HINGE)
+    tip_idx = _span_tip_index(local_markers, hinge - center)
+    tip_reference = local_markers[tip_idx] + center
+    expected_span_arm = float(np.linalg.norm(tip_reference - hinge))
 
     result = build_kinematics_video(
         vertex_path=_VERTEX_PATH,
@@ -141,6 +202,7 @@ def test_chord_axis_extent_matches_root_hinge_arm(tmp_path):
         n_frames=10,
     )
 
+    assert result["span_arm"] == pytest.approx(expected_span_arm, rel=0.01)
     expected_extent = 2.0 * expected_span_arm * np.sin(np.radians(stroke_amp_deg))
     assert result["chord_axis_extent"] == pytest.approx(expected_extent, rel=0.05)
 

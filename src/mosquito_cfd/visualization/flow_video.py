@@ -45,6 +45,11 @@ FIELD_MODES: tuple[str, ...] = ("wake-slice", "combined-3d", "lev-3d", "zvelocit
 DEFAULT_Q_THRESHOLD = 300.0
 DEFAULT_VORT_VMIN = 40.0
 DEFAULT_VORT_VMAX = 250.0
+# lev-3d only: the proven-correct vault rendering (duncan-meeting-2026-08-11's
+# t3c-fine-lev-3d.mp4) made the isosurface mesh translucent rather than fully opaque -- this
+# keeps the mesh visible even where mplot3d's per-artist depth sort (see the computed_zorder
+# note below) still orders the wing in front of part of it.
+DEFAULT_LEV_MESH_ALPHA = 0.65
 # Isotropic near-field box half-width for lev-3d (not a `design.md` D4 constant -- D4 covers only
 # Q_THRESHOLD/VORT_VMIN/VMAX). Generous relative to the vault script's own asymmetric
 # BOX_LO=(1,0,1)/BOX_HI=(7,4,7) around center=(4,2,4) (margins (3,2,3), not (3,3,3)); an isotropic
@@ -143,6 +148,7 @@ def render_lev_frame(
     q_threshold: float,
     vort_vmin: float,
     vort_vmax: float,
+    mesh_alpha: float = DEFAULT_LEV_MESH_ALPHA,
 ) -> dict[str, NDArray[np.float64]] | None:
     """Q-criterion isosurface (marching cubes) colored by vorticity magnitude.
 
@@ -162,13 +168,18 @@ def render_lev_frame(
         q_threshold: Isosurface level.
         vort_vmin: Vorticity-magnitude colorbar lower bound.
         vort_vmax: Vorticity-magnitude colorbar upper bound.
+        mesh_alpha: Facecolor alpha applied to the whole mesh (issue #88: the mesh must stay
+            visible even where the wing overlay's own depth sort orders it in front of part of
+            the isosurface). Default ``DEFAULT_LEV_MESH_ALPHA`` (``0.65``, matching the proven
+            vault rendering).
 
     Returns:
         ``None`` if fewer than 10 cells exceed ``q_threshold`` (nothing coherent to mesh --
         mirrors the vault script's own skip-if-empty guard). Otherwise a dict with
         ``"triangles"`` (shape ``(F, 3, 3)``, physical vertex coordinates relative to the input
         field's own local index origin -- the caller adds any domain offset) and ``"facecolors"``
-        (shape ``(F, 4)`` RGBA, ``plasma`` colormap normalized to ``[vort_vmin, vort_vmax]``).
+        (shape ``(F, 4)`` RGBA, ``plasma`` colormap normalized to ``[vort_vmin, vort_vmax]``, alpha
+        overridden to ``mesh_alpha``).
 
     Raises:
         ValueError: If ``u``/``v``/``w``/``dx`` fail :func:`mosquito_cfd.benchmarks.lev.q_criterion`'s
@@ -201,6 +212,7 @@ def render_lev_frame(
 
     norm = mcolors.Normalize(vmin=vort_vmin, vmax=vort_vmax, clip=True)
     facecolors = matplotlib.colormaps["plasma"](norm(vort_at_faces))
+    facecolors[:, 3] = mesh_alpha
     return {"triangles": triangles, "facecolors": facecolors}
 
 
@@ -408,6 +420,7 @@ def build_flow_video(
     q_threshold: float = DEFAULT_Q_THRESHOLD,
     vort_vmin: float = DEFAULT_VORT_VMIN,
     vort_vmax: float = DEFAULT_VORT_VMAX,
+    mesh_alpha: float = DEFAULT_LEV_MESH_ALPHA,
     box_margin: float = DEFAULT_BOX_MARGIN,
     fps: int = DEFAULT_FPS,
 ) -> dict[str, Any]:
@@ -434,6 +447,9 @@ def build_flow_video(
             (`design.md` D4).
         vort_vmin: Vorticity-magnitude colorbar lower bound (``lev-3d`` only). Default ``40.0``.
         vort_vmax: Vorticity-magnitude colorbar upper bound (``lev-3d`` only). Default ``250.0``.
+        mesh_alpha: Isosurface mesh facecolor alpha (``lev-3d`` only). Default
+            ``DEFAULT_LEV_MESH_ALPHA`` (``0.65``) -- keeps the mesh visible even where the wing
+            overlay's own depth sort orders it in front of part of the isosurface (issue #88).
         box_margin: Isotropic half-width of the near-field extraction box around ``center``
             (``lev-3d`` only). Default ``3.0``.
         fps: Output video frame rate.
@@ -494,10 +510,16 @@ def build_flow_video(
         # direct visual reproduction, an opaque plot_surface can render IN FRONT of a wing lifted
         # only _WING_Z_LIFT above it, making the wing invisible. False switches mplot3d to a real
         # painter's algorithm that honors zorder, so the wing (zorder 20-22) always draws above
-        # the field (zorder 1) regardless of view angle.
-        ax = fig.add_axes(
-            [0.03, 0.05, 0.86, 0.88], projection="3d", computed_zorder=False
-        )
+        # the field (zorder 1) regardless of view angle. This is correct for combined-3d/
+        # zvelocity-3d, where the field is a thin 2-D slice plane and "wing always in front" is
+        # physically true -- but NOT for lev-3d, whose isosurface is a real 3-D volume that
+        # interleaves in depth with the wing (issue #88); that mode falls back to mplot3d's
+        # default per-artist depth sort instead (see `design.md` D3/D4 in
+        # fix-visualization-tooling-bugs).
+        axes_kwargs = {"projection": "3d"}
+        if field_mode != "lev-3d":
+            axes_kwargs["computed_zorder"] = False
+        ax = fig.add_axes([0.03, 0.05, 0.86, 0.88], **axes_kwargs)
     else:
         fig, ax = plt.subplots(figsize=(9, 8), facecolor="white")
 
@@ -511,6 +533,7 @@ def build_flow_video(
             q_threshold=q_threshold,
             vort_vmin=vort_vmin,
             vort_vmax=vort_vmax,
+            mesh_alpha=mesh_alpha,
         )
         if frame is not None:
             from mpl_toolkits.mplot3d.art3d import Poly3DCollection
