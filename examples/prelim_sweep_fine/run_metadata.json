@@ -1,0 +1,28 @@
+{
+  "run_id": "df870b08-39f8-4779-bafa-46cce9f325d9",
+  "timestamp": "2026-09-15T00:17:43+0000",
+  "git": {
+    "commit": "226a80e206d7da23b228832bf8f39fd70fcd391a",
+    "branch": "worktree-post-sweep-fine-corpus-dataset",
+    "dirty": true,
+    "diff_hash": "8c2c83f6fee5",
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:a03151af87137ddb0f8832ca7519c740f76dce22dd51313f1b7d3f9f9431cf14",
+  "inputs": {
+    "file": "examples\\prelim_sweep_fine\\sweep_manifest.json",
+    "hash": "a85f21640fa594d80377d027af7dc129c1491db9b421056be1febabaecc7614c"
+  },
+  "dropped_configs": []
+}
