@@ -1,14 +1,14 @@
 {
-  "run_id": "7ee466c6-659c-427c-ae0f-2d41d73c6a78",
-  "timestamp": "2026-08-07T16:57:18+0000",
+  "run_id": "aa7a3440-5dd6-4b1a-ab9b-e4d88cbd88fb",
+  "timestamp": "2026-09-10T14:33:54+0000",
   "git": {
-    "commit": "ec3a19508441f4b86828ec2eb12427d77b1eb29d",
-    "branch": "main"
+    "commit": "226a80e206d7da23b228832bf8f39fd70fcd391a",
+    "source": "docker-image-build-arg"
   },
-  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:d296852ae81328c20f9b4cd0c265a5a037df1bc6863969982ccfde58b5e84f39",
-  "deck_sha256": "92d5ab87b8556b711329f23f197aaefca8954db93df91a409bef396a66a7674d",
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:a03151af87137ddb0f8832ca7519c740f76dce22dd51313f1b7d3f9f9431cf14",
+  "deck_sha256": "b9293b9d7e4de524362d4634b897aadd1b1452fd20a0cca5f6797829ee1ae9ab",
   "hardware": {
-    "hostname": "force-surrogate-retry-failed-trz9k-run-config-3366584966",
+    "hostname": "force-surrogate-sweep-pzdhl-run-config-2346649501",
     "gpus": [
       {
         "model": "NVIDIA A40",
@@ -32,19 +32,19 @@
   "max_step": 4706,
   "stability": "stable_at_5e-4",
   "arena_max_mib": 7998,
-  "node": "gpu-node13",
+  "node": "gpu-node8",
   "gpu_model": "NVIDIA A40",
   "timing": {
     "final_time": 2.3525,
-    "timesteps": 4706,
-    "wall_time_s": 9380.0
+    "timesteps": 4708,
+    "wall_time_s": 9983.0
   },
   "orchestration": {
-    "workflow_uid": "1eee9a44-f871-4fb1-b5a7-4c43f1975159",
-    "pod": "force-surrogate-retry-failed-trz9k-run-config-3366584966",
-    "node": "gpu-node13",
+    "workflow_uid": "08a8cad3-a3c9-4c15-8753-7448351bb08c",
+    "pod": "force-surrogate-sweep-pzdhl-run-config-2346649501",
+    "node": "gpu-node8",
     "retry": "0",
-    "workflow_name": "force-surrogate-retry-failed-trz9k"
+    "workflow_name": "force-surrogate-sweep-pzdhl"
   },
-  "notes": "git.commit independently verified (not pod-captured -- the :fp64 image has no .git dir, see issue #66): confirmed via the docker.yml 'Build FP64 Image' job that this exact docker_image digest was built from this exact commit on main."
+  "notes": "Full 27-config fine-grid corpus run (force-surrogate-sweep-pzdhl)."
 }

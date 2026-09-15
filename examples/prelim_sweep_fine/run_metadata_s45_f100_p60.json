@@ -1,14 +1,14 @@
 {
-  "run_id": "058ee790-725b-440a-b305-9eb4d18b9075",
-  "timestamp": "2026-08-04T20:44:38+0000",
+  "run_id": "6ad73f32-fb23-439d-8de9-e7f6ba9a87f8",
+  "timestamp": "2026-09-10T14:33:54+0000",
   "git": {
-    "commit": "ec3a19508441f4b86828ec2eb12427d77b1eb29d",
-    "branch": "main"
+    "commit": "226a80e206d7da23b228832bf8f39fd70fcd391a",
+    "source": "docker-image-build-arg"
   },
-  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:d296852ae81328c20f9b4cd0c265a5a037df1bc6863969982ccfde58b5e84f39",
-  "deck_sha256": "68167a3b39fff8afdaa6d6ef01144d40ffca0851d6b8e5a4e0c212f659334f6b",
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:a03151af87137ddb0f8832ca7519c740f76dce22dd51313f1b7d3f9f9431cf14",
+  "deck_sha256": "dd8e09af37cf915f38c33956ce8a511a7a5b291d20f22c4196a9a8e54a4f8b10",
   "hardware": {
-    "hostname": "force-surrogate-sweep-vb8t5-run-config-1054467665",
+    "hostname": "force-surrogate-sweep-pzdhl-run-config-3399323700",
     "gpus": [
       {
         "model": "NVIDIA A40",
@@ -32,19 +32,19 @@
   "max_step": 4000,
   "stability": "stable_at_5e-4",
   "arena_max_mib": 7998,
-  "node": "gpu-node13",
+  "node": "gpu-node12",
   "gpu_model": "NVIDIA A40",
   "timing": {
-    "final_time": 1.9995,
-    "timesteps": 4000,
-    "wall_time_s": 8000.0
+    "final_time": 1.99925,
+    "timesteps": 4002,
+    "wall_time_s": 8393.0
   },
   "orchestration": {
-    "workflow_uid": "f5a8630d-c6c3-4be5-acd9-3c1bd2cf87c8",
-    "pod": "force-surrogate-sweep-vb8t5-run-config-1054467665",
-    "node": "gpu-node13",
+    "workflow_uid": "08a8cad3-a3c9-4c15-8753-7448351bb08c",
+    "pod": "force-surrogate-sweep-pzdhl-run-config-3399323700",
+    "node": "gpu-node12",
     "retry": "0",
-    "workflow_name": "force-surrogate-sweep-vb8t5"
+    "workflow_name": "force-surrogate-sweep-pzdhl"
   },
-  "notes": "git.commit independently verified (not pod-captured -- the :fp64 image has no .git dir, see issue #66): confirmed via the docker.yml 'Build FP64 Image' job that this exact docker_image digest was built from this exact commit on main."
+  "notes": "Full 27-config fine-grid corpus run (force-surrogate-sweep-pzdhl)."
 }

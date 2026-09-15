@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Full 27-config fine-256³ force-surrogate corpus's live cluster CFD run completed against the
+  corrected wing-hinge geometry with field capture enabled: `examples/prelim_sweep_fine/dataset.parquet`
+  (109,710 rows, all 27 configs, no NaN), `dataset.units.json`, and all 27 `run_metadata_<config>.json`
+  files regenerated from `force-surrogate-sweep-pzdhl` (26/27 configs) plus
+  `force-surrogate-sweep-zpkvt` (manifest-trimmed single-config recovery resubmission for the one
+  preempted config, `s55_f085_p60`, whose retry never fired — see issue #90)
 - Cluster-free wing-phase hinge-geometry diagnostic (`scripts/make_wing_phase_diagnostic.py`, `src/mosquito_cfd/force_surrogate/wing_phase_diagnostic.py`) — plots the wing marker cloud at four phases of a wingbeat with the hinge marked, sharing its metrics with the `test_sweep_hinge_geometry.py` regression guard; `examples/prelim_sweep/figures/README.md` documents both figure families (#71)
 - `src/mosquito_cfd/visualization/wing_render.py` (shared wing marker/outline transform helpers, built on the canonical `benchmarks.wing_kinematics` rotation code) and `src/mosquito_cfd/force_surrogate/comparison_figure.py` (`build_coarse_vs_fine_comparison`, `build_config_mean_collapse_diagnostic`); new optional `viz` dependency group (`scipy`, `scikit-image`, `imageio-ffmpeg`), installed in CI (#73)
 - `src/mosquito_cfd/visualization/flow_video.py` (generalized CFD-field video builder: `wake-slice` | `combined-3d` | `lev-3d` | `zvelocity-3d`) and `kinematics_video.py` (cluster-free kinematics preview); four thin CLI drivers under `scripts/` — `make_flow_video.py`, `make_kinematics_video.py`, `make_comparison_figure.py`, `make_config_mean_collapse_diagnostic.py` (#74)

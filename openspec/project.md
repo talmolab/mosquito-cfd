@@ -147,9 +147,19 @@ mosquito-cfd/
   git-committed base decks) dating to the 2026-07-02 axis-convention refactor; separately found and
   fixed a stale/incorrect `wing.vertex` on the coarse corpus's cluster NFS share (issue #62) that had
   been running the pre-T2a axis convention entirely; regenerated `examples/prelim_sweep/`'s decks +
-  `dataset.parquet`/`surrogate/*`/`figures/*` end-to-end and `examples/prelim_sweep_fine/`'s decks
-  (CFD re-run deferred); automated NFS provisioning going forward —
-  `fix-force-surrogate-sweep-hinge`
+  `dataset.parquet`/`surrogate/*`/`figures/*` end-to-end and `examples/prelim_sweep_fine/`'s decks;
+  automated NFS provisioning going forward — `fix-force-surrogate-sweep-hinge`
+- [x] Full 27-config fine-256³ force-surrogate corpus's live cluster CFD run, against the corrected
+  wing-hinge geometry and with field capture enabled (`amr.plot_int=100`, `ns.init_iter=2` —
+  Stage 2 / field-surrogate input, see `docs/field_surrogate/roadmap.md`) — `force-surrogate-sweep-pzdhl`
+  (26/27 configs; `s55_f085_p60` preempted, `pod deleted`, its own single retry attempt never fired
+  due to issue #90) + `force-surrogate-sweep-zpkvt` (manifest-trimmed single-config recovery
+  resubmission for `s55_f085_p60`, succeeded first attempt). `examples/prelim_sweep_fine/dataset.parquet`
+  (109,710 rows, all 27 configs, no NaN) and all 27 `run_metadata_<config>.json` files (superseding the
+  stale pre-hinge-fix/pre-field-capture August files) regenerated from the completed run. Verified
+  issue #63's `activeDeadlineSeconds` auto-scale fix in practice on both workflows; issue #64's
+  `backoff.maxDuration` fix remains unverified (never exercised — see #90); issue #90
+  (`retryPolicy: "OnFailure"` doesn't retry a preempted/deleted pod) newly found and still open.
 
 ### Not Planned
 - FP32 builds - upstream IAMReX does not support; using FP64 on A100/H100 instead
@@ -158,33 +168,20 @@ mosquito-cfd/
 - [ ] Scaling benchmarks for the NVIDIA Academic Grant (H100) - the current grant target;
   scaling-benchmark scope originally written for APEX still applies, just against H100 hardware
 - [ ] Multi-GPU / multi-node validation
-- [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
-  — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
-  explicit go-ahead (shared lab GPU quota). As of `add-fine-corpus-field-capture`, the fine
-  corpus's decks now include field capture (`amr.plot_int=100`, `ns.init_iter=2`) alongside the
-  corrected wing-hinge geometry, so this pending submission's deliverable is both the
-  corrected-geometry force data AND field-capture plotfiles in one run (Stage 2 / field-surrogate
-  input — see `docs/field_surrogate/roadmap.md`). The two bugs that sank the prior two attempts —
-  `activeDeadlineSeconds` not scaling with an overridden `--parallelism` (issue #63, killed
-  `force-surrogate-sweep-7wrk7` at 24h with 0/27 done) and `retryStrategy.backoff.maxDuration`
-  exhausting after only 3 of 5 configured retries under preemption (issue #64, lost 3 configs
-  from `force-surrogate-sweep-vb8t5`) — are fixed in `fix-argo-sweep-timeouts`:
-  `submit_workflow.sh full` now has an `--active-deadline-seconds` override with an auto-scale
-  fallback, and `maxDuration` is `4h` (covers the full `limit: 5` sequence). A third,
-  metadata-only bug (issue #65: `compute_wall_time_s` picked the globally-latest-finishing pod's
-  duration for every config in a multi-config fan-out workflow) is fixed in
-  `fix-wall-time-pod-selection` — the resubmission is now blocked only on the user's explicit
-  go-ahead, not any known bug. **Superseded run:**
-  `force-surrogate-sweep-vb8t5` + `force-surrogate-retry-failed-trz9k` already completed once,
-  but against the stale wing-hinge geometry (`fix-force-surrogate-sweep-hinge`) — still needs
-  re-submission against the corrected decks; see
-  `examples/prelim_sweep_fine/sweep_provenance.json`'s `superseded_by` field.
+- [ ] Train the fine-grid force surrogate against the now-complete `examples/prelim_sweep_fine/dataset.parquet`
+  (see the "Full 27-config fine-256³ force-surrogate corpus's live cluster CFD run" Implemented
+  entry above) to produce `examples/prelim_sweep_fine/surrogate/` — no placeholder exists at that
+  path today.
 - [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
   `docs/visualization/diagnostic_config_mean_collapse.png` once
-  `examples/prelim_sweep_fine/surrogate/` exists — no placeholder exists at that path today; the
-  synthetic-fixture-derived renders used to validate the figure-building code live instead at
-  `tests/fixtures/comparison_figure/` (see its `README.md`), not under `docs/`. Gated on the
-  above full-corpus cluster run landing.
+  `examples/prelim_sweep_fine/surrogate/` exists (see the training item directly above — that's
+  now the only remaining gate; the CFD run itself has landed). The synthetic-fixture-derived
+  renders used to validate the figure-building code live instead at
+  `tests/fixtures/comparison_figure/` (see its `README.md`), not under `docs/`.
+- [ ] Fix issue #90 (`force-surrogate-single-config.yaml`'s `retryStrategy.retryPolicy: "OnFailure"`
+  doesn't retry a pod deleted by preemption, only an application-level failure) and issue #64
+  (`backoff.maxDuration` fix still unverified against a real multi-attempt retry sequence — #90
+  has prevented any retry from actually firing so far).
 
 ## Conventions
 

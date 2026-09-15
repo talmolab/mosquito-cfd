@@ -10,6 +10,15 @@
   },
   "generated_at": "2026-09-01T09:30:00+00:00",
   "git_commit": "5c367596c5f1b7a28ff9369184c5e840c4f9c164",
+  "cluster_run": {
+    "cluster_workflows": [
+      "force-surrogate-sweep-pzdhl",
+      "force-surrogate-sweep-zpkvt"
+    ],
+    "completed_at": "2026-09-11T19:21:10-07:00",
+    "note": "force-surrogate-sweep-pzdhl ran 26/27 configs; s55_f085_p60 was preempted (pod deleted) and its retry never fired (issue #90, retryPolicy: \"OnFailure\" does not cover a pod-deleted failure). Recovered via a manifest-trimmed single-config resubmission, force-surrogate-sweep-zpkvt, which succeeded on its first attempt. dataset.parquet, dataset.units.json, run_metadata.json, and all 27 run_metadata_<config>.json files were generated from these two workflows' combined output.",
+    "reason": "First live cluster CFD run against this file's decks (corrected wing-hinge geometry + field capture)."
+  },
   "superseded_by": {
     "cluster_workflows": [
       "force-surrogate-sweep-vb8t5",
