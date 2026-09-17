@@ -17,29 +17,42 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
 
 ## PR A — Phase 1: `init_iter`-aware extractor (#94)
 
-- [ ] 1.1 **Test first** — add a `forces_*.csv` fixture written with `init_iter = 2` (three rows at
+- [x] 1.1 **Test first** — add a `forces_*.csv` fixture written with `init_iter = 2` (three rows at
       `iStep = 0`, first all-zero) and assert `_extract_config` returns `max_step` rows, exactly one
       `iStep = 0` row survives, and it is the **last** (non-zero forces). Must fail.
       *Name it `forces_*.csv`, never `IB_Particle_*.csv` — `.gitignore` ignores that pattern globally
       by name, so the natural name is silently unaddable and would pass locally then fail fresh CI.
       Confirm with `git ls-files` after adding.*
-- [ ] 1.2 **Test first** — assert `time` is strictly increasing per configuration. Must fail.
-- [ ] 1.3 **Test first** — parametrize dedup over `init_iter ∈ (0, 1, 2, 5)`: exactly one `iStep = 0`
+      — `tests/fixtures/forces_init_iter2.csv` + `test_dedup_removes_duplicate_init_rows_keeps_last`.
+- [x] 1.2 **Test first** — assert `time` is strictly increasing per configuration. Must fail.
+      — `test_dedup_time_strictly_increasing`.
+- [x] 1.3 **Test first** — parametrize dedup over `init_iter ∈ (0, 1, 2, 5)`: exactly one `iStep = 0`
       row survives in every case, it is the last, and `len(df) == max_step` regardless. Must fail for
       `init_iter > 0`. *Nothing currently pins that the extractor is `init_iter`-value-agnostic.*
-- [ ] 1.4 **Test first** — assert a CSV whose `iStep` sequence is non-monotonic (a checkpoint-restart
+      — `test_dedup_parametrized_over_init_iter`.
+- [x] 1.4 **Test first** — assert a CSV whose `iStep` sequence is non-monotonic (a checkpoint-restart
       re-emitting a range of steps) raises a clear config-named error rather than silently discarding
       the earlier correct rows under `keep="last"`. Must fail.
-- [ ] 1.5 **Characterization** — extract the committed coarse corpus and assert its raw force columns
-      are unchanged (`assert_frame_equal(..., check_exact=True)`). Must pass before and after; this is
-      the frozen-corpus protection and the D5 no-op claim.
-- [ ] 1.6 Add `"iStep"` to `_REQUIRED_CSV_COLUMNS`; update the "missing required column(s)" error
+      — `test_dedup_raises_on_non_monotonic_istep`.
+- [x] 1.5 **Characterization** — **deviation from the literal task text:** the coarse corpus's raw
+      per-config CSVs live only under the gitignored `examples/prelim_sweep/runs/` and are not present
+      in any checkout, so they cannot be re-extracted offline as written. Substituted two equivalent
+      checks: (a) `test_dedup_is_noop_without_duplicates`, a characterization test against the
+      existing no-duplicate-iStep fixture, asserting extraction is byte-for-byte unaffected; (b)
+      confirmed `tests/test_force_surrogate_scale_invariance.py::test_committed_corpus_cf_is_van_veen_consistent`
+      (which owns `_FROZEN_RAW_FORCE_SHA`) reads the **already-built** committed
+      `examples/prelim_sweep/dataset.parquet` directly and never calls the extractor — structurally
+      unaffected by any `_extract_config` change, verified passing before and after. Both pass.
+- [x] 1.6 Add `"iStep"` to `_REQUIRED_CSV_COLUMNS`; update the "missing required column(s)" error
       message and its test. *Every existing fixture CSV already has `iStep`, so nothing else breaks.*
-- [ ] 1.7 Implement `drop_duplicates(subset="iStep", keep="last")` in `_extract_config`, before the
-      `.to_numpy()` extraction.
-- [ ] 1.8 Update `test_one_row_per_config_and_timestep` and
-      `test_driver_smoke_writes_all_artifacts`'s `len(df) == 2 * 5`.
-- [ ] 1.9 **Verify** — `_FROZEN_RAW_FORCE_SHA` still matches (coarse parquet untouched).
+      — added `test_missing_istep_column_raises_naming_config`; confirmed no other fixture broke.
+- [x] 1.7 Implement `drop_duplicates(subset="iStep", keep="last")` in `_extract_config`, before the
+      `.to_numpy()` extraction. Also raises on a non-monotonic `iStep` sequence (task 1.4).
+- [x] 1.8 **No update needed** — both fixtures used by these tests
+      (`synthetic_ib_particle.csv`, `_make_run_tree`'s fixture) already have unique `iStep` per row,
+      so dedup is a no-op for them and both tests pass unmodified. Verified by running both files.
+- [x] 1.9 **Verify** — `_FROZEN_RAW_FORCE_SHA` still matches (coarse parquet untouched). Confirmed:
+      `tests/test_force_surrogate_scale_invariance.py` 7/7 passed.
 
 ## PR B — Phase 2: run-observed metadata (#93)
 
