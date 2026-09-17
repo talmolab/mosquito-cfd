@@ -30,14 +30,28 @@ artifact — nothing is re-typed by a human:
   ``"fine-grid-corpus-full"`` — a single known constant per invocation, not run-specific data).
 - ``kinematics`` (``stroke_amp_deg``/``frequency_fstar``/``pitch_amp_deg``/``reynolds``),
   ``max_step``: sourced from the committed ``sweep_manifest.json``'s per-config entry.
-- ``grid`` (``amr.n_cell``), ``fixed_dt`` (``ns.fixed_dt``): sourced from the generated deck file
-  (not in the manifest).
-- ``stability``: derived solely from ``fixed_dt`` vs. the sweep's nominal ``5e-4`` — no separate
-  hand-set ``dt_reduced``-style flag.
+- ``grid`` (``amr.n_cell``), ``fixed_dt`` (``ns.fixed_dt``), ``cfl`` (``ns.cfl``): sourced from
+  the generated deck file (not in the manifest).
+- ``stability``: derived from ``fixed_dt`` (deck-declared intent) AND the run's *observed*
+  timestep behaviour (see ``realized_dt``/``interior_dt_below_nominal`` below) — no separate
+  hand-set flag. ``fixed_dt`` alone cannot report a CFL-limited run, since ``ns.cfl`` can reduce
+  the realized timestep below the deck's declared value independent of any deck-level fallback.
+- ``realized_dt``, ``interior_dt_below_nominal``, ``cycles_completed``, ``reached_stop_time``:
+  what the run *did*, as opposed to what it was asked to do. ``realized_dt`` (min/mean/max/
+  frac_below_nominal) is parsed from ``run.log``'s full-precision per-step ``DT`` output (see
+  :func:`read_dt_series_from_run_log`), not by differencing the force CSV's ``time`` column,
+  which is written at six significant figures and can quantize a differenced timestep above the
+  ``ns.fixed_dt`` ceiling the solver cannot have taken. ``interior_dt_below_nominal`` excludes
+  the run's final step (the solver clamps it to land exactly on ``stop_time``, so a short final
+  step is expected and is not evidence of instability) and is never derived from the *median*
+  interior dt, which is provably blind to CFL limiting on this project's real corpus.
 - ``arena_max_mib``: parsed from the AMReX end-of-run "The Arena" line in ``run.log``.
 - ``node``, ``gpu_model``: from the pod file's ``orchestration.node`` and ``hardware.gpus[0]``.
-- ``timing.final_time`` / ``timing.timesteps``: the committed force CSV's actual **last row**
-  (never the deck's ``stop_time`` — the exact bug this change fixes).
+- ``timing.final_time``: the committed force CSV's actual **last row** (never the deck's
+  ``stop_time`` — the exact bug this change fixes). ``timing.timesteps`` is the CSV's
+  **distinct**-``iStep`` count (``ns.init_iter > 0`` writes extra rows at ``iStep = 0``, so the
+  raw row count and the timestep count legitimately differ); the raw row count is used
+  internally for the pod-side cross-check below, not exposed as ``timesteps``.
 - ``timing.wall_time_s``: computed from a completed Argo workflow's persisted status timestamps
   (:func:`query_argo_workflow_status`), reflecting only the final successful attempt — or a
   caller-supplied ``--wall-time-s`` override if the source workflow has already been
@@ -56,7 +70,7 @@ must be ``"completed"`` (a failed/incomplete run is refused, not silently assemb
 succeeded); the pod's ``deck_sha256`` must match a freshly computed hash of the ``--deck`` file
 actually supplied (an operator pointing ``--deck`` at a stale/wrong file is caught, not silently
 trusted); and the pod-reported row count (``rows``) must be present and must match the
-CSV-derived ``timesteps`` (a missing or disagreeing count raises, never silently skipped or
+CSV-derived **raw** row count (a missing or disagreeing count raises, never silently skipped or
 preferring one value) — all three are exactly the class of "trust the wrong artifact" bug this
 change exists to catch.
 
@@ -72,10 +86,12 @@ import csv
 import json
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
@@ -117,19 +133,24 @@ NOMINAL_FIXED_DT = 5e-4
 # ---------------------------------------------------------------------------
 
 
-def read_final_time_from_csv(csv_path: Path | str) -> tuple[float, int]:
-    """Read a force CSV's actual last row for ``(final_time, timesteps)``.
+def read_final_time_from_csv(csv_path: Path | str) -> tuple[float, int, int]:
+    """Read a force CSV's actual last row for ``(final_time, timesteps, raw_row_count)``.
 
     Never uses the deck's ``stop_time`` — IB-particle CSVs systematically end exactly one ``dt``
     short of it (a pre-existing writer convention, not a divergence signal).
+
+    ``ns.init_iter = N`` causes the solver to write ``1 + N`` rows at ``iStep = 0``, so the raw
+    row count and the distinct-timestep count legitimately differ for a field-capture run.
+    ``timesteps`` is the distinct-``iStep`` count (what the extractor's dataset row count means
+    after deduplication); ``raw_row_count`` is the CSV's total data-row count, which is what the
+    pod-side row-count cross-check compares against (see ``assemble_run_metadata``).
 
     Args:
         csv_path: Path to the committed force CSV (``forces_<config>.csv`` /
             ``IB_Particle_1.csv``).
 
     Returns:
-        A ``(final_time, timesteps)`` tuple: the last row's ``time`` value and the total data-row
-        count.
+        A ``(final_time, timesteps, raw_row_count)`` tuple.
 
     Raises:
         FileNotFoundError: If ``csv_path`` does not exist.
@@ -142,7 +163,120 @@ def read_final_time_from_csv(csv_path: Path | str) -> tuple[float, int]:
         rows = list(csv.DictReader(handle))
     if not rows:
         raise ValueError(f"force CSV {path} has a header but no data rows")
-    return float(rows[-1]["time"]), len(rows)
+    raw_row_count = len(rows)
+    timesteps = len({row["iStep"] for row in rows})
+    return float(rows[-1]["time"]), timesteps, raw_row_count
+
+
+# ---------------------------------------------------------------------------
+# run.log per-step dt series
+# ---------------------------------------------------------------------------
+
+_STEP_DT_RE = re.compile(
+    r"^STEP\s*=\s*\d+\s+TIME\s*=\s*[\d.eE+-]+\s+DT\s*=\s*([\d.eE+-]+)", re.MULTILINE
+)
+
+
+def read_dt_series_from_run_log(run_log_path: Path | str) -> list[float]:
+    """Parse the per-step ``DT = <value>`` series from ``run.log``, in step order.
+
+    Read at full precision (unlike the force CSV's ``time`` column, which is written at six
+    significant figures and can quantize a differenced timestep above the ``ns.fixed_dt``
+    ceiling the solver cannot have taken).
+
+    Args:
+        run_log_path: Path to the run's captured ``run.log``.
+
+    Returns:
+        The observed ``dt`` values in step order (one entry per ``STEP =`` line matched).
+
+    Raises:
+        FileNotFoundError: If ``run_log_path`` does not exist.
+    """
+    path = Path(run_log_path)
+    if not path.exists():
+        raise FileNotFoundError(f"run.log not found: {path}")
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return [float(m) for m in _STEP_DT_RE.findall(text)]
+
+
+def compute_dt_observations(
+    dt_series: Sequence[float], *, fixed_dt: float, epsilon: float = 1e-9
+) -> dict[str, Any]:
+    """Summarize a run's observed per-step ``dt``, excluding the final (possibly clamped) step.
+
+    The solver clamps its last step to land exactly on ``stop_time``
+    (``NavierStokesBase.cpp:1168-1169``), so a short final step is expected on a healthy run and
+    is excluded from the comparison rather than being mistaken for CFL limiting.
+
+    The summary deliberately does NOT include a median: it is provably blind to CFL limiting on
+    this project's real corpus — even the worst-truncated config kept 59% of its interior steps
+    at the nominal ceiling, so its median interior ``dt`` equals nominal despite 40.7% of steps
+    being CFL-reduced. ``min`` and ``frac_below_nominal`` are the discriminating statistics.
+
+    Args:
+        dt_series: The observed per-step ``dt`` values, in step order (see
+            :func:`read_dt_series_from_run_log`).
+        fixed_dt: The config's declared ``ns.fixed_dt`` (the comparison threshold — a deck-level
+            fallback value, not always the sweep's nominal ``5e-4``).
+        epsilon: Tolerance below which a step is not considered reduced (guards against
+            floating-point noise, not CFL limiting).
+
+    Returns:
+        A dict with ``realized_dt`` (nested ``min``/``mean``/``max``/``frac_below_nominal`` over
+        interior steps) and ``interior_dt_below_nominal`` (bool): whether any interior step fell
+        below ``fixed_dt``.
+
+    Raises:
+        ValueError: If ``dt_series`` has fewer than 2 samples (there is no step left to exclude
+            as the clamped final one), or contains a NaN/non-finite value.
+    """
+    if len(dt_series) < 2:
+        raise ValueError(
+            f"dt series has {len(dt_series)} sample(s); need at least 2 to exclude the final "
+            "clamped step from the comparison"
+        )
+    interior = np.asarray(dt_series[:-1], dtype=float)
+    if not np.all(np.isfinite(interior)):
+        raise ValueError(
+            "dt series contains a NaN or non-finite value; refusing to compute observations "
+            "from a corrupted series"
+        )
+    below = interior < (fixed_dt - epsilon)
+    return {
+        "realized_dt": {
+            "min": float(interior.min()),
+            "mean": float(interior.mean()),
+            "max": float(interior.max()),
+            "frac_below_nominal": float(below.mean()),
+        },
+        "interior_dt_below_nominal": bool(below.any()),
+    }
+
+
+def compute_run_completion(
+    *, final_time: float, stop_time: float, fixed_dt: float, frequency_fstar: float
+) -> dict[str, Any]:
+    """Derive ``cycles_completed`` and ``reached_stop_time`` from a run's observed ``final_time``.
+
+    ``reached_stop_time`` tolerates the writer's one-``dt``-short convention (plus the final
+    clamped step) rather than requiring exact equality with the deck's ``stop_time``.
+
+    Args:
+        final_time: The force CSV's actual last-row ``time`` (see
+            :func:`read_final_time_from_csv`).
+        stop_time: The config's deck-declared ``stop_time``.
+        fixed_dt: The config's declared ``ns.fixed_dt``, used as the tolerance unit.
+        frequency_fstar: The config's ``frequency_fstar``.
+
+    Returns:
+        A dict with ``cycles_completed`` (``final_time * frequency_fstar``) and
+        ``reached_stop_time`` (bool).
+    """
+    return {
+        "cycles_completed": final_time * frequency_fstar,
+        "reached_stop_time": (stop_time - final_time) <= 2.0 * fixed_dt,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -184,24 +318,46 @@ def _format_dt(value: float) -> str:
 
 
 def derive_stability(
-    fixed_dt: float, *, nominal_fixed_dt: float = NOMINAL_FIXED_DT
+    fixed_dt: float,
+    *,
+    nominal_fixed_dt: float = NOMINAL_FIXED_DT,
+    interior_dt_below_nominal: bool = False,
 ) -> str:
-    """Derive a run's stability verdict solely from its ``fixed_dt``.
+    """Derive a run's stability verdict from its ``fixed_dt`` and observed timestep behaviour.
 
-    No separate hand-set ``dt_reduced``-style flag is read — the fallback verdict is entirely a
-    function of the ``fixed_dt`` this tool already sources mechanically from the deck.
+    No separate hand-set flag is read for the deck-fallback distinction — that verdict is
+    entirely a function of the ``fixed_dt`` this tool already sources mechanically from the
+    deck. ``interior_dt_below_nominal`` (see :func:`compute_dt_observations`) is a mechanically
+    *observed* signal, not a hand-set one, and is required precisely because ``fixed_dt`` alone
+    cannot report a CFL-limited run: ``ns.cfl`` can reduce the realized timestep below the deck's
+    declared ``fixed_dt``, independent of the deck's own fallback status.
 
     Args:
         fixed_dt: The config's actual ``ns.fixed_dt`` (sourced from the deck).
         nominal_fixed_dt: The sweep's standard timestep (default ``5e-4``).
+        interior_dt_below_nominal: Whether any interior step fell below ``fixed_dt`` (see
+            :func:`compute_dt_observations`).
 
     Returns:
-        ``"stable_at_<nominal>"`` if ``fixed_dt`` matches the nominal value, else
-        ``"stable_at_<fixed_dt>_fallback"``.
+        ``"stable_at_<nominal>"`` / ``"stable_at_<fixed_dt>_fallback"`` for a run that held its
+        declared timestep, or the ``"cfl_limited_at_..."`` counterpart otherwise. The
+        ``cfl_limited_*`` values deliberately never share the ``"stable_at_"`` prefix, so a
+        naive prefix-matching consumer fails closed rather than silently accepting a CFL-limited
+        run as stable.
     """
     if fixed_dt == nominal_fixed_dt:
-        return f"stable_at_{_format_dt(nominal_fixed_dt)}"
-    return f"stable_at_{_format_dt(fixed_dt)}_fallback"
+        suffix = _format_dt(nominal_fixed_dt)
+        return (
+            f"cfl_limited_at_{suffix}"
+            if interior_dt_below_nominal
+            else f"stable_at_{suffix}"
+        )
+    suffix = f"{_format_dt(fixed_dt)}_fallback"
+    return (
+        f"cfl_limited_at_{suffix}"
+        if interior_dt_below_nominal
+        else f"stable_at_{suffix}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +456,8 @@ def source_config_fields(
         },
         "grid": _deck_field("amr.n_cell"),
         "fixed_dt": float(_deck_field("ns.fixed_dt")),
+        "cfl": float(_deck_field("ns.cfl")),
+        "stop_time": float(_deck_field("stop_time")),
         "max_step": _entry_field("max_step"),
     }
 
@@ -685,24 +843,38 @@ def assemble_run_metadata(
             "not the one actually executed"
         )
 
-    final_time, timesteps = read_final_time_from_csv(csv_path)
+    final_time, timesteps, raw_row_count = read_final_time_from_csv(csv_path)
     if "rows" not in pod_metadata:
         raise ValueError(
             f"pod-side run_metadata.json for config {config_name!r} has no 'rows' field; "
-            "cannot cross-validate against the CSV-derived timestep count"
+            "cannot cross-validate against the CSV-derived row count"
         )
     pod_rows = pod_metadata["rows"]
-    if int(pod_rows) != timesteps:
+    # Compared against the RAW row count, not the deduplicated `timesteps`: the pod records the
+    # raw count, and the two legitimately differ by `init_iter` when initialization rows are
+    # present (see read_final_time_from_csv).
+    if int(pod_rows) != raw_row_count:
         raise ValueError(
-            f"pod-reported row count ({pod_rows}) disagrees with the CSV-derived timestep "
-            f"count ({timesteps}) for config {config_name!r}"
+            f"pod-reported row count ({pod_rows}) disagrees with the CSV-derived row count "
+            f"({raw_row_count}) for config {config_name!r}"
         )
 
     arena_max_mib = parse_arena_max_mib(run_log_path)
     config_fields = source_config_fields(
         manifest_path=manifest_path, deck_path=deck_path, config_name=config_name
     )
-    stability = derive_stability(config_fields["fixed_dt"])
+    dt_series = read_dt_series_from_run_log(run_log_path)
+    dt_obs = compute_dt_observations(dt_series, fixed_dt=config_fields["fixed_dt"])
+    stability = derive_stability(
+        config_fields["fixed_dt"],
+        interior_dt_below_nominal=dt_obs["interior_dt_below_nominal"],
+    )
+    completion = compute_run_completion(
+        final_time=final_time,
+        stop_time=config_fields["stop_time"],
+        fixed_dt=config_fields["fixed_dt"],
+        frequency_fstar=config_fields["kinematics"]["frequency_fstar"],
+    )
 
     orchestration = dict(pod_metadata.get("orchestration", {}))
     if workflow_name is not None:
@@ -731,8 +903,13 @@ def assemble_run_metadata(
         "kinematics": config_fields["kinematics"],
         "grid": config_fields["grid"],
         "fixed_dt": config_fields["fixed_dt"],
+        "cfl": config_fields["cfl"],
         "max_step": config_fields["max_step"],
         "stability": stability,
+        "realized_dt": dt_obs["realized_dt"],
+        "interior_dt_below_nominal": dt_obs["interior_dt_below_nominal"],
+        "cycles_completed": completion["cycles_completed"],
+        "reached_stop_time": completion["reached_stop_time"],
         "arena_max_mib": arena_max_mib,
         "node": orchestration.get("node"),
         "gpu_model": gpu_model,

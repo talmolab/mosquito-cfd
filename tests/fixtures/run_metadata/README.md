@@ -42,5 +42,20 @@ written back to that directory.
   selects the correct node matching a given `pod_name` — e.g. `...-2222222222`'s own 3600s
   duration — rather than the unfiltered global maximum across the whole workflow (which would
   wrongly return `...-3333333333`'s 9200s for every config sharing this workflow).
+- `run_healthy_full.log` / `run_cfl_limited_full.log` — synthetic **full** per-step `DT` series
+  (10 lines each, no elision), added for the run-observed metadata capability (#93). Deliberately
+  separate from `run.log` above, which is a 6-line excerpt with a literal `...` elision kept only
+  for the Arena-parsing scenario — parsing a full dt series from it would silently under-sample.
+  Not tied to any real config; both are pure synthetic step/dt sequences read directly by
+  `read_dt_series_from_run_log`/`compute_dt_observations`, independent of the CSV/manifest/deck/
+  pod-metadata coupling above.
+  - `run_healthy_full.log`: interior steps (1-9) all at the nominal `5e-4`; step 10 is the
+    clamped final step at `2e-4`. Exercises the "held nominal throughout" and "final-step
+    exclusion" cases.
+  - `run_cfl_limited_full.log`: interior steps (1-9) are `[5e-4, 5e-4, 3e-4, 3e-4, 3e-4, 5e-4,
+    5e-4, 5e-4, 5e-4]` — 6 of 9 (67%) at nominal, 3 CFL-reduced — chosen so the **median** of the
+    9 interior values is still `5e-4` despite genuine CFL limiting, mirroring the real fine
+    corpus's worst config (`s55_f115_p30`, 59% of steps at the ceiling) and proving why `min`/
+    `frac_below_nominal`, not the median, must drive `stability`/`interior_dt_below_nominal`.
 
 Test data only — do not import fixtures from anywhere outside `tests/`.

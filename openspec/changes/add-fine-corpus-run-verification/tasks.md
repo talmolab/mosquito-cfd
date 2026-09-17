@@ -56,62 +56,66 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
 
 ## PR B — Phase 2: run-observed metadata (#93)
 
-- [ ] 2.1 **Test first** — assert the CSV read returns the **distinct-timestep** count for an
-      `init_iter = 2` fixture, while still exposing the **raw** row count for the pod cross-check.
-      Must fail. *Preserve `read_final_time_from_csv`'s 2-tuple arity or update every caller —
-      `test_read_final_time_from_csv_uses_last_row` unpacks two values.*
-- [ ] 2.2 **Test first** — add two new `run.log` fixtures with a full per-step `DT` series, named
-      distinctly from the existing committed `tests/fixtures/run_metadata/run.log` (a deliberately
-      short 6-line excerpt used only for the Arena-parsing scenario, not touched by this change):
-      `run_healthy_full.log` and `run_cfl_limited_full.log`. Assert `realized_dt` reports
-      `min`/`mean`/`max`/`frac_below_nominal` parsed from each at full precision. Must fail.
-      *`run.log` emits ~2 `dt` lines per step; dedup before use.*
-- [ ] 2.3 **Test first** — assert the **median** of the CFL-limited fixture's interior dt equals
-      nominal, so nobody re-derives `stability` from it. Must fail (the assertion does not exist).
-- [ ] 2.4 **Test first** — assert a run whose only short step is the **final clamped** step is
-      reported as nominal-stable. Must fail.
-      *Do not source this from the committed `run.log` fixture: it is 6 lines with a literal `...`
-      elision. Build a synthetic full series.*
-- [ ] 2.5 **Test first** — assert a run where **every** step including the last is below nominal is
-      reported CFL-limited, proving the final-step exclusion does not mask a uniformly-reduced run.
-      Must fail.
-- [ ] 2.6 **Test first** — assert `stability` is `cfl_limited_at_5e-4` for the CFL fixture,
-      `stable_at_5e-4` for the healthy one, `stable_at_2.5e-4_fallback` for a deck-fallback one, and
-      that no `cfl_limited_*` value matches a `stable_at_` prefix. Must fail.
-- [ ] 2.7 **Test first** — assert `cycles_completed` and `reached_stop_time` are recorded and correct
-      for a truncated fixture. Must fail.
-- [ ] 2.8 **Test first** — assert a one-row CSV raises a clear config-named error rather than an empty
-      `realized_dt` series (`np.diff` of one sample is empty; `median` of empty is `nan`). Must fail.
-- [ ] 2.9 **Test first** — assert a `time` column containing NaN raises a clear config-named error.
-      Must fail.
-- [ ] 2.10 **Test first** — assert the CLI's action-dest set contains **none** of
-      `{stability, realized_dt, interior_dt_below_nominal, cycles_completed, reached_stop_time}`, as a
-      closed-set assertion over `parser._actions` rather than per-flag absence. Must fail.
-      *Place after 2.11–2.12 land, since it is vacuous beforehand.*
-- [ ] 2.11 Implement the observed-dt parse from `run.log`; add the fields to the output.
-- [ ] 2.12 Rework `derive_stability` to take the observed series plus the deck's declared `fixed_dt`.
-      Name the observed flag `interior_dt_below_nominal`, **not** `dt_reduced` — the pilot schema
-      already uses `dt_reduced` for a deck-level fallback marker and
-      `test_pilot_run_metadata_dt_reduced_correlates_with_fixed_dt` enforces those semantics.
-- [ ] 2.13 Extend `test_fine_pilot_deck.py::_STABILITY_TOKENS` with the two `cfl_limited_*` values.
-- [ ] 2.14 Update `test_assemble_metadata_produces_normalized_schema`'s exact `timing` dict and
-      `test_pilot_fixture_matches_real_capture_…_shape`'s key-set — **same commit** as 2.11/2.12, or
-      CI is red between them.
-- [ ] 2.15 Re-scope the `pod_rows` cross-check to the **raw** row count. **Test first** — assert it
-      SUCCEEDS for pod `rows=4708` against a CSV of 4708 rows spanning 4706 distinct steps, and still
-      raises on a genuine mismatch. Must fail.
-- [ ] 2.16 **Verify** — the six existing "raises on status/deck-hash/row-count mismatch" tests still
-      raise.
-- [ ] 2.17 Add the new fixtures with a matching pod-metadata fixture and manifest entry; update
-      `tests/fixtures/run_metadata/README.md`, which today documents the five-way coupling as prose
-      bullets — convert it to a table in the same commit given the fixture count is growing, or at
-      minimum add the two new fixtures' entries to the existing bullets. **Do not modify
-      `forces_s35_f085_p45.csv`** — its deck sha256 and exact `timing` block are pinned as literals.
-- [ ] 2.18 **Test first** — the run-metadata delta requires `kinematics`/`grid`/`fixed_dt`/`max_step`
-      **and `cfl`** to be sourced from the manifest/deck and echoed in output. Assert the generated
-      metadata's `cfl` field equals the manifest/deck's `ns.cfl` for a config with a `cfl` override,
-      and equals the base deck's `ns.cfl` for one without. Must fail —
-      `metadata_capture.py` currently never reads `ns.cfl`/`cfl` anywhere.
+- [x] 2.1 **Test first** — `read_final_time_from_csv` now returns a **3-tuple**
+      `(final_time, timesteps, raw_row_count)`; changed arity rather than preserved it, since a
+      caller needs both counts and there is exactly one production caller (`assemble_run_metadata`)
+      plus one test, both updated in this commit — `test_read_final_time_from_csv_returns_distinct_and_raw_counts`
+      (new, against the PR A `forces_init_iter2.csv` fixture) and `test_read_final_time_from_csv_uses_last_row`
+      (existing, updated).
+- [x] 2.2 **Test first** — added `run_healthy_full.log` and `run_cfl_limited_full.log` (10-line full
+      series, no elision), distinct from the existing 6-line elided `run.log`. `read_dt_series_from_run_log`
+      parses one `DT` value per `STEP =` line (1:1 in this format, not ~2 as originally guessed —
+      verified against the real committed fixture format). `test_read_dt_series_from_run_log_healthy`,
+      `test_compute_dt_observations_*`.
+- [x] 2.3 **Test first** — `test_median_interior_dt_is_blind_to_cfl_limiting`. The CFL fixture's 9
+      interior steps are `[5e-4,5e-4,3e-4,3e-4,3e-4,5e-4,5e-4,5e-4,5e-4]` (6/9 at nominal, mirroring
+      the real worst config's 59%-at-ceiling shape) — median is nominal despite genuine CFL limiting.
+- [x] 2.4 **Test first** — `test_compute_dt_observations_excludes_only_the_final_clamped_step`,
+      synthetic series as directed.
+- [x] 2.5 **Test first** — `test_compute_dt_observations_every_step_reduced_including_last`.
+- [x] 2.6 **Test first** — `test_derive_stability_nominal/_deck_fallback/_cfl_limited_at_nominal/_cfl_limited_at_deck_fallback`,
+      including the no-`stable_at_`-prefix assertion.
+- [x] 2.7 **Test first** — **scope note:** tested via a new standalone `compute_run_completion`
+      function (`test_compute_run_completion_truncated/_healthy`) rather than only through
+      `assemble_run_metadata`, since the pure function needed no new fixture coupling. Also covered
+      end-to-end via `test_assemble_metadata_includes_run_observation_fields`.
+- [x] 2.8 **Deviation from the literal task text:** `realized_dt` is derived from `run.log`, not by
+      differencing the CSV `time` column (see the spec's explicit prohibition and design D3/I5), so
+      "a one-row CSV" / `np.diff` no longer apply. Substituted the equivalent edge case for the
+      actual data source: `test_compute_dt_observations_raises_on_too_few_samples` (a `run.log`
+      series with fewer than 2 samples raises, rather than silently omitting the excluded-final-step
+      logic).
+- [x] 2.9 **Same deviation as 2.8:** substituted `test_compute_dt_observations_raises_on_nan_in_series`
+      (a non-finite value in the parsed `run.log` series raises) for the CSV-`time`-NaN framing.
+- [x] 2.10 **Test first** — `test_cli_has_no_observation_override_flags` in
+      `tests/test_generate_run_metadata_cli.py` (not `test_metadata_capture.py` — it needs the CLI's
+      actual `argparse.ArgumentParser`). Required extracting `build_parser()` out of `main()` in
+      `scripts/generate_run_metadata.py` (a minimal, behavior-preserving refactor) so the parser is
+      testable without invoking the CLI end-to-end.
+- [x] 2.11 Implemented `read_dt_series_from_run_log` + `compute_dt_observations`, wired into
+      `assemble_run_metadata`.
+- [x] 2.12 `derive_stability` reworked to accept `interior_dt_below_nominal`; named the field exactly
+      as specified, avoiding the `dt_reduced` collision.
+- [x] 2.13 Extended `_STABILITY_TOKENS` with both `cfl_limited_*` values.
+- [x] 2.14 **No update needed, on inspection:** the new observed fields
+      (`realized_dt`/`interior_dt_below_nominal`/`cycles_completed`/`reached_stop_time`/`cfl`) are
+      **top-level** output keys per the spec text, not nested inside `timing` — so
+      `result["timing"]`'s three-key shape (`final_time`/`timesteps`/`wall_time_s`) is unchanged and
+      `test_assemble_metadata_produces_normalized_schema` needed no edit.
+      `test_pilot_fixture_matches_real_capture_…_shape` compares the **pod-side** schema
+      (`capture_surrogate_run_metadata`), which this PR does not touch — also unaffected. Both
+      verified passing unmodified.
+- [x] 2.15 Re-scoped to the raw row count. `test_assemble_metadata_raises_on_row_count_mismatch_uses_raw_count`
+      (success case) plus the existing mismatch test, unchanged, still raises.
+- [x] 2.16 **Verify** — all six existing raise-tests pass unmodified.
+- [x] 2.17 Added both fixtures; documented the coupling addition in `README.md` (kept as prose
+      bullets, matching the file's existing style, rather than converting to a table — the two new
+      fixtures are explicitly uncoupled from the five-way group, so a table row would misrepresent
+      them as joining that coupling). Confirmed `forces_s35_f085_p45.csv` untouched.
+- [x] 2.18 **Test first** — `test_assemble_metadata_includes_run_observation_fields` (`result["cfl"]`)
+      and `test_source_config_fields_includes_stop_time_and_cfl`. Added `cfl` (and `stop_time`, needed
+      by `compute_run_completion`) to `source_config_fields`'s returned dict and to
+      `assemble_run_metadata`'s output.
 
 ## PR C — Phase 3: `ns.cfl` as an opt-in targeted key (#92)
 
