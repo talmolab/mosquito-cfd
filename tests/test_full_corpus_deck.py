@@ -318,6 +318,29 @@ def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path)
         assert "init_iter" not in record
 
 
+def test_generate_full_corpus_cli_accepts_cfl_flag(tmp_path):
+    """--cfl is wired through main() to generate_sweep()'s new parameter."""
+    full_corpus = _load_full_corpus_script()
+    out = tmp_path / "cfl_run"
+
+    rc = full_corpus.main(
+        ["--output", str(out), "--timestamp", _TIMESTAMP, "--cfl", "0.6"]
+    )
+    assert rc == 0
+    manifest = json.loads((out / "sweep_manifest.json").read_text(encoding="utf-8"))
+    for record in manifest["configs"]:
+        assert record["cfl"] == 0.6
+
+    out_default = tmp_path / "default_run"
+    rc = full_corpus.main(["--output", str(out_default), "--timestamp", _TIMESTAMP])
+    assert rc == 0
+    manifest_default = json.loads(
+        (out_default / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    for record in manifest_default["configs"]:
+        assert "cfl" not in record
+
+
 def test_fine_corpus_provenance_flags_superseded_runs():
     """The committed sweep_provenance.json names the stale cluster runs it supersedes.
 

@@ -119,42 +119,35 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
 
 ## PR C — Phase 3: `ns.cfl` as an opt-in targeted key (#92)
 
-- [ ] 3.1 **Verify** (no new test) — `test_generate_sweep_defaults_are_byte_identical_to_before` and
-      `test_committed_sweep_matches_regeneration` pass unmodified, and keep passing throughout. This
-      is the hard constraint: it is why the key is opt-in.
-- [ ] 3.2 **Test first** — assert a `cfl` override rewrites `ns.cfl` in every generated deck and
-      leaves `amr.plot_int` and `ns.init_iter` untouched. Must fail.
-- [ ] 3.3 **Test first** — assert omitting `cfl` leaves `ns.cfl` byte-unchanged from the base deck.
-      Must fail.
-- [ ] 3.4 **Test first** — assert a `cfl` override against a base deck lacking `ns.cfl` raises
-      `ValueError` naming the key. Must fail.
-- [ ] 3.5 **Test first** — assert the manifest records `cfl` when overridden and **omits** the key
-      entirely (not `null`) when not, and that provenance gains a `timestep_policy` block only when
-      overridden. Must fail.
-- [ ] 3.6 **Test first** — assert a sweep regenerated from a manifest carrying `cfl` reproduces the
-      decks byte-identically (the replay path `test_committed_fine_corpus_matches_regeneration` needs).
-      Must fail.
-- [ ] 3.7 Implement the optional `cfl` parameter on `render_inputs` / `generate_sweep`, defaulting to
-      pass-through. **Preserve `derive_run_duration`'s 2-tuple return shape** — it is pinned and every
-      caller depends on it.
-- [ ] 3.8 Add a dedicated `test_render_inputs_accepts_cfl_override` battery mirroring the existing
-      `init_iter` pattern (`test_render_inputs_accepts_init_iter_override`,
-      `test_render_inputs_init_iter_none_preserves_base_value`,
-      `test_render_inputs_missing_init_iter_key_raises_when_overridden`). **Do NOT add `ns.cfl` to
-      `TARGET_KEYS`** — that set is specifically the keys rewritten unconditionally by
-      `_render_default` (no override supplied); `ns.init_iter` is deliberately absent from it for the
-      same reason `ns.cfl` must be: `test_render_inputs_minimal_diff` asserts `differing ==
-      TARGET_KEYS` against a call with **no** overrides, so a pass-through-by-default key can never
-      appear there without breaking that exact assertion.
-- [ ] 3.9 Thread `--cfl` through `generate_full_corpus.py`; extend
-      `test_fine_corpus_git_commit_names_a_capable_commit`'s probe tuple (currently
-      `("--plot-int", "--init-iter")`).
-- [ ] 3.10a **Test first** — assert the deck lint raises when a generated deck's `ns.prescribed_vel`
-      is nonzero or `ns.num_steps` is below `max_step`. Must fail (the lint does not exist yet).
-- [ ] 3.10 Add the deck lint from 3.10a to every generated deck — each condition silently inverts or
-      lowers the sizing guarantee (design D1).
-- [ ] 3.11 Record the chosen `ns.cfl = 0.6` and its derivation (worst config requires 0.490) in
-      `design.md` D2 so the value is traceable.
+- [x] 3.1 **Verify** — both pass unmodified (confirmed via targeted run, then the full 883-test
+      suite). This is the hard constraint the opt-in design satisfies.
+- [x] 3.2 **Test first** — `test_generate_sweep_cfl_override_threaded_to_every_deck_and_manifest`,
+      `test_generate_sweep_cfl_override_independent_of_plot_int_and_init_iter`.
+- [x] 3.3 **Test first** — `test_render_inputs_cfl_none_preserves_base_value`.
+- [x] 3.4 **Test first** — `test_render_inputs_missing_cfl_key_raises_when_overridden`.
+- [x] 3.5 **Test first** — `test_manifest_records_cfl_per_config_and_omits_when_absent`,
+      `test_generate_sweep_cfl_override_recorded_in_provenance_timestep_policy`.
+- [x] 3.6 **Test first** — `test_regenerating_from_manifest_recorded_cfl_reproduces_decks_byte_identically`.
+- [x] 3.7 Implemented. `derive_run_duration`'s 2-tuple shape untouched (not called by this task at
+      all — `cfl` never affects sizing, only the deck's `ns.cfl` value).
+- [x] 3.8 **Corrected during round-2 review, not merely followed:** the literal task text as
+      originally written said to add `cfl` to `test_render_inputs_minimal_diff`'s `TARGET_KEYS` —
+      that would have broken the very test it named, for exactly the reason this corrected text
+      states. Implemented as corrected: `test_render_inputs_accepts_cfl_override`,
+      `test_render_inputs_cfl_override_independent_of_plot_int_and_init_iter`; `TARGET_KEYS` left
+      untouched; `test_render_inputs_minimal_diff` verified still passing.
+- [x] 3.9 **Scope note:** `--cfl` threaded through `generate_full_corpus.py`
+      (`test_generate_full_corpus_cli_accepts_cfl_flag`). The probe-tuple extension is **deferred to
+      Phase 8** (not done here): `test_fine_corpus_git_commit_names_a_capable_commit` checks the
+      commit named in the **currently committed** `sweep_provenance.json`, which still predates
+      `--cfl` and is untouched by this PR — extending the probe now would be checking a commit that
+      doesn't yet exist. Extend it once Phase 7's regeneration updates that provenance file.
+- [x] 3.10a **Test first** — `test_generate_sweep_rejects_deck_with_nonzero_prescribed_vel`,
+      `test_generate_sweep_rejects_deck_with_num_steps_below_max_step`, plus two no-false-positive
+      regressions (`_accepts_deck_without_landmine_keys`, `_accepts_zero_prescribed_vel_and_sufficient_num_steps`).
+- [x] 3.10 Implemented `_check_deck_safety`, called from `generate_sweep`'s per-config loop.
+- [x] 3.11 Recorded in `design.md` D2 (already present from the proposal-authoring pass; re-verified
+      current: worst config `s55_f115_p30` requires `cfl >= 0.490`, `0.6` chosen for 22% margin).
 
 ## PR D — Phase 4: orchestration (#95, #90)
 
