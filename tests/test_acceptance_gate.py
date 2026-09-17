@@ -7,9 +7,11 @@ per-config metadata, provenance) per test, precisely controlling one failure mod
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from mosquito_cfd.force_surrogate.acceptance_gate import (
     record_check_result,
@@ -19,24 +21,43 @@ from mosquito_cfd.force_surrogate.acceptance_gate import (
 _IB_HEADER = "iStep,time,X,Y,Z,Vx,Vy,Vz,Rx,Ry,Rz,Fx,Fy,Fz,Mx,My,Mz,Fcpx,Fcpy,Fcpz,Tcpx,Tcpy,Tcpz,SumUx,SumUy,SumUz,SumTx,SumTy,SumTz"
 
 
-def _write_csv(path: Path, *, n_rows: int, cf_x_pattern: str) -> None:
+def _write_csv(
+    path: Path,
+    *,
+    n_rows: int,
+    cf_x_pattern: str,
+    settled_fx_override: np.ndarray | None = None,
+) -> None:
     """Write a force CSV whose Fx values give a controlled settled-beat (wingbeat>=1) CF_x
     pattern -- the pattern applies specifically to the wingbeat>=1 subset, not the whole series,
     since that is what the symmetry check actually measures.
 
     Config kinematics are fixed (stroke=35, f*=0.85, pitch=30) across all tests, so f_ref is
-    constant and CF_x is proportional to Fx.
+    constant and CF_x is proportional to Fx -- the settled-beat ratio |mean CF_x|/max|CF_x| is
+    scale-invariant, so a target ratio can be built directly from raw Fx values (as
+    ``settled_fx_override``) without knowing f_ref.
     """
-    times = [(i + 1) * (2.5 / n_rows) for i in range(n_rows)]
+    # "never_settles" uses a short time range so every row stays wingbeat=0 (t*0.85 < 1
+    # throughout) -- the run never reaches a settled beat at all.
+    span = 0.5 if cf_x_pattern == "never_settles" else 2.5
+    times = [(i + 1) * (span / n_rows) for i in range(n_rows)]
     wingbeats = [int(t * 0.85) for t in times]
     settled_idx = [i for i, wb in enumerate(wingbeats) if wb >= 1]
     n_settled = len(settled_idx)
-    if cf_x_pattern == "symmetric":
+    if settled_fx_override is not None:
+        assert len(settled_fx_override) == n_settled, (
+            f"settled_fx_override has {len(settled_fx_override)} values but "
+            f"n_rows={n_rows} produces {n_settled} settled-beat rows"
+        )
+        settled_fx = settled_fx_override
+    elif cf_x_pattern == "symmetric":
         settled_fx = np.linspace(-100.0, 100.0, n_settled)  # symmetric around 0
     elif cf_x_pattern == "truncated":
         settled_fx = np.linspace(
             50.0, 100.0, n_settled
         )  # all positive -> large mean/peak
+    elif cf_x_pattern == "never_settles":
+        settled_fx = np.zeros(n_settled)  # n_settled == 0; no settled-beat data at all
     else:
         raise ValueError(cf_x_pattern)
 
@@ -57,8 +78,10 @@ def _make_corpus(
     *,
     n_rows: int = 10,
     cf_x_pattern: str = "symmetric",
+    settled_fx_override: np.ndarray | None = None,
     interior_dt_below_nominal: bool = False,
     field_capture: bool = False,
+    field_capture_plot_int: int = 100,
     cc_f1: dict
     | None = "unset",  # "unset" sentinel distinguishes from an explicit None
 ) -> dict:
@@ -83,7 +106,12 @@ def _make_corpus(
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     csv_path = corpus_dir / f"forces_{config_name}.csv"
-    _write_csv(csv_path, n_rows=n_rows, cf_x_pattern=cf_x_pattern)
+    _write_csv(
+        csv_path,
+        n_rows=n_rows,
+        cf_x_pattern=cf_x_pattern,
+        settled_fx_override=settled_fx_override,
+    )
 
     metadata_path = corpus_dir / f"run_metadata_{config_name}.json"
     metadata_path.write_text(
@@ -98,7 +126,10 @@ def _make_corpus(
 
     provenance: dict = {}
     if field_capture:
-        provenance["field_capture"] = {"plot_int": 100, "init_iter": 2}
+        provenance["field_capture"] = {
+            "plot_int": field_capture_plot_int,
+            "init_iter": 2,
+        }
     if cc_f1 != "unset":
         provenance["cluster_run"] = {"cc_f1": cc_f1}
     provenance_path = corpus_dir / "sweep_provenance.json"
@@ -153,6 +184,34 @@ def test_row_count_mismatch_fails(tmp_path):
     assert any("row count" in f for f in result.failures)
 
 
+def test_ratio_just_under_tolerance_passes(tmp_path):
+    """Boundary-value test (review round 1 on PR #97): SYMMETRY_RATIO_TOLERANCE=0.012 is a
+    tight, load-bearing constant, but every prior test exercised only far-field healthy/
+    truncated cases. n_rows=2 puts both rows in the settled beat; [1.0, -0.9762] gives ratio
+    0.0119/1.0 = 0.0119, just under tolerance."""
+    c = _make_corpus(tmp_path, n_rows=2, settled_fx_override=np.array([1.0, -0.9762]))
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert result.passed, result.failures
+
+
+def test_ratio_just_over_tolerance_fails(tmp_path):
+    """[1.0, -0.9758] gives ratio 0.0121/1.0 = 0.0121, just over tolerance."""
+    c = _make_corpus(tmp_path, n_rows=2, settled_fx_override=np.array([1.0, -0.9758]))
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert any("symmetry ratio" in f for f in result.failures)
+
+
 def test_truncated_config_fails_the_symmetry_check(tmp_path):
     c = _make_corpus(tmp_path, cf_x_pattern="truncated")
     result = run_acceptance_gate(
@@ -163,6 +222,22 @@ def test_truncated_config_fails_the_symmetry_check(tmp_path):
     )
     assert not result.passed
     assert any("symmetry ratio" in f for f in result.failures)
+
+
+def test_config_with_no_settled_beat_rows_fails_rather_than_being_silently_skipped(
+    tmp_path,
+):
+    """The single worst truncation case (never reaches wingbeat>=1) must be flagged, not
+    silently absent from the symmetry-ratio dict -- review round 1 on PR #97."""
+    c = _make_corpus(tmp_path, cf_x_pattern="never_settles")
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert any("no settled-beat" in f for f in result.failures)
 
 
 def test_missing_cc_f1_result_fails_a_field_capture_corpus(tmp_path):
@@ -226,6 +301,24 @@ def test_non_field_capture_corpus_does_not_require_cc_f1(tmp_path):
     assert result.passed, result.failures
 
 
+def test_init_iter_only_field_capture_dict_does_not_require_cc_f1(tmp_path):
+    """A `field_capture` dict is written whenever `plot_int != -1 OR init_iter is not None`
+    (sweep.py), including the case where only `init_iter` is set and `plot_int` is left at -1
+    (no plotfiles are ever produced). The gate must not require a CC-F1 result such a corpus can
+    never have -- review round 1 on PR #97: `is_field_capture` tested dict truthiness, not
+    whether the dict's own `plot_int` actually indicates plotfile output."""
+    c = _make_corpus(
+        tmp_path, field_capture=True, field_capture_plot_int=-1, cc_f1="unset"
+    )
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert result.passed, result.failures
+
+
 def test_gate_recomputes_row_count_rather_than_trusting_metadata(tmp_path):
     """The self-certification guard: even if run_metadata's own claims look fine, the gate's row
     count comes from re-reading the raw CSV, not from any metadata field."""
@@ -264,6 +357,50 @@ def test_missing_run_metadata_file_fails(tmp_path):
         provenance_path=c["provenance_path"],
     )
     assert not result.passed
+
+
+# ---------------------------------------------------------------------------
+# Malformed JSON must raise a clear, file-identified error (review round 1 on PR #97) --
+# not a raw, contextless json.JSONDecodeError with no indication of which of the (up to 29)
+# files it choked on.
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_manifest_json_raises_clear_file_identified_error(tmp_path):
+    c = _make_corpus(tmp_path)
+    c["manifest_path"].write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match=re.escape(str(c["manifest_path"]))):
+        run_acceptance_gate(
+            manifest_path=c["manifest_path"],
+            csv_paths=c["csv_paths"],
+            run_metadata_paths=c["run_metadata_paths"],
+            provenance_path=c["provenance_path"],
+        )
+
+
+def test_malformed_provenance_json_raises_clear_file_identified_error(tmp_path):
+    c = _make_corpus(tmp_path)
+    c["provenance_path"].write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match=re.escape(str(c["provenance_path"]))):
+        run_acceptance_gate(
+            manifest_path=c["manifest_path"],
+            csv_paths=c["csv_paths"],
+            run_metadata_paths=c["run_metadata_paths"],
+            provenance_path=c["provenance_path"],
+        )
+
+
+def test_malformed_run_metadata_json_raises_clear_file_identified_error(tmp_path):
+    c = _make_corpus(tmp_path)
+    metadata_path = c["run_metadata_paths"]["s35_f085_p30"]
+    metadata_path.write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match=re.escape(str(metadata_path))):
+        run_acceptance_gate(
+            manifest_path=c["manifest_path"],
+            csv_paths=c["csv_paths"],
+            run_metadata_paths=c["run_metadata_paths"],
+            provenance_path=c["provenance_path"],
+        )
 
 
 # ---------------------------------------------------------------------------

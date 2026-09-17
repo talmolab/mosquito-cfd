@@ -8,6 +8,7 @@ already-corrected pilot config ``s35_f085_p45`` (see the fixtures' own README) a
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -947,6 +948,53 @@ def test_read_dt_series_from_run_log_healthy():
 def test_read_dt_series_raises_on_missing_log_file(tmp_path):
     with pytest.raises(FileNotFoundError, match="run.log"):
         mc.read_dt_series_from_run_log(tmp_path / "does_not_exist.log")
+
+
+def test_read_dt_series_from_run_log_preserves_nan_line_instead_of_dropping_it(
+    tmp_path,
+):
+    """A DT=nan line (a diverged/crashed step) must be preserved in the series, in position --
+    not silently excluded by the regex. Dropping the line would shift which step is treated as
+    "the final clamped step" and could mislabel a diverged run as stable (review round 1 on
+    PR #97, PR #91/#92's failure class reintroduced at the log-parsing layer)."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\n"
+        "STEP = 1 TIME = 0.0005 DT = nan\n"
+        "STEP = 2 TIME = 0.0010 DT = 0.0004\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 3
+    assert math.isnan(series[1])
+    assert series[0] == pytest.approx(0.0005)
+    assert series[2] == pytest.approx(0.0004)
+
+
+def test_read_dt_series_from_run_log_preserves_inf_line(tmp_path):
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\nSTEP = 1 TIME = 0.0005 DT = inf\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 2
+    assert math.isinf(series[1])
+
+
+def test_compute_dt_observations_raises_when_run_log_has_nan_in_interior_step(tmp_path):
+    """End-to-end: a run.log with a diverged interior step must raise, not silently produce a
+    'stable' verdict by having the nan line dropped and the remaining steps re-indexed."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\n"
+        "STEP = 1 TIME = 0.0005 DT = nan\n"
+        "STEP = 2 TIME = 0.0010 DT = 0.0005\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    with pytest.raises(ValueError, match="NaN|non-finite"):
+        mc.compute_dt_observations(series, fixed_dt=5e-4)
 
 
 def test_compute_dt_observations_healthy_run():

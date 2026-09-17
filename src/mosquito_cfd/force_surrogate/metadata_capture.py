@@ -173,7 +173,8 @@ def read_final_time_from_csv(csv_path: Path | str) -> tuple[float, int, int]:
 # ---------------------------------------------------------------------------
 
 _STEP_DT_RE = re.compile(
-    r"^STEP\s*=\s*\d+\s+TIME\s*=\s*[\d.eE+-]+\s+DT\s*=\s*([\d.eE+-]+)", re.MULTILINE
+    r"^STEP\s*=\s*\d+\s+TIME\s*=\s*[\d.eE+-]+\s+DT\s*=\s*([\d.eE+-]+|[+-]?(?:nan|inf(?:inity)?))",
+    re.MULTILINE | re.IGNORECASE,
 )
 
 
@@ -184,11 +185,19 @@ def read_dt_series_from_run_log(run_log_path: Path | str) -> list[float]:
     significant figures and can quantize a differenced timestep above the ``ns.fixed_dt``
     ceiling the solver cannot have taken).
 
+    A ``DT = nan``/``DT = inf`` line (a diverged or crashed step) is captured as a real
+    non-finite float, not silently dropped -- excluding the line would shift which step is
+    treated as the trailing "final clamped step" that :func:`compute_dt_observations` excludes
+    by design, and could let a diverged run's own evidence disappear before that function's NaN
+    guard ever sees it (review round 1 on PR #97, the "falsely labeled stable" failure class
+    reintroduced at the log-parsing layer).
+
     Args:
         run_log_path: Path to the run's captured ``run.log``.
 
     Returns:
-        The observed ``dt`` values in step order (one entry per ``STEP =`` line matched).
+        The observed ``dt`` values in step order (one entry per ``STEP =`` line matched; a
+        ``nan``/``inf`` token parses to the corresponding non-finite ``float``).
 
     Raises:
         FileNotFoundError: If ``run_log_path`` does not exist.
@@ -260,7 +269,13 @@ def compute_run_completion(
     """Derive ``cycles_completed`` and ``reached_stop_time`` from a run's observed ``final_time``.
 
     ``reached_stop_time`` tolerates the writer's one-``dt``-short convention (plus the final
-    clamped step) rather than requiring exact equality with the deck's ``stop_time``.
+    clamped step) rather than requiring exact equality with the deck's ``stop_time``. The
+    ``2.0 * fixed_dt`` tolerance is a deliberately loose sanity bound, not a calibrated
+    threshold: unlike ``interior_dt_below_nominal`` (the hard, exact gate) and
+    ``SYMMETRY_RATIO_TOLERANCE`` (measured against real corpus data, see ``corpus_guards.py``),
+    ``reached_stop_time`` is never used to gate the acceptance check -- it is recorded purely as
+    a diagnostic (design.md D6), so it does not need, and does not have, an empirically-derived
+    value.
 
     Args:
         final_time: The force CSV's actual last-row ``time`` (see
@@ -365,7 +380,7 @@ def derive_stability(
 # ---------------------------------------------------------------------------
 
 
-def _load_json_clear_error(path: Path, *, label: str) -> dict:
+def load_json_clear_error(path: Path, *, label: str) -> dict:
     """Load JSON from ``path``, wrapping a decode failure in a clear, file-identified error."""
     text = path.read_text(encoding="utf-8")
     try:
@@ -419,7 +434,7 @@ def source_config_fields(
         KeyError: If ``config_name`` is not present in the manifest.
     """
     manifest_path = Path(manifest_path)
-    manifest = _load_json_clear_error(manifest_path, label="sweep manifest")
+    manifest = load_json_clear_error(manifest_path, label="sweep manifest")
     entry = next(
         (c for c in manifest.get("configs", []) if c.get("name") == config_name), None
     )
@@ -483,7 +498,7 @@ def load_pod_run_metadata(path: Path | str) -> dict[str, Any]:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"pod-side run_metadata.json not found: {path}")
-    return _load_json_clear_error(path, label="pod-side run_metadata.json")
+    return load_json_clear_error(path, label="pod-side run_metadata.json")
 
 
 def extract_docker_image(pod_metadata: dict[str, Any]) -> str:

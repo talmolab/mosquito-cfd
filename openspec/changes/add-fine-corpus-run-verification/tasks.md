@@ -406,6 +406,102 @@ discoverable only by digging.
       principles stated with the #92 concrete instance for each (the internal-consistency checks that
       passed, the deck-echoed `stability` field, the unrecorded CC-F1 check).
 
+## PR F — Review round 1 fixes (5-agent `/review-pr` on PR #97, before merge)
+
+PR #97 (this change's PR A–E commits, pushed for review) received a 5-agent adversarial review
+with 4 BLOCKING and 8 IMPORTANT findings, cross-validated (several findings independently caught
+by multiple reviewers) and spot-verified against the shipped code and IAMReX source before being
+accepted. All fixed via TDD in a follow-up commit, same PR, before merge.
+
+- [x] F.1 **Test first** — `test_read_dt_series_from_run_log_preserves_nan_line_instead_of_dropping_it`,
+      `test_read_dt_series_from_run_log_preserves_inf_line`,
+      `test_compute_dt_observations_raises_when_run_log_has_nan_in_interior_step` in
+      `tests/test_metadata_capture.py`. **BLOCKING**: `_STEP_DT_RE` could not match a literal
+      `nan`/`inf` token, silently dropping the line rather than raising — a diverged run's final
+      interior step could vanish from the series, letting the previous nominal step wrongly stand
+      in as "the final clamped step" and mislabeling a diverged run `stable_at_5e-4` (the exact
+      failure class #92 exists to catch, reintroduced at the log-parsing layer). Fixed by widening
+      `_STEP_DT_RE`'s value group to `nan`/`inf`/`-inf` (case-insensitive), letting
+      `compute_dt_observations`'s existing `np.isfinite` guard catch it instead of the regex
+      silently excluding the line.
+- [x] F.2 **Test first** — `test_malformed_manifest_json_raises_clear_file_identified_error`,
+      `test_malformed_provenance_json_raises_clear_file_identified_error`,
+      `test_malformed_run_metadata_json_raises_clear_file_identified_error` in
+      `tests/test_acceptance_gate.py`. **BLOCKING**: malformed JSON in any of the gate's three
+      inputs raised a raw, contextless `json.JSONDecodeError` naming no file, among up to 29 files
+      a real corpus has. Fixed by renaming `metadata_capture._load_json_clear_error` to the public
+      `load_json_clear_error` and reusing it at all three (now four, including
+      `record_check_result`) load sites in `acceptance_gate.py`.
+- [x] F.3 **Test first** — `test_config_with_no_settled_beat_rows_fails_rather_than_being_silently_skipped`
+      in both `tests/test_corpus_guards.py` and `tests/test_acceptance_gate.py`. **BLOCKING**: a
+      config with zero `wingbeat >= 1` rows (a run so short it never reaches a settled beat — the
+      single worst truncation case) was simply absent from `_settled_beat_symmetry_ratios`'s
+      returned dict, so the one guard whose stated purpose is catching truncation gave a false
+      "no issue" signal for the most severely truncated case. Fixed in both
+      `check_symmetry_invariant` (corpus_guards.py) and `run_acceptance_gate` (acceptance_gate.py)
+      by iterating the manifest's config list and flagging any name absent from the ratios dict.
+      **Folded in the same commit (IMPORTANT, independently flagged by 3 of 5 reviewers):** the
+      ratio function itself was duplicated verbatim between the two modules; renamed to the public
+      `corpus_guards.settled_beat_symmetry_ratios` and imported (not copied) by `acceptance_gate.py`,
+      closing the "two unchecked sources of truth" drift risk this proposal's own Verification
+      Principles warn about.
+- [x] F.4 **Test first** — `test_init_iter_only_field_capture_dict_does_not_require_cc_f1` in
+      `tests/test_acceptance_gate.py`. **IMPORTANT**: `is_field_capture = bool(provenance.get(
+      "field_capture"))` tested dict truthiness, not whether the dict's own `plot_int` actually
+      indicates plotfile output — a corpus with only `ns.init_iter` set (no plotfiles ever
+      produced, per `sweep.py`'s own recorded rationale) would be wrongly required to have a CC-F1
+      result it can never produce. Fixed by checking
+      `provenance.get("field_capture", {}).get("plot_int", -1) > 0`.
+- [x] F.5 **Test first** — `test_generate_sweep_accepts_disabled_num_steps_sentinel` in
+      `tests/test_force_surrogate_sweep.py`. **IMPORTANT**: `_check_deck_safety`'s `ns.num_steps`
+      lint compared `num_steps < max_step` unconditionally, false-positiving on IAMReX's own
+      default/disabled sentinel `-1` (`main.cpp`: `num_steps = -1`, gated `if (num_steps > 0)`,
+      verified directly against the IAMReX source). Fixed by adding a `num_steps > 0` guard before
+      the comparison.
+- [x] F.6 **Test first** — `test_dedup_raises_when_duplicates_occur_at_nonzero_istep` in
+      `tests/test_force_surrogate_dataset.py`. **IMPORTANT**: the dedup's monotonic-`iStep` check
+      is vacuously satisfied by a CSV whose `iStep` never advances (a solver-writer bug, not
+      `ns.init_iter`'s expected re-emission at `iStep=0` only), silently collapsing the whole file
+      to one row via `keep="last"` with no warning. Fixed by raising when a duplicate group exists
+      at any `iStep != 0`.
+- [x] F.7 **Test first** — `test_ratio_just_under_tolerance_passes`/`test_ratio_just_over_tolerance_fails`
+      in both `tests/test_corpus_guards.py` and `tests/test_acceptance_gate.py`. **IMPORTANT**:
+      `SYMMETRY_RATIO_TOLERANCE = 0.012` had no test near its actual decision boundary despite
+      being tight and load-bearing (comment-documented ~1.25–1.3× margins) — every existing test
+      used far-field healthy/truncated cases. No code change needed; the comparison was already
+      correct (`>`, not `>=`/`==`), confirmed by both boundary cases passing immediately.
+- [x] F.8 Fixed `CONVERGED_BEAT_CF_X_TRIPWIRE`'s justifying comment in `corpus_guards.py`, which
+      cited `2.88` for the measured coarse-corpus max `|CF_x|` — independently recomputed at
+      `4.015`, matching `design.md` D6 and `tasks.md` (both already correct; only this one comment
+      was stale). **IMPORTANT**, doesn't change gate behavior (5.0 exceeds both figures).
+- [x] F.9 Fixed `design.md` D3, which still asserted "`run.log` emits roughly two `dt` lines per
+      step, needs deduplication" — task 2.2's own note already documented this was checked during
+      implementation and found false (1:1, no dedup implemented or needed); D3 itself was never
+      corrected. **IMPORTANT** design-doc/code mismatch.
+- [x] F.10 Clarified `compute_run_completion`'s docstring: the `2.0 * fixed_dt` tolerance on
+      `reached_stop_time` is a deliberately loose sanity bound, not a calibrated threshold like
+      `interior_dt_below_nominal` or `SYMMETRY_RATIO_TOLERANCE` — `reached_stop_time` is recorded
+      as a diagnostic only and never gates the acceptance check. **IMPORTANT**, docstring-only.
+- [x] F.11 **Test first** — `test_supersession_history_accumulates_a_second_entry_without_disturbing_the_first`
+      in `tests/test_full_corpus_deck.py`. **IMPORTANT**: the "accumulates, does not overwrite"
+      supersession-history scenario was spec'd but only ever tested against the real corpus's
+      current single-entry state. Since the field is hand-maintained JSON with no code path that
+      appends, this pins the list's schema-level semantics (order preserved, no merge/collision,
+      earlier entry untouched) directly rather than leaving the contract untested.
+- [x] F.12 Corrected `openspec/changes/add-fine-corpus-run-verification/specs/force-surrogate/spec.md`'s
+      "The gate does not certify itself" scenario, which described the gate recomputing the
+      CFL/timestep check (`interior_dt_below_nominal`) from raw run output — the opposite of both
+      `design.md` D6 (which calls `interior_dt_below_nominal` "the hard, exact gate," deliberately
+      trusted, not re-derived) and the shipped `acceptance_gate.py` (whose own docstring says
+      exactly that). **BLOCKING** spec/implementation mismatch — the code and design were already
+      correct and consistent with each other; only the spec scenario's wording was wrong. Rewrote
+      the scenario to describe the row-count recomputation `test_gate_recomputes_row_count_
+      rather_than_trusting_metadata` actually verifies, and added a note explaining the
+      `interior_dt_below_nominal` trust boundary explicitly.
+- [x] F.13 **Verify** — full local suite after all of F.1–F.12: 946 passed, 14 skipped (GPU-only),
+      6 deselected (up from 930 pre-review; 16 new tests, 0 regressions). `ruff check`/
+      `ruff format --check` clean over CI's six-path scope. `openspec validate --strict` passes.
+
 ## Phase 9 — Verification (run after completing each of Phases 1–6, not only once at the end)
 
 - [x] 9.1 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/` — CI's exact six-path list.

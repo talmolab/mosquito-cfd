@@ -620,6 +620,27 @@ def test_dedup_raises_on_non_monotonic_istep(tmp_path):
         build_dataset(manifest, {cfg["name"]: csv_path})
 
 
+def test_dedup_raises_when_duplicates_occur_at_nonzero_istep(tmp_path):
+    """The only expected duplicate-iStep pattern is `ns.init_iter`'s re-emission at iStep=0.
+    A CSV whose iStep never advances past a nonzero value (e.g. a solver-writer bug, not
+    init_iter) is vacuously monotonic (diff=0 everywhere) and would otherwise silently collapse
+    to a single row under keep='last' with no warning -- review round 1 on PR #97."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    header = ",".join(IB_PARTICLE_COLUMNS)
+
+    def row(istep: int, time: float) -> str:
+        vals = {c: 0 for c in IB_PARTICLE_COLUMNS}
+        vals.update(iStep=istep, time=time)
+        return ",".join(str(vals[c]) for c in IB_PARTICLE_COLUMNS)
+
+    rows = [row(5, t) for t in (0.0, 0.0005, 0.001, 0.0015, 0.002)]
+    csv_path = tmp_path / "constant_istep.csv"
+    csv_path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=cfg["name"]):
+        build_dataset(manifest, {cfg["name"]: csv_path})
+
+
 def test_missing_istep_column_raises_naming_config(tmp_path):
     """iStep is now a required column (it is the dedup key); its absence raises."""
     cfg = _validated_point_config()

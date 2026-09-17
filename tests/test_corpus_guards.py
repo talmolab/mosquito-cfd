@@ -95,9 +95,13 @@ def _build_synthetic_corpus(
     inject_nan: bool = False,
     omit_units_key: bool = False,
     omit_per_config_metadata: bool = False,
-    cf_x_pattern: str = "symmetric",  # "symmetric" | "truncated" | "spike"
+    cf_x_pattern: str = "symmetric",  # "symmetric" | "truncated" | "spike" | "never_settles"
+    cf_values: np.ndarray
+    | None = None,  # explicit override for exact-ratio boundary tests
 ) -> cg.CorpusEntry:
     """Build a minimal, precisely-controllable synthetic corpus for one failure mode at a time."""
+    if cf_values is not None:
+        n_rows = len(cf_values)
     corpus_dir = tmp_path / name
     (corpus_dir / "inputs").mkdir(parents=True)
     config_name = "s35_f085_p30"
@@ -114,7 +118,9 @@ def _build_synthetic_corpus(
     )
 
     rows = []
-    if cf_x_pattern == "symmetric":
+    if cf_values is not None:
+        pass  # explicit override -- used as-is below
+    elif cf_x_pattern == "symmetric":
         # wingbeat 1: symmetric around 0 -> ratio ~0
         cf_values = np.linspace(-1.0, 1.0, n_rows)
     elif cf_x_pattern == "truncated":
@@ -122,11 +128,18 @@ def _build_synthetic_corpus(
         cf_values = np.linspace(0.5, 1.0, n_rows)
     elif cf_x_pattern == "spike":
         cf_values = np.full(n_rows, 6.0)  # exceeds the tripwire
+    elif cf_x_pattern == "never_settles":
+        # every row wingbeat=0 -- the run never reaches a settled beat at all (the single
+        # worst truncation case: severe enough that there is no wingbeat>=1 data to rate).
+        cf_values = np.linspace(-1.0, 1.0, n_rows)
     else:
         raise ValueError(cf_x_pattern)
 
+    wingbeat = 0 if cf_x_pattern == "never_settles" else 1
     for i in range(n_rows):
-        rows.append(_make_row(config_name, i, n_rows, wingbeat=1, cf_x=cf_values[i]))
+        rows.append(
+            _make_row(config_name, i, n_rows, wingbeat=wingbeat, cf_x=cf_values[i])
+        )
     if duplicate_time:
         rows.append(dict(rows[0]))  # duplicate the first row's time -> non-monotonic
     if inject_nan:
@@ -315,6 +328,37 @@ def test_truncated_config_fails_the_ratio_check(tmp_path):
     failures = cg.check_symmetry_invariant(entry)
     assert failures
     assert "s35_f085_p30" in failures[0]
+
+
+def test_ratio_just_under_tolerance_passes(tmp_path):
+    """Boundary-value test (review round 1 on PR #97): SYMMETRY_RATIO_TOLERANCE=0.012 is a
+    tight, load-bearing constant, but every prior test exercised only far-field healthy/
+    truncated cases. Two values [1.0, -0.9762] give ratio = |mean|/max = 0.0119/1.0 = 0.0119,
+    just under tolerance."""
+    entry = _build_synthetic_corpus(tmp_path, cf_values=np.array([1.0, -0.9762]))
+    assert cg.check_symmetry_invariant(entry) == []
+
+
+def test_ratio_just_over_tolerance_fails(tmp_path):
+    """Two values [1.0, -0.9758] give ratio = 0.0121/1.0 = 0.0121, just over tolerance."""
+    entry = _build_synthetic_corpus(tmp_path, cf_values=np.array([1.0, -0.9758]))
+    failures = cg.check_symmetry_invariant(entry)
+    assert failures
+    assert "s35_f085_p30" in failures[0]
+
+
+def test_config_with_no_settled_beat_rows_fails_rather_than_being_silently_skipped(
+    tmp_path,
+):
+    """The single worst truncation case (a run so short it never reaches wingbeat>=1) must be
+    flagged, not silently absent from the ratio dict -- review round 1 on PR #97: the guard
+    whose entire stated purpose is catching truncation gave a false "no issue" signal for
+    exactly the most severely truncated case."""
+    entry = _build_synthetic_corpus(tmp_path, cf_x_pattern="never_settles")
+    failures = cg.check_symmetry_invariant(entry)
+    assert failures
+    assert "s35_f085_p30" in failures[0]
+    assert "no settled-beat" in failures[0]
 
 
 def test_converged_beat_tripwire_passes_normal_forces(tmp_path):

@@ -1219,3 +1219,16 @@ def test_generate_sweep_accepts_zero_prescribed_vel_and_sufficient_num_steps(tmp
     generate_sweep(
         base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
     )  # no raise
+
+
+def test_generate_sweep_accepts_disabled_num_steps_sentinel(tmp_path):
+    """ns.num_steps=-1 is IAMReX's own default/disabled sentinel (main.cpp: `num_steps = -1`,
+    only gated `if (num_steps > 0)`) -- an operator who explicitly writes it back is not
+    invoking the landmine the lint exists to catch. Review round 1 on PR #97: the lint compared
+    `num_steps < max_step` unconditionally, false-positiving on this safe value."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.num_steps = -1\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise

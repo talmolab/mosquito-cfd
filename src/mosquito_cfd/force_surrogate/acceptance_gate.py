@@ -19,8 +19,12 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mosquito_cfd.force_surrogate.corpus_guards import SYMMETRY_RATIO_TOLERANCE
+from mosquito_cfd.force_surrogate.corpus_guards import (
+    SYMMETRY_RATIO_TOLERANCE,
+    settled_beat_symmetry_ratios,
+)
 from mosquito_cfd.force_surrogate.dataset import build_dataset
+from mosquito_cfd.force_surrogate.metadata_capture import load_json_clear_error
 
 
 @dataclass(frozen=True)
@@ -29,17 +33,6 @@ class GateResult:
 
     passed: bool
     failures: tuple[str, ...] = field(default_factory=tuple)
-
-
-def _settled_beat_symmetry_ratios(df) -> dict[str, float]:
-    settled = df[(df["wingbeat"] >= 1) & (df["time"] > 0)]
-    ratios: dict[str, float] = {}
-    for name, group in settled.groupby("config_name"):
-        peak = group["CF_x"].abs().max()
-        if peak == 0:
-            continue
-        ratios[str(name)] = abs(group["CF_x"].mean()) / peak
-    return ratios
 
 
 def run_acceptance_gate(
@@ -65,7 +58,7 @@ def run_acceptance_gate(
         corpus is field-capture-enabled.
     """
     manifest_path = Path(manifest_path)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = load_json_clear_error(manifest_path, label="sweep manifest")
     failures: list[str] = []
 
     df, dropped = build_dataset(manifest_path, csv_paths, allow_missing=True)
@@ -88,7 +81,9 @@ def run_acceptance_gate(
         if metadata_path is None or not Path(metadata_path).exists():
             failures.append(f"{name}: no run_metadata file found")
             continue
-        run_metadata = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+        run_metadata = load_json_clear_error(
+            Path(metadata_path), label="run_metadata file"
+        )
         if run_metadata.get("interior_dt_below_nominal"):
             realized = run_metadata.get("realized_dt", {})
             failures.append(
@@ -101,7 +96,18 @@ def run_acceptance_gate(
         if len(times) > 1 and not (times[1:] > times[:-1]).all():
             failures.append(f"{name}: time is not strictly increasing")
 
-    for name, ratio in _settled_beat_symmetry_ratios(df).items():
+    ratios = settled_beat_symmetry_ratios(df)
+    for config in manifest["configs"]:
+        name = config["name"]
+        if name in dropped:
+            continue
+        if name not in ratios:
+            failures.append(
+                f"{name}: no settled-beat (wingbeat >= 1) rows found; cannot evaluate the "
+                "symmetry invariant -- likely severely truncated"
+            )
+            continue
+        ratio = ratios[name]
         if ratio > SYMMETRY_RATIO_TOLERANCE:
             failures.append(
                 f"{name}: normalized symmetry ratio {ratio:.4f} exceeds tolerance "
@@ -110,12 +116,17 @@ def run_acceptance_gate(
 
     provenance_path = Path(provenance_path)
     provenance = (
-        json.loads(provenance_path.read_text(encoding="utf-8"))
+        load_json_clear_error(provenance_path, label="sweep provenance")
         if provenance_path.exists()
         else {}
     )
     cluster_run = provenance.get("cluster_run", {})
-    is_field_capture = bool(provenance.get("field_capture"))
+    # `sweep.py` writes a `field_capture` dict whenever `plot_int != -1 OR init_iter is not
+    # None` -- including when only `init_iter` is set and `plot_int` is left at its -1 default,
+    # in which case no plotfiles are ever produced (per the dict's own recorded rationale). A
+    # bare truthiness check on the dict would then require a CC-F1 result that corpus can never
+    # have; check the field that actually indicates plotfile output.
+    is_field_capture = provenance.get("field_capture", {}).get("plot_int", -1) > 0
     if is_field_capture:
         cc_f1 = cluster_run.get("cc_f1")
         if cc_f1 is None:
@@ -152,12 +163,13 @@ def record_check_result(
     """
     provenance_path = Path(provenance_path)
     provenance = (
-        json.loads(provenance_path.read_text(encoding="utf-8"))
+        load_json_clear_error(provenance_path, label="sweep provenance")
         if provenance_path.exists()
         else {}
     )
     cluster_run = provenance.setdefault("cluster_run", {})
     cluster_run[check_name] = fields
+    provenance_path.parent.mkdir(parents=True, exist_ok=True)
     with open(provenance_path, "w", encoding="utf-8", newline="") as handle:
         json.dump(provenance, handle, sort_keys=True, indent=2, ensure_ascii=False)
         handle.write("\n")

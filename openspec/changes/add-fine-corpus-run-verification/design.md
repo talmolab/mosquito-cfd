@@ -103,9 +103,12 @@ and `max_step` as independent conditions).
 differenced `dt` to ~±2% of nominal — the committed data contains `dt = 5.004e-4`, *above* the
 ceiling, which is impossible. A local run of the same deck and image gives exactly `5.000000e-4` in
 `run.log`, confirming the artifact is the CSV writer's rounding. So `realized_dt` is parsed from
-`run.log`'s per-step `DT`, which `metadata_capture` already opens for the arena figure. Caveat for
-the implementation: `run.log` emits roughly two `dt` lines per step, so it is not 1:1 and needs
-deduplication before use.
+`run.log`'s per-step `DT`, which `metadata_capture` already opens for the arena figure.
+
+**Corrected during implementation (task 2.2):** this section originally guessed `run.log` emits
+roughly two `dt` lines per step, requiring deduplication. Verified against the real committed
+fixture format instead: `read_dt_series_from_run_log` parses exactly one `DT` value per
+`STEP =` line — 1:1, not ~2 — so no deduplication is implemented or needed.
 
 ## D4. The local stability probe, and what it establishes
 

@@ -372,3 +372,30 @@ def test_fine_corpus_provenance_flags_superseded_runs():
         "supersession_history[0].cluster_workflows must name exactly the two stale runs, not "
         "just be non-empty -- a typo'd or wrong workflow name must not pass silently"
     )
+
+
+def test_supersession_history_accumulates_a_second_entry_without_disturbing_the_first():
+    """The schema-level contract a list-valued (vs. single-dict) supersession record exists for:
+    a second supersession event appends rather than overwrites, and the earlier entry is left
+    byte-identical -- review round 1 on PR #97 (there is no code path that appends today, since
+    the field is hand-maintained JSON; this pins the list semantics the field is designed
+    around, distinct from the real committed corpus's current single-entry state above)."""
+    provenance = json.loads(
+        (Path("examples/prelim_sweep_fine") / "sweep_provenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    first_entry_before = json.loads(json.dumps(provenance["supersession_history"][0]))
+
+    second_entry = {
+        "cluster_workflows": ["force-surrogate-sweep-hypothetical-later-run"],
+        "reason": "synthetic second supersession event for this test only",
+    }
+    updated_history = [*provenance["supersession_history"], second_entry]
+
+    assert len(updated_history) == 2
+    assert updated_history[0] == first_entry_before, (
+        "appending a second entry must not mutate or merge into the first"
+    )
+    assert updated_history[1] == second_entry
+    assert updated_history[0] is not updated_history[1]

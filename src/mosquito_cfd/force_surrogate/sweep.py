@@ -347,8 +347,15 @@ def _check_deck_safety(deck_text: str, *, max_step: int, name: str) -> None:
             "entirely (routes through NavierStokes.cpp's prescribed_vel branch, overriding "
             "predict_velocity's return), invalidating the ns.cfl sizing this sweep depends on"
         )
+    # IAMReX's own default/disabled sentinel is num_steps=-1 (main.cpp: `num_steps = -1`), and
+    # the override only applies `if (num_steps > 0)` -- a non-positive value never lowers the
+    # step cap and is not the landmine this lint exists to catch.
     num_steps = kv.get("ns.num_steps")
-    if num_steps is not None and int(float(num_steps)) < max_step:
+    if (
+        num_steps is not None
+        and float(num_steps) > 0
+        and int(float(num_steps)) < max_step
+    ):
         raise ValueError(
             f"config {name!r}: ns.num_steps={num_steps} is below max_step={max_step}; it "
             "silently lowers the effective step cap regardless of max_step (main.cpp)"

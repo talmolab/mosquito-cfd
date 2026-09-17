@@ -29,8 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SYMMETRY_RATIO_TOLERANCE = 0.012
 
 # Provisional (task 8.7 re-derives this against the regenerated fine corpus): the measured max
-# |CF_x| for wingbeat > 0 across both committed corpora today is 2.88 -- this tripwire is a
-# coarse guard against a materially different physical regime, not a tight bound.
+# |CF_x| for wingbeat > 0 across both committed corpora today is 4.015 (design.md D6) -- this
+# tripwire is a coarse guard against a materially different physical regime, not a tight bound.
 CONVERGED_BEAT_CF_X_TRIPWIRE = 5.0
 
 
@@ -183,8 +183,17 @@ def check_per_config_metadata_present(entry: CorpusEntry) -> list[str]:
     return failures
 
 
-def _settled_beat_symmetry_ratios(df: pd.DataFrame) -> dict[str, float]:
-    """Per-config |mean CF_x| / max|CF_x| over the settled beat (wingbeat >= 1, time > 0)."""
+def settled_beat_symmetry_ratios(df: pd.DataFrame) -> dict[str, float]:
+    """Per-config |mean CF_x| / max|CF_x| over the settled beat (wingbeat >= 1, time > 0).
+
+    A config with zero settled-beat rows (a run so short it never reaches ``wingbeat >= 1`` --
+    the single worst truncation case) is simply absent from the returned dict; the caller must
+    check for a manifest config missing from the result rather than treating absence as "no
+    issue" (see :func:`check_symmetry_invariant` and
+    ``acceptance_gate.run_acceptance_gate``, which both do). Shared by both modules rather than
+    duplicated, so the ratio definition cannot silently drift between them (review round 1 on
+    PR #97).
+    """
     settled = df[(df["wingbeat"] >= 1) & (df["time"] > 0)]
     ratios: dict[str, float] = {}
     for name, group in settled.groupby("config_name"):
@@ -199,9 +208,19 @@ def check_symmetry_invariant(entry: CorpusEntry) -> list[str]:
     """Settled-wingbeat normalized cycle-symmetry ratio is within tolerance -- the physical invariant that catches truncation, which no internal-consistency check can (design D6)."""
     if not entry.has_parquet:
         return []
+    manifest = _load_manifest(entry)
     df = pd.read_parquet(entry.path / "dataset.parquet")
+    ratios = settled_beat_symmetry_ratios(df)
     failures = []
-    for name, ratio in _settled_beat_symmetry_ratios(df).items():
+    for config in manifest["configs"]:
+        name = config["name"]
+        if name not in ratios:
+            failures.append(
+                f"{entry.name}/{name}: no settled-beat (wingbeat >= 1) rows found; cannot "
+                "evaluate the symmetry invariant -- likely severely truncated"
+            )
+            continue
+        ratio = ratios[name]
         if ratio > SYMMETRY_RATIO_TOLERANCE:
             failures.append(
                 f"{entry.name}/{name}: normalized symmetry ratio {ratio:.4f} exceeds tolerance "

@@ -168,6 +168,15 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
             "to deduplicate, since keep='last' would silently discard the earlier, correct "
             "rows rather than the restart's stale ones"
         )
+    duplicated_isteps = set(raw.loc[raw["iStep"].duplicated(keep=False), "iStep"])
+    if duplicated_isteps - {0}:
+        raise ValueError(
+            f"IB-particle CSV for config {name!r} at {csv_path} has duplicate iStep values "
+            f"{sorted(duplicated_isteps - {0})} other than the expected ns.init_iter "
+            "re-emission at iStep=0; refusing to deduplicate a pattern that does not match "
+            "any known cause (e.g. a solver-writer bug that never advances iStep would "
+            "otherwise silently collapse the whole file to a single row)"
+        )
     raw = raw.drop_duplicates(subset="iStep", keep="last")
 
     time = raw["time"].to_numpy(dtype=float)

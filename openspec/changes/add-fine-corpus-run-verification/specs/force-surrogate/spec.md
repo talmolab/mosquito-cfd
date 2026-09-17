@@ -507,12 +507,19 @@ or Argo access.
 
 #### Scenario: The gate does not certify itself from the metadata it is gating
 
-- **Given** a corpus whose metadata JSON has been hand-edited to claim a passing
-  `interior_dt_below_nominal = false` while the underlying run output shows CFL-reduced interior
-  timesteps
+- **Given** a corpus whose metadata JSON has been hand-edited to claim a passing row count
+  (`timing.timesteps` set to the manifest's `max_step`) while the underlying raw force CSV
+  actually has fewer distinct timesteps
 - **When** the acceptance gate runs
-- **Then** it fails, because it recomputes the timestep check from the raw run output rather than
-  trusting the metadata's claim
+- **Then** it fails, because it recomputes the row count from the raw force CSV (via the same
+  `build_dataset` code path used to build the real dataset) rather than trusting the metadata's
+  claim
+
+**Note:** `interior_dt_below_nominal` itself is the one value the gate takes on trust from
+`run_metadata_<config>.json` — it cannot be recomputed offline without the run's `run.log`
+(not committed to the corpus). The normalized symmetry check (previous scenario) is the gate's
+defense-in-depth against exactly this metadata-generation risk, not a re-derivation of the
+timestep check itself (design.md D6).
 
 ### Requirement: Mandatory pre-flight check results are recorded in corpus provenance
 
