@@ -1,0 +1,373 @@
+# Tasks
+
+TDD throughout. Markers are used precisely: **Test first** = a new test that MUST fail before its
+implementation; **Characterization** = a new test that must pass both before and after (it pins
+behaviour we are promising not to break); **Verify** = running an existing test, not writing one.
+
+Phases map to five PRs. Phases 1, 2 and 4 are independent (verified against the modules: `dataset.py`
+and `metadata_capture.py` share no import path — `read_final_time_from_csv` re-reads the CSV itself —
+and Phase 4 touches only `cluster/argo/**`). **Phase 3 has no code or test dependency on Phase 2:**
+`ns.cfl = 0.6` is a fixed constant derived once, offline, in `design.md` D2 from data that predates
+this change; no Phase 3 task reads `realized_dt` or any Phase 2 function. The two phases are ordered
+B-then-C for review flow only. The real coupling is downstream, in **Phase 7** (task 7.4), which uses
+Phase 2's observed-dt fields to confirm after the fact that the chosen constant held in practice —
+that is a post-merge validation step, not a merge-ordering constraint. Phase 5–6 depend on 1–4.
+
+Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 acts on another PR.
+
+## PR A — Phase 1: `init_iter`-aware extractor (#94)
+
+- [ ] 1.1 **Test first** — add a `forces_*.csv` fixture written with `init_iter = 2` (three rows at
+      `iStep = 0`, first all-zero) and assert `_extract_config` returns `max_step` rows, exactly one
+      `iStep = 0` row survives, and it is the **last** (non-zero forces). Must fail.
+      *Name it `forces_*.csv`, never `IB_Particle_*.csv` — `.gitignore` ignores that pattern globally
+      by name, so the natural name is silently unaddable and would pass locally then fail fresh CI.
+      Confirm with `git ls-files` after adding.*
+- [ ] 1.2 **Test first** — assert `time` is strictly increasing per configuration. Must fail.
+- [ ] 1.3 **Test first** — parametrize dedup over `init_iter ∈ (0, 1, 2, 5)`: exactly one `iStep = 0`
+      row survives in every case, it is the last, and `len(df) == max_step` regardless. Must fail for
+      `init_iter > 0`. *Nothing currently pins that the extractor is `init_iter`-value-agnostic.*
+- [ ] 1.4 **Test first** — assert a CSV whose `iStep` sequence is non-monotonic (a checkpoint-restart
+      re-emitting a range of steps) raises a clear config-named error rather than silently discarding
+      the earlier correct rows under `keep="last"`. Must fail.
+- [ ] 1.5 **Characterization** — extract the committed coarse corpus and assert its raw force columns
+      are unchanged (`assert_frame_equal(..., check_exact=True)`). Must pass before and after; this is
+      the frozen-corpus protection and the D5 no-op claim.
+- [ ] 1.6 Add `"iStep"` to `_REQUIRED_CSV_COLUMNS`; update the "missing required column(s)" error
+      message and its test. *Every existing fixture CSV already has `iStep`, so nothing else breaks.*
+- [ ] 1.7 Implement `drop_duplicates(subset="iStep", keep="last")` in `_extract_config`, before the
+      `.to_numpy()` extraction.
+- [ ] 1.8 Update `test_one_row_per_config_and_timestep` and
+      `test_driver_smoke_writes_all_artifacts`'s `len(df) == 2 * 5`.
+- [ ] 1.9 **Verify** — `_FROZEN_RAW_FORCE_SHA` still matches (coarse parquet untouched).
+
+## PR B — Phase 2: run-observed metadata (#93)
+
+- [ ] 2.1 **Test first** — assert the CSV read returns the **distinct-timestep** count for an
+      `init_iter = 2` fixture, while still exposing the **raw** row count for the pod cross-check.
+      Must fail. *Preserve `read_final_time_from_csv`'s 2-tuple arity or update every caller —
+      `test_read_final_time_from_csv_uses_last_row` unpacks two values.*
+- [ ] 2.2 **Test first** — add two new `run.log` fixtures with a full per-step `DT` series, named
+      distinctly from the existing committed `tests/fixtures/run_metadata/run.log` (a deliberately
+      short 6-line excerpt used only for the Arena-parsing scenario, not touched by this change):
+      `run_healthy_full.log` and `run_cfl_limited_full.log`. Assert `realized_dt` reports
+      `min`/`mean`/`max`/`frac_below_nominal` parsed from each at full precision. Must fail.
+      *`run.log` emits ~2 `dt` lines per step; dedup before use.*
+- [ ] 2.3 **Test first** — assert the **median** of the CFL-limited fixture's interior dt equals
+      nominal, so nobody re-derives `stability` from it. Must fail (the assertion does not exist).
+- [ ] 2.4 **Test first** — assert a run whose only short step is the **final clamped** step is
+      reported as nominal-stable. Must fail.
+      *Do not source this from the committed `run.log` fixture: it is 6 lines with a literal `...`
+      elision. Build a synthetic full series.*
+- [ ] 2.5 **Test first** — assert a run where **every** step including the last is below nominal is
+      reported CFL-limited, proving the final-step exclusion does not mask a uniformly-reduced run.
+      Must fail.
+- [ ] 2.6 **Test first** — assert `stability` is `cfl_limited_at_5e-4` for the CFL fixture,
+      `stable_at_5e-4` for the healthy one, `stable_at_2.5e-4_fallback` for a deck-fallback one, and
+      that no `cfl_limited_*` value matches a `stable_at_` prefix. Must fail.
+- [ ] 2.7 **Test first** — assert `cycles_completed` and `reached_stop_time` are recorded and correct
+      for a truncated fixture. Must fail.
+- [ ] 2.8 **Test first** — assert a one-row CSV raises a clear config-named error rather than an empty
+      `realized_dt` series (`np.diff` of one sample is empty; `median` of empty is `nan`). Must fail.
+- [ ] 2.9 **Test first** — assert a `time` column containing NaN raises a clear config-named error.
+      Must fail.
+- [ ] 2.10 **Test first** — assert the CLI's action-dest set contains **none** of
+      `{stability, realized_dt, interior_dt_below_nominal, cycles_completed, reached_stop_time}`, as a
+      closed-set assertion over `parser._actions` rather than per-flag absence. Must fail.
+      *Place after 2.11–2.12 land, since it is vacuous beforehand.*
+- [ ] 2.11 Implement the observed-dt parse from `run.log`; add the fields to the output.
+- [ ] 2.12 Rework `derive_stability` to take the observed series plus the deck's declared `fixed_dt`.
+      Name the observed flag `interior_dt_below_nominal`, **not** `dt_reduced` — the pilot schema
+      already uses `dt_reduced` for a deck-level fallback marker and
+      `test_pilot_run_metadata_dt_reduced_correlates_with_fixed_dt` enforces those semantics.
+- [ ] 2.13 Extend `test_fine_pilot_deck.py::_STABILITY_TOKENS` with the two `cfl_limited_*` values.
+- [ ] 2.14 Update `test_assemble_metadata_produces_normalized_schema`'s exact `timing` dict and
+      `test_pilot_fixture_matches_real_capture_…_shape`'s key-set — **same commit** as 2.11/2.12, or
+      CI is red between them.
+- [ ] 2.15 Re-scope the `pod_rows` cross-check to the **raw** row count. **Test first** — assert it
+      SUCCEEDS for pod `rows=4708` against a CSV of 4708 rows spanning 4706 distinct steps, and still
+      raises on a genuine mismatch. Must fail.
+- [ ] 2.16 **Verify** — the six existing "raises on status/deck-hash/row-count mismatch" tests still
+      raise.
+- [ ] 2.17 Add the new fixtures with a matching pod-metadata fixture and manifest entry; update
+      `tests/fixtures/run_metadata/README.md`, which today documents the five-way coupling as prose
+      bullets — convert it to a table in the same commit given the fixture count is growing, or at
+      minimum add the two new fixtures' entries to the existing bullets. **Do not modify
+      `forces_s35_f085_p45.csv`** — its deck sha256 and exact `timing` block are pinned as literals.
+- [ ] 2.18 **Test first** — the run-metadata delta requires `kinematics`/`grid`/`fixed_dt`/`max_step`
+      **and `cfl`** to be sourced from the manifest/deck and echoed in output. Assert the generated
+      metadata's `cfl` field equals the manifest/deck's `ns.cfl` for a config with a `cfl` override,
+      and equals the base deck's `ns.cfl` for one without. Must fail —
+      `metadata_capture.py` currently never reads `ns.cfl`/`cfl` anywhere.
+
+## PR C — Phase 3: `ns.cfl` as an opt-in targeted key (#92)
+
+- [ ] 3.1 **Verify** (no new test) — `test_generate_sweep_defaults_are_byte_identical_to_before` and
+      `test_committed_sweep_matches_regeneration` pass unmodified, and keep passing throughout. This
+      is the hard constraint: it is why the key is opt-in.
+- [ ] 3.2 **Test first** — assert a `cfl` override rewrites `ns.cfl` in every generated deck and
+      leaves `amr.plot_int` and `ns.init_iter` untouched. Must fail.
+- [ ] 3.3 **Test first** — assert omitting `cfl` leaves `ns.cfl` byte-unchanged from the base deck.
+      Must fail.
+- [ ] 3.4 **Test first** — assert a `cfl` override against a base deck lacking `ns.cfl` raises
+      `ValueError` naming the key. Must fail.
+- [ ] 3.5 **Test first** — assert the manifest records `cfl` when overridden and **omits** the key
+      entirely (not `null`) when not, and that provenance gains a `timestep_policy` block only when
+      overridden. Must fail.
+- [ ] 3.6 **Test first** — assert a sweep regenerated from a manifest carrying `cfl` reproduces the
+      decks byte-identically (the replay path `test_committed_fine_corpus_matches_regeneration` needs).
+      Must fail.
+- [ ] 3.7 Implement the optional `cfl` parameter on `render_inputs` / `generate_sweep`, defaulting to
+      pass-through. **Preserve `derive_run_duration`'s 2-tuple return shape** — it is pinned and every
+      caller depends on it.
+- [ ] 3.8 Add a dedicated `test_render_inputs_accepts_cfl_override` battery mirroring the existing
+      `init_iter` pattern (`test_render_inputs_accepts_init_iter_override`,
+      `test_render_inputs_init_iter_none_preserves_base_value`,
+      `test_render_inputs_missing_init_iter_key_raises_when_overridden`). **Do NOT add `ns.cfl` to
+      `TARGET_KEYS`** — that set is specifically the keys rewritten unconditionally by
+      `_render_default` (no override supplied); `ns.init_iter` is deliberately absent from it for the
+      same reason `ns.cfl` must be: `test_render_inputs_minimal_diff` asserts `differing ==
+      TARGET_KEYS` against a call with **no** overrides, so a pass-through-by-default key can never
+      appear there without breaking that exact assertion.
+- [ ] 3.9 Thread `--cfl` through `generate_full_corpus.py`; extend
+      `test_fine_corpus_git_commit_names_a_capable_commit`'s probe tuple (currently
+      `("--plot-int", "--init-iter")`).
+- [ ] 3.10a **Test first** — assert the deck lint raises when a generated deck's `ns.prescribed_vel`
+      is nonzero or `ns.num_steps` is below `max_step`. Must fail (the lint does not exist yet).
+- [ ] 3.10 Add the deck lint from 3.10a to every generated deck — each condition silently inverts or
+      lowers the sizing guarantee (design D1).
+- [ ] 3.11 Record the chosen `ns.cfl = 0.6` and its derivation (worst config requires 0.490) in
+      `design.md` D2 so the value is traceable.
+
+## PR D — Phase 4: orchestration (#95, #90)
+
+- [ ] 4.1 **Test first** — assert the committed `activeDeadlineSeconds` is ≥ the auto-scale formula's
+      value for the full corpus at the committed `parallelism`, **and** covers two preemption retries
+      of the longest config at the documented per-config cost (design D8: `21.54 + 2×2.86 = 27.26h`,
+      committed as **27.3 h** — the one literal used everywhere, not a second independently-rounded
+      figure). Must fail at 86400.
+- [ ] 4.2 **Test first** — assert the **smoke** workflow's deadline too; nothing currently asserts it.
+      Must fail.
+- [ ] 4.3 Raise `activeDeadlineSeconds` to **27.3 h (98,280 s)** in **both** committed workflows, and
+      update `test_argo_workflows.py:145`'s `"activeDeadlineSeconds: 86400"` literal — **same commit**.
+- [ ] 4.4 **Test first** — assert the single-config template's `retryPolicy` is `"Always"`. Must fail.
+- [ ] 4.5 Change `retryPolicy` to `"Always"` and update `test_argo_workflows.py:55` — **same commit**.
+      Update the manifest comment to state `maxDuration` is wall-clock from the first attempt's start.
+- [ ] 4.6 **Test first** — assert `backoff.maxDuration` accommodates `limit + 1` attempts at the
+      documented `PER_CONFIG_HOURS`. Must fail.
+- [ ] 4.7 Re-derive `PER_CONFIG_HOURS` and replace its stale `vb8t5` citation.
+      **Constraint:** the formula stays at 26 h only while the constant is ≤ 2.444; a value that
+      rounds to 2.5 pushes it to 27 h and makes 4.1's own test fail against 4.3's value. Move both
+      together, and refresh the stale `# ceil(3 * 2.4 …)` comments in
+      `test_submit_workflow_active_deadline.py` in the same commit.
+      **Not fixed here, recorded as a follow-up:** `RETRY_MARGIN_HOURS = 4h` in the *conditional*
+      auto-scale path only buys ~1.4 retries at `p=3`, short of this same design's two-retry
+      standard (design D8). Out of scope because the committed default (4.3) is what governs the
+      actual re-run; file alongside the "make auto-scale unconditional" follow-up.
+- [ ] 4.8 **Verify** — `test_omitting_both_deadline_and_parallelism_is_a_true_noop` and the rest of
+      `test_submit_workflow_active_deadline.py` still pass; auto-scale stays **conditional** by
+      design (design D8).
+- [ ] 4.9a **Test first** — assert `smoke` dies with a clear message when
+      `--parallelism`/`--active-deadline-seconds` is passed, rather than silently accepting and
+      ignoring them. Must fail.
+- [ ] 4.9 Add the `die()` from 4.9a for `--parallelism`/`--active-deadline-seconds` passed to `smoke`.
+- [ ] 4.10 **Test first** — assert `SMOKE_CONFIG_NAME` defaults to the corpus's **CFL-worst**
+      configuration, not the first config in the grid. Must fail: it currently defaults to
+      `s35_f085_p30`, the *mildest* config in the entire sweep.
+      *This is the single highest-value prevention in the change. The smoke step exists to catch
+      problems before the 27-way fan-out, and it is currently aimed at the one configuration that
+      structurally cannot reveal a CFL-limiting problem. Pointed at `s55_f115_p30` instead, it would
+      have caught #92 for ~2.4 GPU-h rather than ~65.*
+      **Tie-break required:** `frequency_fstar × stroke_amp_deg` alone ties across all three
+      `s55_f115_*` pitch variants (it ignores pitch amplitude), and D2's own table shows `p30` is the
+      true worst (`cfl_req = 0.490`) against `p45`'s `0.474` — an unlucky ordering could pick the
+      wrong one. Break ties by minimum measured `dt_min` where available (from the corpus this
+      change re-runs), else document the tie-break explicitly in code.
+- [ ] 4.11 Derive the default from the manifest rather than hardcoding a config name, so a corpus with
+      a different kinematic range automatically smoke-tests its own worst case.
+
+## PR E — Phases 5–6: guards, acceptance gate, runbook
+
+- [ ] 5.1 **Test first** — add a corpus **registry** (explicit list, not a glob) with schema
+      `{"path": ..., "has_parquet": bool, "has_per_config_metadata": bool}` per entry — both flags are
+      needed: `has_parquet` for the parquet-tier guard (5.3), `has_per_config_metadata` for the
+      per-config-metadata guard's scope (5.7). Assert the registry is non-empty, that both fields are
+      honored, and that a corpus registered `has_parquet: true` but lacking one **fails loudly** rather
+      than skipping. Must fail.
+      *A glob over `examples/prelim_sweep*` also matches `prelim_sweep_fine_pilot` (3 configs, no
+      parquet), and `prelim_sweep_fine` has no parquet on `main` at all until PR #91 merges — so a
+      glob-driven guard would silently skip exactly the corpus it exists to protect.*
+- [ ] 5.2 **Test first** — manifest/deck tier, applicable to every registered corpus regardless of
+      parquet: each config's deck `max_step` equals its manifest `max_step` (two currently unchecked
+      sources of truth), and the holdout set equals the manifest's recorded names. Must fail.
+- [ ] 5.3 **Test first** — parquet tier for corpora that carry one: column set and order, row count
+      vs manifest `max_step`, strictly increasing `time`, no NaN/Inf, units keys == measured columns.
+      Must fail.
+- [ ] 5.4 **Test first** — the **normalized** symmetry invariant
+      `|mean CF_x| / max|CF_x|` over the settled beat, with the tolerance pinned in a comment
+      alongside the measured healthy maximum (`+0.0001`) and truncated minimum (`+0.0150`) that bound
+      it. Assert it passes coarse and fails a truncated fixture. Must fail.
+      *Do not use the absolute mean: coarse reaches −0.0289 against a truncated minimum of +0.0387, a
+      1.33× window.*
+- [ ] 5.5 **Test first** — converged-beat tripwire for `wingbeat > 0`. Mark it provisional at `< 5`
+      (coarse already sits at 4.015 against it) — task 8.7 re-derives it against the regenerated fine
+      corpus once real data exists. Must fail.
+- [ ] 5.6 **Test first** — assert the guard module imports no cluster/Argo/subprocess surface and
+      reads only paths under the repo root, so "runs offline" is enforced rather than reviewed.
+      Must fail.
+- [ ] 5.7 **Test first** — assert the per-config-metadata guard applies only to corpora that declare
+      it. *`examples/prelim_sweep/` has **zero** `run_metadata_<config>.json` files — only a
+      dataset-build `run_metadata.json` — so an unconditional assertion fails on the one corpus that
+      currently has a parquet.* Must fail.
+- [ ] 6.0 **Test first** — build a minimal 2-config synthetic corpus fixture (manifest, decks,
+      per-config metadata, `sweep_provenance` with and without a `cluster_run` CC-F1 entry) as the
+      shared substrate for all Phase 6 tests; assert it is committed (`git ls-files`) and that its
+      healthy variant passes the gate. Must fail.
+- [ ] 6.1 **Test first** — assert the gate fails on (a) a CFL-limited config, (b) a config whose
+      deduplicated row count ≠ `max_step`, (c) a corpus with no recorded CC-F1 result, (d) a config
+      failing the normalized symmetry check; and passes a healthy corpus. Must fail.
+- [ ] 6.2 **Test first** — assert the gate **recomputes** at least one quantity from raw run output
+      rather than reading every value from the metadata JSON it is gating. Must fail.
+- [ ] 6.3 **Test first** — assert a `cluster_run` record whose only evidence is a **partial**
+      mid-sweep check does not satisfy the post-run gate. Must fail.
+- [ ] 6.4 Implement the gate as a library function plus a thin CLI driver under `scripts/`, mirroring
+      `scripts/check_plotfile_velocity.py`'s shape (logic in the tested library), satisfying 6.1–6.3.
+- [ ] 6.5 **Test first** — assert gate outcomes are persisted to `sweep_provenance.cluster_run`,
+      including a **CC-F1-shaped** entry specifically (plotfile path string, observed `x_velocity`
+      min/max, pass verdict — not a generic name/value pair that any check could satisfy), plus
+      `parallelism` and effective `activeDeadlineSeconds`. Must fail.
+- [ ] 6.5b Implement `cluster_run` persistence in the gate/CLI driver from 6.4, satisfying 6.5.
+- [ ] 6.6 **Test first** — assert `sweep_provenance`'s supersession record is a list-valued history
+      that accumulates, and update `test_fine_corpus_provenance_flags_superseded_runs`'s exact-list
+      assertion — **same commit**. Must fail.
+- [ ] 6.6b Implement the supersession-history restructure in `sweep.py`'s provenance writer,
+      satisfying 6.6.
+- [ ] 6.7 Update `.claude/commands/submit-cluster-sweep.md`: insert the acceptance gate between
+      `generate_run_metadata.py` and `extract_forces.py`; replace Step 4's
+      `stability == "stable_at_5e-4"` check (unfalsifiable — it is a deck echo) with the observed
+      fields; fix its CSV row-count check for `init_iter` (currently over-satisfied); instruct
+      recording CC-F1's result; add the in-run `DT` check on the first completed pod (design D6);
+      state explicitly that Step 4's **partial-corpus** pass criteria differ from the acceptance
+      gate's **complete-corpus** ones; add a "Common Mistakes" row.
+- [ ] 6.8 Update `openspec/project.md:347`, which duplicates the same vacuous `stability` check and is
+      not otherwise covered — after 6.7 it would contradict the runbook it defers to. Prefer deleting
+      the duplicated procedure and pointing at the runbook.
+- [ ] 6.9 Add a scope note to `examples/prelim_sweep/README.md:46`, whose "guaranteeing whole periodic
+      cycles" claim is true only while `ns.cfl` does not bind at that grid's resolution.
+- [ ] 6.10 Add a `docs/CHANGELOG.md` entry with a `(#NN)` reference — every other entry has one.
+
+### Prevention: move the lessons somewhere durable
+
+These exist to stop this class recurring. They are in this change rather than a follow-up because an
+OpenSpec `design.md` is **archived** after merge — which is exactly how the original error
+propagated: the false claim that `ns.fixed_dt` overrides `ns.cfl` has been sitting in
+`openspec/changes/archive/2026-08-03-add-wing-fine-grid-convergence/design.md` §D6 since August,
+discoverable only by digging.
+
+- [ ] 6.11 Add a **pilot-invalidation trigger** to `submit-cluster-sweep.md` Step 0/1: before a full
+      run, confirm whether the geometry, grid, or kinematic range has changed since the pilot that
+      validated this corpus's timestep — and if so, state that the pilot's GO does not transfer and a
+      re-pilot (or a worst-config smoke) is required.
+      *The pilot was methodologically sound: it deliberately ran `s55_f115_p45`, the near-worst
+      config, and reasoned correctly about CFL. It was invalidated by the later hinge fix moving
+      `hinge_y` 2.0 → 0.5, doubling the moment arm and tip speed, and was never re-run. A pilot's
+      validity is scoped to the physics it ran under; geometry changes invalidate it as surely as
+      grid changes do.*
+- [ ] 6.12 **Reconcile with, do not duplicate, the existing CFL note.** `openspec/project.md`'s
+      Conventions → Running Simulations → "Local Docker (A5000)" already has a "CFL at fine 256³ grid"
+      bullet prescribing a *different* mitigation (lower `ns.fixed_dt` to `0.00025`) with no reference
+      to the actual mechanism — landing new prose elsewhere in Conventions would create exactly the
+      stale-adjacent-doc problem this proposal exists to fix. Rewrite that bullet in place to record
+      the **corrected** mechanism: `fixed_dt` is a ceiling, `ns.cfl` an independent limiter that can
+      push below it, with the `estTimeStep` / `predict_velocity` / `computeNewDt` chain cited, and
+      this change's chosen fix (raise `ns.cfl` to 0.6) alongside the lower-`fixed_dt` alternative it
+      previously prescribed exclusively. Explicitly supersede the archived §D6 claim that it is
+      *"an inputs cap, not an enforcement."*
+- [ ] 6.13 Document the **local stability probe** recipe **in the same rewritten bullet as 6.12** (not
+      a separate location — they land in the same subsection): pull the corpus's exact image digest
+      (not the `:fp64` tag, which moves), run a control at the committed `ns.cfl` and confirm it
+      reproduces the corpus bit-exactly, then vary the one parameter under test. ~25 min per case, no
+      cluster quota. Note the arena cap and that a CFD run is bit-reproducible across GPU models
+      (A40 → A5000), which is what makes the control comparison meaningful.
+- [ ] 6.14 Add an erratum to `docs/force_surrogate/fine-grid-pilot-report.md`. **The file is not an
+      unqualified GO** — it already carries a dated (2026-08-10) "Geometry note" disclosing the hinge
+      defect and predicting *"this pilot's 'no CFL fallback needed' result was measured at roughly
+      half the true tip speed... the corrected-geometry regeneration must re-confirm `dt=5e-4`
+      stability rather than assume this pilot's numbers transfer."* The erratum converts that
+      forward-looking prediction into a backward-looking, confirmed outcome: per #92, it did not
+      transfer — the pilot's tested config `s55_f115_p45` reached `cycles_completed ≈ 1.835` of 2.0
+      (91.7%) under the corrected geometry at `ns.cfl = 0.3`, and the corpus regenerated at
+      `ns.cfl = 0.6` under this change. Link to #92 and this change.
+- [ ] 6.15 Record the general reviewing principle in `project.md` Conventions — it generalizes well
+      past CFL and currently has no home:
+      *(a)* a check that reconciles an artifact only against **itself** (no NaN, ranges sane, internal
+      consistency) cannot detect a wrong artifact; at least one check must reconcile against an
+      **external** reference — the manifest, or a physical invariant;
+      *(b)* a metadata field computable from the inputs alone is not evidence about a run;
+      *(c)* a mandatory check with no recorded result is indistinguishable from one never run.
+
+## Phase 9 — Verification (run after completing each of Phases 1–6, not only once at the end)
+
+- [ ] 9.1 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/` — CI's exact six-path list.
+- [ ] 9.2 `uv run ruff format --check` over the same six paths.
+- [ ] 9.3 `uv run pytest -v -m "not gpu"` — CI's exact invocation; a bare `pytest -v` does not match.
+- [ ] 9.4 `git ls-files <path>` for every new fixture — `.gitignore`'s global `IB_Particle_*.csv`
+      pattern silently skips the natural name.
+- [ ] 9.5 File a follow-up issue for `/run-ci-locally`, which lints only `src/` while CI lints six
+      paths including `tests/` and `scripts/` — exactly where this change adds code, so a lint error
+      would pass locally and fail CI.
+
+## Phase 7 — Cluster re-run (after PRs A–E merge; requires GPU time and explicit go-ahead)
+
+- [ ] 7.0 **Snapshot the 27 configs' raw NFS CSVs to a separate path before anything else**, using a
+      plain copy — **not** the `provision()` codepath, which has prior form for a self-overwrite
+      data-loss bug (now fixed, but this snapshot exists specifically as insurance against that class
+      of bug recurring, so don't route through it). This is not about preserving data from configs
+      that won't be touched — all 27 are being re-run intentionally — it is insurance against the
+      re-run process itself failing (this repo has two documented precedents: an NFS provisioning gap
+      that stalled a submission 22h, and the `provision()` bug). Without it, a partial re-run failure
+      could leave a config with neither the old (superseded but CC-F1-validated) data nor a completed
+      new run. Safe to delete after task 7.5's gate passes and Phase 8 merges.
+- [ ] 7.1 Regenerate all 27 fine decks with `--cfl 0.6`; confirm the only per-deck change vs the
+      committed decks is `ns.cfl`, and that the manifest records `cfl`.
+- [ ] 7.2 **Mandatory precondition, not optional — run one full config (`s55_f115_p30`) at
+      `ns.cfl = 0.6` to completion (~2.4 GPU-h) and pass it through the acceptance gate before
+      submitting the other 26.** The local probe (design D4) covered only 11.4% of one period and
+      never reached a stroke reversal, where flapping-wing aerodynamics can produce peak velocities
+      the impulsive-start transient does not exercise. This is the only check that confirms the
+      solver stays stable past that point, for ~4% of the total re-run cost. Do not proceed to 7.3 for
+      the remaining 26 configs until this passes.
+- [ ] 7.3 Run `/submit-cluster-sweep` for the remaining 26 configs, recording the CC-F1 result and the
+      in-run `DT` check at the Step 4 gate.
+- [ ] 7.4 Generate metadata for all 27; confirm every config reports `interior_dt_below_nominal =
+      false`, `reached_stop_time`, and `cycles_completed` at the healthy value.
+- [ ] 7.5 Run the acceptance gate over the full corpus; it must pass before any parquet is built.
+- [ ] 7.6 Rebuild `dataset.parquet` + `dataset.units.json`; confirm `len(df) == Σ max_step = 109,656`
+      (restored, because uniform dt means every config terminates on `max_step` as the healthy ones
+      already do).
+- [ ] 7.7 Write `examples/prelim_sweep_fine/README.md` — the corpus is now first-class and publishes
+      six new metadata fields with no narrative documentation at all.
+- [ ] 7.8 Update `docs/field_surrogate/roadmap.md` CC-F3 with the storage measurement from the
+      corrected run, or state explicitly that it is insensitive to the `cfl` change. CC-F3 also
+      carries a second, unaddressed forward-looking claim — *"must also re-confirm `dt=5e-4`
+      numerical stability against the corrected hinge before submitting... not confirmed to
+      transfer"* — close that loop too: link to #92 as the confirmation that it did not transfer,
+      and to this change as the fix.
+
+## Phase 8 — Close out PR #91
+
+- [ ] 8.1 Sync PR #91's branch onto post-PR-E `main` **before** any regeneration — its existing
+      parquet was built by the pre-dedup extractor and is invalid. This is a full artifact
+      regeneration, not a rebase.
+- [ ] 8.2 Update #91 with the corrected corpus, all 27 regenerated metadata files, and the
+      `cluster_run` block including gate results, `parallelism` and effective deadline.
+- [ ] 8.3 Correct #91's claims: the #63 wording ("verified on both workflows" is unsupportable for a
+      2.86 h single-config workflow — soften to "consistent with"), the #64 status
+      (known-insufficient, not unverified), the row count, and disclose both the original truncation
+      and the `ns.cfl` change. Add the missing `(#91)` CHANGELOG reference.
+- [ ] 8.4 Re-run `/review-pr 91`, then merge.
+- [ ] 8.5 Close #92, #93, #94, #95, #90, #20.
+- [ ] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
+      it and the specs would not yet reflect reality.
+- [ ] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
+      regenerated fine corpus's actual data; tighten it if the margin supports a smaller bound.
