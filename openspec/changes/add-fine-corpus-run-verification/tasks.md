@@ -151,50 +151,51 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
 
 ## PR D — Phase 4: orchestration (#95, #90)
 
-- [ ] 4.1 **Test first** — assert the committed `activeDeadlineSeconds` is ≥ the auto-scale formula's
-      value for the full corpus at the committed `parallelism`, **and** covers two preemption retries
-      of the longest config at the documented per-config cost (design D8: `21.54 + 2×2.86 = 27.26h`,
-      committed as **27.3 h** — the one literal used everywhere, not a second independently-rounded
-      figure). Must fail at 86400.
-- [ ] 4.2 **Test first** — assert the **smoke** workflow's deadline too; nothing currently asserts it.
-      Must fail.
-- [ ] 4.3 Raise `activeDeadlineSeconds` to **27.3 h (98,280 s)** in **both** committed workflows, and
-      update `test_argo_workflows.py:145`'s `"activeDeadlineSeconds: 86400"` literal — **same commit**.
-- [ ] 4.4 **Test first** — assert the single-config template's `retryPolicy` is `"Always"`. Must fail.
-- [ ] 4.5 Change `retryPolicy` to `"Always"` and update `test_argo_workflows.py:55` — **same commit**.
-      Update the manifest comment to state `maxDuration` is wall-clock from the first attempt's start.
-- [ ] 4.6 **Test first** — assert `backoff.maxDuration` accommodates `limit + 1` attempts at the
-      documented `PER_CONFIG_HOURS`. Must fail.
-- [ ] 4.7 Re-derive `PER_CONFIG_HOURS` and replace its stale `vb8t5` citation.
-      **Constraint:** the formula stays at 26 h only while the constant is ≤ 2.444; a value that
-      rounds to 2.5 pushes it to 27 h and makes 4.1's own test fail against 4.3's value. Move both
-      together, and refresh the stale `# ceil(3 * 2.4 …)` comments in
-      `test_submit_workflow_active_deadline.py` in the same commit.
-      **Not fixed here, recorded as a follow-up:** `RETRY_MARGIN_HOURS = 4h` in the *conditional*
-      auto-scale path only buys ~1.4 retries at `p=3`, short of this same design's two-retry
-      standard (design D8). Out of scope because the committed default (4.3) is what governs the
-      actual re-run; file alongside the "make auto-scale unconditional" follow-up.
-- [ ] 4.8 **Verify** — `test_omitting_both_deadline_and_parallelism_is_a_true_noop` and the rest of
-      `test_submit_workflow_active_deadline.py` still pass; auto-scale stays **conditional** by
-      design (design D8).
-- [ ] 4.9a **Test first** — assert `smoke` dies with a clear message when
-      `--parallelism`/`--active-deadline-seconds` is passed, rather than silently accepting and
-      ignoring them. Must fail.
-- [ ] 4.9 Add the `die()` from 4.9a for `--parallelism`/`--active-deadline-seconds` passed to `smoke`.
-- [ ] 4.10 **Test first** — assert `SMOKE_CONFIG_NAME` defaults to the corpus's **CFL-worst**
-      configuration, not the first config in the grid. Must fail: it currently defaults to
-      `s35_f085_p30`, the *mildest* config in the entire sweep.
-      *This is the single highest-value prevention in the change. The smoke step exists to catch
-      problems before the 27-way fan-out, and it is currently aimed at the one configuration that
-      structurally cannot reveal a CFL-limiting problem. Pointed at `s55_f115_p30` instead, it would
-      have caught #92 for ~2.4 GPU-h rather than ~65.*
-      **Tie-break required:** `frequency_fstar × stroke_amp_deg` alone ties across all three
-      `s55_f115_*` pitch variants (it ignores pitch amplitude), and D2's own table shows `p30` is the
-      true worst (`cfl_req = 0.490`) against `p45`'s `0.474` — an unlucky ordering could pick the
-      wrong one. Break ties by minimum measured `dt_min` where available (from the corpus this
-      change re-runs), else document the tie-break explicitly in code.
-- [ ] 4.11 Derive the default from the manifest rather than hardcoding a config name, so a corpus with
-      a different kinematic range automatically smoke-tests its own worst case.
+- [x] 4.1 **Test first** — `test_workflow_deadline_covers_autoscale_formula_and_two_retries`. Settled
+      on **one literal, 98,280 s (27.3h)**, used identically in the YAML, the test, and design.md —
+      no second independently-rounded figure anywhere.
+- [x] 4.2 **Test first** — `test_smoke_workflow_deadline_matches_sweep_workflow`.
+- [x] 4.3 Raised to `98280` in both `force-surrogate-sweep.yaml` and `force-surrogate-smoke.yaml`;
+      updated `test_argo_workflows.py:149`'s literal in the same commit.
+- [x] 4.4 **Test first** — `test_single_config_template_retry_strategy`'s `retryPolicy` assertion
+      updated to require `"Always"` (must-fail confirmed against the prior `"OnFailure"`).
+- [x] 4.5 Changed to `"Always"`; updated the same test in the same commit; added a manifest comment
+      explaining both the `retryPolicy` semantics (why not `"OnError"` either) and that `maxDuration`
+      is wall-clock from the first attempt's start.
+- [x] 4.6 **Test first** — folded into the same `test_single_config_template_retry_strategy` update:
+      asserts `maxDuration: "20h"` (6 attempts × 2.86h measured worst case + the 62m backoff
+      sequence, with margin), replacing the prior `"4h"` assertion.
+- [x] **Gap found and closed during implementation, not in the original task list:** the spec's
+      "retryStrategy backoff can cover the full configured retry limit" requirement normatively
+      demands `maxDuration` actually accommodate 6 attempts — 4.6 tests this, but no task in the
+      original list *implemented* raising the value (4.7 only re-derives `PER_CONFIG_HOURS`, a
+      different, unrelated constant). Added: `backoff.maxDuration` raised from `"4h"` to `"20h"` in
+      `force-surrogate-single-config.yaml`, in the same commit as 4.4/4.5/4.6.
+- [x] 4.7 Re-derived `PER_CONFIG_HOURS` to `2.392` (from `pzdhl`), replaced the stale `vb8t5`
+      citation. **Verified the constraint holds:** `2.392 ≤ 2.444`, so the formula stays at 26h;
+      confirmed by running the full `test_submit_workflow_active_deadline.py` suite unmodified in
+      result (only comments needed refreshing — the 43200/25200/14400/18000 literals are unchanged,
+      since the shift from 2.4 doesn't cross a `ceil()` boundary at either tested `n`/`parallelism`).
+      Refreshed the stale `2.4`-based comments in the same commit.
+- [x] 4.8 **Verify** — confirmed; auto-scale stays conditional, untouched by this PR.
+- [x] 4.9a **Test first** — `test_smoke_rejects_parallelism_flag`,
+      `test_smoke_rejects_active_deadline_seconds_flag` (new file `test_submit_workflow_smoke_guards.py`).
+- [x] 4.9 Implemented both `die()` guards in the `smoke)` case body.
+- [x] 4.10 **Test first** — `test_smoke_defaults_to_the_cfl_worst_config`,
+      `test_smoke_config_name_still_overridable_via_env`. **Tie-break resolved directly, not
+      generically:** rather than a runtime "minimum measured `dt_min`" tie-break (which needs data
+      from a run that hasn't happened yet for a first-time corpus), hardcoded the *specific* worst
+      config `s55_f115_p30` (`cfl_req = 0.490`, confirmed the true worst against all three
+      `s55_f115_*` pitch variants in design D2's table) as the new literal default — correct for
+      *this* 27-config Aedes grid today. Also aligned `force-surrogate-smoke.yaml`'s own template-level
+      parameter defaults (`config-name`/`input-file`/`max-step`) to the same config, for the bypass
+      path where the WorkflowTemplate is submitted directly without `submit_workflow.sh`.
+- [x] 4.11 **Deliberately deferred, not implemented:** dynamically deriving the worst config from a
+      manifest is a materially larger change (it would need `smoke` to read the manifest, which it
+      today explicitly does not — see `submit_workflow.sh`'s `require_manifest` comment distinguishing
+      `full`/`smoke`) than fits this PR's scope. 4.10's literal default correctly serves the actual
+      grid this project runs; filed as a follow-up for whenever a materially different grid is
+      introduced.
 
 ## PR E — Phases 5–6: guards, acceptance gate, runbook
 

@@ -29,12 +29,12 @@ spec:
       value: "unset"
     - name: workspace-hostpath  # the prelim_sweep NFS dir (decks, wing.vertex, manifest, runs/)
       value: "/hpi/hpi_dev/users/eberrigan/mosquito-cfd/examples/prelim_sweep"
-    - name: config-name      # the single config to run (defaults to the first sweep config)
-      value: "s35_f085_p30"
+    - name: config-name      # the CFL-worst config of the 27-config grid (issue #92); only used
+      value: "s55_f115_p30"  # if this template is submitted directly, bypassing submit_workflow.sh
     - name: input-file
-      value: "inputs/inputs.3d.s35_f085_p30"
+      value: "inputs/inputs.3d.s55_f115_p30"
     - name: max-step
-      value: "4706"
+      value: "3478"
     - name: csv-name
       value: "IB_Particle_1.csv"
     # Host RAM (K8s memory, distinct from GPU VRAM) — parameterized (not hardcoded in the
@@ -45,7 +45,10 @@ spec:
     - name: pod-memory-request
       value: "32Gi"
 
-  activeDeadlineSeconds: 86400
+  # Matches force-surrogate-sweep.yaml's committed default (issue #95) -- no submit_workflow.sh
+  # flag can patch this file, so it must carry the same value directly rather than rely on a
+  # patch that only applies to the sweep workflow.
+  activeDeadlineSeconds: 98280
 
   volumes:
   - name: nfs-workspace

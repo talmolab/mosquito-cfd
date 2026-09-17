@@ -292,6 +292,13 @@ without `--active-deadline-seconds`). Making it unconditional would break
 `test_omitting_both_deadline_and_parallelism_is_a_true_noop` and its spec scenario — a behaviour
 change beyond this change's purpose. Recorded as a follow-up alongside `RETRY_MARGIN_HOURS` above.
 
+**`backoff.maxDuration` (a separate, template-level Argo field, not `RETRY_MARGIN_HOURS`): raised
+from `4h` to `20h`.** This one *is* implemented, not deferred, because the spec's own normative
+text ("retryStrategy backoff can cover the full configured retry limit") requires it: at the
+measured worst-case per-attempt cost of 2.86 h, `limit: 5` (6 attempts) needs
+`6 × 2.86 = 17.16 h` plus the cumulative backoff sequence (`2m+4m+8m+16m+32m = 62m`) ≈ 18.2 h;
+`20h` covers that with margin. `4h` had permitted only ~1.5 attempts.
+
 ## D9. Sequencing against PR #91
 
 PR #91 is open and carries the corpus, the `cluster_run` provenance block, and the `project.md`
@@ -315,11 +322,12 @@ still exist on cluster NFS. CC-F1 was run manually and **passes** (`s35_f085_p30
 `x_velocity ∈ [-2.36, 10.39]`; `s55_f115_p60/plt01000`: `[-8.31, 24.22]`), so the existing
 field-capture output is valid — B4's concern was that it was never *recorded*, not that it failed.
 
-**Irreversibility to guard:** those NFS CSVs are the only remaining copy of the 18 healthy configs'
-raw output (gitignored, and `main` has no parquet). Since the re-run writes into the same shared
-workspace, and this repo has prior form with an NFS provisioning gap and a `provision()` data-loss
-bug, the CSVs are snapshotted before the re-run touches anything. Everything else in the plan is
-recoverable by re-running; this is not.
+**Irreversibility to guard:** those NFS CSVs are the only remaining copy of all 27 configs' raw
+output (gitignored, and `main` has no parquet) — all 27 are at risk, not a subset, since every deck
+changes under the `ns.cfl` fix. Since the re-run writes into the same shared workspace, and this
+repo has prior form with an NFS provisioning gap and a `provision()` data-loss bug, all 27 CSVs are
+snapshotted (a plain copy, not through `provision()` itself) before the re-run touches anything.
+Everything else in the plan is recoverable by re-running; this is not.
 
 ## D10. Known test impact
 

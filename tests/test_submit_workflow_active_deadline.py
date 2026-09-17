@@ -228,9 +228,11 @@ def test_invalid_parallelism_still_rejected_cleanly_when_autoscale_would_fire(
 def test_parallelism_without_explicit_deadline_autoscales(
     tmp_path, parallelism, expected
 ):
-    # ceil(3 * 2.4 / parallelism + 4) * 3600:
-    #   parallelism=1: ceil(7.2/1 + 4)  = ceil(11.2) = 12 -> 43200
-    #   parallelism=3: ceil(7.2/3 + 4)  = ceil(6.4)  = 7  -> 25200
+    # ceil(3 * 2.392 / parallelism + 4) * 3600 (PER_CONFIG_HOURS re-derived from pzdhl, issue
+    # #92 -- the literal outputs are UNCHANGED from the prior 2.4-based calibration; the small
+    # constant shift doesn't cross a ceil() boundary here):
+    #   parallelism=1: ceil(7.176/1 + 4) = ceil(11.176) = 12 -> 43200
+    #   parallelism=3: ceil(7.176/3 + 4) = ceil(6.392)  = 7  -> 25200
     # --workspace-hostpath's basename must match --corpus-dir's (the new consistency check that
     # scopes auto-scale to a workspace/corpus pair it can trust) -- any path works since
     # --no-provision means it's never actually touched, only its basename is compared.
@@ -290,7 +292,7 @@ def test_autoscale_with_very_large_parallelism_does_not_crash_or_underflow(tmp_p
 
     assert result.returncode == 0, result.stderr
     assert invoked_marker.exists()
-    # ceil(3*2.4/1000000 + 4)*3600 = ceil(4.0000072)*3600 = 5*3600 = 18000 (not 14400 --
+    # ceil(3*2.392/1000000 + 4)*3600 = ceil(4.0000072)*3600 = 5*3600 = 18000 (not 14400 --
     # math.ceil rounds up past any nonzero fractional remainder, however tiny).
     assert "activeDeadlineSeconds: 18000" in capture_file.read_text()
 

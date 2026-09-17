@@ -52,10 +52,14 @@ def test_single_config_template_retry_strategy():
     assert re.search(r"retryStrategy:\s*\n(?:\s+\S.*\n)*?\s+limit:\s*5", text), (
         "retryStrategy must set limit: 5"
     )
-    assert 'retryPolicy: "OnFailure"' in text or "retryPolicy: OnFailure" in text
-    assert re.search(r"backoff:\s*\n(?:\s+\S.*\n)*?\s+maxDuration:\s*\"4h\"", text), (
-        'backoff.maxDuration must be "4h" (30m exhausts after only 3 of the 5 configured '
-        "retries; see issue #64)"
+    assert 'retryPolicy: "Always"' in text or "retryPolicy: Always" in text, (
+        '"OnFailure" cannot retry a pod deleted by preemption (retryOnError=false); "Always" '
+        "is the only value covering both application failure and pod deletion (issue #90)"
+    )
+    assert re.search(r"backoff:\s*\n(?:\s+\S.*\n)*?\s+maxDuration:\s*\"20h\"", text), (
+        "backoff.maxDuration must accommodate limit+1=6 attempts at the measured worst-case "
+        "per-attempt cost (2.86h) plus the cumulative backoff sequence (62m) -- ~18.2h, not "
+        '"4h" (which permits only ~1.5 attempts at that cost; see issue #64)'
     )
 
 
@@ -142,7 +146,44 @@ def test_workflow_has_image_and_parallelism_and_deadline():
     assert re.search(r"\n\s*parallelism:\s*\d+", text), (
         "a spec-level parallelism cap (bounded concurrency)"
     )
-    assert "activeDeadlineSeconds: 86400" in text  # 24h bound
+    assert "activeDeadlineSeconds: 98280" in text  # 27.3h bound (issue #95)
+
+
+def test_workflow_deadline_covers_autoscale_formula_and_two_retries():
+    """The committed deadline is not below the submission script's own auto-scale formula, and
+    additionally accommodates two preemption retries of the longest configuration -- both, not
+    just the first: fixing #90 (retryPolicy: "Always") makes retries actually fire, and a
+    deadline sized only for the auto-scale formula would re-trigger the original #95 kill the
+    moment a retry happens."""
+    import math
+
+    text = _read(WORKFLOW)
+    match = re.search(r"activeDeadlineSeconds:\s*(\d+)", text)
+    assert match, "no activeDeadlineSeconds found"
+    committed = int(match.group(1))
+
+    n_configs, parallelism = 27, 3
+    per_config_hours, retry_margin_hours = (
+        2.4,
+        4,
+    )  # submit_workflow.sh's current constants
+    autoscale_seconds = (
+        math.ceil(n_configs * per_config_hours / parallelism + retry_margin_hours)
+        * 3600
+    )
+    assert committed >= autoscale_seconds
+
+    lpt_makespan_hours, longest_config_hours = 21.54, 2.86  # measured, design.md D8
+    two_retry_seconds = (lpt_makespan_hours + 2 * longest_config_hours) * 3600
+    assert committed >= two_retry_seconds
+
+
+def test_smoke_workflow_deadline_matches_sweep_workflow():
+    """Nothing previously asserted the smoke workflow's deadline at all -- its committed value
+    cannot be patched by any submit_workflow.sh flag, so it must match the sweep workflow's
+    committed default directly."""
+    text = _read(SMOKE)
+    assert "activeDeadlineSeconds: 98280" in text
 
 
 def test_workflow_fans_out_over_manifest_configs():
