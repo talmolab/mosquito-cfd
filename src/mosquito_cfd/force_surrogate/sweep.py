@@ -568,9 +568,9 @@ def generate_sweep(
     write_units_sidecar(output_dir / "sweep_manifest.units.json", _MANIFEST_UNITS)
 
     # This dict is written verbatim below -- it has no knowledge of any hand-added top-level key
-    # (e.g. a corpus's "superseded_by" block flagging a stale prior cluster run). Regenerating a
-    # corpus that has one requires manually re-adding it to the fresh sweep_provenance.json;
-    # nothing here preserves it automatically.
+    # (e.g. a corpus's "supersession_history" list flagging stale prior cluster runs).
+    # Regenerating a corpus that has one requires manually re-adding it to the fresh
+    # sweep_provenance.json; nothing here preserves it automatically.
     provenance = {
         "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
         "generated_at": timestamp,

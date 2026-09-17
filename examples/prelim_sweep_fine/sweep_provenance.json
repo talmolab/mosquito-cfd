@@ -10,13 +10,15 @@
   },
   "generated_at": "2026-09-01T09:30:00+00:00",
   "git_commit": "5c367596c5f1b7a28ff9369184c5e840c4f9c164",
-  "superseded_by": {
-    "cluster_workflows": [
-      "force-surrogate-sweep-vb8t5",
-      "force-surrogate-retry-failed-trz9k"
-    ],
-    "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale.",
-    "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by the cluster runs below, whose raw CFD output on NFS predates this fix and is now stale."
-  },
+  "supersession_history": [
+    {
+      "cluster_workflows": [
+        "force-surrogate-sweep-vb8t5",
+        "force-surrogate-retry-failed-trz9k"
+      ],
+      "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale.",
+      "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by these cluster runs, whose raw CFD output on NFS predated this fix and was stale."
+    }
+  ],
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
 }

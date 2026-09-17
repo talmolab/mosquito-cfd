@@ -188,6 +188,26 @@ mosquito-cfd/
 
 ## Conventions
 
+### Verification Principles
+
+Learned from issue #92 (a 27-config cluster corpus silently truncated for 15 configs, undetected
+through a full run and a green test suite):
+
+1. **A check that reconciles an artifact only against itself cannot detect a wrong artifact.**
+   No NaN, ranges sane, N configs present, coefficients consistent with forces — every one of
+   these passed on the defective corpus, because they all ask "does the data agree with itself?"
+   At least one check on any committed artifact must reconcile against an **external**
+   reference — the manifest it was built from, or a physical invariant (e.g. a cycle-mean force
+   that must be ≈0 by symmetry) — not just against its own internal consistency.
+2. **A metadata field computable from the inputs alone is not evidence about a run.** `stability`
+   derived solely from the deck's declared `ns.fixed_dt` asserted `stable_at_5e-4` for every
+   CFL-limited config, because it never looked at what the run actually did. A field meant as
+   evidence must be derived from the run's own output.
+3. **A mandatory check with no recorded result is indistinguishable from one that was never
+   run.** The CC-F1 field-capture check was mandatory in the submission runbook and had no
+   recorded outcome anywhere in the corpus — "required" and "silently skipped" look identical
+   after the fact. Every mandatory check must write its result somewhere machine-readable.
+
 ### Code Style
 - **Python**: Enforce with `ruff` (line-length: 100, target: py311)
 - **Rules**: E, F, I (imports), UP (pyupgrade)
@@ -250,9 +270,48 @@ docker run --rm --gpus all `
 AMReX defaults to ¾ × VRAM = 18 GiB on a 24 GB card, but set it explicitly so a
 future AMReX version can't silently change the default. A40 (40 GB) uses 28.
 
-**CFL at fine 256³ grid** — `inputs.3d.convergence_fine` sets `ns.fixed_dt=0.0005`
-(CFL ≈ 0.45, unstable). Use `ns.fixed_dt=0.00025` + `max_step=4000` for a stable
-1-wingbeat run. See `examples/flapping_wing/t3c_run_local.sh` for the full override set.
+**CFL mechanism (corrected) and the `ns.cfl` fix** — `ns.fixed_dt` is a **ceiling**, not an
+enforced value: `NavierStokesBase.cpp`'s `estTimeStep()` returns `factor*fixed_dt` early
+(line ~1503/1517) when `fixed_dt > 0`, but `ns.cfl` independently limits the realized step via
+`predict_velocity` → `computeNewDt` (`NavierStokesBase.cpp:1114`), and can push it *below*
+`fixed_dt` on a finer grid. This supersedes an earlier note in this file (and in the archived
+`add-wing-fine-grid-convergence` design doc §D6) that described `ns.fixed_dt` as overriding
+`ns.cfl` "regardless" — that belief is the documented root cause of issue #92 (15 of 27
+fine-256³-corpus configs CFL-limited, 9 truncated mid-wingbeat, undetected through a full run and
+a green test suite). See `add-fine-corpus-run-verification`'s `design.md` D1 for the full source
+trace.
+
+Two mitigations, depending on the goal:
+- **Lower `ns.fixed_dt`** (e.g. `inputs.3d.convergence_fine`: `ns.fixed_dt=0.00025` +
+  `max_step=4000` for a stable 1-wingbeat local run — see
+  `examples/flapping_wing/t3c_run_local.sh` for the full override set). Right for a one-off local
+  convergence check where the timestep itself isn't load-bearing elsewhere.
+- **Raise `ns.cfl`** so the *validated* `ns.fixed_dt` binds again (the fix chosen for the
+  27-config fine corpus: `0.3 → 0.6`, threaded as an opt-in per-config deck key — see
+  `force_surrogate.sweep.render_inputs`'s `cfl` parameter). Right when the corpus must stay at
+  the already-validated timestep, since it doesn't change what every other config already runs
+  at.
+
+**Local stability probe (de-risking a `ns.cfl`/`ns.fixed_dt` change before spending cluster GPU
+time, ~25 min/case, no cluster quota):**
+1. Pull the **exact image digest** the corpus of interest actually ran on (from any of its
+   `run_metadata_<config>.json`'s `docker_image` field) — never the `:fp64` tag, which moves.
+   Verify `docker inspect --format '{{json .Config.Labels}}'`'s
+   `com.mosquito-cfd.iamrex-commit` matches `docker/build-args.env`.
+2. Run a **control** first, at the corpus's committed value, on the same deck/geometry. Confirm
+   it reproduces the corpus's own committed force CSV **bit-exactly** (`max |time diff| == 0`,
+   identical dt series, `Fx`/`Fz` correlation `1.00000000`) before trusting anything from the
+   variant run — this also confirms the CFD is bit-reproducible across GPU models (e.g. cluster
+   A40 → dev A5000), which is what makes the comparison meaningful.
+3. Vary the one parameter under test (e.g. `ns.cfl`) and compare: dt held at nominal (no
+   CFL-reduced steps), no NaN/Inf, `|u|max` bounded (not growing), and force agreement with the
+   control outside the impulsive-start transient.
+4. Use the A5000 arena cap above; two cases cannot run concurrently at that cap.
+5. **A local probe of the startup transient alone is not sufficient evidence for a full
+   multi-day corpus decision** — it does not exercise stroke reversals, where wake-capture
+   effects can produce a higher peak velocity than the impulsive start. Run at least one full
+   config to completion (a small fraction of the total cost) as a mandatory precondition before
+   committing to the full re-run.
 
 **Image staleness check** — the local fp64 image must be at IAMReX commit `f93dc794`
 (T2a 3D d_nn fix). Verify before a long run:
@@ -328,34 +387,14 @@ uv run python scripts/make_config_mean_collapse_diagnostic.py \
     --timestamp 2026-08-12T00:00:00+00:00
 ```
 
-**Mid-sweep partial-corpus check** (corrected 2026-08-31, then 2026-09-01 — the previous version
-of this note recommended a plotfile-based video check that cannot work against this corpus's
-design intent; see `.claude/commands/submit-cluster-sweep.md` for the full runbook this note now
-defers to): once just a few of the 27-config corpus's cluster runs finish (before the full sweep
-completes), check those configs' force output directly — the CSV/force-based check below is the
-recommended default for **either** corpus, coarse or fine. As of `add-fine-corpus-field-capture`,
-the fine corpus's decks are no longer force-only (`amr.plot_int=100`, `ns.init_iter=2` — see
-`docs/field_surrogate/roadmap.md`); only the coarse corpus (`examples/prelim_sweep/`) still forces
-`amr.plot_int=-1` unconditionally, per `openspec/specs/force-surrogate/spec.md` and
-`cluster/argo/README.md`'s "Corpus-agnostic, CSV-only workflow steps (CC-6)" note (both scoped
-accordingly). A
-`make_flow_video.py`-style multi-frame check is no longer categorically impossible for the fine
-corpus, but the CSV/force check remains the recommended default — it doesn't need a completed
-plotfile time series and is cheaper to run mid-sweep. Steps:
-1. For each finished config, confirm `runs/<config>/IB_Particle_1.csv` has the expected row
-   count (`check_completion`'s own logic, matching `sweep_manifest.json`'s `max_step`) and
-   `run_metadata.json`'s `stability` field is `stable_at_5e-4` (not a `_fallback` suffix).
-2. Build a partial dataset from just the finished configs and eyeball actual force values:
-   `uv run python scripts/extract_forces.py --allow-missing ...` (the `--allow-missing` flag
-   exists exactly for this — skips configs with no CSV yet instead of hard-failing), then check
-   each config's CF_x/CF_z for NaN/Inf, non-zero magnitude, and oscillation at the config's own
-   kinematic frequency.
-
-A wing geometry/kinematics bug (the exact class `fix-force-surrogate-sweep-hinge` fixed) is
-cheaper to catch this way on 2-3 finished configs than after burning the remaining GPU-hours on
-all 27. Before submitting at all, also cluster-freely check wing geometry itself with
-`scripts/make_wing_phase_diagnostic.py` (no cluster run needed) as an even earlier, zero-cost
-gate. See `.claude/commands/submit-cluster-sweep.md` for the full submission runbook.
+**Mid-sweep partial-corpus check and the full submission runbook now live in
+`.claude/commands/submit-cluster-sweep.md`** (Steps 0–5, plus "After the Sweep Completes"'s
+mandatory post-run acceptance gate) — this note previously duplicated that procedure and drifted
+out of sync with it (its own `stability == "stable_at_5e-4"` check was unfalsifiable at 256³ once
+`ns.cfl` could CFL-limit a run below the deck's declared `ns.fixed_dt`; see
+`add-fine-corpus-run-verification` #93). Do not re-duplicate the procedure here; consult the
+runbook directly. Before submitting at all, also cluster-freely check wing geometry itself with
+`scripts/make_wing_phase_diagnostic.py` (no cluster run needed) as an even earlier, zero-cost gate.
 
 ## References
 

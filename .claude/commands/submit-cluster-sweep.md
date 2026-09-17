@@ -64,9 +64,19 @@ plotfile before proceeding to `full` — that's the CC-F1 defect this check exis
 
 **Stale committed metadata warning** — before submitting anything, check whether
 `<corpus-dir>/run_metadata_<config>.json` files already exist from a prior, superseded run (see
-that corpus's `sweep_provenance.json`'s `superseded_by` field, if present). Flag this to the user;
-if the new run fails partway, stale pre-fix and fresh post-fix files are otherwise indistinguishable
-by filename alone until someone diffs `workflow_uid`/`pod` fields inside them.
+that corpus's `sweep_provenance.json`'s `supersession_history` list, if present). Flag this to the
+user; if the new run fails partway, stale pre-fix and fresh post-fix files are otherwise
+indistinguishable by filename alone until someone diffs `workflow_uid`/`pod` fields inside them.
+
+**Pilot-invalidation trigger** — before trusting any prior pilot's stability go/no-go for this
+corpus's timestep, confirm whether the geometry, grid resolution, or kinematic range has changed
+since that pilot ran. If any have, the pilot's GO does **not** transfer — a geometry change
+invalidates a stability pilot as surely as a grid change does (see the corrected `ns.fixed_dt`/
+`ns.cfl` mechanism note in `openspec/project.md`'s Conventions, and
+`docs/force_surrogate/fine-grid-pilot-report.md`'s erratum, for a concrete instance where this was
+missed: a hinge-geometry fix doubled tip speed after the pilot ran, and its GO was assumed to
+transfer without re-confirming). If in doubt, a worst-config smoke run (Step 2) is cheap
+insurance; a full re-pilot is not always necessary.
 
 ## Step 1: Pre-Submission Checks — All Read-Only, Zero Cluster Spend
 
@@ -148,6 +158,20 @@ velocity field to the plotfile — forces are unaffected (marker-derived, not pl
 this defect would otherwise go unnoticed until Stage 2 (field-surrogate) work tries to consume the
 plotfiles later. Not needed for a force-only corpus (no plotfiles exist to check).
 
+**Record the result — a mandatory check with no recorded outcome is indistinguishable from one
+that was never run.** Persist it into the corpus's `sweep_provenance.json` immediately:
+```python
+from mosquito_cfd.force_surrogate.acceptance_gate import record_check_result
+record_check_result(
+    "<corpus-dir>/sweep_provenance.json", "cc_f1",
+    plotfile="<workspace-hostpath>/runs/<config>/plt00100",
+    x_velocity_min=..., x_velocity_max=..., verdict="pass",
+)
+```
+This is exactly the field the post-run acceptance gate (see "After the Sweep Completes") checks
+for on a field-capture corpus — recording it here means the gate doesn't fail later for a check
+that actually passed but was never written down.
+
 ## Step 3: Submit `full`
 
 **STOP — get the user's explicit go-ahead before running this.** This is the real spend: 27
@@ -189,12 +213,30 @@ gather this evidence (autonomous), then report it and wait for the user before a
    cluster/argo/scripts/monitor_workflow.sh get force-surrogate-sweep-<id>
    ```
 2. For each finished config, spot-check `runs/<config>/`:
-   - `IB_Particle_1.csv` row count matches `check_completion`'s expectation for that config's
-     `max_step` (from `sweep_manifest.json`) — see `check_completion` in
-     `src/mosquito_cfd/force_surrogate/runner.py`.
-   - `run_metadata.json`'s `stability` field is exactly `stable_at_5e-4` — a `_fallback` suffix
-     means an emergency CFL dt-reduction happened, worth knowing before more configs hit the
-     same wall.
+   - **A quick in-run check first, on the raw `run.log`, catches truncation cheaply — before
+     spending GPU-hours on the rest of the fan-out:**
+     ```bash
+     grep -o 'DT = [0-9.eE+-]*' runs/<config>/run.log | awk '{if ($3+0 < 0.000499) c++} END {print c+0}'
+     ```
+     A nonzero count means `ns.cfl` is binding below the deck's nominal `ns.fixed_dt` — the
+     failure mode behind issue #92. Converts a potential ~65 GPU-h loss into ~2 GPU-h caught
+     early; if this fires, stop and confirm with the user before letting the rest of the fan-out
+     run (this is exactly the class of defect the acceptance gate catches post-hoc, but far
+     cheaper to catch here, mid-sweep).
+   - `IB_Particle_1.csv`'s **distinct-`iStep`** row count matches `sweep_manifest.json`'s
+     `max_step` for that config — **not** the raw row count, which over-satisfies under
+     `ns.init_iter>0` (it includes `1+init_iter` extra rows at `iStep=0` that `check_completion`'s
+     `>=` threshold check doesn't distinguish from real progress).
+   - `run_metadata.json`'s `interior_dt_below_nominal` is `false` and `stability` does not start
+     with `cfl_limited_at_`. **`stability == "stable_at_5e-4"` alone is not a suffient check** —
+     `fixed_dt` is the deck's *declared* value, not what the run actually held, so a CFL-limited
+     run can still show `fixed_dt: 0.0005` in the same file. Read `stability`'s full value and
+     `interior_dt_below_nominal` together.
+   - **This is mid-sweep, on a partial corpus — its pass/fail semantics differ from the post-run
+     acceptance gate's.** Most of the 27 configs legitimately have `reached_stop_time: false` at
+     this point simply because they're still running; that is not itself a defect signal here,
+     unlike in the gate below (which runs once, after every config has finished, where the same
+     field means something is wrong). Don't conflate the two checks' meaning of the same field.
 3. Build a partial dataset from just those configs and eyeball real force output:
    ```bash
    uv run python scripts/extract_forces.py \
@@ -238,10 +280,25 @@ it done before that DAG node passes. Then, independently:
 1. `scripts/generate_run_metadata.py` for each config — now correctly pod-scoped per the
    `fix-wall-time-pod-selection` fix (issue #65), replacing any stale committed
    `run_metadata_<config>.json` files from a superseded prior run (flagged in Step 0).
-2. `scripts/extract_forces.py` (no `--allow-missing` this time) → the full `dataset.parquet`.
-3. Close issues #63/#64 on GitHub (this repo's convention: close once verified in practice, not
+2. **Run the post-run acceptance gate — mandatory, blocks the next step.** A truncated (#92) or
+   duplicated-row (#94) run must never reach a committed `dataset.parquet`:
+   ```bash
+   uv run python scripts/check_corpus_acceptance.py \
+       --manifest <corpus-dir>/sweep_manifest.json \
+       --provenance <corpus-dir>/sweep_provenance.json \
+       --csv-dir <workspace-hostpath as a local/mounted path>/runs \
+       --metadata-dir <corpus-dir>
+   ```
+   This is the **complete-corpus** check — unlike Step 4's mid-sweep check on a partial corpus,
+   every config is expected to have `reached_stop_time: true` and `interior_dt_below_nominal:
+   false` here; a failure means something is genuinely wrong, not merely "still running." It also
+   requires a non-partial, passing CC-F1 result on a field-capture corpus — if Step 2 recorded
+   one, this passes; if not, fix that first rather than treating the gate's failure as a new
+   problem. Do not proceed to the next step until this passes.
+3. `scripts/extract_forces.py` (no `--allow-missing` this time) → the full `dataset.parquet`.
+4. Close issues #63/#64 on GitHub (this repo's convention: close once verified in practice, not
    just once the code fix merges).
-4. Update `openspec/project.md`'s Pending section and the corpus's `sweep_provenance.json`.
+5. Update `openspec/project.md`'s Pending section and the corpus's `sweep_provenance.json`.
 
 ## Common Mistakes
 
@@ -259,7 +316,11 @@ it done before that DAG node passes. Then, independently:
 | Waiting for all 27 before any check | Check at 2-3 finished configs (Step 4) — that's the whole point |
 | Acting on Step 4's decision gate without the user's go-ahead | Report the finding and wait — gathering evidence is autonomous, acting on it isn't |
 | Reusing a memorized `:fp64` digest | Re-pull it live every session (Step 1, item 1) |
-| Not noticing stale `run_metadata_<config>.json` files from a superseded prior run | Check `sweep_provenance.json`'s `superseded_by` field before submitting (Step 0) |
+| Not noticing stale `run_metadata_<config>.json` files from a superseded prior run | Check `sweep_provenance.json`'s `supersession_history` list before submitting (Step 0) |
+| Assuming a prior pilot's stability GO transfers to this run unconditionally | Confirm geometry/grid/kinematic range hasn't changed since the pilot ran (Step 0) — a geometry change invalidates it as surely as a grid change does |
+| Reading `stability == "stable_at_5e-4"` alone as proof of a healthy run | Also check `interior_dt_below_nominal` — `fixed_dt` is the deck's declared value, not what the run held (Step 4) |
+| Building `dataset.parquet` straight from `extract_forces.py` after metadata generation | Run the post-run acceptance gate first — it's mandatory, not optional (After the Sweep Completes) |
+| Treating a mandatory check (e.g. CC-F1) as done because you looked at the output | Record the result into `sweep_provenance.json` — an unrecorded check is indistinguishable from one never run (Step 2) |
 
 ## Related Commands
 

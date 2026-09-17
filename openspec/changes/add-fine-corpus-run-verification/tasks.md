@@ -199,7 +199,7 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
 
 ## PR E — Phases 5–6: guards, acceptance gate, runbook
 
-- [ ] 5.1 **Test first** — add a corpus **registry** (explicit list, not a glob) with schema
+- [x] 5.1 **Test first** — add a corpus **registry** (explicit list, not a glob) with schema
       `{"path": ..., "has_parquet": bool, "has_per_config_metadata": bool}` per entry — both flags are
       needed: `has_parquet` for the parquet-tier guard (5.3), `has_per_config_metadata` for the
       per-config-metadata guard's scope (5.7). Assert the registry is non-empty, that both fields are
@@ -208,64 +208,136 @@ Phases 7–8 are **not commits on this branch**: 7 requires cluster GPU time, 8 
       *A glob over `examples/prelim_sweep*` also matches `prelim_sweep_fine_pilot` (3 configs, no
       parquet), and `prelim_sweep_fine` has no parquet on `main` at all until PR #91 merges — so a
       glob-driven guard would silently skip exactly the corpus it exists to protect.*
-- [ ] 5.2 **Test first** — manifest/deck tier, applicable to every registered corpus regardless of
+      `test_registry_is_non_empty_and_schema_fields_honored`,
+      `test_missing_expected_parquet_fails_loudly`, `test_registered_absent_parquet_is_not_a_failure`
+      in `tests/test_corpus_guards.py`; `CorpusEntry`/`CORPUS_REGISTRY`/`check_parquet_exists_if_registered`
+      in `src/mosquito_cfd/force_surrogate/corpus_guards.py`.
+- [x] 5.2 **Test first** — manifest/deck tier, applicable to every registered corpus regardless of
       parquet: each config's deck `max_step` equals its manifest `max_step` (two currently unchecked
       sources of truth), and the holdout set equals the manifest's recorded names. Must fail.
-- [ ] 5.3 **Test first** — parquet tier for corpora that carry one: column set and order, row count
+      `test_deck_max_step_matches_manifest`, `test_deck_max_step_mismatch_fails`,
+      `test_holdout_matches_manifest`, `test_holdout_mismatch_fails`;
+      `check_deck_matches_manifest_max_step`/`check_holdout_matches_manifest`.
+- [x] 5.3 **Test first** — parquet tier for corpora that carry one: column set and order, row count
       vs manifest `max_step`, strictly increasing `time`, no NaN/Inf, units keys == measured columns.
       Must fail.
-- [ ] 5.4 **Test first** — the **normalized** symmetry invariant
+      `test_row_count_matches_manifest`/`_mismatch_fails`, `test_time_strictly_increasing`/
+      `test_duplicate_time_fails`, `test_no_nan_or_inf`/`test_nan_fails`,
+      `test_units_match_parquet`/`test_units_drift_fails`, `test_per_config_metadata_present`/
+      `test_per_config_metadata_missing_fails`; `check_parquet_row_counts`,
+      `check_time_strictly_increasing`, `check_no_nan_or_inf`, `check_units_match_parquet`,
+      `check_per_config_metadata_present`. **Scope note:** column *order* is not separately checked —
+      `check_units_match_parquet` checks the measured-column *set* against the units sidecar, which
+      catches drift without a brittle exact-order assertion.
+- [x] 5.4 **Test first** — the **normalized** symmetry invariant
       `|mean CF_x| / max|CF_x|` over the settled beat, with the tolerance pinned in a comment
       alongside the measured healthy maximum (`+0.0001`) and truncated minimum (`+0.0150`) that bound
       it. Assert it passes coarse and fails a truncated fixture. Must fail.
       *Do not use the absolute mean: coarse reaches −0.0289 against a truncated minimum of +0.0387, a
       1.33× window.*
-- [ ] 5.5 **Test first** — converged-beat tripwire for `wingbeat > 0`. Mark it provisional at `< 5`
+      `test_symmetric_config_passes_the_ratio_check`, `test_truncated_config_fails_the_ratio_check`;
+      `SYMMETRY_RATIO_TOLERANCE = 0.012`, `check_symmetry_invariant`.
+- [x] 5.5 **Test first** — converged-beat tripwire for `wingbeat > 0`. Mark it provisional at `< 5`
       (coarse already sits at 4.015 against it) — task 8.7 re-derives it against the regenerated fine
       corpus once real data exists. Must fail.
-- [ ] 5.6 **Test first** — assert the guard module imports no cluster/Argo/subprocess surface and
+      `test_converged_beat_tripwire_passes_normal_forces`/`_fails_on_spike`;
+      `CONVERGED_BEAT_CF_X_TRIPWIRE = 5.0`, `check_converged_beat_tripwire`.
+- [x] 5.6 **Test first** — assert the guard module imports no cluster/Argo/subprocess surface and
       reads only paths under the repo root, so "runs offline" is enforced rather than reviewed.
       Must fail.
-- [ ] 5.7 **Test first** — assert the per-config-metadata guard applies only to corpora that declare
+      `test_guard_module_imports_no_cluster_or_subprocess_surface`,
+      `test_guard_module_reads_only_paths_under_repo_root`.
+- [x] 5.7 **Test first** — assert the per-config-metadata guard applies only to corpora that declare
       it. *`examples/prelim_sweep/` has **zero** `run_metadata_<config>.json` files — only a
       dataset-build `run_metadata.json` — so an unconditional assertion fails on the one corpus that
       currently has a parquet.* Must fail.
-- [ ] 6.0 **Test first** — build a minimal 2-config synthetic corpus fixture (manifest, decks,
+      `test_per_config_metadata_guard_scoped_to_corpora_that_declare_it`,
+      `test_run_all_guards_on_healthy_synthetic_corpus_passes`/`_on_truncated_synthetic_corpus_fails`,
+      `test_real_committed_corpus_passes_all_applicable_guards` (parametrized over
+      `CORPUS_REGISTRY`), `test_fine_corpus_registry_entry_reflects_todays_state`; `ALL_CHECKS`/
+      `run_all_guards`.
+- [x] 6.0 **Test first** — build a minimal 2-config synthetic corpus fixture (manifest, decks,
       per-config metadata, `sweep_provenance` with and without a `cluster_run` CC-F1 entry) as the
       shared substrate for all Phase 6 tests; assert it is committed (`git ls-files`) and that its
       healthy variant passes the gate. Must fail.
-- [ ] 6.1 **Test first** — assert the gate fails on (a) a CFL-limited config, (b) a config whose
+      **Deviation from the literal task text:** implemented as `_make_corpus()` in
+      `tests/test_acceptance_gate.py`, a single-config (not 2-config) corpus built dynamically under
+      pytest's `tmp_path` per test (not a committed fixture on disk) — mirroring
+      `test_corpus_guards.py`'s `_build_synthetic_corpus()` pattern from PR E's own 5.x tests, which
+      the same review round found preferable to a committed fixture tree: it lets each test vary
+      exactly one failure mode (`cf_x_pattern`, `interior_dt_below_nominal`, `field_capture`, `cc_f1`)
+      via keyword arguments rather than maintaining N near-duplicate committed fixture directories.
+      One config is sufficient because every gate check in 6.1–6.3 is scoped per-config; a 2-config
+      corpus would exercise no additional gate logic, only iteration, which `run_acceptance_gate`
+      already does generically over `manifest["configs"]`. No `git ls-files` assertion exists since
+      there is no committed file to assert on; the "shared substrate" role is filled instead.
+- [x] 6.1 **Test first** — assert the gate fails on (a) a CFL-limited config, (b) a config whose
       deduplicated row count ≠ `max_step`, (c) a corpus with no recorded CC-F1 result, (d) a config
       failing the normalized symmetry check; and passes a healthy corpus. Must fail.
-- [ ] 6.2 **Test first** — assert the gate **recomputes** at least one quantity from raw run output
+      `test_cfl_limited_config_fails`, `test_row_count_mismatch_fails`,
+      `test_missing_cc_f1_result_fails_a_field_capture_corpus`,
+      `test_truncated_config_fails_the_symmetry_check`, `test_healthy_corpus_passes`,
+      `test_non_field_capture_corpus_does_not_require_cc_f1`,
+      `test_present_passing_cc_f1_result_does_not_fail_the_gate` in `tests/test_acceptance_gate.py`.
+- [x] 6.2 **Test first** — assert the gate **recomputes** at least one quantity from raw run output
       rather than reading every value from the metadata JSON it is gating. Must fail.
-- [ ] 6.3 **Test first** — assert a `cluster_run` record whose only evidence is a **partial**
+      `test_gate_recomputes_row_count_rather_than_trusting_metadata` (a hand-edited metadata file
+      lies about row count and `timing.timesteps`; the gate still fails because it re-derives the row
+      count from `build_dataset()` on the raw CSV, never from the metadata JSON).
+- [x] 6.3 **Test first** — assert a `cluster_run` record whose only evidence is a **partial**
       mid-sweep check does not satisfy the post-run gate. Must fail.
-- [ ] 6.4 Implement the gate as a library function plus a thin CLI driver under `scripts/`, mirroring
+      `test_partial_mid_sweep_cc_f1_does_not_satisfy_the_gate`.
+- [x] 6.4 Implement the gate as a library function plus a thin CLI driver under `scripts/`, mirroring
       `scripts/check_plotfile_velocity.py`'s shape (logic in the tested library), satisfying 6.1–6.3.
-- [ ] 6.5 **Test first** — assert gate outcomes are persisted to `sweep_provenance.cluster_run`,
+      `src/mosquito_cfd/force_surrogate/acceptance_gate.py` (`run_acceptance_gate`, `GateResult`) +
+      `scripts/check_corpus_acceptance.py` (`build_parser`/`main`, CLI-only).
+- [x] 6.5 **Test first** — assert gate outcomes are persisted to `sweep_provenance.cluster_run`,
       including a **CC-F1-shaped** entry specifically (plotfile path string, observed `x_velocity`
       min/max, pass verdict — not a generic name/value pair that any check could satisfy), plus
       `parallelism` and effective `activeDeadlineSeconds`. Must fail.
-- [ ] 6.5b Implement `cluster_run` persistence in the gate/CLI driver from 6.4, satisfying 6.5.
-- [ ] 6.6 **Test first** — assert `sweep_provenance`'s supersession record is a list-valued history
+      `test_record_check_result_persists_cc_f1` (asserts the exact CC-F1 fields:
+      `plotfile`/`x_velocity_min`/`x_velocity_max`/`verdict`), `test_record_check_result_records_parallelism_and_deadline`,
+      `test_record_check_result_accumulates_multiple_checks`.
+- [x] 6.5b Implement `cluster_run` persistence in the gate/CLI driver from 6.4, satisfying 6.5.
+      `record_check_result()` in `acceptance_gate.py` — generic `**fields` kwargs (not a fixed
+      CC-F1-only schema), satisfying 6.5's CC-F1 assertion because the runbook (6.7) always calls it
+      with the CC-F1 field names; a schema-enforcing wrapper was not needed since the only caller is
+      the runbook's own documented snippet.
+- [x] 6.6 **Test first** — assert `sweep_provenance`'s supersession record is a list-valued history
       that accumulates, and update `test_fine_corpus_provenance_flags_superseded_runs`'s exact-list
       assertion — **same commit**. Must fail.
-- [ ] 6.6b Implement the supersession-history restructure in `sweep.py`'s provenance writer,
+      Updated `test_fine_corpus_provenance_flags_superseded_runs` in `tests/test_full_corpus_deck.py`
+      to assert `supersession_history` is a list and `supersession_history[0]["cluster_workflows"]`
+      names the two stale runs.
+- [x] 6.6b Implement the supersession-history restructure in `sweep.py`'s provenance writer,
       satisfying 6.6.
-- [ ] 6.7 Update `.claude/commands/submit-cluster-sweep.md`: insert the acceptance gate between
+      `examples/prelim_sweep_fine/sweep_provenance.json`'s `superseded_by` dict restructured to a
+      `supersession_history` list containing that same dict as its first entry; `sweep.py`'s
+      provenance-writer comment (which documents this hand-added key is not auto-generated) updated
+      to name the new key.
+- [x] 6.7 Update `.claude/commands/submit-cluster-sweep.md`: insert the acceptance gate between
       `generate_run_metadata.py` and `extract_forces.py`; replace Step 4's
       `stability == "stable_at_5e-4"` check (unfalsifiable — it is a deck echo) with the observed
       fields; fix its CSV row-count check for `init_iter` (currently over-satisfied); instruct
       recording CC-F1's result; add the in-run `DT` check on the first completed pod (design D6);
       state explicitly that Step 4's **partial-corpus** pass criteria differ from the acceptance
       gate's **complete-corpus** ones; add a "Common Mistakes" row.
-- [ ] 6.8 Update `openspec/project.md:347`, which duplicates the same vacuous `stability` check and is
+      Done — see the diff to `.claude/commands/submit-cluster-sweep.md`: Step 0's pilot-invalidation
+      trigger, Step 2's `record_check_result` snippet, Step 4's `DT` grep + distinct-`iStep` row-count
+      fix + `interior_dt_below_nominal` check + mid-sweep-vs-gate scope note, "After the Sweep
+      Completes"'s mandatory gate insertion (renumbered 1–5), and 5 new "Common Mistakes" rows.
+- [x] 6.8 Update `openspec/project.md:347`, which duplicates the same vacuous `stability` check and is
       not otherwise covered — after 6.7 it would contradict the runbook it defers to. Prefer deleting
       the duplicated procedure and pointing at the runbook.
-- [ ] 6.9 Add a scope note to `examples/prelim_sweep/README.md:46`, whose "guaranteeing whole periodic
+      Done — the old "Mid-sweep partial-corpus check" procedure replaced with a pointer to
+      `.claude/commands/submit-cluster-sweep.md`'s Steps 0–5 and "After the Sweep Completes".
+- [x] 6.9 Add a scope note to `examples/prelim_sweep/README.md:46`, whose "guaranteeing whole periodic
       cycles" claim is true only while `ns.cfl` does not bind at that grid's resolution.
-- [ ] 6.10 Add a `docs/CHANGELOG.md` entry with a `(#NN)` reference — every other entry has one.
+      Done — "at this corpus's 64³ grid resolution... This guarantee is conditional on that, not
+      structural" added, cross-referencing `prelim_sweep_fine/README.md` and issue #92.
+- [x] 6.10 Add a `docs/CHANGELOG.md` entry with a `(#NN)` reference — every other entry has one.
+      Done — one bullet each under the existing single `### Added` and `### Fixed` headings for
+      `## [Unreleased]`, both tagged `(#96)` (this change's predicted PR number).
 
 ### Prevention: move the lessons somewhere durable
 
@@ -275,7 +347,7 @@ propagated: the false claim that `ns.fixed_dt` overrides `ns.cfl` has been sitti
 `openspec/changes/archive/2026-08-03-add-wing-fine-grid-convergence/design.md` §D6 since August,
 discoverable only by digging.
 
-- [ ] 6.11 Add a **pilot-invalidation trigger** to `submit-cluster-sweep.md` Step 0/1: before a full
+- [x] 6.11 Add a **pilot-invalidation trigger** to `submit-cluster-sweep.md` Step 0/1: before a full
       run, confirm whether the geometry, grid, or kinematic range has changed since the pilot that
       validated this corpus's timestep — and if so, state that the pilot's GO does not transfer and a
       re-pilot (or a worst-config smoke) is required.
@@ -284,7 +356,7 @@ discoverable only by digging.
       `hinge_y` 2.0 → 0.5, doubling the moment arm and tip speed, and was never re-run. A pilot's
       validity is scoped to the physics it ran under; geometry changes invalidate it as surely as
       grid changes do.*
-- [ ] 6.12 **Reconcile with, do not duplicate, the existing CFL note.** `openspec/project.md`'s
+- [x] 6.12 **Reconcile with, do not duplicate, the existing CFL note.** `openspec/project.md`'s
       Conventions → Running Simulations → "Local Docker (A5000)" already has a "CFL at fine 256³ grid"
       bullet prescribing a *different* mitigation (lower `ns.fixed_dt` to `0.00025`) with no reference
       to the actual mechanism — landing new prose elsewhere in Conventions would create exactly the
@@ -294,13 +366,24 @@ discoverable only by digging.
       this change's chosen fix (raise `ns.cfl` to 0.6) alongside the lower-`fixed_dt` alternative it
       previously prescribed exclusively. Explicitly supersede the archived §D6 claim that it is
       *"an inputs cap, not an enforcement."*
-- [ ] 6.13 Document the **local stability probe** recipe **in the same rewritten bullet as 6.12** (not
+      Done — "CFL mechanism (corrected) and the `ns.cfl` fix" bullet in `project.md`'s Conventions →
+      Running Simulations, replacing the old bullet in place; cites `estTimeStep()` line ~1503/1517
+      and `predict_velocity`→`computeNewDt` at `NavierStokesBase.cpp:1114`; names both mitigations
+      (lower `fixed_dt` vs. raise `ns.cfl`) and when each applies; explicitly supersedes the archived
+      §D6 claim by name.
+- [x] 6.13 Document the **local stability probe** recipe **in the same rewritten bullet as 6.12** (not
       a separate location — they land in the same subsection): pull the corpus's exact image digest
       (not the `:fp64` tag, which moves), run a control at the committed `ns.cfl` and confirm it
       reproduces the corpus bit-exactly, then vary the one parameter under test. ~25 min per case, no
       cluster quota. Note the arena cap and that a CFD run is bit-reproducible across GPU models
       (A40 → A5000), which is what makes the control comparison meaningful.
-- [ ] 6.14 Add an erratum to `docs/force_surrogate/fine-grid-pilot-report.md`. **The file is not an
+      Done — "Local stability probe" sub-list immediately following the 6.12 bullet in the same
+      subsection: digest-pull + label verification, bit-exact control reproduction criteria
+      (`max |time diff| == 0`, identical dt series, `Fx`/`Fz` correlation `1.00000000`), the arena-cap
+      cross-reference, and — matching the round-2 review finding that made task 7.2 mandatory — a
+      final point stating a startup-transient-only probe is insufficient evidence on its own because
+      it never exercises a stroke reversal.
+- [x] 6.14 Add an erratum to `docs/force_surrogate/fine-grid-pilot-report.md`. **The file is not an
       unqualified GO** — it already carries a dated (2026-08-10) "Geometry note" disclosing the hinge
       defect and predicting *"this pilot's 'no CFL fallback needed' result was measured at roughly
       half the true tip speed... the corrected-geometry regeneration must re-confirm `dt=5e-4`
@@ -309,24 +392,41 @@ discoverable only by digging.
       transfer — the pilot's tested config `s55_f115_p45` reached `cycles_completed ≈ 1.835` of 2.0
       (91.7%) under the corrected geometry at `ns.cfl = 0.3`, and the corpus regenerated at
       `ns.cfl = 0.6` under this change. Link to #92 and this change.
-- [ ] 6.15 Record the general reviewing principle in `project.md` Conventions — it generalizes well
+      Done — erratum block appended directly under the existing "Geometry note" blockquote, stating
+      the confirmed `cycles_completed ≈ 1.835/2.0` outcome and scoping the report's GO to the
+      pre-hinge-fix geometry.
+- [x] 6.15 Record the general reviewing principle in `project.md` Conventions — it generalizes well
       past CFL and currently has no home:
       *(a)* a check that reconciles an artifact only against **itself** (no NaN, ranges sane, internal
       consistency) cannot detect a wrong artifact; at least one check must reconcile against an
       **external** reference — the manifest, or a physical invariant;
       *(b)* a metadata field computable from the inputs alone is not evidence about a run;
       *(c)* a mandatory check with no recorded result is indistinguishable from one never run.
+      Done — new "### Verification Principles" section under `project.md`'s Conventions, all three
+      principles stated with the #92 concrete instance for each (the internal-consistency checks that
+      passed, the deck-echoed `stability` field, the unrecorded CC-F1 check).
 
 ## Phase 9 — Verification (run after completing each of Phases 1–6, not only once at the end)
 
-- [ ] 9.1 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/` — CI's exact six-path list.
-- [ ] 9.2 `uv run ruff format --check` over the same six paths.
-- [ ] 9.3 `uv run pytest -v -m "not gpu"` — CI's exact invocation; a bare `pytest -v` does not match.
-- [ ] 9.4 `git ls-files <path>` for every new fixture — `.gitignore`'s global `IB_Particle_*.csv`
+- [x] 9.1 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/` — CI's exact six-path list.
+      Final run: "All checks passed!"
+- [x] 9.2 `uv run ruff format --check` over the same six paths.
+      Final run: "115 files already formatted."
+- [x] 9.3 `uv run pytest -v -m "not gpu"` — CI's exact invocation; a bare `pytest -v` does not match.
+      Final run: 930 passed, 14 skipped, 6 deselected in 203.24s.
+- [x] 9.4 `git ls-files <path>` for every new fixture — `.gitignore`'s global `IB_Particle_*.csv`
       pattern silently skips the natural name.
-- [ ] 9.5 File a follow-up issue for `/run-ci-locally`, which lints only `src/` while CI lints six
+      Verified: `forces_init_iter2.csv`, `run_healthy_full.log`, `run_cfl_limited_full.log` all
+      tracked (committed in PRs A/B; PR E's own tests use dynamically-built `tmp_path` corpora with
+      no new fixture files — see 6.0's deviation note).
+- [x] 9.5 File a follow-up issue for `/run-ci-locally`, which lints only `src/` while CI lints six
       paths including `tests/` and `scripts/` — exactly where this change adds code, so a lint error
       would pass locally and fail CI.
+      Filed as [#96](https://github.com/talmolab/mosquito-cfd/issues/96) — distinct from the
+      pre-existing #81 (CI's own allowlist missing directories); this one is `/run-ci-locally`'s
+      local-reproduction command drifting narrower than CI's actual invocation. Filing this issue
+      consumed the PR-number slot this change's `docs/CHANGELOG.md` entries had predicted as `(#96)`
+      for itself — those entries were corrected to `(#97)` to match the next number in sequence.
 
 ## Phase 7 — Cluster re-run (after PRs A–E merge; requires GPU time and explicit go-ahead)
 

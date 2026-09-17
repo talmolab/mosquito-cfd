@@ -45,7 +45,12 @@ recorded in the manifest. (See `design.md` D1 of the `add-force-surrogate-sweep-
 
 Each deck covers **2 whole wingbeats**: `stop_time = 2 / f*`, `max_step = round(stop_time / 5e-4)`
 (the validated `dt`). So low-frequency configs run longer in steps, guaranteeing whole periodic
-cycles for force extraction.
+cycles for force extraction — **at this corpus's 64³ grid resolution**, where `ns.fixed_dt` binds
+and `ns.cfl` never limits the realized timestep (the domain's CFL headroom is ~4× the validated
+`dt` here). This guarantee is conditional on that, not structural: at the fine corpus's 256³
+resolution, `ns.cfl` can reduce the realized timestep below `ns.fixed_dt`, so the same `max_step`
+formula does not guarantee whole cycles there — see `examples/prelim_sweep_fine/README.md` and
+issue #92.
 
 ## Held-out configs (CC-4)
 

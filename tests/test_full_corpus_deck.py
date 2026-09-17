@@ -342,7 +342,10 @@ def test_generate_full_corpus_cli_accepts_cfl_flag(tmp_path):
 
 
 def test_fine_corpus_provenance_flags_superseded_runs():
-    """The committed sweep_provenance.json names the stale cluster runs it supersedes.
+    """The committed sweep_provenance.json names the stale cluster runs it supersedes, as a
+    LIST-VALUED supersession history (not a single overwritable block) -- so a corpus
+    superseded more than once accumulates entries rather than discarding the earlier record
+    (add-fine-corpus-run-verification #92-#95/#90/#20/#93/#94).
 
     fix-force-surrogate-sweep-hinge: the cluster workflows that previously generated this
     corpus's raw CFD output (force-surrogate-sweep-vb8t5 + the retry force-surrogate-retry-
@@ -355,13 +358,17 @@ def test_fine_corpus_provenance_flags_superseded_runs():
             encoding="utf-8"
         )
     )
-    assert provenance.get("superseded_by"), (
-        "sweep_provenance.json is missing 'superseded_by'"
+    assert provenance.get("supersession_history"), (
+        "sweep_provenance.json is missing 'supersession_history'"
     )
-    assert provenance["superseded_by"]["cluster_workflows"] == [
+    assert isinstance(provenance["supersession_history"], list), (
+        "supersession_history must be a list, so a second supersession event accumulates "
+        "rather than overwriting the first"
+    )
+    assert provenance["supersession_history"][0]["cluster_workflows"] == [
         "force-surrogate-sweep-vb8t5",
         "force-surrogate-retry-failed-trz9k",
     ], (
-        "superseded_by.cluster_workflows must name exactly the two stale runs, not just be "
-        "non-empty -- a typo'd or wrong workflow name must not pass silently"
+        "supersession_history[0].cluster_workflows must name exactly the two stale runs, not "
+        "just be non-empty -- a typo'd or wrong workflow name must not pass silently"
     )
