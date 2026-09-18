@@ -8,6 +8,7 @@ committed config is at the validated stroke of 70 deg). No RunAI, GPU, or plotfi
 """
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -443,6 +444,18 @@ def test_configs_not_a_list_raises(tmp_path):
     path = tmp_path / "m.json"
     path.write_text(json.dumps({"configs": {"name": "x"}}), encoding="utf-8")
     with pytest.raises(ValueError, match="must be a list"):
+        build_dataset(path, {})
+
+
+def test_malformed_manifest_json_raises_clear_file_identified_error(tmp_path):
+    """`load_manifest_configs` is the first thing `scripts/check_corpus_acceptance.py`'s CLI
+    calls against `--manifest` (before `run_acceptance_gate` even runs) -- a raw, contextless
+    `json.JSONDecodeError` here reproduces the exact CLI failure mode review round 1 was
+    supposed to eliminate, just via a different, unpatched call path (review round 2 on
+    PR #97)."""
+    path = tmp_path / "m.json"
+    path.write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match=re.escape(str(path))):
         build_dataset(path, {})
 
 

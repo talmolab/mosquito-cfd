@@ -24,7 +24,6 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-dat
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -41,6 +40,7 @@ from mosquito_cfd.force_surrogate.normalization import (
 )
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
+    load_json_clear_error,
     write_units_sidecar,
 )
 
@@ -271,7 +271,7 @@ def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
         ValueError: If the manifest has no ``configs`` key, ``configs`` is not a list, or a
             config is malformed / has a duplicate name.
     """
-    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    manifest = load_json_clear_error(Path(manifest_path), label="sweep manifest")
     if "configs" not in manifest:
         raise ValueError(
             f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"

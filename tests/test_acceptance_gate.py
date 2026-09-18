@@ -319,6 +319,27 @@ def test_init_iter_only_field_capture_dict_does_not_require_cc_f1(tmp_path):
     assert result.passed, result.failures
 
 
+def test_null_field_capture_value_does_not_crash_the_gate(tmp_path):
+    """`{"field_capture": null}` is valid JSON a hand-edit of `sweep_provenance.json` could
+    easily produce (the key present, explicitly null, rather than absent). `dict.get(key,
+    default)` only substitutes `default` when the key is ABSENT, so `.get("field_capture",
+    {})` returns `None` here, and `.get("plot_int", -1)` on `None` raises `AttributeError` --
+    review round 2 on PR #97, the exact 'trust untrusted hand-edited input' failure class this
+    module otherwise defends against everywhere else."""
+    c = _make_corpus(tmp_path, field_capture=False, cc_f1="unset")
+    provenance = json.loads(c["provenance_path"].read_text(encoding="utf-8"))
+    provenance["field_capture"] = None
+    c["provenance_path"].write_text(json.dumps(provenance), encoding="utf-8")
+
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert result.passed, result.failures
+
+
 def test_gate_recomputes_row_count_rather_than_trusting_metadata(tmp_path):
     """The self-certification guard: even if run_metadata's own claims look fine, the gate's row
     count comes from re-reading the raw CSV, not from any metadata field."""
@@ -406,6 +427,20 @@ def test_malformed_run_metadata_json_raises_clear_file_identified_error(tmp_path
 # ---------------------------------------------------------------------------
 # record_check_result
 # ---------------------------------------------------------------------------
+
+
+def test_record_check_result_creates_missing_parent_directory(tmp_path):
+    """`record_check_result` gained a `provenance_path.parent.mkdir(parents=True,
+    exist_ok=True)` in review round 1's fix commit (not called out in that commit's message) --
+    pinning it explicitly here (review round 2 on PR #97). Without it, writing to a
+    not-yet-created corpus directory raises `FileNotFoundError`."""
+    provenance_path = tmp_path / "not_yet_created" / "sweep_provenance.json"
+    assert not provenance_path.parent.exists()
+
+    record_check_result(provenance_path, "cc_f1", verdict="pass")
+
+    written = json.loads(provenance_path.read_text(encoding="utf-8"))
+    assert written["cluster_run"]["cc_f1"]["verdict"] == "pass"
 
 
 def test_record_check_result_persists_cc_f1(tmp_path):

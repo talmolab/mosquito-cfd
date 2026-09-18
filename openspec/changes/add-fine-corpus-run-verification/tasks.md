@@ -502,6 +502,66 @@ accepted. All fixed via TDD in a follow-up commit, same PR, before merge.
       6 deselected (up from 930 pre-review; 16 new tests, 0 regressions). `ruff check`/
       `ruff format --check` clean over CI's six-path scope. `openspec validate --strict` passes.
 
+## PR G — Review round 2 fixes (5-agent `/review-pr` re-run on PR #97, after PR F)
+
+PR F's fixes were themselves re-reviewed by a second 5-agent `/review-pr` pass, specifically
+instructed to verify each round-1 fix rather than trust its commit message. Found 2 NEW blocking
+regressions in round 1's own fix code (one severe: the nan/inf regex fix was itself incomplete),
+1 vacuous test masquerading as a regression guard, and 2 IMPORTANT robustness gaps. All fixed via
+TDD, cross-verified by direct reproduction before being accepted.
+
+- [x] G.1 **Test first** — `test_read_dt_series_from_run_log_preserves_signed_nan_inf_tokens`
+      (parametrized over `-nan`/`+nan`/`-inf`/`+inf`/`-infinity`) in `tests/test_metadata_capture.py`.
+      **BLOCKING regression in PR F's own fix**: `_STEP_DT_RE`'s alternation tried the numeric
+      branch (`[\d.eE+-]+`) before the nan/inf branch; the numeric branch also matches a lone
+      sign character and "wins" on a signed token, so `DT = -nan` parsed to `'-'`, and `float('-')`
+      raised a confusing, unlabeled `ValueError` instead of ever reaching the NaN guard — the
+      exact failure mode PR F claimed to have fixed, reintroduced for every *signed* variant
+      (glibc `printf` emits `-nan` for a real divergence). Fixed by reordering the alternation so
+      the nan/inf branch is tried first — reproduced broken, then fixed, then reproduced correct,
+      before either state was trusted from reasoning alone.
+- [x] G.2 **Test first** — `test_malformed_manifest_json_raises_clear_file_identified_error` in
+      both `tests/test_force_surrogate_dataset.py` and `tests/test_corpus_guards.py`. **BLOCKING,
+      PR F's fix incomplete**: `scripts/check_corpus_acceptance.py`'s actual CLI entry point calls
+      `dataset.load_manifest_configs()` *before* `run_acceptance_gate` ever runs, and that
+      function still did a raw `json.loads` — reproduced live against the real CLI with a
+      malformed `--manifest`, showing the exact contextless-crash failure mode PR F's finding #4
+      was supposed to eliminate, just via a different, unpatched call path. `corpus_guards.py`'s
+      `_load_manifest` had the identical gap (same file, sibling reader, flagged separately by
+      the round-2 Code Quality reviewer). Fixed by moving `load_json_clear_error` out of
+      `metadata_capture.py` into `sidecar.py` — a true leaf module with no
+      force-surrogate-internal dependencies, avoiding the import cycle
+      `dataset → metadata_capture → runner → dataset` that importing it directly from
+      `metadata_capture.py` into `dataset.py` would have created — and using it at both sites.
+      `acceptance_gate.py`'s import updated to source it from `sidecar.py` directly.
+- [x] G.3 **Removed a vacuous test** flagged by the round-2 Testing/TDD reviewer:
+      `test_supersession_history_accumulates_a_second_entry_without_disturbing_the_first`
+      (added in PR F) never called any `mosquito_cfd` code — it only exercised Python's own
+      list/dict equality semantics on data it constructed itself, so it could not fail for any
+      defect in this package regardless of what the source code does. Since there is genuinely
+      no code path that appends to `supersession_history` (confirmed via
+      `grep -rn "supersession_history" src/ scripts/`), deleted rather than kept as decorative
+      false confidence, with a comment explaining why and where a real test would belong if a
+      writer function is ever implemented.
+- [x] G.4 **Test first** — `test_null_field_capture_value_does_not_crash_the_gate` in
+      `tests/test_acceptance_gate.py`. **IMPORTANT**: `provenance.get("field_capture",
+      {}).get("plot_int", -1) > 0` (PR F's fix for the dict-truthiness bug) is not robust to
+      `{"field_capture": null}` — `dict.get(key, default)` only substitutes `default` when the
+      key is *absent*, not when present with value `None`, so `.get("plot_int", ...)` on `None`
+      raised `AttributeError` rather than the clear, contextual errors this module raises
+      everywhere else for malformed hand-editable input. Fixed with
+      `(provenance.get("field_capture") or {}).get(...)`.
+- [x] G.5 **Test first** — `test_generate_sweep_accepts_num_steps_zero` in
+      `tests/test_force_surrogate_sweep.py`, `test_record_check_result_creates_missing_parent_directory`
+      in `tests/test_acceptance_gate.py`. **IMPORTANT coverage gaps** flagged by the round-2
+      Testing/TDD reviewer: PR F's `num_steps > 0` fix was only tested at `-1`, not the more
+      plausible operator-typo value `0`; PR F's incidental (uncalled-out in its commit message)
+      `provenance_path.parent.mkdir(parents=True, exist_ok=True)` addition to
+      `record_check_result` had no dedicated test. Both pinned; no code defect found in either
+      (the `num_steps=0` case already took the correct branch; the `mkdir` line already worked).
+- [x] G.6 **Verify** — full local suite after G.1–G.5: re-run and confirmed green (see commit),
+      `ruff check`/`ruff format --check` clean, `openspec validate --strict` passes.
+
 ## Phase 9 — Verification (run after completing each of Phases 1–6, not only once at the end)
 
 - [x] 9.1 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/` — CI's exact six-path list.

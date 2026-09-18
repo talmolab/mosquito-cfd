@@ -1232,3 +1232,15 @@ def test_generate_sweep_accepts_disabled_num_steps_sentinel(tmp_path):
     generate_sweep(
         base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
     )  # no raise
+
+
+def test_generate_sweep_accepts_num_steps_zero(tmp_path):
+    """`ns.num_steps=0` takes the same disabled branch as `-1` per `main.cpp`'s `if (num_steps
+    > 0)` gate -- pinned explicitly since 0 is a more plausible operator typo than -1 and round
+    1 only tested the -1 sentinel (review round 2 on PR #97)."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.num_steps = 0\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise

@@ -982,6 +982,24 @@ def test_read_dt_series_from_run_log_preserves_inf_line(tmp_path):
     assert math.isinf(series[1])
 
 
+@pytest.mark.parametrize("token", ["-nan", "+nan", "-inf", "+inf", "-infinity"])
+def test_read_dt_series_from_run_log_preserves_signed_nan_inf_tokens(tmp_path, token):
+    """Round-1's fix (widening the regex for nan/inf) had a latent bug: the numeric
+    alternative `[\\d.eE+-]+` can match a lone sign character and "win" before the nan/inf
+    alternative is ever tried, so `DT = -nan`/`DT = -inf`/etc. parsed to a bare `'-'`, which
+    `float()` then rejects with a confusing, file-unidentified ValueError instead of the
+    diverged-run signal reaching `compute_dt_observations`'s NaN guard at all (review round 2
+    on PR #97 -- glibc printf emits a signed NaN payload as `-nan` for real divergences)."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        f"STEP = 0 TIME = 0.0000 DT = 0.0005\nSTEP = 1 TIME = 0.0005 DT = {token}\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 2
+    assert not math.isfinite(series[1])
+
+
 def test_compute_dt_observations_raises_when_run_log_has_nan_in_interior_step(tmp_path):
     """End-to-end: a run.log with a diverged interior step must raise, not silently produce a
     'stable' verdict by having the nan line dropped and the remaining steps re-indexed."""

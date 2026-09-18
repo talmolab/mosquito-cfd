@@ -95,7 +95,10 @@ import numpy as np
 
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
-from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
+from mosquito_cfd.force_surrogate.sidecar import (
+    load_json_clear_error,
+    validate_image_digest,
+)
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SOURCE_CLI_OVERRIDE = (
@@ -172,8 +175,15 @@ def read_final_time_from_csv(csv_path: Path | str) -> tuple[float, int, int]:
 # run.log per-step dt series
 # ---------------------------------------------------------------------------
 
+# The nan/inf alternative MUST come first: the numeric alternative `[\d.eE+-]+` also matches a
+# lone sign character on its own, so on a signed token like `-nan`/`-inf` a numeric-first
+# ordering "succeeds" after consuming only the sign -- `float('-')` then raises a confusing,
+# unlabeled ValueError instead of the diverged-run signal ever reaching
+# `compute_dt_observations`'s NaN guard (review round 2 on PR #97; glibc printf emits a signed
+# NaN payload as `-nan` for a real divergence). Trying nan/inf first lets it claim the whole
+# signed token before the numeric alternative gets a chance to grab just the sign.
 _STEP_DT_RE = re.compile(
-    r"^STEP\s*=\s*\d+\s+TIME\s*=\s*[\d.eE+-]+\s+DT\s*=\s*([\d.eE+-]+|[+-]?(?:nan|inf(?:inity)?))",
+    r"^STEP\s*=\s*\d+\s+TIME\s*=\s*[\d.eE+-]+\s+DT\s*=\s*([+-]?(?:nan|inf(?:inity)?)|[\d.eE+-]+)",
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -378,15 +388,6 @@ def derive_stability(
 # ---------------------------------------------------------------------------
 # Manifest / deck sourcing
 # ---------------------------------------------------------------------------
-
-
-def load_json_clear_error(path: Path, *, label: str) -> dict:
-    """Load JSON from ``path``, wrapping a decode failure in a clear, file-identified error."""
-    text = path.read_text(encoding="utf-8")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} {path} is not valid JSON: {exc}") from exc
 
 
 def parse_deck(deck_path: Path | str) -> dict[str, str]:

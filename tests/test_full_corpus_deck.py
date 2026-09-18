@@ -374,28 +374,11 @@ def test_fine_corpus_provenance_flags_superseded_runs():
     )
 
 
-def test_supersession_history_accumulates_a_second_entry_without_disturbing_the_first():
-    """The schema-level contract a list-valued (vs. single-dict) supersession record exists for:
-    a second supersession event appends rather than overwrites, and the earlier entry is left
-    byte-identical -- review round 1 on PR #97 (there is no code path that appends today, since
-    the field is hand-maintained JSON; this pins the list semantics the field is designed
-    around, distinct from the real committed corpus's current single-entry state above)."""
-    provenance = json.loads(
-        (Path("examples/prelim_sweep_fine") / "sweep_provenance.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    first_entry_before = json.loads(json.dumps(provenance["supersession_history"][0]))
-
-    second_entry = {
-        "cluster_workflows": ["force-surrogate-sweep-hypothetical-later-run"],
-        "reason": "synthetic second supersession event for this test only",
-    }
-    updated_history = [*provenance["supersession_history"], second_entry]
-
-    assert len(updated_history) == 2
-    assert updated_history[0] == first_entry_before, (
-        "appending a second entry must not mutate or merge into the first"
-    )
-    assert updated_history[1] == second_entry
-    assert updated_history[0] is not updated_history[1]
+#
+# A test previously lived here asserting `supersession_history`'s "accumulates a second entry"
+# contract. It was removed in review round 2 on PR #97: it never called any `mosquito_cfd`
+# code (only `json`/list/dict operations on data it constructed itself), so it could not have
+# failed for any defect in this package -- decorative, not a regression guard. There is
+# genuinely no code path that appends to this hand-maintained field (confirmed via
+# `grep -rn "supersession_history" src/ scripts/`); a real test can be added if/when a function
+# that writes this field is implemented.

@@ -13,12 +13,16 @@ committed files under the repository root.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from mosquito_cfd.force_surrogate.sidecar import (
+    load_json_clear_error,
+    read_units_sidecar,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -67,7 +71,9 @@ CORPUS_REGISTRY: tuple[CorpusEntry, ...] = (
 
 
 def _load_manifest(entry: CorpusEntry) -> dict:
-    return json.loads((entry.path / "sweep_manifest.json").read_text(encoding="utf-8"))
+    return load_json_clear_error(
+        entry.path / "sweep_manifest.json", label="sweep manifest"
+    )
 
 
 def _parse_deck_max_step(deck_path: Path) -> int:
@@ -156,8 +162,6 @@ def check_units_match_parquet(entry: CorpusEntry) -> list[str]:
     """The units sidecar's key set equals the parquet's measured (non-categorical) column set."""
     if not entry.has_parquet:
         return []
-    from mosquito_cfd.force_surrogate.sidecar import read_units_sidecar
-
     non_measured = {"config_name", "split", "index", "wingbeat"}
     df = pd.read_parquet(entry.path / "dataset.parquet")
     measured = {c for c in df.columns if c not in non_measured}

@@ -24,7 +24,7 @@ from mosquito_cfd.force_surrogate.corpus_guards import (
     settled_beat_symmetry_ratios,
 )
 from mosquito_cfd.force_surrogate.dataset import build_dataset
-from mosquito_cfd.force_surrogate.metadata_capture import load_json_clear_error
+from mosquito_cfd.force_surrogate.sidecar import load_json_clear_error
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ def run_acceptance_gate(
     # in which case no plotfiles are ever produced (per the dict's own recorded rationale). A
     # bare truthiness check on the dict would then require a CC-F1 result that corpus can never
     # have; check the field that actually indicates plotfile output.
-    is_field_capture = provenance.get("field_capture", {}).get("plot_int", -1) > 0
+    is_field_capture = (provenance.get("field_capture") or {}).get("plot_int", -1) > 0
     if is_field_capture:
         cc_f1 = cluster_run.get("cc_f1")
         if cc_f1 is None:

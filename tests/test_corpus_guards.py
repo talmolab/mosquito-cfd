@@ -8,6 +8,7 @@ guards pass against real data, not just synthetic fixtures built to satisfy them
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -209,6 +210,18 @@ def test_registered_absent_parquet_is_not_a_failure(tmp_path):
 # ---------------------------------------------------------------------------
 # Manifest/deck tier (applies regardless of parquet)
 # ---------------------------------------------------------------------------
+
+
+def test_malformed_manifest_json_raises_clear_file_identified_error(tmp_path):
+    """A malformed `sweep_manifest.json` must raise a clear, file-identified error, not a raw
+    `json.JSONDecodeError` -- the same class of gap review round 1 fixed in `acceptance_gate.py`
+    but left open here, a sibling manifest reader for the same file (review round 2 on PR #97)."""
+    entry = _build_synthetic_corpus(tmp_path)
+    (entry.path / "sweep_manifest.json").write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(
+        ValueError, match=re.escape(str(entry.path / "sweep_manifest.json"))
+    ):
+        cg.check_deck_matches_manifest_max_step(entry)
 
 
 def test_deck_max_step_matches_manifest(tmp_path):
