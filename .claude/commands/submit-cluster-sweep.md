@@ -172,6 +172,58 @@ This is exactly the field the post-run acceptance gate (see "After the Sweep Com
 for on a field-capture corpus — recording it here means the gate doesn't fail later for a check
 that actually passed but was never written down.
 
+**Pass the smoke config through the acceptance gate itself before spending the `full` budget --
+not just the checks above.** `smoke` defaults to the corpus's CFL-worst config specifically so
+this one run is the load-bearing check against a defect that a milder config's local probe can't
+surface (design D4: a startup-transient-only local probe never reaches a stroke reversal, where
+flapping-wing aerodynamics can exceed the impulsive-start velocities the probe does exercise --
+`add-fine-corpus-run-verification` task 7.2, issue #92). Running the real acceptance gate here,
+not just eyeballing the raw files, catches the same defect class Step 4's mid-sweep check and the
+post-run gate catch, but before committing the other 26 configs' GPU-hours instead of after.
+
+The acceptance gate (`check_corpus_acceptance.py`) is a **complete-corpus** check by design --
+pointed at the real `sweep_manifest.json` with only 1 of N configs actually run, every other
+config is correctly reported as `"no force CSV found (dropped from the corpus)"`, which would
+always fail. Scope it to just the smoke config with a reduced one-config manifest instead:
+
+1. Generate this config's metadata (not yet produced by the sweep itself):
+   ```bash
+   uv run python scripts/generate_run_metadata.py \
+       --pod-metadata <workspace-hostpath as a local/mounted path>/runs/<config>/run_metadata.json \
+       --csv <workspace-hostpath as a local/mounted path>/runs/<config>/IB_Particle_1.csv \
+       --run-log <workspace-hostpath as a local/mounted path>/runs/<config>/run.log \
+       --manifest <corpus-dir>/sweep_manifest.json \
+       --deck <corpus-dir>/inputs/inputs.3d.<config> \
+       --config-name <config> \
+       --tier fine-grid-corpus-full \
+       --workflow-name force-surrogate-smoke-<id> \
+       --output <corpus-dir>/run_metadata_<config>.json
+   ```
+   (Harmless to redo later in "After the Sweep Completes" step 1, which regenerates it for all
+   27 anyway -- this just produces it early for the one config being gated here.)
+2. Build the reduced manifest (the full real manifest's matching entry, filtered down to one --
+   not hand-retyped, so its field values can't drift from the real one):
+   ```bash
+   uv run python -c "
+   import json
+   manifest = json.load(open('<corpus-dir>/sweep_manifest.json'))
+   config = next(c for c in manifest['configs'] if c['name'] == '<config>')
+   json.dump({'configs': [config]}, open('<scratchpad>/smoke_manifest.json', 'w'))
+   "
+   ```
+3. Run the gate against it, pointed at the corpus's real `sweep_provenance.json` (so it sees the
+   CC-F1 result just recorded above, if this is a field-capture corpus):
+   ```bash
+   uv run python scripts/check_corpus_acceptance.py \
+       --manifest <scratchpad>/smoke_manifest.json \
+       --provenance <corpus-dir>/sweep_provenance.json \
+       --csv-dir <workspace-hostpath as a local/mounted path>/runs \
+       --metadata-dir <corpus-dir>
+   ```
+   A failure here means something is genuinely wrong with the CFL-worst config specifically --
+   stop and debug before spending any of the `full` budget on the other 26; don't treat it as a
+   flaky check to retry past.
+
 ## Step 3: Submit `full`
 
 **STOP — get the user's explicit go-ahead before running this.** This is the real spend: 27
