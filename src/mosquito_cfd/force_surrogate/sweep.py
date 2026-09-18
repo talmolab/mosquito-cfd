@@ -227,6 +227,7 @@ def render_inputs(
     stop_time: float,
     plot_int: int = -1,
     init_iter: int | None = None,
+    cfl: float | None = None,
 ) -> str:
     """Rewrite only the swept/derived keys of an IAMReX inputs deck, preserving the rest.
 
@@ -249,13 +250,20 @@ def render_inputs(
             pass-through -- the base deck's own value is left untouched. Set to ``2`` for any
             field-capture deck (CC-F1): with ``init_iter=0``, IAMReX never persists the velocity
             field to the plotfile.
+        cfl: Override for ``ns.cfl``. Defaults to ``None``, meaning pass-through -- the base
+            deck's own value is left untouched, with exactly the same optional,
+            pass-through-by-default semantics as ``init_iter``. Raise ``ns.cfl`` above the
+            base deck's value when the validated fixed timestep would otherwise be CFL-limited
+            at a finer grid resolution (issue #92): ``ns.fixed_dt`` is a ceiling, not an
+            enforced value -- ``ns.cfl`` is an independent limiter that can reduce the realized
+            timestep below it.
 
     Returns:
         The rewritten deck text (LF-terminated).
 
     Raises:
-        ValueError: If any targeted key is absent from ``base_text`` (``ns.init_iter`` is only
-            required when ``init_iter`` is not ``None``).
+        ValueError: If any targeted key is absent from ``base_text`` (``ns.init_iter``/``ns.cfl``
+            are only required when their respective override is not ``None``).
     """
     replacements = {
         "particle_inputs.kinematics_stroke_amp": str(float(stroke_amp_deg)),
@@ -267,6 +275,8 @@ def render_inputs(
     }
     if init_iter is not None:
         replacements["ns.init_iter"] = str(int(init_iter))
+    if cfl is not None:
+        replacements["ns.cfl"] = str(float(cfl))
     remaining = set(replacements)
     out_lines: list[str] = []
     for line in base_text.splitlines():
@@ -299,6 +309,57 @@ def render_inputs(
             "base inputs is missing targeted key(s): " + ", ".join(sorted(remaining))
         )
     return "\n".join(out_lines) + "\n"
+
+
+def _check_deck_safety(deck_text: str, *, max_step: int, name: str) -> None:
+    """Guard against two silent landmines that invalidate a sweep's sizing (design D1).
+
+    ``ns.prescribed_vel != 0`` disables the CFL limiter entirely: it routes through a branch in
+    IAMReX's diffused-IB advance (``NavierStokes.cpp``) that overrides ``predict_velocity``'s
+    return with the unlimited ``dt``, so a deck with it set would silently ignore the ``ns.cfl``
+    sizing this sweep depends on. ``ns.num_steps`` below ``max_step`` silently lowers the
+    effective step cap regardless of what ``max_step`` itself says (``main.cpp``:
+    ``max_step = min(max_step, num_steps + levelSteps(0))``). Neither key is present in any real
+    deck today; this only fires if one is explicitly (and unsafely) set.
+
+    Args:
+        deck_text: The rendered deck text to check.
+        max_step: The config's derived step cap.
+        name: The config's name (for the error message).
+
+    Raises:
+        ValueError: If either landmine is present with an unsafe value.
+    """
+    kv: dict[str, str] = {}
+    for raw in deck_text.splitlines():
+        line = raw.split("#", 1)[0]
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            kv[key] = value.strip()
+
+    prescribed_vel = kv.get("ns.prescribed_vel")
+    if prescribed_vel is not None and float(prescribed_vel) != 0:
+        raise ValueError(
+            f"config {name!r}: ns.prescribed_vel={prescribed_vel} disables the CFL limiter "
+            "entirely (routes through NavierStokes.cpp's prescribed_vel branch, overriding "
+            "predict_velocity's return), invalidating the ns.cfl sizing this sweep depends on"
+        )
+    # IAMReX's own default/disabled sentinel is num_steps=-1 (main.cpp: `num_steps = -1`), and
+    # the override only applies `if (num_steps > 0)` -- a non-positive value never lowers the
+    # step cap and is not the landmine this lint exists to catch.
+    num_steps = kv.get("ns.num_steps")
+    if (
+        num_steps is not None
+        and float(num_steps) > 0
+        and int(float(num_steps)) < max_step
+    ):
+        raise ValueError(
+            f"config {name!r}: ns.num_steps={num_steps} is below max_step={max_step}; it "
+            "silently lowers the effective step cap regardless of max_step (main.cpp)"
+        )
 
 
 def _validate_configs(configs: Sequence[dict[str, float]]) -> None:
@@ -380,6 +441,7 @@ def generate_sweep(
     r_mid: float = R_MID,
     plot_int: int = -1,
     init_iter: int | None = None,
+    cfl: float | None = None,
 ) -> dict[str, Any]:
     """Generate the sweep corpus: one input deck per config plus manifest sidecars.
 
@@ -406,6 +468,10 @@ def generate_sweep(
         init_iter: ``ns.init_iter`` override threaded to every config's deck. Defaults to
             ``None`` (pass-through from the base deck, recorded in no manifest field). When
             supplied, also recorded per-config in the manifest.
+        cfl: ``ns.cfl`` override threaded to every config's deck. Defaults to ``None``
+            (pass-through, recorded in no manifest field), with exactly the same omit-not-null
+            convention as ``init_iter``. When supplied, also recorded per-config in the manifest
+            and as a ``timestep_policy`` block in ``sweep_provenance.json``.
 
     Returns:
         The manifest dict (also written to ``sweep_manifest.json``).
@@ -460,7 +526,9 @@ def generate_sweep(
             stop_time=stop_time,
             plot_int=plot_int,
             init_iter=init_iter,
+            cfl=cfl,
         )
+        _check_deck_safety(deck, max_step=max_step, name=name)
         with open(output_dir / rel_path, "w", encoding="utf-8", newline="") as handle:
             handle.write(deck)
         record = {
@@ -479,6 +547,8 @@ def generate_sweep(
         }
         if init_iter is not None:
             record["init_iter"] = init_iter
+        if cfl is not None:
+            record["cfl"] = cfl
         config_records.append(record)
 
     holdout_names = [r["name"] for r in config_records if r["split"] == "holdout"]
@@ -505,9 +575,9 @@ def generate_sweep(
     write_units_sidecar(output_dir / "sweep_manifest.units.json", _MANIFEST_UNITS)
 
     # This dict is written verbatim below -- it has no knowledge of any hand-added top-level key
-    # (e.g. a corpus's "superseded_by" block flagging a stale prior cluster run). Regenerating a
-    # corpus that has one requires manually re-adding it to the fresh sweep_provenance.json;
-    # nothing here preserves it automatically.
+    # (e.g. a corpus's "supersession_history" list flagging stale prior cluster runs).
+    # Regenerating a corpus that has one requires manually re-adding it to the fresh
+    # sweep_provenance.json; nothing here preserves it automatically.
     provenance = {
         "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
         "generated_at": timestamp,
@@ -542,5 +612,16 @@ def generate_sweep(
         if init_iter is not None:
             field_capture["init_iter"] = init_iter
         provenance["field_capture"] = field_capture
+    if cfl is not None:
+        provenance["timestep_policy"] = {
+            "cfl": cfl,
+            "fixed_dt": dt,
+            "rationale": (
+                f"ns.cfl raised to {cfl} so the validated fixed timestep ({dt}) binds instead "
+                "of being CFL-limited at this grid resolution -- ns.fixed_dt is a ceiling, not "
+                "an enforced value; ns.cfl is an independent limiter that can reduce the "
+                "realized timestep below it (issue #92)."
+            ),
+        }
     _write_json(output_dir / "sweep_provenance.json", provenance)
     return manifest

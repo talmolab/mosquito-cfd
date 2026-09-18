@@ -149,3 +149,20 @@ def test_cli_wall_time_s_flag_skips_argo_query(tmp_path, monkeypatch):
         json.loads(output.read_text(encoding="utf-8"))["timing"]["wall_time_s"]
         == 9448.466969
     )
+
+
+def test_cli_has_no_observation_override_flags():
+    """No flag can supply or override stability/realized_dt/interior_dt_below_nominal/
+    cycles_completed/reached_stop_time -- a closed-set assertion over the parser's own actions,
+    not a per-flag check that only catches flags someone remembered to think of."""
+    module = _load_script()
+    parser = module.build_parser()
+    dests = {action.dest for action in parser._actions}
+    forbidden = {
+        "stability",
+        "realized_dt",
+        "interior_dt_below_nominal",
+        "cycles_completed",
+        "reached_stop_time",
+    }
+    assert not (dests & forbidden)

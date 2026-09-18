@@ -8,6 +8,7 @@ committed config is at the validated stroke of 70 deg). No RunAI, GPU, or plotfi
 """
 
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -446,6 +447,18 @@ def test_configs_not_a_list_raises(tmp_path):
         build_dataset(path, {})
 
 
+def test_malformed_manifest_json_raises_clear_file_identified_error(tmp_path):
+    """`load_manifest_configs` is the first thing `scripts/check_corpus_acceptance.py`'s CLI
+    calls against `--manifest` (before `run_acceptance_gate` even runs) -- a raw, contextless
+    `json.JSONDecodeError` here reproduces the exact CLI failure mode review round 1 was
+    supposed to eliminate, just via a different, unpatched call path (review round 2 on
+    PR #97)."""
+    path = tmp_path / "m.json"
+    path.write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(ValueError, match=re.escape(str(path))):
+        build_dataset(path, {})
+
+
 def test_config_not_a_mapping_raises(tmp_path):
     """A config entry that is not a mapping raises a clear ValueError naming its index."""
     path = tmp_path / "m.json"
@@ -509,3 +522,144 @@ def test_empty_build_has_stable_dtypes(tmp_path):
     assert dropped == [cfg["name"]]
     assert len(empty) == 0
     assert empty.dtypes.to_dict() == populated.dtypes.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# init_iter deduplication (#94) -- ns.init_iter=N writes 1+N rows at iStep=0;
+# keep the last (converged) one, drop the rest.
+# ---------------------------------------------------------------------------
+
+INIT_ITER_FIXTURE = (
+    Path(__file__).resolve().parent / "fixtures" / "forces_init_iter2.csv"
+)
+
+
+def _write_init_iter_csv(path: Path, init_iter: int, n_real_steps: int = 2) -> Path:
+    """Write a CSV with ``1 + init_iter`` rows at iStep=0 (first all-zero, rest distinct
+    nonzero, ascending magnitude) followed by ``n_real_steps`` further distinct steps.
+    """
+    header = ",".join(IB_PARTICLE_COLUMNS)
+    rows = []
+
+    def row(istep: int, time: float, fx: float) -> str:
+        vals = {c: 0 for c in IB_PARTICLE_COLUMNS}
+        vals.update(
+            iStep=istep,
+            time=time,
+            Fx=fx,
+            Fy=fx / 2,
+            Fz=fx / 3,
+            Mx=fx / 4,
+            My=fx / 5,
+            Mz=fx / 6,
+        )
+        return ",".join(str(vals[c]) for c in IB_PARTICLE_COLUMNS)
+
+    rows.append(row(0, 0.0, 0.0))  # first init iteration: all-zero
+    for k in range(1, init_iter + 1):
+        rows.append(row(0, 0.0, -10.0 * k))  # later init iterations: nonzero, distinct
+    for s in range(1, n_real_steps + 1):
+        rows.append(row(s, 0.0005 * s, 50.0 * s))
+    path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    return path
+
+
+def test_dedup_removes_duplicate_init_rows_keeps_last(tmp_path):
+    """3 rows at iStep=0 (init_iter=2) collapse to 1: the last, non-zero row is kept."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
+    assert (df["time"] == 0.0).sum() == 1
+    first_row = df.iloc[0]
+    assert (
+        first_row["Fx"] == -15.0
+    )  # the third (last) iStep=0 row's value, not 0 or -10
+    assert len(df) == 3  # 3 distinct iStep values: 0, 1, 2
+
+
+def test_dedup_time_strictly_increasing(tmp_path):
+    """After dedup, time is strictly increasing (no duplicate timestamps)."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
+    diffs = np.diff(df["time"].to_numpy())
+    assert np.all(diffs > 0)
+
+
+@pytest.mark.parametrize("init_iter", [0, 1, 2, 5])
+def test_dedup_parametrized_over_init_iter(tmp_path, init_iter):
+    """The extractor is init_iter-value-agnostic: always exactly 1 row per distinct iStep,
+    always keeping the LAST duplicate, regardless of how many init iterations were written."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    csv_path = _write_init_iter_csv(tmp_path / f"forces_init{init_iter}.csv", init_iter)
+    df, _ = build_dataset(manifest, {cfg["name"]: csv_path})
+    n_real_steps = 2
+    assert len(df) == 1 + n_real_steps  # iStep 0 (deduped to 1) + n_real_steps
+    assert (df["time"] == 0.0).sum() == 1
+    expected_last_fx = -10.0 * init_iter if init_iter > 0 else 0.0
+    assert df.iloc[0]["Fx"] == expected_last_fx
+
+
+def test_dedup_is_noop_without_duplicates(tmp_path):
+    """Regression: extraction of a CSV with no duplicate iStep (the coarse-corpus shape,
+    init_iter=None) is byte-for-byte unaffected by the dedup logic."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert len(df) == len(FIXTURE_TIME)
+    np.testing.assert_array_equal(df["Fx"].to_numpy(), FIXTURE_FX)
+    np.testing.assert_array_equal(df["time"].to_numpy(), FIXTURE_TIME)
+
+
+def test_dedup_raises_on_non_monotonic_istep(tmp_path):
+    """A checkpoint-restart CSV that re-emits a range of already-seen iStep values (not
+    just duplicate iStep=0) raises, naming the config -- keep="last" on such a CSV would
+    silently discard the earlier, correct rows rather than the restart's stale ones."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    header = ",".join(IB_PARTICLE_COLUMNS)
+
+    def row(istep: int, time: float) -> str:
+        vals = {c: 0 for c in IB_PARTICLE_COLUMNS}
+        vals.update(iStep=istep, time=time)
+        return ",".join(str(vals[c]) for c in IB_PARTICLE_COLUMNS)
+
+    # 0,1,2,3, then restart re-emits 2,3,4 -- non-monotonic iStep sequence.
+    rows = [row(s, s * 0.0005) for s in (0, 1, 2, 3, 2, 3, 4)]
+    csv_path = tmp_path / "restart.csv"
+    csv_path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=cfg["name"]):
+        build_dataset(manifest, {cfg["name"]: csv_path})
+
+
+def test_dedup_raises_when_duplicates_occur_at_nonzero_istep(tmp_path):
+    """The only expected duplicate-iStep pattern is `ns.init_iter`'s re-emission at iStep=0.
+    A CSV whose iStep never advances past a nonzero value (e.g. a solver-writer bug, not
+    init_iter) is vacuously monotonic (diff=0 everywhere) and would otherwise silently collapse
+    to a single row under keep='last' with no warning -- review round 1 on PR #97."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    header = ",".join(IB_PARTICLE_COLUMNS)
+
+    def row(istep: int, time: float) -> str:
+        vals = {c: 0 for c in IB_PARTICLE_COLUMNS}
+        vals.update(iStep=istep, time=time)
+        return ",".join(str(vals[c]) for c in IB_PARTICLE_COLUMNS)
+
+    rows = [row(5, t) for t in (0.0, 0.0005, 0.001, 0.0015, 0.002)]
+    csv_path = tmp_path / "constant_istep.csv"
+    csv_path.write_text(header + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=cfg["name"]):
+        build_dataset(manifest, {cfg["name"]: csv_path})
+
+
+def test_missing_istep_column_raises_naming_config(tmp_path):
+    """iStep is now a required column (it is the dedup key); its absence raises."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    df = pd.read_csv(FIXTURE).drop(columns=["iStep"])
+    csv_path = tmp_path / "no_istep.csv"
+    df.to_csv(csv_path, index=False)
+    with pytest.raises(ValueError, match=cfg["name"]):
+        build_dataset(manifest, {cfg["name"]: csv_path})

@@ -417,6 +417,64 @@ def test_render_inputs_missing_init_iter_key_raises_when_overridden():
     assert "ns.init_iter" in str(exc.value)
 
 
+# --- ns.cfl: an additional optional targeted key, mirroring init_iter's pass-through --------
+#
+# NOT added to TARGET_KEYS -- that set is the keys _render_default's no-override call always
+# rewrites; ns.cfl (like ns.init_iter) is pass-through by default, so it must never appear in a
+# no-override `differing` set (test_render_inputs_minimal_diff asserts `differing == TARGET_KEYS`
+# exactly against exactly such a no-override call).
+
+
+def test_render_inputs_accepts_cfl_override():
+    """cfl=0.6 rewrites ns.cfl even though the base has 0.3."""
+    base = BASE_INPUTS.read_text(encoding="utf-8")
+    assert _parse_inputs(base)["ns.cfl"] == "0.3"
+    out = _render_default(base, cfl=0.6)
+    assert _parse_inputs(out)["ns.cfl"] == "0.6"
+
+
+def test_render_inputs_cfl_none_preserves_base_value():
+    """cfl=None (the default) leaves the base ns.cfl untouched."""
+    base = (
+        "max_step        = 2000\n"
+        "stop_time = 1.0\n"
+        "amr.plot_int = -1\n"
+        "ns.cfl = 0.3\n"
+        "particle_inputs.kinematics_stroke_amp = 70.0\n"
+        "particle_inputs.kinematics_frequency = 1.0\n"
+        "particle_inputs.kinematics_pitch_amp = 45.0\n"
+    )
+    out = _render_default(base, cfl=None)
+    assert _parse_inputs(out)["ns.cfl"] == "0.3"
+
+
+def test_render_inputs_missing_cfl_key_raises_when_overridden():
+    """cfl is only validated as a required key when an override is actually requested."""
+    base = (
+        "max_step        = 2000\n"
+        "stop_time = 1.0\n"
+        "amr.plot_int = -1\n"
+        "particle_inputs.kinematics_stroke_amp = 70.0\n"
+        "particle_inputs.kinematics_frequency = 1.0\n"
+        "particle_inputs.kinematics_pitch_amp = 45.0\n"
+    )
+    _render_default(base, cfl=None)  # no override requested: no error
+    with pytest.raises(ValueError) as exc:
+        _render_default(base, cfl=0.6)
+    assert "ns.cfl" in str(exc.value)
+
+
+def test_render_inputs_cfl_override_independent_of_plot_int_and_init_iter():
+    """cfl overridden alone doesn't implicitly touch plot_int or init_iter."""
+    base = BASE_INPUTS.read_text(encoding="utf-8")
+    base_init_iter = _parse_inputs(base)["ns.init_iter"]
+    out = _render_default(base, cfl=0.6)
+    out_map = _parse_inputs(out)
+    assert out_map["ns.cfl"] == "0.6"
+    assert out_map["amr.plot_int"] == "-1"
+    assert out_map["ns.init_iter"] == base_init_iter
+
+
 @pytest.mark.parametrize("key", sorted(TARGET_KEYS))
 def test_render_inputs_missing_key_raises(key):
     """A targeted key absent from the base raises ValueError naming it."""
@@ -700,6 +758,133 @@ def test_generate_sweep_plot_int_zero_and_explicit_default_are_both_accepted(tmp
     assert "field_capture" not in provenance_explicit_default
 
 
+# --- ns.cfl override at the generate_sweep level (#92) ---------------------------------
+
+
+def test_generate_sweep_cfl_override_threaded_to_every_deck_and_manifest(tmp_path):
+    """cfl lands in every deck AND every manifest record, mirroring init_iter/plot_int."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest = generate_sweep(
+        BASE_INPUTS, tmp_path, configs=micro, n_holdout=0, cfl=0.6, timestamp=TS
+    )
+    for f in (tmp_path / "inputs").glob("inputs.3d.*"):
+        out_map = _parse_inputs(f.read_text(encoding="utf-8"))
+        assert out_map["ns.cfl"] == "0.6"
+    for record in manifest["configs"]:
+        assert record["cfl"] == 0.6
+
+
+def test_generate_sweep_cfl_override_independent_of_plot_int_and_init_iter(tmp_path):
+    """cfl alone doesn't implicitly thread plot_int/init_iter (independence at this level too)."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    manifest = generate_sweep(
+        BASE_INPUTS, tmp_path, configs=micro, n_holdout=0, cfl=0.6, timestamp=TS
+    )
+    for f in (tmp_path / "inputs").glob("inputs.3d.*"):
+        out_map = _parse_inputs(f.read_text(encoding="utf-8"))
+        assert out_map["amr.plot_int"] == "-1"
+    for record in manifest["configs"]:
+        assert "init_iter" not in record
+        assert "plot_int" in record and record["plot_int"] == -1
+
+
+def test_generate_sweep_omitting_cfl_is_byte_identical_to_before(tmp_path):
+    """Absent cfl override reproduces the previous arithmetic byte-for-byte -- the hard
+    constraint: this MUST NOT regenerate the coarse corpus's committed decks."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with_cfl_none = generate_sweep(
+        BASE_INPUTS, tmp_path / "a", configs=micro, n_holdout=0, timestamp=TS
+    )
+    without_cfl_kwarg = generate_sweep(
+        BASE_INPUTS, tmp_path / "b", configs=micro, n_holdout=0, cfl=None, timestamp=TS
+    )
+    assert with_cfl_none == without_cfl_kwarg
+    for record in with_cfl_none["configs"]:
+        assert "cfl" not in record
+    a_decks = sorted((tmp_path / "a" / "inputs").glob("inputs.3d.*"))
+    b_decks = sorted((tmp_path / "b" / "inputs").glob("inputs.3d.*"))
+    for a, b in zip(a_decks, b_decks, strict=True):
+        assert a.read_bytes() == b.read_bytes()
+
+
+def test_manifest_records_cfl_per_config_and_omits_when_absent(tmp_path):
+    """cfl present when overridden; absent entirely (not null) when left at default."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with_override = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "with",
+        configs=micro,
+        n_holdout=0,
+        cfl=0.6,
+        timestamp=TS,
+    )
+    for record in with_override["configs"]:
+        assert record["cfl"] == 0.6
+
+    without_override = generate_sweep(
+        BASE_INPUTS, tmp_path / "without", configs=micro, n_holdout=0, timestamp=TS
+    )
+    for record in without_override["configs"]:
+        assert "cfl" not in record
+    assert "cfl" not in json.dumps(without_override)  # not even as a null anywhere
+
+
+def test_generate_sweep_cfl_override_recorded_in_provenance_timestep_policy(tmp_path):
+    """A cfl override adds a timestep_policy provenance block; its absence omits the block."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with_cfl = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "with",
+        configs=micro,
+        n_holdout=0,
+        cfl=0.6,
+        timestamp=TS,
+    )
+    provenance_with = json.loads(
+        (tmp_path / "with" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance_with["timestep_policy"]["cfl"] == 0.6
+    assert provenance_with["timestep_policy"]["fixed_dt"] == with_cfl["dt"]
+    assert provenance_with["timestep_policy"]["rationale"]
+
+    generate_sweep(
+        BASE_INPUTS, tmp_path / "without", configs=micro, n_holdout=0, timestamp=TS
+    )
+    provenance_without = json.loads(
+        (tmp_path / "without" / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    assert "timestep_policy" not in provenance_without
+
+
+def test_regenerating_from_manifest_recorded_cfl_reproduces_decks_byte_identically(
+    tmp_path,
+):
+    """The replay path test_committed_fine_corpus_matches_regeneration depends on: a manifest's
+    recorded cfl must be sufficient, on its own, to regenerate byte-identical decks."""
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    first = generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "first",
+        configs=micro,
+        n_holdout=0,
+        cfl=0.6,
+        timestamp=TS,
+    )
+    recorded_cfl = first["configs"][0]["cfl"]
+    generate_sweep(
+        BASE_INPUTS,
+        tmp_path / "second",
+        configs=micro,
+        n_holdout=0,
+        cfl=recorded_cfl,
+        timestamp=TS,
+    )
+    first_decks = sorted((tmp_path / "first" / "inputs").glob("inputs.3d.*"))
+    second_decks = sorted((tmp_path / "second" / "inputs").glob("inputs.3d.*"))
+    for a, b in zip(first_decks, second_decks, strict=True):
+        assert a.read_bytes() == b.read_bytes()
+
+
 # --- 1.26-1.27: manifest/provenance field-capture schema -------------------------------
 
 
@@ -975,3 +1160,87 @@ def test_iso8601_timestamp_rejects_malformed_value(bad_timestamp):
 
     with pytest.raises(argparse.ArgumentTypeError):
         iso8601_timestamp(bad_timestamp)
+
+
+# --- Deck safety lint (design D1): two landmines that silently invalidate the ns.cfl sizing --
+
+_LINT_BASE_DECK = (
+    "max_step        = 4706\n"
+    "stop_time = 2.3529411764705883\n"
+    "amr.plot_int = -1\n"
+    "ns.init_iter = 0\n"
+    "ns.cfl = 0.3\n"
+    "particle_inputs.kinematics_stroke_amp = 35.0\n"
+    "particle_inputs.kinematics_frequency = 0.85\n"
+    "particle_inputs.kinematics_pitch_amp = 30.0\n"
+)
+
+
+def test_generate_sweep_rejects_deck_with_nonzero_prescribed_vel(tmp_path):
+    """ns.prescribed_vel != 0 disables the CFL limiter entirely (design D1's landmine) --
+    invalidating the ns.cfl sizing this sweep depends on. Must be caught, not silently written.
+    """
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.prescribed_vel = 1\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="ns.prescribed_vel"):
+        generate_sweep(base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS)
+
+
+def test_generate_sweep_rejects_deck_with_num_steps_below_max_step(tmp_path):
+    """ns.num_steps below max_step silently lowers the effective step cap (main.cpp:94-100)
+    regardless of what max_step says -- must be caught, not silently written."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.num_steps = 10\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="ns.num_steps"):
+        generate_sweep(base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS)
+
+
+def test_generate_sweep_accepts_deck_without_landmine_keys(tmp_path):
+    """Neither landmine key is present in any real deck today -- the lint must not false-positive
+    on the common case of the keys being absent entirely."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK, encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise
+
+
+def test_generate_sweep_accepts_zero_prescribed_vel_and_sufficient_num_steps(tmp_path):
+    """The lint only fires on the UNSAFE values, not on the keys' mere presence."""
+    base = tmp_path / "base.3d"
+    base.write_text(
+        _LINT_BASE_DECK + "ns.prescribed_vel = 0\nns.num_steps = 100000\n",
+        encoding="utf-8",
+    )
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise
+
+
+def test_generate_sweep_accepts_disabled_num_steps_sentinel(tmp_path):
+    """ns.num_steps=-1 is IAMReX's own default/disabled sentinel (main.cpp: `num_steps = -1`,
+    only gated `if (num_steps > 0)`) -- an operator who explicitly writes it back is not
+    invoking the landmine the lint exists to catch. Review round 1 on PR #97: the lint compared
+    `num_steps < max_step` unconditionally, false-positiving on this safe value."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.num_steps = -1\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise
+
+
+def test_generate_sweep_accepts_num_steps_zero(tmp_path):
+    """`ns.num_steps=0` takes the same disabled branch as `-1` per `main.cpp`'s `if (num_steps
+    > 0)` gate -- pinned explicitly since 0 is a more plausible operator typo than -1 and round
+    1 only tested the -1 sentinel (review round 2 on PR #97)."""
+    base = tmp_path / "base.3d"
+    base.write_text(_LINT_BASE_DECK + "ns.num_steps = 0\n", encoding="utf-8")
+    micro = json.loads(MICRO_SWEEP.read_text(encoding="utf-8"))
+    generate_sweep(
+        base, tmp_path / "out", configs=micro, n_holdout=0, timestamp=TS
+    )  # no raise

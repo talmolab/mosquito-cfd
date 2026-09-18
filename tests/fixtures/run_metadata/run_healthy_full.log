@@ -1,0 +1,14 @@
+AMReX (25.03) initialized
+STEP = 1 TIME = 0.0005 DT = 0.0005
+STEP = 2 TIME = 0.001 DT = 0.0005
+STEP = 3 TIME = 0.0015 DT = 0.0005
+STEP = 4 TIME = 0.002 DT = 0.0005
+STEP = 5 TIME = 0.0025 DT = 0.0005
+STEP = 6 TIME = 0.003 DT = 0.0005
+STEP = 7 TIME = 0.0035 DT = 0.0005
+STEP = 8 TIME = 0.004 DT = 0.0005
+STEP = 9 TIME = 0.0045 DT = 0.0005
+STEP = 10 TIME = 0.0047 DT = 0.0002
+[The Arena] Total space allocated (MiB) across MPI ranks: 46068
+[The Arena] Total space used (max across MPI ranks): 7998 MiB
+AMReX (25.03) finalized

@@ -8,6 +8,7 @@ already-corrected pilot config ``s35_f085_p45`` (see the fixtures' own README) a
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -118,9 +119,12 @@ def test_pilot_fixture_matches_real_capture_surrogate_run_metadata_shape(monkeyp
 
 
 def test_read_final_time_from_csv_uses_last_row():
-    final_time, timesteps = mc.read_final_time_from_csv(_CSV)
+    final_time, timesteps, raw_row_count = mc.read_final_time_from_csv(_CSV)
     assert final_time == 2.3525
     assert timesteps == 4706
+    assert (
+        raw_row_count == 4706
+    )  # no init_iter duplicates in this force-only pilot fixture
     # Never the deck's stop_time.
     assert final_time != 2.3529411764705883
 
@@ -913,3 +917,225 @@ def test_assemble_metadata_matches_known_correct_pilot_config():
     assert result["timing"]["final_time"] == real["timing"]["final_time"]
     assert result["git"]["commit"] == real["git"]["commit"]
     assert result["kinematics"] == real["kinematics"]
+
+
+# ---------------------------------------------------------------------------
+# Run-observed metadata (#93): realized_dt, stability derivation, cycles_completed,
+# reached_stop_time, and the raw-vs-distinct row count split.
+# ---------------------------------------------------------------------------
+
+_RUN_LOG_HEALTHY = _FIXTURES / "run_healthy_full.log"
+_RUN_LOG_CFL_LIMITED = _FIXTURES / "run_cfl_limited_full.log"
+_INIT_ITER_CSV = Path(__file__).parent / "fixtures" / "forces_init_iter2.csv"
+# from PR A: iStep 0(x3, dedups to 1),1,2 -> timesteps=3, raw_row_count=5
+
+
+def test_read_final_time_from_csv_returns_distinct_and_raw_counts():
+    """init_iter=2 fixture: 5 raw rows, 3 distinct iStep -> timesteps=3, raw_row_count=5."""
+    final_time, timesteps, raw_row_count = mc.read_final_time_from_csv(_INIT_ITER_CSV)
+    assert timesteps == 3
+    assert raw_row_count == 5
+    assert final_time == 0.001  # last row's time
+
+
+def test_read_dt_series_from_run_log_healthy():
+    series = mc.read_dt_series_from_run_log(_RUN_LOG_HEALTHY)
+    assert len(series) == 10
+    assert series[0] == 0.0005
+    assert series[-1] == 0.0002  # the clamped final step
+
+
+def test_read_dt_series_raises_on_missing_log_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="run.log"):
+        mc.read_dt_series_from_run_log(tmp_path / "does_not_exist.log")
+
+
+def test_read_dt_series_from_run_log_preserves_nan_line_instead_of_dropping_it(
+    tmp_path,
+):
+    """A DT=nan line (a diverged/crashed step) must be preserved in the series, in position --
+    not silently excluded by the regex. Dropping the line would shift which step is treated as
+    "the final clamped step" and could mislabel a diverged run as stable (review round 1 on
+    PR #97, PR #91/#92's failure class reintroduced at the log-parsing layer)."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\n"
+        "STEP = 1 TIME = 0.0005 DT = nan\n"
+        "STEP = 2 TIME = 0.0010 DT = 0.0004\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 3
+    assert math.isnan(series[1])
+    assert series[0] == pytest.approx(0.0005)
+    assert series[2] == pytest.approx(0.0004)
+
+
+def test_read_dt_series_from_run_log_preserves_inf_line(tmp_path):
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\nSTEP = 1 TIME = 0.0005 DT = inf\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 2
+    assert math.isinf(series[1])
+
+
+@pytest.mark.parametrize("token", ["-nan", "+nan", "-inf", "+inf", "-infinity"])
+def test_read_dt_series_from_run_log_preserves_signed_nan_inf_tokens(tmp_path, token):
+    """Round-1's fix (widening the regex for nan/inf) had a latent bug: the numeric
+    alternative `[\\d.eE+-]+` can match a lone sign character and "win" before the nan/inf
+    alternative is ever tried, so `DT = -nan`/`DT = -inf`/etc. parsed to a bare `'-'`, which
+    `float()` then rejects with a confusing, file-unidentified ValueError instead of the
+    diverged-run signal reaching `compute_dt_observations`'s NaN guard at all (review round 2
+    on PR #97 -- glibc printf emits a signed NaN payload as `-nan` for real divergences)."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        f"STEP = 0 TIME = 0.0000 DT = 0.0005\nSTEP = 1 TIME = 0.0005 DT = {token}\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    assert len(series) == 2
+    assert not math.isfinite(series[1])
+
+
+def test_compute_dt_observations_raises_when_run_log_has_nan_in_interior_step(tmp_path):
+    """End-to-end: a run.log with a diverged interior step must raise, not silently produce a
+    'stable' verdict by having the nan line dropped and the remaining steps re-indexed."""
+    log_path = tmp_path / "run.log"
+    log_path.write_text(
+        "STEP = 0 TIME = 0.0000 DT = 0.0005\n"
+        "STEP = 1 TIME = 0.0005 DT = nan\n"
+        "STEP = 2 TIME = 0.0010 DT = 0.0005\n",
+        encoding="utf-8",
+    )
+    series = mc.read_dt_series_from_run_log(log_path)
+    with pytest.raises(ValueError, match="NaN|non-finite"):
+        mc.compute_dt_observations(series, fixed_dt=5e-4)
+
+
+def test_compute_dt_observations_healthy_run():
+    series = mc.read_dt_series_from_run_log(_RUN_LOG_HEALTHY)
+    obs = mc.compute_dt_observations(series, fixed_dt=5e-4)
+    assert obs["realized_dt"]["min"] == pytest.approx(5e-4)
+    assert obs["realized_dt"]["max"] == pytest.approx(5e-4)
+    assert obs["realized_dt"]["frac_below_nominal"] == 0.0
+    assert obs["interior_dt_below_nominal"] is False
+
+
+def test_compute_dt_observations_cfl_limited_run():
+    series = mc.read_dt_series_from_run_log(_RUN_LOG_CFL_LIMITED)
+    obs = mc.compute_dt_observations(series, fixed_dt=5e-4)
+    assert obs["realized_dt"]["min"] == pytest.approx(3e-4)
+    assert obs["realized_dt"]["frac_below_nominal"] == pytest.approx(3 / 9)
+    assert obs["interior_dt_below_nominal"] is True
+
+
+def test_median_interior_dt_is_blind_to_cfl_limiting():
+    """Regression guard for design D3: the MEDIAN interior dt of the CFL-limited fixture is
+    nominal, even though 1/3 of its interior steps were CFL-reduced -- proving why stability
+    must never be derived from the median."""
+    import statistics
+
+    series = mc.read_dt_series_from_run_log(_RUN_LOG_CFL_LIMITED)
+    interior = series[:-1]
+    assert statistics.median(interior) == pytest.approx(5e-4)
+    obs = mc.compute_dt_observations(series, fixed_dt=5e-4)
+    assert obs["interior_dt_below_nominal"] is True
+
+
+def test_compute_dt_observations_excludes_only_the_final_clamped_step():
+    """A run whose only short step is the final clamped one is NOT flagged CFL-limited."""
+    series = [5e-4] * 9 + [4.41e-4]
+    obs = mc.compute_dt_observations(series, fixed_dt=5e-4)
+    assert obs["interior_dt_below_nominal"] is False
+    assert obs["realized_dt"]["min"] == pytest.approx(5e-4)
+
+
+def test_compute_dt_observations_every_step_reduced_including_last():
+    """A uniformly-reduced run (every step short, not just the clamped final one) IS flagged."""
+    series = [3e-4] * 10
+    obs = mc.compute_dt_observations(series, fixed_dt=5e-4)
+    assert obs["interior_dt_below_nominal"] is True
+    assert obs["realized_dt"]["frac_below_nominal"] == 1.0
+
+
+def test_compute_dt_observations_raises_on_too_few_samples():
+    with pytest.raises(ValueError, match="at least 2"):
+        mc.compute_dt_observations([5e-4], fixed_dt=5e-4)
+
+
+def test_compute_dt_observations_raises_on_nan_in_series():
+    with pytest.raises(ValueError, match="NaN|non-finite"):
+        mc.compute_dt_observations([5e-4, float("nan"), 5e-4], fixed_dt=5e-4)
+
+
+def test_derive_stability_nominal():
+    assert mc.derive_stability(5e-4) == "stable_at_5e-4"
+
+
+def test_derive_stability_deck_fallback():
+    assert mc.derive_stability(2.5e-4) == "stable_at_2.5e-4_fallback"
+
+
+def test_derive_stability_cfl_limited_at_nominal():
+    assert (
+        mc.derive_stability(5e-4, interior_dt_below_nominal=True)
+        == "cfl_limited_at_5e-4"
+    )
+
+
+def test_derive_stability_cfl_limited_at_deck_fallback():
+    value = mc.derive_stability(2.5e-4, interior_dt_below_nominal=True)
+    assert value == "cfl_limited_at_2.5e-4_fallback"
+    assert not value.startswith("stable_at_")
+
+
+def test_compute_run_completion_truncated():
+    """Spec scenario: A truncated run is machine-readable as truncated."""
+    result = mc.compute_run_completion(
+        final_time=1.5904, stop_time=2 / 1.15, fixed_dt=5e-4, frequency_fstar=1.15
+    )
+    assert result["cycles_completed"] == pytest.approx(1.829, abs=1e-3)
+    assert result["reached_stop_time"] is False
+
+
+def test_compute_run_completion_healthy():
+    result = mc.compute_run_completion(
+        final_time=2.3525, stop_time=2.352941176, fixed_dt=5e-4, frequency_fstar=0.85
+    )
+    assert result["reached_stop_time"] is True
+    assert result["cycles_completed"] == pytest.approx(2.0, abs=1e-3)
+
+
+def test_assemble_metadata_includes_run_observation_fields():
+    """End-to-end via the existing pilot fixture tree (a healthy run: no dt reduction)."""
+    result = _assemble()
+    assert result["interior_dt_below_nominal"] is False
+    assert result["stability"] == "stable_at_5e-4"
+    assert "realized_dt" in result
+    assert result["realized_dt"]["min"] == pytest.approx(5e-4)
+    assert result["cycles_completed"] == pytest.approx(2.0, abs=1e-3)
+    assert result["reached_stop_time"] is True
+    assert result["cfl"] == pytest.approx(0.3)
+
+
+def test_source_config_fields_includes_stop_time_and_cfl():
+    fields = mc.source_config_fields(
+        manifest_path=_MANIFEST, deck_path=_DECK, config_name="s35_f085_p45"
+    )
+    assert fields["stop_time"] == pytest.approx(2.352941176, rel=1e-6)
+    assert fields["cfl"] == pytest.approx(0.3)
+
+
+def test_assemble_metadata_raises_on_row_count_mismatch_uses_raw_count(tmp_path):
+    """pod_rows now compares against the RAW row count, not the deduplicated distinct count."""
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["rows"] = (
+        4706  # matches the raw row count of the (no-duplicate) pilot CSV
+    )
+    ok = tmp_path / "run_metadata.json"
+    ok.write_text(json.dumps(pod_metadata), encoding="utf-8")
+    result = _assemble(pod_metadata_path=ok)
+    assert result["timing"]["timesteps"] == 4706

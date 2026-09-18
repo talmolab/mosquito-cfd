@@ -24,7 +24,6 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-dat
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -41,6 +40,7 @@ from mosquito_cfd.force_surrogate.normalization import (
 )
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
+    load_json_clear_error,
     write_units_sidecar,
 )
 
@@ -95,7 +95,7 @@ _REQUIRED_CONFIG_KEYS = frozenset(
         "split",
     }
 )
-_REQUIRED_CSV_COLUMNS = ("time", "Fx", "Fy", "Fz", "Mx", "My", "Mz")
+_REQUIRED_CSV_COLUMNS = ("iStep", "time", "Fx", "Fy", "Fz", "Mx", "My", "Mz")
 
 # String / integer-count output columns; everything else in DATASET_COLUMNS is float64.
 # Used to give the empty (all-dropped) frame the SAME dtypes as a populated frame so the
@@ -155,6 +155,29 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
         )
     f_star = float(config["frequency_fstar"])
     stroke = float(config["stroke_amp_deg"])
+
+    # ns.init_iter=N causes IAMReX to write 1+N rows at iStep=0 (the first all-zero, the
+    # rest the post_init_press iterations). Deduplicate on iStep, keeping the LAST row per
+    # step -- it is the converged value; the first is a non-physical zero-force placeholder.
+    # A no-op for a CSV with no duplicate iStep (init_iter=None/0, the coarse-corpus shape).
+    istep = raw["iStep"].to_numpy()
+    if not np.all(np.diff(istep) >= 0):
+        raise ValueError(
+            f"IB-particle CSV for config {name!r} at {csv_path} has a non-monotonic iStep "
+            "sequence (e.g. a checkpoint restart re-emitting already-seen steps); refusing "
+            "to deduplicate, since keep='last' would silently discard the earlier, correct "
+            "rows rather than the restart's stale ones"
+        )
+    duplicated_isteps = set(raw.loc[raw["iStep"].duplicated(keep=False), "iStep"])
+    if duplicated_isteps - {0}:
+        raise ValueError(
+            f"IB-particle CSV for config {name!r} at {csv_path} has duplicate iStep values "
+            f"{sorted(duplicated_isteps - {0})} other than the expected ns.init_iter "
+            "re-emission at iStep=0; refusing to deduplicate a pattern that does not match "
+            "any known cause (e.g. a solver-writer bug that never advances iStep would "
+            "otherwise silently collapse the whole file to a single row)"
+        )
+    raw = raw.drop_duplicates(subset="iStep", keep="last")
 
     time = raw["time"].to_numpy(dtype=float)
     fx = raw["Fx"].to_numpy(dtype=float)
@@ -248,7 +271,7 @@ def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
         ValueError: If the manifest has no ``configs`` key, ``configs`` is not a list, or a
             config is malformed / has a duplicate name.
     """
-    manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    manifest = load_json_clear_error(Path(manifest_path), label="sweep manifest")
     if "configs" not in manifest:
         raise ValueError(
             f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"

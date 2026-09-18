@@ -36,6 +36,20 @@ UNITS_VOCABULARY: frozenset[str] = frozenset(
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}(?![0-9a-f])")
 
 
+def load_json_clear_error(path: Path, *, label: str) -> dict:
+    """Load JSON from ``path``, wrapping a decode failure in a clear, file-identified error.
+
+    Lives here (a leaf module with no force-surrogate-internal dependencies) rather than in
+    ``metadata_capture.py`` or ``dataset.py`` so both can share it without a circular import --
+    ``dataset.py`` is imported by ``runner.py``, which is imported by ``metadata_capture.py``.
+    """
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} {path} is not valid JSON: {exc}") from exc
+
+
 def _validate_units(units: object) -> None:
     """Validate a units mapping against UNITS_VOCABULARY (shared by write and read)."""
     if not isinstance(units, dict):

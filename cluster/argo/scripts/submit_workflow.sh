@@ -73,10 +73,15 @@ LOCAL_NFS_PREFIX="${LOCAL_NFS_PREFIX:-/mnt/hpi_dev}"
 TIMESTAMP="${TIMESTAMP:-$(date -u +%Y-%m-%dT%H:%M:%S%z)}"
 # The force-CSV name (escape hatch; verify on the smoke run). Threaded to pods + verify-complete.
 CSV_NAME="${CSV_NAME:-IB_Particle_1.csv}"
-# For `smoke`: which single config to run as the pre-flight (defaults to the first sweep config).
-SMOKE_CONFIG_NAME="${SMOKE_CONFIG_NAME:-s35_f085_p30}"
-SMOKE_INPUT_FILE="${SMOKE_INPUT_FILE:-inputs/inputs.3d.s35_f085_p30}"
-SMOKE_MAX_STEP="${SMOKE_MAX_STEP:-4706}"
+# For `smoke`: which single config to run as the pre-flight. Defaults to s55_f115_p30 -- the
+# CFL-WORST config of the 27-config Aedes grid (cfl_req=0.490, the highest of any config; see
+# add-fine-corpus-run-verification design.md D2), not the first/mildest one. The smoke step
+# exists to catch problems before the 27-way fan-out; aimed at the mildest config it could not
+# reveal a CFL-limiting problem at all (issue #92). Override for a corpus with a different
+# kinematic range.
+SMOKE_CONFIG_NAME="${SMOKE_CONFIG_NAME:-s55_f115_p30}"
+SMOKE_INPUT_FILE="${SMOKE_INPUT_FILE:-inputs/inputs.3d.s55_f115_p30}"
+SMOKE_MAX_STEP="${SMOKE_MAX_STEP:-3478}"
 # Per-pod host RAM (K8s memory, distinct from GPU VRAM). Defaults match the
 # add-fine-grid-training-pilot bump; override for a coarse-grid-sized re-run (e.g.
 # POD_MEMORY_LIMIT=32Gi POD_MEMORY_REQUEST=16Gi) without editing the shared WorkflowTemplate.
@@ -193,12 +198,14 @@ provision() {
 }
 
 # Auto-scale activeDeadlineSeconds from the manifest's real config count when --parallelism is
-# overridden without an explicit --active-deadline-seconds (issue #63): the committed 24h
-# default was sized for the committed parallelism: 3 and silently stops fitting once parallelism
-# is overridden down. PER_CONFIG_HOURS is the measured mean wall_time_s across all 27 configs of
-# the real force-surrogate-sweep-vb8t5 run (the fine-grid corpus); RETRY_MARGIN_HOURS matches the
-# retryStrategy.backoff.maxDuration bump (issue #64) so one retried config's full backoff
-# sequence still fits.
+# overridden without an explicit --active-deadline-seconds (issue #63): the committed default
+# was sized for the committed parallelism: 3 and silently stops fitting once parallelism is
+# overridden down. PER_CONFIG_HOURS is the measured mean wall_time_s across all 27 configs of
+# the real force-surrogate-sweep-pzdhl run (the fine-grid corpus, independently re-validated to
+# 0.3% against the earlier vb8t5 calibration this constant previously cited -- see
+# add-fine-corpus-run-verification design.md D8); RETRY_MARGIN_HOURS is a separate, currently
+# under-provisioned constant -- see that same design doc for why it is NOT raised to match the
+# retryStrategy.backoff.maxDuration fix (issue #64) in this change.
 # CAVEAT: PER_CONFIG_HOURS is a constant calibrated from THAT ONE corpus's measured per-config
 # cost -- it scales with the manifest's config COUNT (via --corpus-dir), not with each config's
 # actual runtime. A future corpus with a materially different per-config cost (a coarser/finer
@@ -234,7 +241,7 @@ compute_auto_deadline_seconds() {
   "$python_bin" -c '
 import json, math, sys
 manifest_path, parallelism = sys.argv[1], int(sys.argv[2])
-PER_CONFIG_HOURS = 2.4
+PER_CONFIG_HOURS = 2.392
 RETRY_MARGIN_HOURS = 4
 try:
     configs = json.load(open(manifest_path))["configs"]
@@ -282,6 +289,14 @@ case "$COMMAND" in
     ;;
   smoke)
     require_image
+    # smoke is always a single config at the committed deadline/backoff -- --parallelism and
+    # --active-deadline-seconds only mean anything for `full`'s fan-out. Previously silently
+    # accepted and ignored (parsed by the global loop above, never consumed here), which looked
+    # like an operator's override took effect when it did not.
+    [[ -z "$PARALLELISM" ]] \
+      || die "--parallelism has no effect on 'smoke' (always a single config); use 'full'"
+    [[ -z "$ACTIVE_DEADLINE_SECONDS" ]] \
+      || die "--active-deadline-seconds has no effect on 'smoke' (always a single config, at the committed deadline); use 'full'"
     [[ -n "$NO_PROVISION" ]] || provision "$CORPUS_DIR" "$WORKSPACE_HOSTPATH" false
     echo "1-config smoke pre-flight ($SMOKE_CONFIG_NAME) — confirms scheduling + GPU before the fan-out ..."
     # Submitted as a wrapper Workflow (not --from workflowtemplate) so the nfs-workspace volume the

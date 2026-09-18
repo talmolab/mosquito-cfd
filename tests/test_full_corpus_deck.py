@@ -318,8 +318,34 @@ def test_generate_full_corpus_cli_accepts_plot_int_and_init_iter_flags(tmp_path)
         assert "init_iter" not in record
 
 
+def test_generate_full_corpus_cli_accepts_cfl_flag(tmp_path):
+    """--cfl is wired through main() to generate_sweep()'s new parameter."""
+    full_corpus = _load_full_corpus_script()
+    out = tmp_path / "cfl_run"
+
+    rc = full_corpus.main(
+        ["--output", str(out), "--timestamp", _TIMESTAMP, "--cfl", "0.6"]
+    )
+    assert rc == 0
+    manifest = json.loads((out / "sweep_manifest.json").read_text(encoding="utf-8"))
+    for record in manifest["configs"]:
+        assert record["cfl"] == 0.6
+
+    out_default = tmp_path / "default_run"
+    rc = full_corpus.main(["--output", str(out_default), "--timestamp", _TIMESTAMP])
+    assert rc == 0
+    manifest_default = json.loads(
+        (out_default / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    for record in manifest_default["configs"]:
+        assert "cfl" not in record
+
+
 def test_fine_corpus_provenance_flags_superseded_runs():
-    """The committed sweep_provenance.json names the stale cluster runs it supersedes.
+    """The committed sweep_provenance.json names the stale cluster runs it supersedes, as a
+    LIST-VALUED supersession history (not a single overwritable block) -- so a corpus
+    superseded more than once accumulates entries rather than discarding the earlier record
+    (add-fine-corpus-run-verification #92-#95/#90/#20/#93/#94).
 
     fix-force-surrogate-sweep-hinge: the cluster workflows that previously generated this
     corpus's raw CFD output (force-surrogate-sweep-vb8t5 + the retry force-surrogate-retry-
@@ -332,13 +358,27 @@ def test_fine_corpus_provenance_flags_superseded_runs():
             encoding="utf-8"
         )
     )
-    assert provenance.get("superseded_by"), (
-        "sweep_provenance.json is missing 'superseded_by'"
+    assert provenance.get("supersession_history"), (
+        "sweep_provenance.json is missing 'supersession_history'"
     )
-    assert provenance["superseded_by"]["cluster_workflows"] == [
+    assert isinstance(provenance["supersession_history"], list), (
+        "supersession_history must be a list, so a second supersession event accumulates "
+        "rather than overwriting the first"
+    )
+    assert provenance["supersession_history"][0]["cluster_workflows"] == [
         "force-surrogate-sweep-vb8t5",
         "force-surrogate-retry-failed-trz9k",
     ], (
-        "superseded_by.cluster_workflows must name exactly the two stale runs, not just be "
-        "non-empty -- a typo'd or wrong workflow name must not pass silently"
+        "supersession_history[0].cluster_workflows must name exactly the two stale runs, not "
+        "just be non-empty -- a typo'd or wrong workflow name must not pass silently"
     )
+
+
+#
+# A test previously lived here asserting `supersession_history`'s "accumulates a second entry"
+# contract. It was removed in review round 2 on PR #97: it never called any `mosquito_cfd`
+# code (only `json`/list/dict operations on data it constructed itself), so it could not have
+# failed for any defect in this package -- decorative, not a regression guard. There is
+# genuinely no code path that appends to this hand-maintained field (confirmed via
+# `grep -rn "supersession_history" src/ scripts/`); a real test can be added if/when a function
+# that writes this field is implemented.

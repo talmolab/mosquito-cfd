@@ -208,7 +208,13 @@ def test_generate_pilot_main_rejects_frozen_corpus_output_via_cli(
 # ---------------------------------------------------------------------------
 
 _REPORT = Path("docs/force_surrogate/fine-grid-pilot-report.md")
-_STABILITY_TOKENS = ("stable_at_5e-4", "stable_at_2.5e-4_fallback", "unstable")
+_STABILITY_TOKENS = (
+    "stable_at_5e-4",
+    "stable_at_2.5e-4_fallback",
+    "cfl_limited_at_5e-4",
+    "cfl_limited_at_2.5e-4_fallback",
+    "unstable",
+)
 _NUMBER_PATTERN = re.compile(r"\d+\.\d+")
 
 

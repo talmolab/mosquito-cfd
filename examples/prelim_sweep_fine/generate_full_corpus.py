@@ -123,6 +123,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "docs/field_surrogate/roadmap.md."
         ),
     )
+    parser.add_argument(
+        "--cfl",
+        type=float,
+        default=None,
+        help=(
+            "ns.cfl override threaded to every deck. Default None (pass-through from the base "
+            "deck). Raise above the base deck's value when the validated fixed timestep would "
+            "otherwise be CFL-limited at this grid resolution -- see issue #92."
+        ),
+    )
     args = parser.parse_args(argv)
 
     # BASE_INPUTS is repo-root-relative (kept relative so the committed provenance path is
@@ -144,6 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         timestamp=args.timestamp,
         plot_int=args.plot_int,
         init_iter=args.init_iter,
+        cfl=args.cfl,
     )
     n_configs = len(manifest["configs"])
     n_holdout = manifest["holdout"]["n_holdout"]

@@ -41,14 +41,12 @@ from pathlib import Path
 from mosquito_cfd.force_surrogate import metadata_capture
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Assemble and write one config's normalized ``run_metadata_<config>.json``.
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI's argument parser.
 
-    Args:
-        argv: Optional argument vector (defaults to ``sys.argv[1:]``).
-
-    Returns:
-        Process exit code (always ``0`` on success; argparse exits non-zero on bad args).
+    Exposed separately from :func:`main` so tests can assert on its option set directly (e.g.
+    that no flag can supply or override a run-observed field such as ``stability``) without
+    invoking the CLI end-to-end.
     """
     parser = argparse.ArgumentParser(
         description="Generate a normalized run_metadata_<config>.json from existing artifacts."
@@ -89,7 +87,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Assemble and write one config's normalized ``run_metadata_<config>.json``.
+
+    Args:
+        argv: Optional argument vector (defaults to ``sys.argv[1:]``).
+
+    Returns:
+        Process exit code (always ``0`` on success; argparse exits non-zero on bad args).
+    """
+    args = build_parser().parse_args(argv)
 
     metadata = metadata_capture.assemble_run_metadata(
         pod_metadata_path=args.pod_metadata,

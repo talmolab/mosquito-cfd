@@ -189,8 +189,19 @@ spec:
 
     retryStrategy:
       limit: 5  # 6 attempts total — a dropped/preempted run reruns on a fresh, clean GPU
-      retryPolicy: "OnFailure"
+      # "Always" (issue #90): "OnFailure" sets retryOnError=false and cannot retry a pod
+      # DELETED by preemption (Argo surfaces that as node phase Error, message "pod deleted"),
+      # only an application-level failure. "OnError" is not the fix either -- it sets
+      # retryOnFailed=false, abandoning genuine application failures, and preemption is not
+      # classified consistently as Error across platforms. Only "Always" covers both.
+      retryPolicy: "Always"
       backoff:
         duration: "2m"
         factor: 2
-        maxDuration: "4h"
+        # maxDuration is wall-clock measured from the FIRST attempt's START (Argo's
+        # processNodeRetries: maxDurationDeadline = firstChildNode.StartedAt.Add(maxDuration)),
+        # NOT the sum of the backoff intervals alone -- it includes every attempt's own runtime.
+        # "4h" against a measured worst-case per-attempt cost of 2.86h permitted only ~1.5
+        # attempts, not the 6 the `limit: 5` above advertises. "20h" covers 6 attempts at 2.86h
+        # (17.16h) plus the cumulative backoff sequence (2m+4m+8m+16m+32m=62m), with margin.
+        maxDuration: "20h"

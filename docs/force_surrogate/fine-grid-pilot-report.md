@@ -22,6 +22,15 @@ and are not restated here.
 > corrected root hinge's arm (~2.975) — this pilot's "no CFL fallback needed at `dt=5e-4`" result
 > was measured at roughly half the true tip speed. The corrected-geometry fine-grid regeneration
 > must re-confirm `dt=5e-4` stability rather than assume this pilot's numbers transfer.
+>
+> **Erratum (`add-fine-corpus-run-verification`, confirming the above): it did not transfer.**
+> The full 27-config corrected-geometry run found 15 of 27 configs CFL-limited and 9 truncated
+> mid-wingbeat (issue #92) — including this pilot's own tested config, `s55_f115_p45`, which
+> reached `cycles_completed ≈ 1.835` of the requested 2.0 (91.7%) at `ns.cfl = 0.3`. The corpus
+> was regenerated at `ns.cfl = 0.6` to restore the validated `dt = 5e-4`. This report's **GO**
+> stands only for the pre-hinge-fix geometry it was measured against; treat any pilot's stability
+> conclusion as scoped to the geometry, grid, and kinematic range it ran under, not just the
+> timestep — see `openspec/project.md`'s corrected CFL mechanism note.
 
 ## Per-config results
 
