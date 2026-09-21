@@ -757,3 +757,12 @@ exercises the parquet-tier guards against it for the first time. Fixed via TDD, 
       new tests plus all 34 existing, no regressions). Full suite `uv run pytest -q -m "not gpu"`,
       `ruff check`/`format --check` (CI's six-path scope), and `openspec validate --strict` all
       clean.
+- [x] H.6 The remaining four IMPORTANT findings were pre-existing debt this PR touches/extends,
+      not fixed in this PR — filed as follow-up issues rather than left untracked:
+      [#101](https://github.com/talmolab/mosquito-cfd/issues/101) (deadline-sizing constants stale
+      after this run's measured cost), [#102](https://github.com/talmolab/mosquito-cfd/issues/102)
+      (no Git LFS for the growing committed parquet corpora),
+      [#103](https://github.com/talmolab/mosquito-cfd/issues/103) (`supersession_history` has no
+      writer, requiring the manual restoration this PR's task 7.1 did by hand),
+      [#104](https://github.com/talmolab/mosquito-cfd/issues/104) (`project.md`'s documented Ruff
+      line-length is stale).
