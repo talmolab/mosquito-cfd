@@ -9,6 +9,15 @@
       "verdict": "pass",
       "x_velocity_max": 4.97329,
       "x_velocity_min": -22.969
+    },
+    "gate": {
+      "configs_checked": 27,
+      "note": "Full-corpus acceptance gate (check_corpus_acceptance.py) run against the ns.cfl=0.6 re-run; passed for all 27 configs (task 7.5).",
+      "passed": true
+    },
+    "orchestration": {
+      "active_deadline_seconds": 98280,
+      "parallelism": 3
     }
   },
   "field_capture": {
