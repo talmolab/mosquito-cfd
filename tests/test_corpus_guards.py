@@ -448,3 +448,18 @@ def test_fine_corpus_registry_entry_reflects_todays_state():
     assert cg.check_parquet_exists_if_registered(fine) == []
     assert cg.check_deck_matches_manifest_max_step(fine) == []
     assert cg.check_per_config_metadata_present(fine) == []
+
+
+def test_converged_beat_peak_matches_the_values_cited_in_the_tripwire_comment():
+    """Pins the two settled-beat (`wingbeat > 0`) max |CF_x| values that
+    `CONVERGED_BEAT_CF_X_TRIPWIRE`'s justifying comment cites (4.015, 2.880) -- without this, a
+    future corpus regeneration could silently drift those numbers (or invalidate the tripwire's
+    margin) with no test failing, since `check_converged_beat_tripwire` only asserts the
+    threshold isn't crossed, not what the actual peak is."""
+    expected = {"prelim_sweep": 4.015, "prelim_sweep_fine": 2.880}
+    for entry in cg.CORPUS_REGISTRY:
+        if not entry.has_parquet:
+            continue
+        df = pd.read_parquet(entry.path / "dataset.parquet")
+        peak = df[df["wingbeat"] > 0]["CF_x"].abs().max()
+        assert peak == pytest.approx(expected[entry.name], abs=1e-3)

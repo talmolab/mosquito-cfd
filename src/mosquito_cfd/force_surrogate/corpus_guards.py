@@ -235,7 +235,12 @@ def check_symmetry_invariant(entry: CorpusEntry) -> list[str]:
 
 
 def check_converged_beat_tripwire(entry: CorpusEntry) -> list[str]:
-    """`|CF_x| < 5` for the settled beat (`wingbeat > 0`) -- provisional, see the module docstring."""
+    """`|CF_x| < 5` for the settled beat (`wingbeat > 0`).
+
+    A coarse magnitude guard against a materially different physical regime, not a truncation
+    detector; see the comment above ``CONVERGED_BEAT_CF_X_TRIPWIRE`` for the margin derivation.
+    ``check_symmetry_invariant`` is what actually catches truncation (design.md D6).
+    """
     if not entry.has_parquet:
         return []
     df = pd.read_parquet(entry.path / "dataset.parquet")
