@@ -219,8 +219,11 @@ configs from the 12 healthy ones exactly, with no threshold to tune. The normali
 defense-in-depth against a case where the observed-dt derivation itself is wrong (the self-
 certification concern above), not the primary mechanism.
 
-Similarly `|CF_x| < 5` as a tripwire has only 20% headroom over the coarse corpus's own 4.015,
-so it is stated as provisional and re-derived against the fine corpus.
+Similarly `|CF_x| < 5` as a tripwire has only 20% headroom over the coarse corpus's own 4.015.
+**Re-derived (task 8.7) against the regenerated, non-CFL-truncated fine corpus:** its true
+settled-beat max is 2.880, comfortably below the coarse corpus's 4.015, so the governing value is
+unchanged and the tripwire is confirmed rather than tightened — 5.0 already sits at the same
+~1.25x margin convention used for `SYMMETRY_RATIO_TOLERANCE`.
 
 **A `cycles_completed` scalar tolerance is not viable and is not used as a gate.** The healthy
 shortfall band is `[3.75e-4, 7.25e-4]` and the affected band starts at `7.50e-4`, so a threshold must

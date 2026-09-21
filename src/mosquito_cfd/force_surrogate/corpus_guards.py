@@ -32,9 +32,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # on the truncated side (see add-fine-corpus-run-verification design.md D6).
 SYMMETRY_RATIO_TOLERANCE = 0.012
 
-# Provisional (task 8.7 re-derives this against the regenerated fine corpus): the measured max
-# |CF_x| for wingbeat > 0 across both committed corpora today is 4.015 (design.md D6) -- this
-# tripwire is a coarse guard against a materially different physical regime, not a tight bound.
+# Confirmed against the regenerated (real, non-CFL-truncated) fine corpus (task 8.7): the measured
+# max |CF_x| for wingbeat > 0 across both committed corpora is 4.015 (prelim_sweep's
+# s35_f085_p60), unchanged from when this tripwire was first set -- prelim_sweep_fine's own true
+# max is 2.880 (also s35_f085_p60), comfortably lower now that its data isn't corrupted by
+# truncation. 5.0 sits at the same ~1.25x margin convention as SYMMETRY_RATIO_TOLERANCE, so the
+# margin does not support tightening further; this tripwire is a coarse guard against a
+# materially different physical regime, not a tight bound.
 CONVERGED_BEAT_CF_X_TRIPWIRE = 5.0
 
 
@@ -49,11 +53,8 @@ class CorpusEntry:
 
 
 # Explicit list, not a glob over `examples/prelim_sweep*`: that pattern also matches
-# `prelim_sweep_fine_pilot` (3 configs, no parquet), and `prelim_sweep_fine` has no parquet on
-# `main` at all until PR #91 merges -- a glob-driven guard would silently skip exactly the corpus
-# it exists to protect. `has_parquet=False` for `prelim_sweep_fine` is today's accurate fact, not
-# an oversight: the manifest/deck-level guards still apply to it; the parquet-tier guards are
-# simply not yet applicable. Flip to `True` once Phase 7/8 rebuilds it.
+# `prelim_sweep_fine_pilot` (3 configs, no parquet) -- a glob-driven guard would silently skip
+# exactly the corpus it exists to protect.
 CORPUS_REGISTRY: tuple[CorpusEntry, ...] = (
     CorpusEntry(
         name="prelim_sweep",
@@ -64,7 +65,7 @@ CORPUS_REGISTRY: tuple[CorpusEntry, ...] = (
     CorpusEntry(
         name="prelim_sweep_fine",
         path=REPO_ROOT / "examples" / "prelim_sweep_fine",
-        has_parquet=False,
+        has_parquet=True,
         has_per_config_metadata=True,
     ),
 )

@@ -439,11 +439,11 @@ def test_real_committed_corpus_passes_all_applicable_guards(entry):
 
 
 def test_fine_corpus_registry_entry_reflects_todays_state():
-    """prelim_sweep_fine is registered has_parquet=False -- today's accurate fact (no parquet
-    exists on main until PR #91 merges), not an oversight. Its deck/manifest-level guards still
-    run cleanly against the committed decks/manifest/per-config metadata."""
+    """prelim_sweep_fine is registered has_parquet=True -- accurate as of the ns.cfl=0.6 Phase 7
+    re-run (PR #91), which rebuilt dataset.parquet. Both its manifest/deck-level and parquet-tier
+    guards run cleanly against the real committed corpus."""
     fine = next(e for e in cg.CORPUS_REGISTRY if e.name == "prelim_sweep_fine")
-    assert fine.has_parquet is False
+    assert fine.has_parquet is True
     assert fine.has_per_config_metadata is True
     assert cg.check_parquet_exists_if_registered(fine) == []
     assert cg.check_deck_matches_manifest_max_step(fine) == []

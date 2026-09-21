@@ -673,18 +673,39 @@ TDD, cross-verified by direct reproduction before being accepted.
 
 ## Phase 8 — Close out PR #91
 
-- [ ] 8.1 Sync PR #91's branch onto post-PR-E `main` **before** any regeneration — its existing
+- [x] 8.1 Sync PR #91's branch onto post-PR-E `main` **before** any regeneration — its existing
       parquet was built by the pre-dedup extractor and is invalid. This is a full artifact
       regeneration, not a rebase.
-- [ ] 8.2 Update #91 with the corrected corpus, all 27 regenerated metadata files, and the
+      Done — `add-fine-corpus-cluster-run` force-pushed to `phase7-fine-corpus-rerun`'s tip
+      (Phase 7's full regeneration, based on `main@5d5f1ad`), replacing the stale `e1ca8b5` commit
+      entirely rather than rebasing/merging it. Confirmed with the user before force-pushing, since
+      it rewrites a branch with an open PR against it. `gh pr view 91` now reports `mergeable`.
+- [x] 8.2 Update #91 with the corrected corpus, all 27 regenerated metadata files, and the
       `cluster_run` block including gate results, `parallelism` and effective deadline.
-- [ ] 8.3 Correct #91's claims: the #63 wording ("verified on both workflows" is unsupportable for a
+      Done — corrected corpus landed via 8.1. `cluster_run.orchestration`
+      (`parallelism=3`, `active_deadline_seconds=98280`) and `cluster_run.gate`
+      (`passed=true`, `configs_checked=27`) added via `record_check_result` (previously only `cc_f1`
+      was recorded; the full-corpus gate's own pass verdict from task 7.5 had never been persisted).
+- [x] 8.3 Correct #91's claims: the #63 wording ("verified on both workflows" is unsupportable for a
       2.86 h single-config workflow — soften to "consistent with"), the #64 status
       (known-insufficient, not unverified), the row count, and disclose both the original truncation
       and the `ns.cfl` change. Add the missing `(#91)` CHANGELOG reference.
+      Done — PR #91's title/description rewritten: row count corrected to 109,656; #63 softened to
+      "consistent with"; #64 corrected to "known-insufficient"; both the original `ns.cfl=0.3`
+      truncation and the `ns.cfl=0.6` fix disclosed. `docs/CHANGELOG.md` `(#91)` entry added.
 - [ ] 8.4 Re-run `/review-pr 91`, then merge.
 - [ ] 8.5 Close #92, #93, #94, #95, #90, #20.
 - [ ] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
       it and the specs would not yet reflect reality.
-- [ ] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
+- [x] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
       regenerated fine corpus's actual data; tighten it if the margin supports a smaller bound.
+      Done — also flipped `prelim_sweep_fine`'s registry `has_parquet` False → True (it now has a
+      real one; the guard module's own comment said to do this once Phase 7/8 landed it, but Phase
+      7 didn't touch this file), which for the first time actually runs the parquet-tier guards
+      against the real fine corpus: `test_real_committed_corpus_passes_all_applicable_guards[prelim_sweep_fine]`
+      passes. Measured settled-beat (`wingbeat > 0`) max `|CF_x|` directly from both corpora's real
+      parquet: `prelim_sweep` 4.015 (unchanged, `s35_f085_p60`), `prelim_sweep_fine` 2.880
+      (`s35_f085_p60`) — now a real, non-CFL-truncated number, comfortably below the coarse
+      corpus's. The coarse corpus still governs, so `CONVERGED_BEAT_CF_X_TRIPWIRE` stays at `5.0`
+      (~1.25x margin, matching `SYMMETRY_RATIO_TOLERANCE`'s convention) rather than tightening;
+      promoted from provisional to confirmed in `corpus_guards.py`'s comment and `design.md` D6.
