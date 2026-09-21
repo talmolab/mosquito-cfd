@@ -708,9 +708,14 @@ TDD, cross-verified by direct reproduction before being accepted.
       now based on stale per-config timing — this run measured max 4.316h/config vs. the 2.86h the
       98280s deadline assumed, though it still finished at 23h51m, comfortably inside it). Not yet
       merged — pending final go-ahead.
-- [ ] 8.5 Close #92, #93, #94, #95, #90, #20.
-- [ ] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
+- [x] 8.5 Close #92, #93, #94, #95, #90, #20.
+      Done — all six closed with comments pointing to #97 (the code fix) and #100 (the corrected
+      re-run that verified it in practice). #95's closing comment also cross-references #101 (a
+      distinct, newer staleness in the same deadline-sizing constants, found during #100's review).
+- [x] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
       it and the specs would not yet reflect reality.
+      #91 was superseded by #100 (see task 8.4's deviation note) and merged as `ab7f88c`; 8.5 is
+      done; archiving now.
 - [x] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
       regenerated fine corpus's actual data; tighten it if the margin supports a smaller bound.
       Done — also flipped `prelim_sweep_fine`'s registry `has_parquet` False → True (it now has a
