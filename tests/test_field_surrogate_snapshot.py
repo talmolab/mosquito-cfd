@@ -271,3 +271,104 @@ def test_fp32_field_is_refused_not_upcast(monkeypatch):
     _patch_yt(monkeypatch, fp32_field=("boxlib", "x_velocity"))
     with pytest.raises(ValueError, match="float32"):
         read_field_snapshot(FIXTURE, **FULL)
+
+
+# --- tasks 11-13: region semantics, the D1 compatibility surface -----------------------------
+
+_INF = np.inf
+
+#: (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
+#: reference arithmetic, not recomputed with the same formula the reader uses -- that would be
+#: tautological. PR B's differential test against the frozen oracle reuses this matrix.
+REGION_CASES = [
+    ("full", (-_INF, -_INF, -_INF), (_INF, _INF, _INF), 0, (6, 6, 6)),
+    ("interior_unaligned", (1.2, 1.2, 1.2), (4.7, 4.7, 4.7), 0, (4, 4, 4)),
+    ("cell_aligned", (2.0, 2.0, 2.0), (4.0, 4.0, 4.0), 0, (2, 2, 2)),
+    ("halo1", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 1, (4, 4, 4)),
+    ("halo2", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 2, (6, 6, 6)),
+    # halo=3 on a 2-cell box clips to 6, NOT 8: "halo adds exactly 2h cells" holds only unclipped.
+    ("halo3_clipped", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 3, (6, 6, 6)),
+    ("mixed_inf", (-_INF, 1.5, -_INF), (_INF, 4.5, _INF), 0, (6, 4, 6)),
+    ("zero_width_interior", (2.0, 2.0, 2.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
+    # At and beyond the upper domain edge the ddims clamp removes the one-cell floor, yielding a
+    # zero-cell region. The spec says so explicitly (design.md D1) -- an earlier draft claimed a
+    # guaranteed floor, which is false.
+    ("upper_edge", (6.0, 6.0, 6.0), (6.0, 6.0, 6.0), 0, (0, 0, 0)),
+    ("outside_domain", (7.0, 7.0, 7.0), (9.0, 9.0, 9.0), 0, (0, 0, 0)),
+    ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
+]
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "expected"),
+    [c[1:] for c in REGION_CASES],
+    ids=[c[0] for c in REGION_CASES],
+)
+def test_region_clamping_matrix(lo, hi, halo, expected):
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
+    for name, arr in snap.arrays.items():
+        assert arr.shape == expected, name
+    assert (snap.x.size, snap.y.size, snap.z.size) == expected
+
+
+def test_nan_corner_is_rejected():
+    # np.floor(nan).astype(int64) is INT64_MIN with a RuntimeWarning, which would silently
+    # degrade to a full-domain read. Reject instead.
+    with pytest.raises(ValueError, match="NaN"):
+        read_field_snapshot(FIXTURE, lo=(np.nan, 0.0, 0.0), hi=(_INF,) * 3)
+
+
+# --- tasks 14-15: point-cloud view -------------------------------------------------------------
+
+
+def test_point_cloud_is_aligned_and_complete():
+    snap = read_field_snapshot(FIXTURE, lo=(1.2,) * 3, hi=(4.7,) * 3)
+    pc = snap.to_point_cloud()
+    nx, ny, nz = snap.arrays["u"].shape
+    n = nx * ny * nz
+
+    assert pc.coords.shape == (n, 3)
+    assert pc.values.shape == (n, len(snap.field_names))
+    assert pc.field_names == snap.field_names
+    np.testing.assert_array_equal(pc.cell_volume, np.full(n, float(np.prod(snap.dx))))
+
+    # C-order alignment: check a specific cell's row index, computed independently.
+    i, j, k = 2, 1, 3
+    row = (i * ny + j) * nz + k
+    np.testing.assert_array_equal(pc.coords[row], [snap.x[i], snap.y[j], snap.z[k]])
+    for col, name in enumerate(snap.field_names):
+        assert pc.values[row, col] == snap.arrays[name][i, j, k]
+
+    for arr in (pc.coords, pc.values, pc.cell_volume):
+        assert arr.flags.writeable is False
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "n"),
+    [((2.0,) * 3, (2.0,) * 3, 1), ((7.0,) * 3, (9.0,) * 3, 0)],
+    ids=["one_cell", "zero_cell"],
+)
+def test_point_cloud_handles_degenerate_regions(lo, hi, n):
+    pc = read_field_snapshot(FIXTURE, lo=lo, hi=hi).to_point_cloud()
+    assert pc.coords.shape == (n, 3)
+    assert pc.values.shape == (n, 6)
+
+
+# --- tasks 17-18: AMR refusal ------------------------------------------------------------------
+
+
+def test_multi_level_plotfile_is_refused(monkeypatch):
+    log = _patch_yt(monkeypatch, max_level=2)
+    with pytest.raises(ValueError, match="CC-F3") as excinfo:
+        read_field_snapshot(FIXTURE, **FULL)
+    assert "2" in str(excinfo.value)
+    assert log == [], "refusal must precede any field read"
+
+
+def test_amr_guard_reads_the_attribute_the_proxy_overrides(monkeypatch):
+    # The companion assertion that makes the test above honest: with the same proxy left at its
+    # real max_level of 0, the read succeeds. Without this, a guard reading the wrong attribute
+    # name would still make the refusal test pass while being dead on every real plotfile.
+    _patch_yt(monkeypatch, max_level=None)
+    snap = read_field_snapshot(FIXTURE, **FULL)
+    assert snap.max_level == 0
