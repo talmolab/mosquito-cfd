@@ -42,11 +42,11 @@ FIXTURE_DIR = Path(__file__).parent / "lev_boxlib_plt"
 _REAL_DESCRIPTOR = "(8, (64 11 52 0 1 12 0 1023)),(8, (8 7 6 5 4 3 2 1))"
 
 
-def _fields() -> list[np.ndarray]:
+def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
     xs = (np.arange(N) + 0.5) * DX
     x, y, _ = np.meshgrid(xs, xs, xs, indexing="ij")
     zero = np.zeros_like(x)
-    return [
+    all_fields = [
         -OMEGA * y,  # x_velocity
         OMEGA * x,  # y_velocity
         zero,  # z_velocity
@@ -56,35 +56,43 @@ def _fields() -> list[np.ndarray]:
         zero,  # gradpy
         zero,  # gradpz
     ]
+    by_name = dict(zip(FIELDS, all_fields))
+    return [by_name[n] for n in names]
 
 
-def write_fixture(root: Path = FIXTURE_DIR) -> Path:
-    """Write the fixture plotfile under ``root`` and return the path."""
+def write_fixture(root: Path = FIXTURE_DIR, fields: tuple[str, ...] = FIELDS) -> Path:
+    """Write the fixture plotfile under ``root`` and return the path.
+
+    ``fields`` selects a subset of :data:`FIELDS` (same order), so a caller can build a
+    plotfile deliberately missing a component -- the absent-field error path has no other
+    fixture, since the committed one carries all eight.
+    """
     root = Path(root)  # accept a str root too
+    fields = tuple(fields)
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
-    fields = _fields()
+    arrays = _fields(fields)
     box = f"((0,0,0) ({N - 1},{N - 1},{N - 1}) (0,0,0))"
 
     # Cell_D: ASCII FAB header, then little-endian float64, component-major, x-fastest (Fortran order).
     # AMReX writes native little-endian doubles (verified by decoding a real plotfile FAB), even though
     # its RealDescriptor labels the byte order (8 7 6 5 4 3 2 1); the descriptor is copied verbatim so yt
     # reads this fixture on the exact same path as a real plotfile.
-    fab_hdr = f"FAB ({_REAL_DESCRIPTOR}){box} {len(FIELDS)}\n".encode()
-    body = b"".join(f.flatten(order="F").astype("<f8").tobytes() for f in fields)
+    fab_hdr = f"FAB ({_REAL_DESCRIPTOR}){box} {len(fields)}\n".encode()
+    body = b"".join(f.flatten(order="F").astype("<f8").tobytes() for f in arrays)
     (lev / "Cell_D_00000").write_bytes(fab_hdr + body)
 
     # Cell_H: version/how/ncomp/nghost, one box, one FabOnDisk, then per-fab min/max blocks.
     def _row(vals: list[float]) -> str:
         return ",".join(f"{v:.17e}" for v in vals) + ","
 
-    mins = [float(f.min()) for f in fields]
-    maxs = [float(f.max()) for f in fields]
+    mins = [float(f.min()) for f in arrays]
+    maxs = [float(f.max()) for f in arrays]
     cell_h = "\n".join(
         [
             "1",
             "1",
-            str(len(FIELDS)),
+            str(len(fields)),
             "0",
             "(1 0",
             box,
@@ -92,10 +100,10 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
             "1",
             "FabOnDisk: Cell_D_00000 0",
             "",
-            f"1,{len(FIELDS)}",
+            f"1,{len(fields)}",
             _row(mins),
             "",
-            f"1,{len(FIELDS)}",
+            f"1,{len(fields)}",
             _row(maxs),
             "",
         ]
@@ -108,8 +116,8 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
     header = "\n".join(
         [
             "NavierStokes-V1.1",
-            str(len(FIELDS)),
-            *FIELDS,
+            str(len(fields)),
+            *fields,
             "3",  # spacedim
             f"{TIME}",  # time
             "0",  # finest_level
