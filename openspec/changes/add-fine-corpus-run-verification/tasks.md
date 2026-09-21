@@ -693,7 +693,21 @@ TDD, cross-verified by direct reproduction before being accepted.
       Done — PR #91's title/description rewritten: row count corrected to 109,656; #63 softened to
       "consistent with"; #64 corrected to "known-insufficient"; both the original `ns.cfl=0.3`
       truncation and the `ns.cfl=0.6` fix disclosed. `docs/CHANGELOG.md` `(#91)` entry added.
-- [ ] 8.4 Re-run `/review-pr 91`, then merge.
+- [x] 8.4 Re-run `/review-pr 91`, then merge.
+      **Deviation:** #91 was superseded by **PR #100**, not merged itself. #91's branch had
+      already been synced onto the Phase 7/8 regeneration (task 8.1) in the same local checkout
+      as `phase7-fine-corpus-rerun`, so rather than continuing #91's own thread, a fresh PR (#100)
+      was opened from that branch and #91 was closed with a pointer to it — all of #91's prior
+      review history/content carries forward via the shared commit history, just under a new PR
+      number. `/review-pr 100` (5-agent) returned verdict **COMMENT**: no BLOCKING issues, every
+      numeric claim independently re-verified against the committed artifacts and confirmed exact.
+      Six IMPORTANT findings — two were real, fixed via TDD in the same PR (see PR H below); the
+      other four are pre-existing repo debt this PR touches/extends, not fixed here (stale
+      `project.md` line-length doc, no Git LFS for the growing parquet binaries, the manual
+      `supersession_history` restoration workaround from task 7.1, and a cluster-deadline margin
+      now based on stale per-config timing — this run measured max 4.316h/config vs. the 2.86h the
+      98280s deadline assumed, though it still finished at 23h51m, comfortably inside it). Not yet
+      merged — pending final go-ahead.
 - [ ] 8.5 Close #92, #93, #94, #95, #90, #20.
 - [ ] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
       it and the specs would not yet reflect reality.
@@ -709,3 +723,37 @@ TDD, cross-verified by direct reproduction before being accepted.
       corpus's. The coarse corpus still governs, so `CONVERGED_BEAT_CF_X_TRIPWIRE` stays at `5.0`
       (~1.25x margin, matching `SYMMETRY_RATIO_TOLERANCE`'s convention) rather than tightening;
       promoted from provisional to confirmed in `corpus_guards.py`'s comment and `design.md` D6.
+
+## PR H — Review round fixes on PR #100 (5-agent `/review-pr` after the #91→#100 pivot)
+
+Two of the six IMPORTANT findings from `/review-pr 100`'s Behavioral Correctness reviewer were
+real, reproducible robustness gaps in `corpus_guards.py` — both latent since the module's PR E
+commit, only exposed now that `prelim_sweep_fine`'s `has_parquet` flip (task 8.7) actually
+exercises the parquet-tier guards against it for the first time. Fixed via TDD, same PR.
+
+- [x] H.1 **Test first** — `test_converged_beat_tripwire_fails_rather_than_silently_passing_on_empty_settled_beat`
+      in `tests/test_corpus_guards.py`, using the existing `cf_x_pattern="never_settles"` fixture
+      (already used to test `check_symmetry_invariant`'s equivalent fix in PR #97 round 1). Must
+      fail. **IMPORTANT**: `check_converged_beat_tripwire` filtered `df[df["wingbeat"] > 0]` then
+      took `.abs().max()`; on an empty result this is `NaN`, and `NaN >= CONVERGED_BEAT_CF_X_TRIPWIRE`
+      is `False` in pandas — the single worst truncation case (a run that never reaches a settled
+      beat at all) silently passed a check whose entire purpose is flagging a materially different
+      physical regime. Reproduced live against the real fixture before fixing.
+- [x] H.2 Implemented: `check_converged_beat_tripwire` now returns a clear failure
+      (`"no settled-beat (wingbeat > 0) rows found at all"`) when `settled.empty` or the computed
+      peak is `NaN`, before comparing against the tripwire constant.
+- [x] H.3 **Test first** — `test_run_all_guards_reports_missing_parquet_without_crashing` in
+      `tests/test_corpus_guards.py`: a corpus registered `has_parquet=True` with a valid
+      manifest/deck but no actual `dataset.parquet` (a registry/build mismatch). Must fail.
+      **IMPORTANT**: `check_parquet_exists_if_registered`'s own docstring promises this case
+      "fails loudly" via its own clean message — but `run_all_guards` kept iterating `ALL_CHECKS`
+      regardless, and the very next parquet-touching check (`check_holdout_matches_manifest`)
+      raised an uncaught `FileNotFoundError` from `pd.read_parquet` before `run_all_guards` could
+      return anything, masking the intended message with a raw stack trace.
+- [x] H.4 Implemented: `run_all_guards` now short-circuits immediately after
+      `check_parquet_exists_if_registered` reports any failure, since every later check either is
+      unaffected (manifest/deck-tier) or requires the very file that check just confirmed missing.
+- [x] H.5 **Verify** — `uv run pytest -q tests/test_corpus_guards.py`: 36 passed (was 34; both
+      new tests plus all 34 existing, no regressions). Full suite `uv run pytest -q -m "not gpu"`,
+      `ruff check`/`format --check` (CI's six-path scope), and `openspec validate --strict` all
+      clean.

@@ -245,7 +245,9 @@ def check_converged_beat_tripwire(entry: CorpusEntry) -> list[str]:
         return []
     df = pd.read_parquet(entry.path / "dataset.parquet")
     settled = df[df["wingbeat"] > 0]
-    peak = settled["CF_x"].abs().max()
+    peak = settled["CF_x"].abs().max() if not settled.empty else float("nan")
+    if settled.empty or pd.isna(peak):
+        return [f"{entry.name}: no settled-beat (wingbeat > 0) rows found at all"]
     if peak >= CONVERGED_BEAT_CF_X_TRIPWIRE:
         return [
             f"{entry.name}: settled-beat |CF_x| peak {peak:.3f} >= tripwire "
@@ -279,8 +281,18 @@ ALL_CHECKS = (
 
 
 def run_all_guards(entry: CorpusEntry) -> list[str]:
-    """Run every guard against ``entry``, returning the combined list of failure messages (empty if the corpus passes all of them)."""
+    """Run every guard against ``entry``, returning the combined list of failure messages (empty if the corpus passes all of them).
+
+    Stops immediately if ``check_parquet_exists_if_registered`` fails: every other parquet-tier
+    check below it in ``ALL_CHECKS`` either is a no-op (the manifest/deck-tier checks) or calls
+    ``pd.read_parquet`` on the very file that check just confirmed is missing, raising an
+    uncaught ``FileNotFoundError`` that would mask this check's own clean, labeled message before
+    it can be returned (PR #100 review round 1).
+    """
     failures: list[str] = []
     for check in ALL_CHECKS:
-        failures.extend(check(entry))
+        result = check(entry)
+        failures.extend(result)
+        if check is check_parquet_exists_if_registered and result:
+            return failures
     return failures

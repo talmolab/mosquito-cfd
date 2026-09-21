@@ -385,6 +385,20 @@ def test_converged_beat_tripwire_fails_on_spike(tmp_path):
     assert failures
 
 
+def test_converged_beat_tripwire_fails_rather_than_silently_passing_on_empty_settled_beat(
+    tmp_path,
+):
+    """A corpus whose settled beat (`wingbeat > 0`) is entirely empty -- the single worst
+    truncation case -- must fail this check, not silently pass. `settled["CF_x"].abs().max()`
+    on an empty Series is `NaN`, and `NaN >= CONVERGED_BEAT_CF_X_TRIPWIRE` is `False` in pandas,
+    so the un-fixed check returned `[]` here (PR #100 review round 1: reproduced live against
+    this exact fixture, which `check_symmetry_invariant` already handles correctly)."""
+    entry = _build_synthetic_corpus(tmp_path, cf_x_pattern="never_settles")
+    failures = cg.check_converged_beat_tripwire(entry)
+    assert failures
+    assert "no settled-beat" in failures[0]
+
+
 # ---------------------------------------------------------------------------
 # Offline-ness (the guard module imports no cluster/subprocess surface)
 # ---------------------------------------------------------------------------
@@ -426,6 +440,36 @@ def test_run_all_guards_on_healthy_synthetic_corpus_passes(tmp_path):
 def test_run_all_guards_on_truncated_synthetic_corpus_fails(tmp_path):
     entry = _build_synthetic_corpus(tmp_path, cf_x_pattern="truncated")
     assert cg.run_all_guards(entry) != []
+
+
+def test_run_all_guards_reports_missing_parquet_without_crashing(tmp_path):
+    """A corpus registered `has_parquet=True` with an otherwise-valid manifest/deck but no actual
+    `dataset.parquet` (a registry/build mismatch) must surface
+    `check_parquet_exists_if_registered`'s own clean failure message via `run_all_guards` --
+    not crash with an uncaught `FileNotFoundError` from a later parquet-reading check that runs
+    before `run_all_guards` can return (PR #100 review round 1: reproduced live -- the check's
+    own docstring promises this fails loudly, but the *later* check's exception, not this check's
+    message, was what actually surfaced)."""
+    corpus_dir = tmp_path / "registered_but_missing"
+    (corpus_dir / "inputs").mkdir(parents=True)
+    config_name = "s35_f085_p30"
+    _write_deck(corpus_dir / "inputs" / f"inputs.3d.{config_name}", 10)
+    manifest = {
+        "configs": [_make_config(config_name, 10)],
+        "holdout": {"config_names": []},
+    }
+    (corpus_dir / "sweep_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    entry = cg.CorpusEntry(
+        name="registered_but_missing",
+        path=corpus_dir,
+        has_parquet=True,
+        has_per_config_metadata=False,
+    )
+    failures = cg.run_all_guards(entry)
+    assert failures
+    assert "no dataset.parquet found" in failures[0]
 
 
 @pytest.mark.parametrize(
