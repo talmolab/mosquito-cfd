@@ -33,6 +33,15 @@ is not confirmed to transfer (see `docs/force_surrogate/fine-grid-pilot-report.m
 `talmo-lab`'s RunAI quota was already at 171.74% allocation during the fine-grid force pilot
 (`docs/force_surrogate/fine-grid-pilot-report.md`) — still confirm quota headroom before submitting.
 
+> **Resolved 2026-09-19 — it did not transfer.** The corrected-hinge fine-grid run (this note's own
+> `add-fine-corpus-field-capture` regeneration) was submitted at the pilot's `ns.cfl = 0.3` and
+> confirmed, per issue #92, that the pilot's stability result did **not** transfer to the corrected
+> geometry: 15 of 27 configs were CFL-limited, truncating mid-wingbeat. The fix
+> (`add-fine-corpus-run-verification`, `ns.cfl = 0.3 → 0.6`) is merged and the corpus has since been
+> regenerated and re-run at `ns.cfl = 0.6`; `examples/prelim_sweep_fine/`'s 27 configs are now all
+> stable at the validated `dt = 5e-4` with zero CFL limiting, confirmed by the post-run acceptance
+> gate.
+
 ---
 
 ## Vision
@@ -118,6 +127,16 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
 > measures storage from the full corrected 27-config run itself,
 > not a preceding small pilot — a deliberate, user-approved deviation from this CC's own default,
 > made necessary by that corpus needing to be regenerated regardless of the field-capture decision.
+
+> **Storage measurement (2026-09-19, from the `add-fine-corpus-run-verification` re-run):** at
+> `amr.plot_int = 100` (every 100 steps), the full 27-config corpus writes **≈0.58 TB of
+> plotfiles** (441/369/324 plotfiles across the three `frequency_fstar`-grouped `max_step` values
+> {4706, 4000, 3478}, ≈513 MB each) plus **≈0.23 TB of AMReX checkpoints** (restart-only, not
+> field-surrogate training input) — **≈0.84 TB total** per full run. This is insensitive to the
+> `ns.cfl` change itself (`ns.cfl` affects the realized timestep, not `plot_int`'s step-count
+> cadence or per-plotfile size); the figure is not directly comparable to the earlier
+> `add-fine-corpus-field-capture` sizing note above, which predated this corpus's second
+> (CFL-driven) regeneration.
 
 ### CC-F4. Cluster-free fixtures for everything downstream of raw plotfiles.
 Same convention as Track B CC-2: PR2 (field reader) and PR3 (encoder) must be tested against the

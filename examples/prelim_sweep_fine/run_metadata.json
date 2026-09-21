@@ -1,0 +1,28 @@
+{
+  "run_id": "f3c2e6d8-b022-46c9-83c8-589933e76f93",
+  "timestamp": "2026-09-21T15:30:06+0000",
+  "git": {
+    "commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
+    "branch": "main",
+    "dirty": true,
+    "diff_hash": "1917f436bec1",
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
+  },
+  "hardware": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ],
+    "gpu_count": 1
+  },
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47",
+  "inputs": {
+    "file": "examples\\prelim_sweep_fine\\sweep_manifest.json",
+    "hash": "c523acb9bd4a5390287dcb53c04009dba72d1c4ba0c6999c85998035542bc170"
+  },
+  "dropped_configs": []
+}

@@ -586,7 +586,7 @@ TDD, cross-verified by direct reproduction before being accepted.
 
 ## Phase 7 — Cluster re-run (after PRs A–E merge; requires GPU time and explicit go-ahead)
 
-- [ ] 7.0 **Snapshot the 27 configs' raw NFS CSVs to a separate path before anything else**, using a
+- [x] 7.0 **Snapshot the 27 configs' raw NFS CSVs to a separate path before anything else**, using a
       plain copy — **not** the `provision()` codepath, which has prior form for a self-overwrite
       data-loss bug (now fixed, but this snapshot exists specifically as insurance against that class
       of bug recurring, so don't route through it). This is not about preserving data from configs
@@ -595,31 +595,81 @@ TDD, cross-verified by direct reproduction before being accepted.
       that stalled a submission 22h, and the `provision()` bug). Without it, a partial re-run failure
       could leave a config with neither the old (superseded but CC-F1-validated) data nor a completed
       new run. Safe to delete after task 7.5's gate passes and Phase 8 merges.
-- [ ] 7.1 Regenerate all 27 fine decks with `--cfl 0.6`; confirm the only per-deck change vs the
+      **Scoped to the small artifacts, not full plotfile/checkpoint trees:** the task text says "CSVs"
+      literally; snapshotted each config's CSV, `run.log`, `run_metadata.json`, `wing.vertex`, and
+      `particle*` files (226 MB total, verified byte-identical to source) to
+      `examples/prelim_sweep_fine_runs_pr91_snapshot_20260918/` on NFS — an initial attempt at a full
+      `cp -a` of the whole `runs/` tree (1.1 TB, mostly checkpoints/plotfiles) was caught and aborted
+      before completing.
+- [x] 7.1 Regenerate all 27 fine decks with `--cfl 0.6`; confirm the only per-deck change vs the
       committed decks is `ns.cfl`, and that the manifest records `cfl`.
-- [ ] 7.2 **Mandatory precondition, not optional — run one full config (`s55_f115_p30`) at
+      **Also required `--plot-int 100 --init-iter 2`, not just `--cfl`:** the generator's own bare
+      defaults are force-only and silently reverted field capture on the first attempt (caught via the
+      per-deck diff showing `init_iter`/`plot_int` changes too, not just `cfl`; reverted and redone).
+      Regeneration also drops `sweep_provenance.json`'s `supersession_history` (documented, no
+      preserving code path) — manually restored the prior hinge-fix entry and appended a new one for
+      this regeneration superseding PR #91's `pzdhl`/`zpkvt` runs.
+      `tests/test_full_corpus_deck.py::test_committed_fine_corpus_matches_regeneration` didn't thread
+      `cfl` through and would have failed permanently on this change; fixed in the same commit.
+- [x] 7.2 **Mandatory precondition, not optional — run one full config (`s55_f115_p30`) at
       `ns.cfl = 0.6` to completion (~2.4 GPU-h) and pass it through the acceptance gate before
       submitting the other 26.** The local probe (design D4) covered only 11.4% of one period and
       never reached a stroke reversal, where flapping-wing aerodynamics can produce peak velocities
       the impulsive-start transient does not exercise. This is the only check that confirms the
       solver stays stable past that point, for ~4% of the total re-run cost. Do not proceed to 7.3 for
       the remaining 26 configs until this passes.
-- [ ] 7.3 Run `/submit-cluster-sweep` for the remaining 26 configs, recording the CC-F1 result and the
+      `force-surrogate-smoke-8fvgf` succeeded (2h4m, 2h3m19s GPU-time). Result:
+      `interior_dt_below_nominal: false`, `realized_dt` min/mean/max all exactly `0.0005`
+      (`frac_below_nominal: 0.0`), `cycles_completed: 1.9993` (vs. ~1.83 under the old `cfl=0.3`),
+      `reached_stop_time: true`. CC-F1 plotfile check passed
+      (`x_velocity ∈ [-22.97, 4.97]`, genuinely non-zero) and was recorded via `record_check_result`.
+      Scoped acceptance gate (reduced one-config manifest) passed.
+- [x] 7.3 Run `/submit-cluster-sweep` for the remaining 26 configs, recording the CC-F1 result and the
       in-run `DT` check at the Step 4 gate.
-- [ ] 7.4 Generate metadata for all 27; confirm every config reports `interior_dt_below_nominal =
+      **First submission attempt was wrong and was caught and corrected:** `submit_workflow.sh full`
+      submits the whole committed manifest, not "the remaining N" — the first `full` call re-submitted
+      all 27 (including the already-validated smoke config); stopped ~3 min in (negligible GPU cost)
+      and resubmitted against a manifest trimmed to the correct 26 (excluding `s55_f115_p30`), per the
+      runbook's own Step 5 recovery pattern, then restored the local manifest. Also deviated from the
+      runbook's own Step 3 table, which names a stale `--active-deadline-seconds 93600` example
+      superseded by this change's own Phase 4 fix (the committed YAML's literal is now `98280`,
+      deliberately higher to cover two retries) — submitted at the committed default rather than
+      overriding it down to the stale number.
+      `force-surrogate-sweep-vgn92`: all 26 configs `Succeeded`, `verify-complete` passed, 23h51m
+      total. Step 4 mid-sweep check (run at 2/26 finished, live-progress spot-checked before that):
+      zero CFL-limited steps, correct row counts, clean forces — reported to the user, who confirmed
+      continuing unattended.
+- [x] 7.4 Generate metadata for all 27; confirm every config reports `interior_dt_below_nominal =
       false`, `reached_stop_time`, and `cycles_completed` at the healthy value.
-- [ ] 7.5 Run the acceptance gate over the full corpus; it must pass before any parquet is built.
-- [ ] 7.6 Rebuild `dataset.parquet` + `dataset.units.json`; confirm `len(df) == Σ max_step = 109,656`
+      All 27 confirmed: `interior_dt_below_nominal: false`, `reached_stop_time: true`,
+      `cycles_completed` ≈ 1.9993–1.9996 depending on `frequency_fstar` group, `stability:
+      stable_at_5e-4` for every config — zero exceptions.
+- [x] 7.5 Run the acceptance gate over the full corpus; it must pass before any parquet is built.
+      `check_corpus_acceptance.py` against the real 27-config manifest: **passed for all 27.**
+- [x] 7.6 Rebuild `dataset.parquet` + `dataset.units.json`; confirm `len(df) == Σ max_step = 109,656`
       (restored, because uniform dt means every config terminates on `max_step` as the healthy ones
       already do).
-- [ ] 7.7 Write `examples/prelim_sweep_fine/README.md` — the corpus is now first-class and publishes
+      `extract_forces.py` (no `--allow-missing`): **109,656 rows, dropped=none.** No NaN/Inf; every
+      config's mean `CF_x` well within the symmetry tolerance.
+- [x] 7.7 Write `examples/prelim_sweep_fine/README.md` — the corpus is now first-class and publishes
       six new metadata fields with no narrative documentation at all.
-- [ ] 7.8 Update `docs/field_surrogate/roadmap.md` CC-F3 with the storage measurement from the
+      Written: what's-here file table, field-capture (CC-F1) and CFL-fix (`ns.cfl=0.6`) explanations,
+      the six run-observed fields (`cfl`/`stop_time`/`realized_dt`/`interior_dt_below_nominal`/
+      `cycles_completed`/`reached_stop_time`), the supersession history, and regenerate/rebuild
+      commands. Notes explicitly that `surrogate/`/`figures/` don't exist yet for this corpus.
+- [x] 7.8 Update `docs/field_surrogate/roadmap.md` CC-F3 with the storage measurement from the
       corrected run, or state explicitly that it is insensitive to the `cfl` change. CC-F3 also
       carries a second, unaddressed forward-looking claim — *"must also re-confirm `dt=5e-4`
       numerical stability against the corrected hinge before submitting... not confirmed to
       transfer"* — close that loop too: link to #92 as the confirmation that it did not transfer,
       and to this change as the fix.
+      Measured (excluding stale `.old.*` copies from prior regenerations, and excluding the parent
+      run directory itself from the `du` traversal — an early measurement attempt double-counted both):
+      **≈0.58 TB plotfiles + ≈0.23 TB checkpoints ≈ 0.84 TB total** across the corpus, insensitive to
+      `ns.cfl` (noted in place). Closed the stability-transfer claim **in the Sequencing note where it
+      actually lives** (not under the CC-F3 heading itself, which only names CC-F3 for the *storage*
+      default it deviates from) — added a "Resolved 2026-09-19" block confirming it did not transfer
+      (issue #92) and citing this change as the fix.
 
 ## Phase 8 — Close out PR #91
 
