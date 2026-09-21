@@ -1,6 +1,7 @@
 {
   "configs": [
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 0,
       "init_iter": 2,
@@ -16,6 +17,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 1,
       "init_iter": 2,
@@ -31,6 +33,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 2,
       "init_iter": 2,
@@ -46,6 +49,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 3,
       "init_iter": 2,
@@ -61,6 +65,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 4,
       "init_iter": 2,
@@ -76,6 +81,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 5,
       "init_iter": 2,
@@ -91,6 +97,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 6,
       "init_iter": 2,
@@ -106,6 +113,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 7,
       "init_iter": 2,
@@ -121,6 +129,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 8,
       "init_iter": 2,
@@ -136,6 +145,7 @@
       "stroke_amp_deg": 35.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 9,
       "init_iter": 2,
@@ -151,6 +161,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 10,
       "init_iter": 2,
@@ -166,6 +177,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 11,
       "init_iter": 2,
@@ -181,6 +193,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 12,
       "init_iter": 2,
@@ -196,6 +209,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 13,
       "init_iter": 2,
@@ -211,6 +225,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 14,
       "init_iter": 2,
@@ -226,6 +241,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 15,
       "init_iter": 2,
@@ -241,6 +257,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 16,
       "init_iter": 2,
@@ -256,6 +273,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 17,
       "init_iter": 2,
@@ -271,6 +289,7 @@
       "stroke_amp_deg": 45.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 18,
       "init_iter": 2,
@@ -286,6 +305,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 19,
       "init_iter": 2,
@@ -301,6 +321,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 0.85,
       "index": 20,
       "init_iter": 2,
@@ -316,6 +337,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 21,
       "init_iter": 2,
@@ -331,6 +353,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 22,
       "init_iter": 2,
@@ -346,6 +369,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.0,
       "index": 23,
       "init_iter": 2,
@@ -361,6 +385,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 24,
       "init_iter": 2,
@@ -376,6 +401,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 25,
       "init_iter": 2,
@@ -391,6 +417,7 @@
       "stroke_amp_deg": 55.0
     },
     {
+      "cfl": 0.6,
       "frequency_fstar": 1.15,
       "index": 26,
       "init_iter": 2,

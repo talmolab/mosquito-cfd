@@ -385,6 +385,20 @@ def test_converged_beat_tripwire_fails_on_spike(tmp_path):
     assert failures
 
 
+def test_converged_beat_tripwire_fails_rather_than_silently_passing_on_empty_settled_beat(
+    tmp_path,
+):
+    """A corpus whose settled beat (`wingbeat > 0`) is entirely empty -- the single worst
+    truncation case -- must fail this check, not silently pass. `settled["CF_x"].abs().max()`
+    on an empty Series is `NaN`, and `NaN >= CONVERGED_BEAT_CF_X_TRIPWIRE` is `False` in pandas,
+    so the un-fixed check returned `[]` here (PR #100 review round 1: reproduced live against
+    this exact fixture, which `check_symmetry_invariant` already handles correctly)."""
+    entry = _build_synthetic_corpus(tmp_path, cf_x_pattern="never_settles")
+    failures = cg.check_converged_beat_tripwire(entry)
+    assert failures
+    assert "no settled-beat" in failures[0]
+
+
 # ---------------------------------------------------------------------------
 # Offline-ness (the guard module imports no cluster/subprocess surface)
 # ---------------------------------------------------------------------------
@@ -428,6 +442,36 @@ def test_run_all_guards_on_truncated_synthetic_corpus_fails(tmp_path):
     assert cg.run_all_guards(entry) != []
 
 
+def test_run_all_guards_reports_missing_parquet_without_crashing(tmp_path):
+    """A corpus registered `has_parquet=True` with an otherwise-valid manifest/deck but no actual
+    `dataset.parquet` (a registry/build mismatch) must surface
+    `check_parquet_exists_if_registered`'s own clean failure message via `run_all_guards` --
+    not crash with an uncaught `FileNotFoundError` from a later parquet-reading check that runs
+    before `run_all_guards` can return (PR #100 review round 1: reproduced live -- the check's
+    own docstring promises this fails loudly, but the *later* check's exception, not this check's
+    message, was what actually surfaced)."""
+    corpus_dir = tmp_path / "registered_but_missing"
+    (corpus_dir / "inputs").mkdir(parents=True)
+    config_name = "s35_f085_p30"
+    _write_deck(corpus_dir / "inputs" / f"inputs.3d.{config_name}", 10)
+    manifest = {
+        "configs": [_make_config(config_name, 10)],
+        "holdout": {"config_names": []},
+    }
+    (corpus_dir / "sweep_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    entry = cg.CorpusEntry(
+        name="registered_but_missing",
+        path=corpus_dir,
+        has_parquet=True,
+        has_per_config_metadata=False,
+    )
+    failures = cg.run_all_guards(entry)
+    assert failures
+    assert "no dataset.parquet found" in failures[0]
+
+
 @pytest.mark.parametrize(
     "entry", [e for e in cg.CORPUS_REGISTRY if e.has_parquet], ids=lambda e: e.name
 )
@@ -439,12 +483,27 @@ def test_real_committed_corpus_passes_all_applicable_guards(entry):
 
 
 def test_fine_corpus_registry_entry_reflects_todays_state():
-    """prelim_sweep_fine is registered has_parquet=False -- today's accurate fact (no parquet
-    exists on main until PR #91 merges), not an oversight. Its deck/manifest-level guards still
-    run cleanly against the committed decks/manifest/per-config metadata."""
+    """prelim_sweep_fine is registered has_parquet=True -- accurate as of the ns.cfl=0.6 Phase 7
+    re-run (PR #91), which rebuilt dataset.parquet. Both its manifest/deck-level and parquet-tier
+    guards run cleanly against the real committed corpus."""
     fine = next(e for e in cg.CORPUS_REGISTRY if e.name == "prelim_sweep_fine")
-    assert fine.has_parquet is False
+    assert fine.has_parquet is True
     assert fine.has_per_config_metadata is True
     assert cg.check_parquet_exists_if_registered(fine) == []
     assert cg.check_deck_matches_manifest_max_step(fine) == []
     assert cg.check_per_config_metadata_present(fine) == []
+
+
+def test_converged_beat_peak_matches_the_values_cited_in_the_tripwire_comment():
+    """Pins the two settled-beat (`wingbeat > 0`) max |CF_x| values that
+    `CONVERGED_BEAT_CF_X_TRIPWIRE`'s justifying comment cites (4.015, 2.880) -- without this, a
+    future corpus regeneration could silently drift those numbers (or invalidate the tripwire's
+    margin) with no test failing, since `check_converged_beat_tripwire` only asserts the
+    threshold isn't crossed, not what the actual peak is."""
+    expected = {"prelim_sweep": 4.015, "prelim_sweep_fine": 2.880}
+    for entry in cg.CORPUS_REGISTRY:
+        if not entry.has_parquet:
+            continue
+        df = pd.read_parquet(entry.path / "dataset.parquet")
+        peak = df[df["wingbeat"] > 0]["CF_x"].abs().max()
+        assert peak == pytest.approx(expected[entry.name], abs=1e-3)

@@ -32,9 +32,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # on the truncated side (see add-fine-corpus-run-verification design.md D6).
 SYMMETRY_RATIO_TOLERANCE = 0.012
 
-# Provisional (task 8.7 re-derives this against the regenerated fine corpus): the measured max
-# |CF_x| for wingbeat > 0 across both committed corpora today is 4.015 (design.md D6) -- this
-# tripwire is a coarse guard against a materially different physical regime, not a tight bound.
+# Confirmed against the regenerated (real, non-CFL-truncated) fine corpus (task 8.7): the measured
+# max |CF_x| for wingbeat > 0 across both committed corpora is 4.015 (prelim_sweep's
+# s35_f085_p60), unchanged from when this tripwire was first set -- prelim_sweep_fine's own true
+# max is 2.880 (also s35_f085_p60), comfortably lower now that its data isn't corrupted by
+# truncation. 5.0 sits at the same ~1.25x margin convention as SYMMETRY_RATIO_TOLERANCE, so the
+# margin does not support tightening further; this tripwire is a coarse guard against a
+# materially different physical regime, not a tight bound.
 CONVERGED_BEAT_CF_X_TRIPWIRE = 5.0
 
 
@@ -49,11 +53,8 @@ class CorpusEntry:
 
 
 # Explicit list, not a glob over `examples/prelim_sweep*`: that pattern also matches
-# `prelim_sweep_fine_pilot` (3 configs, no parquet), and `prelim_sweep_fine` has no parquet on
-# `main` at all until PR #91 merges -- a glob-driven guard would silently skip exactly the corpus
-# it exists to protect. `has_parquet=False` for `prelim_sweep_fine` is today's accurate fact, not
-# an oversight: the manifest/deck-level guards still apply to it; the parquet-tier guards are
-# simply not yet applicable. Flip to `True` once Phase 7/8 rebuilds it.
+# `prelim_sweep_fine_pilot` (3 configs, no parquet) -- a glob-driven guard would silently skip
+# exactly the corpus it exists to protect.
 CORPUS_REGISTRY: tuple[CorpusEntry, ...] = (
     CorpusEntry(
         name="prelim_sweep",
@@ -64,7 +65,7 @@ CORPUS_REGISTRY: tuple[CorpusEntry, ...] = (
     CorpusEntry(
         name="prelim_sweep_fine",
         path=REPO_ROOT / "examples" / "prelim_sweep_fine",
-        has_parquet=False,
+        has_parquet=True,
         has_per_config_metadata=True,
     ),
 )
@@ -234,12 +235,19 @@ def check_symmetry_invariant(entry: CorpusEntry) -> list[str]:
 
 
 def check_converged_beat_tripwire(entry: CorpusEntry) -> list[str]:
-    """`|CF_x| < 5` for the settled beat (`wingbeat > 0`) -- provisional, see the module docstring."""
+    """`|CF_x| < 5` for the settled beat (`wingbeat > 0`).
+
+    A coarse magnitude guard against a materially different physical regime, not a truncation
+    detector; see the comment above ``CONVERGED_BEAT_CF_X_TRIPWIRE`` for the margin derivation.
+    ``check_symmetry_invariant`` is what actually catches truncation (design.md D6).
+    """
     if not entry.has_parquet:
         return []
     df = pd.read_parquet(entry.path / "dataset.parquet")
     settled = df[df["wingbeat"] > 0]
-    peak = settled["CF_x"].abs().max()
+    peak = settled["CF_x"].abs().max() if not settled.empty else float("nan")
+    if settled.empty or pd.isna(peak):
+        return [f"{entry.name}: no settled-beat (wingbeat > 0) rows found at all"]
     if peak >= CONVERGED_BEAT_CF_X_TRIPWIRE:
         return [
             f"{entry.name}: settled-beat |CF_x| peak {peak:.3f} >= tripwire "
@@ -273,8 +281,18 @@ ALL_CHECKS = (
 
 
 def run_all_guards(entry: CorpusEntry) -> list[str]:
-    """Run every guard against ``entry``, returning the combined list of failure messages (empty if the corpus passes all of them)."""
+    """Run every guard against ``entry``, returning the combined list of failure messages (empty if the corpus passes all of them).
+
+    Stops immediately if ``check_parquet_exists_if_registered`` fails: every other parquet-tier
+    check below it in ``ALL_CHECKS`` either is a no-op (the manifest/deck-tier checks) or calls
+    ``pd.read_parquet`` on the very file that check just confirmed is missing, raising an
+    uncaught ``FileNotFoundError`` that would mask this check's own clean, labeled message before
+    it can be returned (PR #100 review round 1).
+    """
     failures: list[str] = []
     for check in ALL_CHECKS:
-        failures.extend(check(entry))
+        result = check(entry)
+        failures.extend(result)
+        if check is check_parquet_exists_if_registered and result:
+            return failures
     return failures

@@ -586,7 +586,7 @@ TDD, cross-verified by direct reproduction before being accepted.
 
 ## Phase 7 — Cluster re-run (after PRs A–E merge; requires GPU time and explicit go-ahead)
 
-- [ ] 7.0 **Snapshot the 27 configs' raw NFS CSVs to a separate path before anything else**, using a
+- [x] 7.0 **Snapshot the 27 configs' raw NFS CSVs to a separate path before anything else**, using a
       plain copy — **not** the `provision()` codepath, which has prior form for a self-overwrite
       data-loss bug (now fixed, but this snapshot exists specifically as insurance against that class
       of bug recurring, so don't route through it). This is not about preserving data from configs
@@ -595,46 +595,174 @@ TDD, cross-verified by direct reproduction before being accepted.
       that stalled a submission 22h, and the `provision()` bug). Without it, a partial re-run failure
       could leave a config with neither the old (superseded but CC-F1-validated) data nor a completed
       new run. Safe to delete after task 7.5's gate passes and Phase 8 merges.
-- [ ] 7.1 Regenerate all 27 fine decks with `--cfl 0.6`; confirm the only per-deck change vs the
+      **Scoped to the small artifacts, not full plotfile/checkpoint trees:** the task text says "CSVs"
+      literally; snapshotted each config's CSV, `run.log`, `run_metadata.json`, `wing.vertex`, and
+      `particle*` files (226 MB total, verified byte-identical to source) to
+      `examples/prelim_sweep_fine_runs_pr91_snapshot_20260918/` on NFS — an initial attempt at a full
+      `cp -a` of the whole `runs/` tree (1.1 TB, mostly checkpoints/plotfiles) was caught and aborted
+      before completing.
+- [x] 7.1 Regenerate all 27 fine decks with `--cfl 0.6`; confirm the only per-deck change vs the
       committed decks is `ns.cfl`, and that the manifest records `cfl`.
-- [ ] 7.2 **Mandatory precondition, not optional — run one full config (`s55_f115_p30`) at
+      **Also required `--plot-int 100 --init-iter 2`, not just `--cfl`:** the generator's own bare
+      defaults are force-only and silently reverted field capture on the first attempt (caught via the
+      per-deck diff showing `init_iter`/`plot_int` changes too, not just `cfl`; reverted and redone).
+      Regeneration also drops `sweep_provenance.json`'s `supersession_history` (documented, no
+      preserving code path) — manually restored the prior hinge-fix entry and appended a new one for
+      this regeneration superseding PR #91's `pzdhl`/`zpkvt` runs.
+      `tests/test_full_corpus_deck.py::test_committed_fine_corpus_matches_regeneration` didn't thread
+      `cfl` through and would have failed permanently on this change; fixed in the same commit.
+- [x] 7.2 **Mandatory precondition, not optional — run one full config (`s55_f115_p30`) at
       `ns.cfl = 0.6` to completion (~2.4 GPU-h) and pass it through the acceptance gate before
       submitting the other 26.** The local probe (design D4) covered only 11.4% of one period and
       never reached a stroke reversal, where flapping-wing aerodynamics can produce peak velocities
       the impulsive-start transient does not exercise. This is the only check that confirms the
       solver stays stable past that point, for ~4% of the total re-run cost. Do not proceed to 7.3 for
       the remaining 26 configs until this passes.
-- [ ] 7.3 Run `/submit-cluster-sweep` for the remaining 26 configs, recording the CC-F1 result and the
+      `force-surrogate-smoke-8fvgf` succeeded (2h4m, 2h3m19s GPU-time). Result:
+      `interior_dt_below_nominal: false`, `realized_dt` min/mean/max all exactly `0.0005`
+      (`frac_below_nominal: 0.0`), `cycles_completed: 1.9993` (vs. ~1.83 under the old `cfl=0.3`),
+      `reached_stop_time: true`. CC-F1 plotfile check passed
+      (`x_velocity ∈ [-22.97, 4.97]`, genuinely non-zero) and was recorded via `record_check_result`.
+      Scoped acceptance gate (reduced one-config manifest) passed.
+- [x] 7.3 Run `/submit-cluster-sweep` for the remaining 26 configs, recording the CC-F1 result and the
       in-run `DT` check at the Step 4 gate.
-- [ ] 7.4 Generate metadata for all 27; confirm every config reports `interior_dt_below_nominal =
+      **First submission attempt was wrong and was caught and corrected:** `submit_workflow.sh full`
+      submits the whole committed manifest, not "the remaining N" — the first `full` call re-submitted
+      all 27 (including the already-validated smoke config); stopped ~3 min in (negligible GPU cost)
+      and resubmitted against a manifest trimmed to the correct 26 (excluding `s55_f115_p30`), per the
+      runbook's own Step 5 recovery pattern, then restored the local manifest. Also deviated from the
+      runbook's own Step 3 table, which names a stale `--active-deadline-seconds 93600` example
+      superseded by this change's own Phase 4 fix (the committed YAML's literal is now `98280`,
+      deliberately higher to cover two retries) — submitted at the committed default rather than
+      overriding it down to the stale number.
+      `force-surrogate-sweep-vgn92`: all 26 configs `Succeeded`, `verify-complete` passed, 23h51m
+      total. Step 4 mid-sweep check (run at 2/26 finished, live-progress spot-checked before that):
+      zero CFL-limited steps, correct row counts, clean forces — reported to the user, who confirmed
+      continuing unattended.
+- [x] 7.4 Generate metadata for all 27; confirm every config reports `interior_dt_below_nominal =
       false`, `reached_stop_time`, and `cycles_completed` at the healthy value.
-- [ ] 7.5 Run the acceptance gate over the full corpus; it must pass before any parquet is built.
-- [ ] 7.6 Rebuild `dataset.parquet` + `dataset.units.json`; confirm `len(df) == Σ max_step = 109,656`
+      All 27 confirmed: `interior_dt_below_nominal: false`, `reached_stop_time: true`,
+      `cycles_completed` ≈ 1.9993–1.9996 depending on `frequency_fstar` group, `stability:
+      stable_at_5e-4` for every config — zero exceptions.
+- [x] 7.5 Run the acceptance gate over the full corpus; it must pass before any parquet is built.
+      `check_corpus_acceptance.py` against the real 27-config manifest: **passed for all 27.**
+- [x] 7.6 Rebuild `dataset.parquet` + `dataset.units.json`; confirm `len(df) == Σ max_step = 109,656`
       (restored, because uniform dt means every config terminates on `max_step` as the healthy ones
       already do).
-- [ ] 7.7 Write `examples/prelim_sweep_fine/README.md` — the corpus is now first-class and publishes
+      `extract_forces.py` (no `--allow-missing`): **109,656 rows, dropped=none.** No NaN/Inf; every
+      config's mean `CF_x` well within the symmetry tolerance.
+- [x] 7.7 Write `examples/prelim_sweep_fine/README.md` — the corpus is now first-class and publishes
       six new metadata fields with no narrative documentation at all.
-- [ ] 7.8 Update `docs/field_surrogate/roadmap.md` CC-F3 with the storage measurement from the
+      Written: what's-here file table, field-capture (CC-F1) and CFL-fix (`ns.cfl=0.6`) explanations,
+      the six run-observed fields (`cfl`/`stop_time`/`realized_dt`/`interior_dt_below_nominal`/
+      `cycles_completed`/`reached_stop_time`), the supersession history, and regenerate/rebuild
+      commands. Notes explicitly that `surrogate/`/`figures/` don't exist yet for this corpus.
+- [x] 7.8 Update `docs/field_surrogate/roadmap.md` CC-F3 with the storage measurement from the
       corrected run, or state explicitly that it is insensitive to the `cfl` change. CC-F3 also
       carries a second, unaddressed forward-looking claim — *"must also re-confirm `dt=5e-4`
       numerical stability against the corrected hinge before submitting... not confirmed to
       transfer"* — close that loop too: link to #92 as the confirmation that it did not transfer,
       and to this change as the fix.
+      Measured (excluding stale `.old.*` copies from prior regenerations, and excluding the parent
+      run directory itself from the `du` traversal — an early measurement attempt double-counted both):
+      **≈0.58 TB plotfiles + ≈0.23 TB checkpoints ≈ 0.84 TB total** across the corpus, insensitive to
+      `ns.cfl` (noted in place). Closed the stability-transfer claim **in the Sequencing note where it
+      actually lives** (not under the CC-F3 heading itself, which only names CC-F3 for the *storage*
+      default it deviates from) — added a "Resolved 2026-09-19" block confirming it did not transfer
+      (issue #92) and citing this change as the fix.
 
 ## Phase 8 — Close out PR #91
 
-- [ ] 8.1 Sync PR #91's branch onto post-PR-E `main` **before** any regeneration — its existing
+- [x] 8.1 Sync PR #91's branch onto post-PR-E `main` **before** any regeneration — its existing
       parquet was built by the pre-dedup extractor and is invalid. This is a full artifact
       regeneration, not a rebase.
-- [ ] 8.2 Update #91 with the corrected corpus, all 27 regenerated metadata files, and the
+      Done — `add-fine-corpus-cluster-run` force-pushed to `phase7-fine-corpus-rerun`'s tip
+      (Phase 7's full regeneration, based on `main@5d5f1ad`), replacing the stale `e1ca8b5` commit
+      entirely rather than rebasing/merging it. Confirmed with the user before force-pushing, since
+      it rewrites a branch with an open PR against it. `gh pr view 91` now reports `mergeable`.
+- [x] 8.2 Update #91 with the corrected corpus, all 27 regenerated metadata files, and the
       `cluster_run` block including gate results, `parallelism` and effective deadline.
-- [ ] 8.3 Correct #91's claims: the #63 wording ("verified on both workflows" is unsupportable for a
+      Done — corrected corpus landed via 8.1. `cluster_run.orchestration`
+      (`parallelism=3`, `active_deadline_seconds=98280`) and `cluster_run.gate`
+      (`passed=true`, `configs_checked=27`) added via `record_check_result` (previously only `cc_f1`
+      was recorded; the full-corpus gate's own pass verdict from task 7.5 had never been persisted).
+- [x] 8.3 Correct #91's claims: the #63 wording ("verified on both workflows" is unsupportable for a
       2.86 h single-config workflow — soften to "consistent with"), the #64 status
       (known-insufficient, not unverified), the row count, and disclose both the original truncation
       and the `ns.cfl` change. Add the missing `(#91)` CHANGELOG reference.
-- [ ] 8.4 Re-run `/review-pr 91`, then merge.
+      Done — PR #91's title/description rewritten: row count corrected to 109,656; #63 softened to
+      "consistent with"; #64 corrected to "known-insufficient"; both the original `ns.cfl=0.3`
+      truncation and the `ns.cfl=0.6` fix disclosed. `docs/CHANGELOG.md` `(#91)` entry added.
+- [x] 8.4 Re-run `/review-pr 91`, then merge.
+      **Deviation:** #91 was superseded by **PR #100**, not merged itself. #91's branch had
+      already been synced onto the Phase 7/8 regeneration (task 8.1) in the same local checkout
+      as `phase7-fine-corpus-rerun`, so rather than continuing #91's own thread, a fresh PR (#100)
+      was opened from that branch and #91 was closed with a pointer to it — all of #91's prior
+      review history/content carries forward via the shared commit history, just under a new PR
+      number. `/review-pr 100` (5-agent) returned verdict **COMMENT**: no BLOCKING issues, every
+      numeric claim independently re-verified against the committed artifacts and confirmed exact.
+      Six IMPORTANT findings — two were real, fixed via TDD in the same PR (see PR H below); the
+      other four are pre-existing repo debt this PR touches/extends, not fixed here (stale
+      `project.md` line-length doc, no Git LFS for the growing parquet binaries, the manual
+      `supersession_history` restoration workaround from task 7.1, and a cluster-deadline margin
+      now based on stale per-config timing — this run measured max 4.316h/config vs. the 2.86h the
+      98280s deadline assumed, though it still finished at 23h51m, comfortably inside it). Not yet
+      merged — pending final go-ahead.
 - [ ] 8.5 Close #92, #93, #94, #95, #90, #20.
 - [ ] 8.6 Archive this change **only after 8.5** — not at PR-E merge, since #91 is still open against
       it and the specs would not yet reflect reality.
-- [ ] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
+- [x] 8.7 Re-derive the provisional converged-beat `|CF_x| < 5` tripwire (task 5.5) against the
       regenerated fine corpus's actual data; tighten it if the margin supports a smaller bound.
+      Done — also flipped `prelim_sweep_fine`'s registry `has_parquet` False → True (it now has a
+      real one; the guard module's own comment said to do this once Phase 7/8 landed it, but Phase
+      7 didn't touch this file), which for the first time actually runs the parquet-tier guards
+      against the real fine corpus: `test_real_committed_corpus_passes_all_applicable_guards[prelim_sweep_fine]`
+      passes. Measured settled-beat (`wingbeat > 0`) max `|CF_x|` directly from both corpora's real
+      parquet: `prelim_sweep` 4.015 (unchanged, `s35_f085_p60`), `prelim_sweep_fine` 2.880
+      (`s35_f085_p60`) — now a real, non-CFL-truncated number, comfortably below the coarse
+      corpus's. The coarse corpus still governs, so `CONVERGED_BEAT_CF_X_TRIPWIRE` stays at `5.0`
+      (~1.25x margin, matching `SYMMETRY_RATIO_TOLERANCE`'s convention) rather than tightening;
+      promoted from provisional to confirmed in `corpus_guards.py`'s comment and `design.md` D6.
+
+## PR H — Review round fixes on PR #100 (5-agent `/review-pr` after the #91→#100 pivot)
+
+Two of the six IMPORTANT findings from `/review-pr 100`'s Behavioral Correctness reviewer were
+real, reproducible robustness gaps in `corpus_guards.py` — both latent since the module's PR E
+commit, only exposed now that `prelim_sweep_fine`'s `has_parquet` flip (task 8.7) actually
+exercises the parquet-tier guards against it for the first time. Fixed via TDD, same PR.
+
+- [x] H.1 **Test first** — `test_converged_beat_tripwire_fails_rather_than_silently_passing_on_empty_settled_beat`
+      in `tests/test_corpus_guards.py`, using the existing `cf_x_pattern="never_settles"` fixture
+      (already used to test `check_symmetry_invariant`'s equivalent fix in PR #97 round 1). Must
+      fail. **IMPORTANT**: `check_converged_beat_tripwire` filtered `df[df["wingbeat"] > 0]` then
+      took `.abs().max()`; on an empty result this is `NaN`, and `NaN >= CONVERGED_BEAT_CF_X_TRIPWIRE`
+      is `False` in pandas — the single worst truncation case (a run that never reaches a settled
+      beat at all) silently passed a check whose entire purpose is flagging a materially different
+      physical regime. Reproduced live against the real fixture before fixing.
+- [x] H.2 Implemented: `check_converged_beat_tripwire` now returns a clear failure
+      (`"no settled-beat (wingbeat > 0) rows found at all"`) when `settled.empty` or the computed
+      peak is `NaN`, before comparing against the tripwire constant.
+- [x] H.3 **Test first** — `test_run_all_guards_reports_missing_parquet_without_crashing` in
+      `tests/test_corpus_guards.py`: a corpus registered `has_parquet=True` with a valid
+      manifest/deck but no actual `dataset.parquet` (a registry/build mismatch). Must fail.
+      **IMPORTANT**: `check_parquet_exists_if_registered`'s own docstring promises this case
+      "fails loudly" via its own clean message — but `run_all_guards` kept iterating `ALL_CHECKS`
+      regardless, and the very next parquet-touching check (`check_holdout_matches_manifest`)
+      raised an uncaught `FileNotFoundError` from `pd.read_parquet` before `run_all_guards` could
+      return anything, masking the intended message with a raw stack trace.
+- [x] H.4 Implemented: `run_all_guards` now short-circuits immediately after
+      `check_parquet_exists_if_registered` reports any failure, since every later check either is
+      unaffected (manifest/deck-tier) or requires the very file that check just confirmed missing.
+- [x] H.5 **Verify** — `uv run pytest -q tests/test_corpus_guards.py`: 36 passed (was 34; both
+      new tests plus all 34 existing, no regressions). Full suite `uv run pytest -q -m "not gpu"`,
+      `ruff check`/`format --check` (CI's six-path scope), and `openspec validate --strict` all
+      clean.
+- [x] H.6 The remaining four IMPORTANT findings were pre-existing debt this PR touches/extends,
+      not fixed in this PR — filed as follow-up issues rather than left untracked:
+      [#101](https://github.com/talmolab/mosquito-cfd/issues/101) (deadline-sizing constants stale
+      after this run's measured cost), [#102](https://github.com/talmolab/mosquito-cfd/issues/102)
+      (no Git LFS for the growing committed parquet corpora),
+      [#103](https://github.com/talmolab/mosquito-cfd/issues/103) (`supersession_history` has no
+      writer, requiring the manual restoration this PR's task 7.1 did by hand),
+      [#104](https://github.com/talmolab/mosquito-cfd/issues/104) (`project.md`'s documented Ruff
+      line-length is stale).

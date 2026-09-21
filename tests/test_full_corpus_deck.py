@@ -202,6 +202,7 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
         (fine_corpus / "sweep_provenance.json").read_text(encoding="utf-8")
     )
     field_capture = provenance.get("field_capture", {})
+    timestep_policy = provenance.get("timestep_policy", {})
     generate_sweep(
         _FINE_BASE,
         tmp_path,
@@ -210,6 +211,7 @@ def test_committed_fine_corpus_matches_regeneration(tmp_path):
         timestamp=provenance["generated_at"],
         plot_int=field_capture.get("plot_int", -1),
         init_iter=field_capture.get("init_iter"),
+        cfl=timestep_policy.get("cfl"),
     )
     committed = sorted((fine_corpus / "inputs").glob("inputs.3d.*"))
     assert len(committed) == 27

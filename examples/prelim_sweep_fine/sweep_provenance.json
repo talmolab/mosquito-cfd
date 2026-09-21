@@ -3,13 +3,30 @@
     "path": "examples/prelim_sweep_fine_pilot/base_inputs.3d.fine",
     "sha256": "135ccd38437e56ae04812299162f3bcf02ec7c8bfe1dce2470fb9899063ed6a0"
   },
+  "cluster_run": {
+    "cc_f1": {
+      "plotfile": "/z/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine/runs/s55_f115_p30/plt00100",
+      "verdict": "pass",
+      "x_velocity_max": 4.97329,
+      "x_velocity_min": -22.969
+    },
+    "gate": {
+      "configs_checked": 27,
+      "note": "Full-corpus acceptance gate (check_corpus_acceptance.py) run against the ns.cfl=0.6 re-run; passed for all 27 configs (task 7.5).",
+      "passed": true
+    },
+    "orchestration": {
+      "active_deadline_seconds": 98280,
+      "parallelism": 3
+    }
+  },
   "field_capture": {
     "init_iter": 2,
     "plot_int": 100,
     "rationale": "Field-capture output enabled for downstream Stage-2 (field-surrogate) work -- see docs/field_surrogate/roadmap.md CC-F1/CC-F3."
   },
-  "generated_at": "2026-09-01T09:30:00+00:00",
-  "git_commit": "5c367596c5f1b7a28ff9369184c5e840c4f9c164",
+  "generated_at": "2026-09-18T15:29:42+0000",
+  "git_commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
   "supersession_history": [
     {
       "cluster_workflows": [
@@ -18,7 +35,20 @@
       ],
       "note": "Those runs' NFS wing.vertex was already correct (matched the canonical file) -- only the hinge value baked into their decks was stale.",
       "reason": "Fixed a wing-hinge geometry defect (fix-force-surrogate-sweep-hinge); these decks replace the ones used by these cluster runs, whose raw CFD output on NFS predated this fix and was stale."
+    },
+    {
+      "cluster_workflows": [
+        "force-surrogate-sweep-pzdhl",
+        "force-surrogate-sweep-zpkvt"
+      ],
+      "note": "15 of 27 runs from pzdhl/zpkvt were CFL-limited (ns.cfl=0.3 bound below ns.fixed_dt=0.0005 at this grid resolution), truncating them mid-wingbeat; the other 12 completed but at an unvalidated timestep policy. PR #91 (add-fine-corpus-cluster-run) is being superseded by a full 27-config re-run at the corrected policy.",
+      "reason": "Raised ns.cfl 0.3 -> 0.6 (issue #92, add-fine-corpus-run-verification) so the validated fixed timestep binds instead of being CFL-limited; these decks replace the ones used by pzdhl/zpkvt, whose raw CFD output on NFS predates this fix."
     }
   ],
+  "timestep_policy": {
+    "cfl": 0.6,
+    "fixed_dt": 0.0005,
+    "rationale": "ns.cfl raised to 0.6 so the validated fixed timestep (0.0005) binds instead of being CFL-limited at this grid resolution -- ns.fixed_dt is a ceiling, not an enforced value; ns.cfl is an independent limiter that can reduce the realized timestep below it (issue #92)."
+  },
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep"
 }
