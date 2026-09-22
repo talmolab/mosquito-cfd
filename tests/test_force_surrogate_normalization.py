@@ -11,10 +11,12 @@ import pytest
 
 from mosquito_cfd.benchmarks.van_veen_model import compute_wing_area_moments
 from mosquito_cfd.force_surrogate import (
+    MomentCoefficients,
     compute_force_coefficients,
     compute_force_reference,
     compute_moment_coefficient,
     compute_moment_reference,
+    shift_moment_reference,
 )
 from mosquito_cfd.force_surrogate.constants import (
     CHORD,
@@ -229,3 +231,136 @@ def test_compute_moment_coefficient_empty_and_nan():
     )
     assert np.isnan(nan_cc.cf_mx[0])
     assert nan_cc.cf_mx[1] == pytest.approx(0.2)
+
+
+# --- Parallel-axis moment reference shift (fix-moment-reference-hinge) ---------------
+
+
+def test_shift_moment_reference_known_answer():
+    """Hand-computed ``M + d x F``, with ``d x F`` nonzero in all three components.
+
+    Pins both the cross-product ORDER and the sign convention: the reversed product
+    ``F x d`` negates every component, so this case distinguishes them.
+
+    Spec scenario: Known-answer parallel-axis shift.
+    """
+    # d x F = (2*6-3*5, 3*4-1*6, 1*5-2*4) = (-3, 6, -3)
+    mx, my, mz = shift_moment_reference(
+        10.0, 20.0, 30.0, 4.0, 5.0, 6.0, offset=(1.0, 2.0, 3.0)
+    )
+    assert float(mx) == pytest.approx(7.0)
+    assert float(my) == pytest.approx(26.0)
+    assert float(mz) == pytest.approx(27.0)
+
+
+def test_shift_moment_reference_spanwise_leaves_my_equal():
+    """A purely spanwise offset leaves ``M_y`` equal; ``M_x``/``M_z`` move.
+
+    The ``M_y`` invariance does **not** pin the cross-product order -- ``d x F`` and
+    ``F x d`` both give exactly zero in y. The order is pinned by the ``M_x``/``M_z``
+    clause below and by the known-answer case.
+
+    Spec scenario: A spanwise shift leaves the M_y component invariant.
+    """
+    a = 1.5
+    fx = np.array([2.0, -3.0, 7.5])
+    fy = np.array([0.5, 0.25, -1.0])
+    fz = np.array([-4.0, 6.0, 1.25])
+    m = np.array([11.0, -2.0, 0.5])
+
+    sx, sy, sz = shift_moment_reference(m, m, m, fx, fy, fz, offset=(0.0, a, 0.0))
+
+    # ``==``, not bitwise: -0.0 + 0.0 compares equal to +0.0 but differs in bits.
+    assert np.all(sy == m)
+    np.testing.assert_allclose(sx, m + a * fz, rtol=1e-15)
+    np.testing.assert_allclose(sz, m - a * fx, rtol=1e-15)
+
+
+def test_shift_moment_reference_nonfinite_force_breaks_my_invariance():
+    """A non-finite ``Fx``/``Fz`` contaminates ``M_y``, because ``0.0 * NaN = NaN``.
+
+    The invariance holds only for finite forces; the shift must NOT special-case the
+    y component to preserve it.
+
+    Spec scenario: A non-finite force contaminates all three components.
+    """
+    with np.errstate(invalid="ignore"):
+        _, sy_nan, _ = shift_moment_reference(
+            1.0, 1.0, 1.0, np.nan, 0.0, 0.0, offset=(0.0, 1.5, 0.0)
+        )
+        _, sy_inf, _ = shift_moment_reference(
+            1.0, 1.0, 1.0, 0.0, 0.0, np.inf, offset=(0.0, 1.5, 0.0)
+        )
+    assert np.isnan(sy_nan)
+    assert np.isnan(sy_inf)
+
+
+def test_shift_moment_reference_zero_offset_is_computed_not_short_circuited():
+    """A zero displacement is still evaluated, so a non-finite force propagates.
+
+    Guards against an ``if offset == 0: return inputs`` fast path, which would make the
+    zero-offset fixture path behave differently from every other path.
+
+    Spec scenario: Degenerate shift inputs.
+    """
+    with np.errstate(invalid="ignore"):
+        sx, sy, sz = shift_moment_reference(
+            1.0, 1.0, 1.0, np.nan, 0.0, np.nan, offset=(0.0, 0.0, 0.0)
+        )
+    assert np.isnan(sx) and np.isnan(sy) and np.isnan(sz)
+
+
+def test_shift_moment_reference_zero_offset_finite_compares_equal():
+    """A zero displacement leaves all-finite inputs comparing equal.
+
+    Spec scenario: Degenerate shift inputs.
+    """
+    m = np.array([1.0, -2.5, 0.0])
+    f = np.array([3.0, 4.0, 5.0])
+    sx, sy, sz = shift_moment_reference(m, m, m, f, f, f, offset=(0.0, 0.0, 0.0))
+    assert np.all(sx == m) and np.all(sy == m) and np.all(sz == m)
+
+
+def test_shift_moment_reference_empty_and_mismatched_shapes():
+    """Empty -> empty without error; mismatched M/F shapes raise ``ValueError``.
+
+    Spec scenario: Degenerate shift inputs.
+    """
+    e = np.array([])
+    sx, sy, sz = shift_moment_reference(e, e, e, e, e, e, offset=(0.0, 1.5, 0.0))
+    assert sx.shape == (0,) and sy.shape == (0,) and sz.shape == (0,)
+
+    with pytest.raises(ValueError):
+        shift_moment_reference(
+            np.array([1.0, 2.0]),
+            np.array([1.0, 2.0]),
+            np.array([1.0, 2.0]),
+            np.array([1.0]),
+            np.array([1.0]),
+            np.array([1.0]),
+            offset=(0.0, 1.5, 0.0),
+        )
+
+
+def test_shift_moment_reference_rejects_malformed_offset():
+    """An offset that is not three finite components is rejected.
+
+    A NaN offset would silently NaN every moment; a wrong-length offset is a caller bug.
+    """
+    with pytest.raises(ValueError):
+        shift_moment_reference(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, offset=(0.0, 1.5))
+    with pytest.raises(ValueError):
+        shift_moment_reference(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, offset=(0.0, np.nan, 0.0))
+
+
+def test_moment_coefficients_docstring_names_the_hinge():
+    """``MomentCoefficients`` documents the reference point, not "the body center".
+
+    Spec scenario: Reference point is named, not implied.
+    """
+    doc = MomentCoefficients.__doc__ or ""
+    low = doc.lower()
+    assert "hinge" in low
+    assert "body center" not in low
+    assert "docs/coordinate-convention.md" in doc
+    assert "lab" in low  # axes remain lab axes; only the origin moves
