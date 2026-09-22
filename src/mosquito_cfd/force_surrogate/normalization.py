@@ -63,10 +63,21 @@ class MomentReference:
 class MomentCoefficients:
     """Aerodynamic moment coefficients (moment / ``M_ref``), dimensionless.
 
-    The three components are carried in the lab frame as written by IAMReX
-    (``M = sum r x F`` about the body center); the single "pitch moment" axis is
-    deliberately *not* designated here (see the force-surrogate roadmap / PR6).
-    ``eq`` is disabled for the same reason as :class:`ForceCoefficients`.
+    The three components are **lab-frame** components taken about the **wing hinge**
+    (the deck's declared pivot). ``docs/coordinate-convention.md`` is the canonical
+    definition of that reference point -- it is named, not justified, here.
+
+    Only the *origin* is the hinge: the axes remain the lab axes as written by IAMReX,
+    so these are **not** van Veen wing-frame moments (that would additionally require
+    rotating by ``R(t)^T``; GitHub issue #1). The raw ``Mx/My/Mz`` columns carried
+    alongside these coefficients are still about the solver's own particle origin.
+
+    A future body-in-the-loop model would want the insect's centre of mass instead;
+    that alternative is deliberately deferred, not overlooked.
+
+    The single "pitch moment" axis is deliberately *not* designated here (see the
+    force-surrogate roadmap / PR6). ``eq`` is disabled for the same reason as
+    :class:`ForceCoefficients`.
 
     Attributes:
         cf_mx: Moment coefficient about the lab x-axis.
@@ -224,6 +235,85 @@ def compute_moment_coefficient(
     return MomentCoefficients(
         cf_mx=mx_a / m_ref, cf_my=my_a / m_ref, cf_mz=mz_a / m_ref
     )
+
+
+def shift_moment_reference(
+    mx: ArrayLike,
+    my: ArrayLike,
+    mz: ArrayLike,
+    fx: ArrayLike,
+    fy: ArrayLike,
+    fz: ArrayLike,
+    *,
+    offset: ArrayLike,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    """Move moments to a new reference point via the parallel-axis shift.
+
+    For a moment taken about point ``P``, the moment about a new point ``P'`` is::
+
+        M_P' = M_P + (P - P') x F
+
+    so ``offset`` is the displacement **from the new reference point to the old one**
+    (``r_old - r_new``). The identity is exact for a rigid force system, including
+    through IAMReX's multidirect sub-iteration accumulation, because the per-marker
+    force and moment are the same marker sum and both accumulate in lockstep.
+
+    The full three-component cross product is always evaluated -- no component is
+    special-cased and no zero-displacement fast path is taken. That matters: for a
+    purely spanwise displacement the y term is ``0.0 * Fx - 0.0 * Fz``, which is
+    exactly zero for finite forces but **NaN** for a non-finite one. Short-circuiting
+    would make those two cases disagree.
+
+    Note the invariance that follows is a statement about the displacement's
+    *components*, not about the span: ``M_y`` is unchanged because ``d_x = d_z = 0``.
+    The lab y-axis is the span axis only in the rest pose, so the moment about the
+    wing's *instantaneous* span axis is not invariant under a stroke rotation.
+
+    Args:
+        mx: Moment(s) about the lab x-axis, taken about the old reference point.
+        my: Moment(s) about the lab y-axis.
+        mz: Moment(s) about the lab z-axis.
+        fx: Total force component along lab x, from the same marker sum as the moments.
+        fy: Total force component along lab y.
+        fz: Total force component along lab z.
+        offset: The three-component displacement ``r_old - r_new``. Must be finite.
+
+    Returns:
+        ``(mx, my, mz)`` about the new reference point, preserving the input shape.
+        NaN inputs -- and non-finite forces -- propagate rather than being masked.
+
+    Raises:
+        ValueError: If ``offset`` is not three finite components, or if the six
+            moment/force inputs do not all share the same shape (which would let
+            broadcasting silently misalign a force with the wrong moment row).
+    """
+    d = np.asarray(offset, dtype=float)
+    if d.shape != (3,):
+        raise ValueError(
+            "offset must have exactly three components (the displacement "
+            f"r_old - r_new); got shape {d.shape}"
+        )
+    if not np.all(np.isfinite(d)):
+        raise ValueError(
+            f"offset must be finite; got {d!r}. A non-finite reference-point "
+            "displacement would silently NaN every moment component."
+        )
+
+    arrays = [np.asarray(v, dtype=float) for v in (mx, my, mz, fx, fy, fz)]
+    shapes = {a.shape for a in arrays}
+    if len(shapes) > 1:
+        raise ValueError(
+            "mx, my, mz, fx, fy, fz must all share the same shape; got "
+            f"{[a.shape for a in arrays]}"
+        )
+    mx_a, my_a, mz_a, fx_a, fy_a, fz_a = arrays
+
+    # Full cross product d x F, evaluated componentwise (see docstring).
+    cross_x = d[1] * fz_a - d[2] * fy_a
+    cross_y = d[2] * fx_a - d[0] * fz_a
+    cross_z = d[0] * fy_a - d[1] * fx_a
+
+    return mx_a + cross_x, my_a + cross_y, mz_a + cross_z
 
 
 def compute_force_coefficients(
