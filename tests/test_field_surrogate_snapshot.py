@@ -464,3 +464,38 @@ def test_package_init_imports_no_submodule():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "OK", result.stdout
+
+
+def test_missing_private_dtype_attribute_is_a_hard_failure(monkeypatch):
+    # ds.index._dtype is private yt API. An earlier version of this guard used
+    # getattr(..., np.float64), which would silently pass EVERY plotfile if yt renamed it --
+    # re-creating the vacuous check this guard exists to replace, with nothing failing.
+    import yt
+
+    real_load = yt.load
+
+    class _NoDtypeIndex:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            if name == "_dtype":
+                raise AttributeError(name)
+            return getattr(self._inner, name)
+
+    class _NoDtypeDataset:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        @property
+        def index(self):
+            return _NoDtypeIndex(self._inner.index)
+
+    monkeypatch.setattr(
+        yt, "load", lambda p, *a, **k: _NoDtypeDataset(real_load(str(p)))
+    )
+    with pytest.raises(ValueError, match="on-disk precision"):
+        read_field_snapshot(FIXTURE, **FULL)

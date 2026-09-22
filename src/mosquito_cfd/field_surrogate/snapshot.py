@@ -211,7 +211,15 @@ def read_field_snapshot(
     # array it returns reports float64 even for a genuine single-precision plotfile (verified:
     # ds.index._dtype float32, returned dtype float64, values carrying ~1.9e-07 of truncation).
     # A returned-dtype check can therefore never catch an fp32 build.
-    on_disk = np.dtype(getattr(ds.index, "_dtype", np.float64))
+    # `_dtype` is private yt API. Defaulting it would re-create the very hole this guard closes
+    # -- a silent pass for every plotfile -- so a missing attribute is a hard failure instead.
+    if not hasattr(ds.index, "_dtype"):
+        raise ValueError(
+            "cannot determine the plotfile's on-disk precision: this yt build "
+            f"({getattr(yt, '__version__', 'unknown')}) does not expose ds.index._dtype, so the "
+            "fp32-build guard cannot run. Refusing rather than silently accepting."
+        )
+    on_disk = np.dtype(ds.index._dtype)
     if on_disk != np.float64:
         raise ValueError(
             f"plotfile {plotfile_path} stores {on_disk} reals, not float64 (fp32 build?); "
