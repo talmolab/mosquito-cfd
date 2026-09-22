@@ -322,8 +322,8 @@ imports on the CPU-only CI runner and this change adds no dependency.
 The adapter's documentation SHALL state, as a matter of scientific honesty (**CC-4**), that: stock
 DoMINO is a geometry→fields surrogate whose flow-field values are **predicted outputs**, so
 `volume_fields` is a training **target** and not an encoder input; `geometry_coordinates`, `sdf_grid`,
-`sdf_nodes`, and the `surface_mesh_*` arrays are **not produced here** and DoMINO cannot train without
-them; and this corpus's plotfiles carry **no pressure field**, only its gradient, so `volume_fields` is
+`sdf_nodes`, `surf_grid`, `sdf_surf_grid`, and the `surface_mesh_*` arrays are **not produced here**
+and DoMINO cannot train without them; and this corpus's plotfiles carry **no pressure field**, only its gradient, so `volume_fields` is
 velocity plus pressure-gradient rather than the velocity/pressure/turbulent-viscosity set DoMINO's own
 examples assume.
 
@@ -363,4 +363,4 @@ examples assume.
 - **Given** the adapter's documentation
 - **When** it is inspected
 - **Then** it states that `volume_fields` is a target rather than an encoder input, that this corpus
-  has no pressure field and carries its gradient instead, and it names each of the six absent keys
+  has no pressure field and carries its gradient instead, and it names each of the eight absent keys

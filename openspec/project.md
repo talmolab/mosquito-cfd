@@ -344,7 +344,8 @@ mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sph
 `src/mosquito_cfd/field_surrogate/` turns AMReX plotfiles into training input for the future
 Stage-2 encoder (`docs/field_surrogate/roadmap.md`, row F2). `snapshot.py` holds the
 repository's **single Eulerian-box covering-grid read path**, `read_field_snapshot`, returning
-an immutable `FieldSnapshot` (dense FP64 arrays in code units, cell-center coords, `dx`, the
+an immutable `FieldSnapshot` -- arrays are non-writable **and own their data**, since marking a
+view read-only would leave its base reachable and writable -- (dense FP64 arrays in code units, cell-center coords, `dx`, the
 plotfile's physical `time`, plus `source`/`max_level` provenance) with a `PointCloud` view for
 point-cloud encoders. `corpus.py` addresses plotfiles by `(config_id, step)` against a
 caller-supplied root -- the real corpus lives on cluster NFS, not in the repo -- and

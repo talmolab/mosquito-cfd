@@ -112,3 +112,25 @@ def test_malformed_manifest_surfaces_the_guarded_error(tmp_path):
     corpus = FieldCorpus(root)
     with pytest.raises(ValueError, match="configs"):
         corpus.config_ids()
+
+
+# --- review corrections (tasks 52-53) ---------------------------------------------------------
+
+
+def test_global_params_returns_exactly_the_kinematic_keys(tmp_path):
+    # Task 52. `return dict(config)` survived the original suite, leaking reynolds, split,
+    # input_file and index into what a caller hands to to_domino_volume as global_params_values.
+    # Key names are literal here, NOT imported from the module under test.
+    params = FieldCorpus(_corpus(tmp_path)).global_params("s35_f085_p30")
+    assert set(params) == {"stroke_amp_deg", "frequency_fstar", "pitch_amp_deg"}
+
+
+def test_steps_sort_numerically_not_lexically(tmp_path):
+    # Task 53. The regex permits any digit width, and plt10 sorts BEFORE plt2 lexically. With
+    # uniform 5-digit padding lexical and numeric order coincide, so the original matrix could
+    # not detect a dropped sorted() -- verified: `return found` left the suite green.
+    root = _corpus(tmp_path, steps=(2, 10, 100))
+    run = root / "runs" / "s35_f085_p30"
+    for padded, bare in ((2, "plt2"), (10, "plt10")):
+        (run / f"plt{padded:05d}").rename(run / bare)
+    assert FieldCorpus(root).steps("s35_f085_p30") == [2, 10, 100]

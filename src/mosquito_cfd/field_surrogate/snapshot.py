@@ -118,6 +118,28 @@ def _validate_fields(fields: tuple[str, ...]) -> None:
         raise ValueError(
             f"unknown field name(s) {unknown}; choose from {sorted(CANONICAL_FIELDS)}"
         )
+    seen: set[str] = set()
+    duplicates = sorted({n for n in fields if n in seen or seen.add(n)})
+    if duplicates:
+        # A duplicate desynchronises `arrays` (a dict, which collides) from `field_names`
+        # (a tuple, which does not): the point cloud gains a duplicated column and the same
+        # field is read once per repetition.
+        raise ValueError(
+            f"duplicate field name(s) {duplicates} in fields={list(fields)}"
+        )
+
+
+def _validate_halo(halo: int) -> int:
+    if isinstance(halo, bool) or not isinstance(halo, (int, np.integer)):
+        # Each face truncates independently (int() of i_lo - halo and i_hi + halo), so a
+        # fractional halo pads ASYMMETRICALLY -- halo=1.9 gives 2 cells low and 1 high, a
+        # wrong answer for anything that differentiates across the pad.
+        raise ValueError(f"halo must be an integer, got {halo!r}")
+    if halo < 0:
+        # A negative halo erodes rather than pads, and can silently yield a zero-cell region
+        # indistinguishable from an out-of-domain request.
+        raise ValueError(f"halo must be non-negative, got {halo}")
+    return int(halo)
 
 
 def _corner(value, name: str) -> np.ndarray:
@@ -166,6 +188,7 @@ def read_field_snapshot(
     """
     fields = tuple(fields)
     _validate_fields(fields)
+    halo = _validate_halo(halo)
     lo_v = _corner(lo, "lo")
     hi_v = _corner(hi, "hi")
 
@@ -181,6 +204,18 @@ def read_field_snapshot(
             f"grid vs. keep a native multi-resolution point cloud) is the open CC-F3 decision -- "
             f"see docs/field_surrogate/roadmap.md. Reading level 0 alone would silently return "
             f"coarse data and discard the refined patches."
+        )
+
+    # The on-disk precision is the only place an fp32 build is visible. yt's AMReX frontend
+    # allocates output buffers float64 unconditionally and widens the FAB into them, so every
+    # array it returns reports float64 even for a genuine single-precision plotfile (verified:
+    # ds.index._dtype float32, returned dtype float64, values carrying ~1.9e-07 of truncation).
+    # A returned-dtype check can therefore never catch an fp32 build.
+    on_disk = np.dtype(getattr(ds.index, "_dtype", np.float64))
+    if on_disk != np.float64:
+        raise ValueError(
+            f"plotfile {plotfile_path} stores {on_disk} reals, not float64 (fp32 build?); "
+            f"yt would silently widen them to float64"
         )
 
     requested = [CANONICAL_FIELDS[name] for name in fields]
@@ -209,18 +244,22 @@ def read_field_snapshot(
     arrays: dict[str, np.ndarray] = {}
     for name, field in zip(fields, requested):
         raw = cg[field].to_ndarray()
-        if raw.dtype != np.float64:  # check BEFORE casting, so an fp32 build is caught
-            raise ValueError(f"field {field} is {raw.dtype}, not float64 (fp32 build?)")
-        # ascontiguousarray copies, so the snapshot neither aliases another read nor pins the
-        # whole covering grid alive behind a small view.
-        arr = np.ascontiguousarray(raw[sl], dtype=np.float64)
+        if (
+            raw.dtype != np.float64
+        ):  # defence in depth; the real fp32 guard is on_disk above
+            raise ValueError(f"field {field} is {raw.dtype}, not float64")
+        # copy=True is load-bearing. np.ascontiguousarray returns the input UNCHANGED when the
+        # slice is already C-contiguous -- the full-extent read and any single-axis slab -- and
+        # marking such a view non-writable leaves its base reachable and writable, so the array
+        # stays mutable through arr.base and a small region pins the whole covering grid alive.
+        arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
         arr.setflags(write=False)
         arrays[name] = arr
 
     axes = []
     for axis in range(3):
         centers = dle[axis] + (np.arange(ddims[axis]) + 0.5) * dx[axis]
-        cut = np.ascontiguousarray(centers[sl[axis]])
+        cut = np.array(centers[sl[axis]], dtype=np.float64, order="C", copy=True)
         cut.setflags(write=False)
         axes.append(cut)
 

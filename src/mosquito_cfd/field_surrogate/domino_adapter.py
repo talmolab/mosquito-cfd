@@ -18,7 +18,11 @@ CPU-only CI runner and this change adds no dependency.
   solver's exactly. Both belong with F3, where the encoder that consumes them exists. They are
   **absent from the returned dict rather than zero-filled**, because a zero-filled ``sdf_nodes``
   yields a dict that looks trainable and silently is not.
-- IAMReX plotfiles carry **no pressure field** -- only ``gradpx``/``gradpy``/``gradpz``. Our
+- **This corpus's** plotfiles carry **no pressure field** -- only
+  ``gradpx``/``gradpy``/``gradpz``. A real wing plotfile's Header was inspected directly; see
+  ``openspec/changes/archive/2026-07-08-grade-wing-grid-convergence-medium/design.md``.
+  IAMReX's component list is deck-dependent, so this is a claim about our decks, not about
+  the solver. Our
   ``volume_fields`` is therefore velocity plus pressure-*gradient*, not the
   velocity/pressure/turbulent-viscosity set DoMINO's own examples assume.
 
@@ -69,9 +73,11 @@ def to_domino_volume(
 
     Args:
         snapshot: The field snapshot to convert.
-        global_params_values: This case's parameter values (e.g. the kinematics from
-            ``FieldCorpus.global_params``).
-        global_params_reference: Normalization baselines, same length and order.
+        global_params_values: This case's parameter values, as an ordered sequence. Note that
+            ``FieldCorpus.global_params`` returns a **mapping**, so a caller must choose an
+            explicit key order and pass the values; the correspondence to
+            ``global_params_reference`` is positional and is checked only for length.
+        global_params_reference: Normalization baselines, same length and positional order.
 
     Returns:
         A dict with exactly :data:`VOLUME_HALF_KEYS` and **no** leading batch dimension. The
