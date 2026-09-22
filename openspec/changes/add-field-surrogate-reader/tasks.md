@@ -218,3 +218,79 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     non-zero domain origins. Scratchpad script, output pasted into the PR; not a committed test.
 45. [ ] File the D11 follow-up issue: a second committed fixture with anisotropic `dx`, a non-zero
     domain origin, and >1 FAB, so CI stops depending on a degenerate plotfile.
+
+# Review corrections (post-#105/#106 subagent review)
+
+Five reviewers on #105 and two on #106. The structural finding that drove these: **every mutation
+derived from the implementation was caught; every mutation derived from a `SHALL` in the spec
+survived.** Post-hoc mutation testing validates that tests agree with the code — precisely what the
+skipped red phase fails to establish. So each correction below is written test-first, from the
+corrected spec text, and verified by re-running the reviewer's surviving mutation.
+
+## 11. Correctness (PR A)
+
+46. [ ] **Test first**: a **real** fp32 boxlib plotfile (FAB RealDescriptor declaring `float32`, via a
+    new `real_dtype=` parameter on `make_lev_boxlib_fixture.write_fixture`, written to `tmp_path`) is
+    refused. yt's AMReX frontend allocates output buffers `float64` unconditionally, so the shipped
+    `raw.dtype != np.float64` predicate can never fire — verified by a reviewer who built such a file
+    and had it accepted, reporting `float64` while carrying fp32-truncated values.
+47. [ ] Guard on `ds.index._dtype` (the dtype yt parses from the RealDescriptor). Keep the
+    returned-array check as defence in depth, documented as such rather than as the guard.
+48. [ ] **Test first**: duplicate short names raise with zero field reads. Today `fields=("u","u")`
+    gives `arrays` with 1 entry and `field_names` with 2, a point cloud with two identical columns,
+    and one yt read per repetition.
+49. [ ] **Test first**: arrays satisfy `base is None` for a **full-extent** read (the case where
+    `np.ascontiguousarray` returns the view, so `setflags(write=False)` leaves a writable, reachable
+    base) as well as for a sub-box. Force the copy with `np.array(..., copy=True)`. Do **not** fix
+    this with `raw.setflags(write=False)` — PR B's wrapper calls `setflags(write=True)` and would
+    raise.
+50. [ ] **Test first**: a negative `halo` and a fractional `halo` each raise. `halo=1.9` currently
+    pads asymmetrically (2 cells low, 1 high) because each face truncates independently.
+51. [ ] **Test first**: importing **only** `mosquito_cfd.field_surrogate` leaves no
+    `mosquito_cfd.field_surrogate.*` in `sys.modules`. The existing probe imports the submodules
+    itself, so it cannot see an eager re-export; verified by a reviewer whose eager-`__init__` mutant
+    left the suite green.
+52. [ ] **Test first**: `global_params` returns exactly the three kinematic keys. `return dict(config)`
+    currently survives, leaking `reynolds`/`split`/`input_file`/`index`.
+53. [ ] **Test first**: `steps()` sorts numerically with inconsistent padding (`plt2`, `plt10`,
+    `plt00100`). Uniform padding makes lexical and numeric order coincide, so the shipped matrix
+    cannot detect a dropped `sorted()`.
+54. [ ] **Test first**: the DoMINO key partition matches key names written **literally in the test**,
+    not imported from the module. Both shipped tests read their expectations from the module under
+    test, so moving `sdf_nodes` into the emitted set and zero-filling it left the suite green — the
+    exact failure the spec and docstring call out.
+
+## 12. Claim corrections (PR A + PR B)
+
+55. [ ] `project.md`: the reader returns an immutable `FieldSnapshot` — true only once task 49 lands;
+    keep the wording and make it true, rather than softening it.
+56. [ ] `to_domino_volume` docstring: remove the "e.g. the kinematics from `FieldCorpus.global_params`"
+    integration path, which returns a **dict** and raises `TypeError` if passed. Say the two sequences
+    correspond positionally.
+57. [ ] Correct "IAMReX plotfiles carry no pressure field" to *this corpus's* plotfiles in the
+    docstring and CHANGELOG, and cite the real verification at
+    `openspec/changes/archive/2026-07-08-grade-wing-grid-convergence-medium/design.md:119`.
+58. [ ] Correct the two false comments claiming `ascontiguousarray` copies / arrays are "freshly
+    allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
+59. [ ] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
+    `lo`/`hi` both previously succeeded and now raise. State the narrowing.
+60. [ ] Fix the test-count claim (55, not 56) and make the patch-site count say which set it counts.
+
+## 13. Guarding the guards (PR B)
+
+61. [ ] Add `tests/fixtures/legacy_extract_eulerian_box.py` to ruff's `exclude`, and add a
+    content-hash test pinning it. Nothing currently stops `ruff format` from rewriting the frozen
+    oracle, which would silently turn the equivalence claim into a comparison against modified code.
+    A hash is squash-merge-safe; a `git show 86c729e` test is not.
+62. [ ] Move the writeability assertion into the parametrized differential (it covers 1 region of 11),
+    and add an x-slab-only case — the shape `sphere_cv_drag_cd` actually requests in production, and
+    one of the two zero-copy regimes.
+
+## 14. Verification
+
+63. [ ] Re-run every surviving mutation from the review and confirm each now fails:
+    `steps()` unsorted; `global_params` to `dict(config)`; `ascontiguousarray` to a bare view; eager
+    `__init__` re-exports; `sdf_nodes` moved to the emitted set and zero-filled. Per
+    `feedback-fixes-need-same-scrutiny-as-original-code`, re-run rather than re-read.
+64. [ ] Full CI-form lint/format/test from Git Bash, and `openspec validate --strict`.
+65. [ ] File issues for everything deliberately not done here (see the review threads on #105/#106).
