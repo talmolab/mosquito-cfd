@@ -142,8 +142,16 @@ def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):
 
     real_iterdir = Path.iterdir
 
-    def descending_iterdir(self):
-        return iter(sorted(real_iterdir(self), key=lambda q: q.name, reverse=True))
+    def reverse_numeric_iterdir(self):
+        # Order by the STEP NUMBER descending, so the raw listing is [100, 10, 2] -- unambiguously
+        # the wrong answer. Ordering by name descending would yield plt2, plt10, plt00100, i.e.
+        # [2, 10, 100], which is accidentally correct and lets the mutant survive (this test's
+        # first version made exactly that mistake).
+        def step_of(q):
+            digits = q.name[3:]
+            return int(digits) if q.name.startswith("plt") and digits.isdigit() else -1
 
-    monkeypatch.setattr(Path, "iterdir", descending_iterdir)
+        return iter(sorted(real_iterdir(self), key=step_of, reverse=True))
+
+    monkeypatch.setattr(Path, "iterdir", reverse_numeric_iterdir)
     assert FieldCorpus(root).steps("s35_f085_p30") == [2, 10, 100]
