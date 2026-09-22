@@ -190,7 +190,7 @@ per PR, each with its own number.
     dangling `CC-F5` references (only CC-F1..CC-F4 exist) and CC-F4's "PR2/PR3" → "F2/F3".
 39. [x] Flip the F2 **Status glyph** `⬜ → ✅` in the roadmap table (it is a glyph, not a checkbox) —
     in-branch, since squash-merge leaves no opportunity to edit at merge time.
-40. [ ] `docs/CHANGELOG.md` entry with the PR number, per repo convention (also covered by
+40. [x] `docs/CHANGELOG.md` entry with the PR number, per repo convention (also covered by
     `/pre-merge-check`).
 
 ## 10. Validation
@@ -216,7 +216,7 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     box and the sphere inlet/outlet planes, with `assert_array_equal` — **zero tolerance, not
     `allclose`**. This is the only check covering multi-FAB covering grids, non-unit `dx`, and
     non-zero domain origins. Scratchpad script, output pasted into the PR; not a committed test.
-45. [ ] File the D11 follow-up issue: a second committed fixture with anisotropic `dx`, a non-zero
+45. [x] (filed as #107) File the D11 follow-up issue: a second committed fixture with anisotropic `dx`, a non-zero
     domain origin, and >1 FAB, so CI stops depending on a degenerate plotfile.
 
 ## D11 verification results (recorded, per project.md's verification principles)

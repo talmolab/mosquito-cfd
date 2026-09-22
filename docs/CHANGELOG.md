@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - T3c local run script `t3c_run_local.sh` for reproducible A5000 re-runs with D6 dt/step overrides (#52)
 
 ### Changed
+- `benchmarks.stress_integral.extract_eulerian_box` now delegates to the shared `field_surrogate.snapshot.read_field_snapshot`, leaving the repository with exactly one Eulerian-box covering-grid read path (CC-F2). Import path, signature, returned keys and value types — including array writeability — are unchanged, and it remains every in-repo caller's entry point (the `force-surrogate` spec's CC-F1 requires it, and 21 tests replace it as a module global). Equivalence is proved against a frozen byte-for-byte copy of the pre-refactor implementation across an 11-case clamping matrix, not against a re-pack of the new reader, which would be tautological; verified further by 80 bit-exact region comparisons across 5 real plotfiles (grids to 256×128×256, `dx` 0.03125–0.15625) and all 13 `requires_plotfile` tests. The non-zero-origin path remains unverified — no plotfile in the project has one (#107) (#106)
 - `CLAUDE.md` stripped to OpenSpec managed block only — all operational docs (Python/uv commands, RunAI pattern, cluster path mappings) moved to `openspec/project.md` (#52)
 - `benchmarks/METHODS.md` fine-grid column corrected: dt=2.5×10⁻⁴ (D6 fallback), 4000 steps; prose updated to document temporal confound in Richardson analysis (#52)
 - `docs/aerodynamics_validation/roadmap.md`: T3c flipped ⬜ → ✅ with results summary (#52)
