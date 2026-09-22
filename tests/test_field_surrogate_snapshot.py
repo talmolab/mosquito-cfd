@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
 import subprocess
 import sys
@@ -289,6 +290,9 @@ REGION_CASES = [
     # halo=3 on a 2-cell box clips to 6, NOT 8: "halo adds exactly 2h cells" holds only unclipped.
     ("halo3_clipped", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 3, (6, 6, 6)),
     ("mixed_inf", (-_INF, 1.5, -_INF), (_INF, 4.5, _INF), 0, (6, 4, 6)),
+    # x-slab only: what sphere_cv_drag_cd and sphere_cv_steadiness_fraction actually request,
+    # and one of the two shapes where a contiguous slice would be returned as a view.
+    ("x_slab_only", (1.5, -_INF, -_INF), (4.5, _INF, _INF), 0, (4, 6, 6)),
     ("zero_width_interior", (2.0, 2.0, 2.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
     # At and beyond the upper domain edge the ddims clamp removes the one-cell floor, yielding a
     # zero-cell region. The spec says so explicitly (design.md D1) -- an earlier draft claimed a
@@ -548,6 +552,9 @@ def test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle(
             assert isinstance(got[key], np.ndarray), key
             assert got[key].dtype == want[key].dtype == np.float64, key
             assert got[key].shape == want[key].shape, key
+            # Writeability is part of the contract and invisible to value equality; assert it
+            # for every region, not just the full-extent one.
+            assert got[key].flags.writeable == want[key].flags.writeable is True, key
             np.testing.assert_array_equal(got[key], want[key], err_msg=key)
 
 
@@ -621,17 +628,12 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
 
 
 def test_legacy_wrapper_returns_writable_arrays_like_the_oracle():
-    # The snapshot's arrays are read-only by design, but the pre-refactor adapter returned
-    # writable ones. Writeability is part of the behaviour the wrapper must preserve, and no
-    # value-equality assertion can see it.
+    # Kept as a focused smoke check; writeability is asserted across the WHOLE clamping matrix
+    # inside test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle, because covering
+    # one region of eleven is thin for "the thing array equality cannot see".
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
 
     got = extract_eulerian_box(str(FIXTURE), **FULL)
-    want = _legacy()(str(FIXTURE), **FULL)
-    for key in LEGACY_KEYS:
-        if key == "current_time":
-            continue
-        assert got[key].flags.writeable == want[key].flags.writeable is True, key
     got["u"][0, 0, 0] = 1234.5  # must not raise
 
 
@@ -644,3 +646,27 @@ def test_amr_refusal_propagates_through_the_legacy_wrapper(monkeypatch):
     with pytest.raises(ValueError, match="CC-F3"):
         extract_eulerian_box(str(FIXTURE), **FULL)
     assert log == []
+
+
+# --- PR B review corrections -----------------------------------------------------------------
+
+#: SHA-256 of the frozen oracle with newlines normalized to LF. Normalized because the repo's
+#: `* text=auto` gives the file CRLF in a Windows checkout and LF in git, so a raw byte hash
+#: would pass on one platform and fail on the other.
+_ORACLE_SHA256 = "3e26a665006a46b0d3e1ca1ea458072d8ec8e1ee69bfbead571cf8c664099c93"
+
+
+def test_frozen_oracle_is_unmodified():
+    # The oracle's entire value is that it is a byte-for-byte copy of the pre-refactor
+    # implementation. Nothing else stops `ruff format`, `ruff check --fix`, or a ruff version
+    # bump from rewriting it -- and if that happened, the differential above would silently
+    # become a comparison against post-hoc-modified code with no test failing. A content hash
+    # is squash-merge-safe; a `git show <sha>` check is not (this repo squash-merges).
+    path = FIXTURE.parent / "legacy_extract_eulerian_box.py"
+    norm = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    actual = hashlib.sha256(norm.encode("utf-8")).hexdigest()
+    assert actual == _ORACLE_SHA256, (
+        "the frozen oracle changed. It must NOT be edited, reformatted or linted -- it is a "
+        "copy of the pre-refactor implementation taken at 86c729e. If the change was "
+        "deliberate, the delegation's equivalence claim no longer means what it says."
+    )
