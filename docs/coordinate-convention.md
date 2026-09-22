@@ -85,6 +85,53 @@ body-frame per-component comparison against van Veen's fitted coefficients is de
 (translational + added-mass + Wagner; Fig 4 polars / the time-resolved mosquito curves are Fig 13) is
 delivered by `decompose_wing_force` (Tier T4 — normal peak magnitude graded, phase/RMSE reported).
 
+## Moments
+
+**Reference point: the deck's declared pivot** (`particle_inputs.hinge_{x,y,z}`), i.e. the wing
+hinge. Derived moment coefficients `CF_mx/CF_my/CF_mz` are taken about that point.
+
+**Frame: lab, not wing.** Unlike the forces above — which are reported in the wing body frame —
+moments are reported as **lab-frame components about the hinge origin**. Only the origin is the
+hinge; the axes are not rotated. A wing-frame (body-frame) moment would additionally require
+rotating by `R(t)ᵀ`, which this repository deliberately does not do (see issue #1 on the axis
+convention). Do not read `CF_my` as a biomechanical pitching moment.
+
+> **The axis table above is the rest-pose-aligned frame.** Lab and wing axes coincide only at
+> `φ = α = θ = 0`; under a stroke rotation the wing's instantaneous axes leave the lab axes. So this
+> page carries body-frame *forces* and lab-frame *moments* by design, not by oversight.
+
+**Raw vs derived.** The `Mx/My/Mz` columns in `dataset.parquet` are the solver's as-written values,
+taken about the immersed-boundary particle's **own origin** (IAMReX forms `(r − kernel.location) × f`
+per marker and writes that origin into the CSV's `X,Y,Z` columns). Only the derived `CF_m*`
+coefficients are referenced to the hinge, via the parallel-axis shift
+
+```
+M_hinge = M_origin + (r_origin − r_hinge) × F
+```
+
+applied at extraction by `mosquito_cfd.force_surrogate.shift_moment_reference`. Keeping the raw
+columns unshifted preserves the audit trail back to solver output and makes the correction
+re-derivable from the committed parquet alone.
+
+**Why the hinge.** For a single-wing prescribed-motion run the hinge moment *is* the actuation
+torque, and van Veen (2022) places the wing reference frame's origin at the wing hinge — the same
+frame this page's axis table is drawn from. Note the sourcing is asymmetric: the axis *directions*
+above are quoted verbatim from §2.4 / the fig 2 caption, whereas the hinge **origin** is not yet
+backed by a verbatim quotation in this repository. Treat the origin as the repository's own
+documented convention, consistent with van Veen, rather than as a quoted claim about that paper,
+until the verbatim passage is added here.
+
+**A deferred alternative.** A future body-in-the-loop model — one that integrates the insect's
+own dynamics rather than prescribing wing motion — would want moments about the **centre of mass**,
+not the hinge. That is a deliberate deferral, recorded so the next reader finds a decision rather
+than an inherited default.
+
+**Precision note.** The declared pivot is not exactly the wing's geometric root: `hinge_y = 0.5`
+gives an arm of 1.5, while the committed geometry's own half-span is 1.475 (root at `y = 0.525`).
+`geometry_guard.assert_hinge_at_span_root` reconciles the two only to `tol = 0.1`. The shift arm is
+therefore ~1.7% larger than the geometric root arm — say "the deck's declared pivot", not "the wing
+root".
+
 ## Simulation deck mapping
 
 `examples/flapping_wing/inputs.3d.validation` places the wing in this convention: **x = chord**
