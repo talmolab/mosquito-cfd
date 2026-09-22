@@ -372,3 +372,148 @@ def test_amr_guard_reads_the_attribute_the_proxy_overrides(monkeypatch):
     _patch_yt(monkeypatch, max_level=None)
     snap = read_field_snapshot(FIXTURE, **FULL)
     assert snap.max_level == 0
+
+
+# --- PR B, tasks 20-22: the delegation guards ------------------------------------------------
+
+
+def _legacy():
+    spec = importlib.util.spec_from_file_location(
+        "_legacy_extract", FIXTURE.parent / "legacy_extract_eulerian_box.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.legacy_extract_eulerian_box
+
+
+LEGACY_KEYS = sorted(
+    ["u", "v", "w", "gradpx", "gradpy", "gradpz", "x", "y", "z", "dx", "current_time"]
+)
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "_expected"),
+    [c[1:] for c in REGION_CASES],
+    ids=[c[0] for c in REGION_CASES],
+)
+def test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle(
+    lo, hi, halo, _expected
+):
+    # Differential, NOT self-referential: the oracle is a byte-for-byte copy of the pre-refactor
+    # implementation. Comparing the wrapper to a re-pack of read_field_snapshot would be
+    # tautological once the wrapper IS that re-pack (design.md D10).
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    want = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+
+    # Exact key set, so no snapshot-only field (time/source/max_level) can leak in.
+    assert sorted(got) == LEGACY_KEYS
+    assert sorted(got) == sorted(want)
+
+    for key in LEGACY_KEYS:
+        if key == "current_time":
+            # Type erosion to np.float64 would pass assert_array_equal while changing the
+            # published contract.
+            assert type(got[key]) is type(want[key]) is float
+            assert got[key] == want[key]
+        else:
+            assert isinstance(got[key], np.ndarray), key
+            assert got[key].dtype == want[key].dtype == np.float64, key
+            assert got[key].shape == want[key].shape, key
+            np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+
+def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
+    # 21 tests replace this module global; an internal call site that stopped resolving it would
+    # bypass them all, leaving tests green while testing nothing (design.md D3).
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    class _Sentinel(Exception):
+        pass
+
+    def _boom(*args, **kwargs):
+        raise _Sentinel()
+
+    monkeypatch.setattr(si, "extract_eulerian_box", _boom)
+
+    with pytest.raises(_Sentinel):
+        si.sphere_cv_drag_cd(str(FIXTURE), x_inlet=1.0, x_outlet=4.0)
+    with pytest.raises(_Sentinel):
+        si.check_field_capture_velocity(str(FIXTURE))
+    with pytest.raises(_Sentinel):
+        si.sphere_cv_steadiness_fraction(
+            str(FIXTURE), str(FIXTURE), x_inlet=1.0, x_outlet=4.0, dt=0.1
+        )
+
+
+def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
+    # check_field_capture_velocity's six NaN/Inf tests all monkeypatch the reader away, so none
+    # of them exercise the read path. If the reader ever normalized values, its downstream guard
+    # would stop seeing what it expects.
+    import yt
+
+    real_load = yt.load
+    poisoned = np.array([np.nan, np.inf, -np.inf, 1.5])
+
+    class _Unyt:
+        # Minimal stand-in for yt's unyt_array: the reader unwraps via .to_ndarray().
+        def __init__(self, array):
+            self._array = array
+
+        def to_ndarray(self):
+            return self._array
+
+    class _PoisonGrid:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getitem__(self, key):
+            value = self._inner[key].to_ndarray().copy()
+            value.reshape(-1)[: poisoned.size] = poisoned
+            return _Unyt(value)
+
+    class _PoisonDataset:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def covering_grid(self, *args, **kwargs):
+            return _PoisonGrid(self._inner.covering_grid(*args, **kwargs))
+
+    monkeypatch.setattr(
+        yt, "load", lambda p, *a, **k: _PoisonDataset(real_load(str(p)))
+    )
+
+    snap = read_field_snapshot(FIXTURE, **FULL)
+    np.testing.assert_array_equal(
+        snap.arrays["u"].reshape(-1)[: poisoned.size], poisoned
+    )
+
+
+def test_legacy_wrapper_returns_writable_arrays_like_the_oracle():
+    # The snapshot's arrays are read-only by design, but the pre-refactor adapter returned
+    # writable ones. Writeability is part of the behaviour the wrapper must preserve, and no
+    # value-equality assertion can see it.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(FIXTURE), **FULL)
+    want = _legacy()(str(FIXTURE), **FULL)
+    for key in LEGACY_KEYS:
+        if key == "current_time":
+            continue
+        assert got[key].flags.writeable == want[key].flags.writeable is True, key
+    got["u"][0, 0, 0] = 1234.5  # must not raise
+
+
+def test_amr_refusal_propagates_through_the_legacy_wrapper(monkeypatch):
+    # The PR B half of the AMR guard: pre-delegation the wrapper raised its own message, so this
+    # assertion only becomes meaningful once extract_eulerian_box delegates.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    log = _patch_yt(monkeypatch, max_level=1)
+    with pytest.raises(ValueError, match="CC-F3"):
+        extract_eulerian_box(str(FIXTURE), **FULL)
+    assert log == []

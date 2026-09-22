@@ -112,6 +112,15 @@ plotfiles. F2 adapts/extends it rather than writing a new reader; a synthetic pl
 CI already exists too (issue #33, closed — "committed synthetic AMReX plotfile fixture for CI
 coverage of the yt adapter").
 
+> **Resolved 2026-09-21 (`add-field-surrogate-reader`, F2):** the single `yt` covering-grid read
+> now lives in `mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`, and
+> `extract_eulerian_box` is a thin delegating wrapper with an unchanged import path, signature and
+> returned keys — still the entry point for every in-repo caller. CC-F2's "rather than writing a
+> new reader" means **one read path**, not one module: the repo still has exactly one
+> Eulerian-box covering-grid read (`benchmarks/analyze_sphere.py` keeps a separate `yt.load` for
+> IB-particle access, which this CC never covered). Equivalence with the pre-refactor
+> implementation is enforced by a differential test against a frozen byte-for-byte copy of it.
+
 ### CC-F3. Storage budget must be measured before committing to a full corpus, not assumed.
 The `6–32 TB for 20 sims` figure in `ml-surrogate-notes.md` predates the fine 256×128×256 grid and
 the AMR level count actually used — it is not a safe planning number here. F1's pilot must produce
@@ -139,7 +148,7 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
 > (CFL-driven) regeneration.
 
 ### CC-F4. Cluster-free fixtures for everything downstream of raw plotfiles.
-Same convention as Track B CC-2: PR2 (field reader) and PR3 (encoder) must be tested against the
+Same convention as Track B CC-2: F2 (field reader) and F3 (encoder) must be tested against the
 committed synthetic plotfile fixture, not real cluster output — no RunAI, no GPU, no real
 plotfiles in CI.
 
@@ -152,8 +161,8 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 | # | OpenSpec change-id (proposed) | Scope | Env | Status |
 |---|---|---|---|---|
 | F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
-| F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ⬜ |
-| F3 | `add-field-surrogate-encoder` | DoMINO encoder training scaffold: field snapshot → latent **z** (64–256 dim). Trained first at pilot scale (F1's small corpus) to get an early, honest read on the open "DoMINO for rapidly-moving geometry" question (CC-F5) before committing to the full corpus. | A5000 | ⬜ |
+| F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ✅ |
+| F3 | `add-field-surrogate-encoder` | DoMINO encoder training scaffold: field snapshot → latent **z** (64–256 dim). Trained first at pilot scale (F1's small corpus) to get an early, honest read on the open "DoMINO for rapidly-moving geometry" question (Open question #1 below) before committing to the full corpus. | A5000 | ⬜ |
 | F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. | cluster | ⬜ |
 | F5 | `add-field-surrogate-dynamics` | DeepONet latent-dynamics model: (zₜ, kinematicsₜ) → (zₜ₊₁, Fₜ). Reuses Track B's force labels (`F_t`) unchanged — no force recomputation. | A5000 | ⬜ |
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
@@ -173,7 +182,7 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
 
 ## Open questions (prioritized)
 
-1. **DoMINO for rapid motion** (CC-F5) — still unverified; F3's pilot-scale training is the first
+1. **DoMINO for rapid motion** — still unverified; F3's pilot-scale training is the first
    real signal, not before.
 2. **Storage/subsampling policy** (CC-F3) — no answer until F1 runs; do not pre-commit a `plot_int`
    value in F2/F3 design docs before F1's measurement exists.

@@ -101,26 +101,26 @@ tests auto-skip on the runner and are never a gate). Fixture properties are docu
 
 ## 6. Delegation of `extract_eulerian_box` (the risky step)
 
-19. [ ] Create `tests/fixtures/legacy_extract_eulerian_box.py`: the current body of
+19. [x] Create `tests/fixtures/legacy_extract_eulerian_box.py`: the current body of
     `extract_eulerian_box` copied **byte-for-byte from HEAD before any edit**, as
     `legacy_extract_eulerian_box`, with a header comment recording the source commit SHA.
-20. [ ] **Test first — differential, not self-referential**: for every case in the task-11 clamping
+20. [x] **Test first — differential, not self-referential**: for every case in the task-11 clamping
     matrix, assert the refactored `extract_eulerian_box` and `legacy_extract_eulerian_box` return
     dicts with identical **key sets** (`sorted(a) == sorted(b)`, so `time`/`source`/`max_level` cannot
     leak in), `np.testing.assert_array_equal` on every value, and matching Python **types** — `dx` an
     `ndarray` of `dtype float64` shape `(3,)`, `current_time` a `float`. Per D10, comparing the wrapper
     to a re-pack of `read_field_snapshot` instead would be tautological.
-21. [ ] **Test first**: with `si.extract_eulerian_box` replaced by a sentinel, each of
+21. [x] **Test first**: with `si.extract_eulerian_box` replaced by a sentinel, each of
     `sphere_cv_drag_cd`, `check_field_capture_velocity`, and `sphere_cv_steadiness_fraction` reaches
     the sentinel — the executable form of D3's invariant, replacing a code-reading check.
-22. [ ] **Test first**: a field containing NaN/Inf passes through the reader **bit-identically**
+22. [x] **Test first**: a field containing NaN/Inf passes through the reader **bit-identically**
     (`assert_array_equal` with NaN positions preserved), so `check_field_capture_velocity`'s downstream
     guard still sees what it expects. All six of its existing NaN/Inf tests monkeypatch the reader
     away, so none of them exercise the read path.
-23. [ ] Refactor `extract_eulerian_box` to delegate and re-pack, preserving import path, signature,
+23. [x] Refactor `extract_eulerian_box` to delegate and re-pack, preserving import path, signature,
     lazy `yt`, and the exact keys `u, v, w, gradpx, gradpy, gradpz, x, y, z, dx, current_time`. Import
     `field_surrogate.snapshot` by submodule path, never through the package (D4).
-24. [ ] Run the full existing suite; `test_stress_integral.py`, `test_wing_lev.py`,
+24. [x] Run the full existing suite; `test_stress_integral.py`, `test_wing_lev.py`,
     `test_flow_video.py`, `test_make_flow_video_cli.py` must pass **unchanged** — no test edits are
     permitted to make the refactor pass. Note this is necessary but weak: all 21 patch sites replace
     the wrapper, so none of them executes a line of the new reader.
@@ -168,7 +168,7 @@ F2 status glyph both record a state that is not true until then. Task 40 (CHANGE
 per PR, each with its own number.
 
 
-34. [ ] Rewrite the four docstrings the refactor makes inaccurate: `stress_integral.py`'s module
+34. [x] Rewrite the four docstrings the refactor makes inaccurate: `stress_integral.py`'s module
     docstring ("the yt adapter is the only cluster-touching code"), its `# --- yt adapter …` section
     comment, `extract_eulerian_box`'s own docstring (every mechanic it describes now lives one module
     away — reduce to a wrapper description pointing at `read_field_snapshot` and D3), and
@@ -184,11 +184,11 @@ per PR, each with its own number.
     `E501` is ignored; add `D` (pydocstyle/google, `tests/**` exempt) to the Rules line; add
     `pyarrow>=18.0.0` to the dependency list; correct the lint command from `uv run ruff check .`
     (fails with 27 errors) to CI's explicit path list.
-38. [ ] `docs/field_surrogate/roadmap.md`: add a `> **Resolved …**` note under CC-F2 recording that the
+38. [x] `docs/field_surrogate/roadmap.md`: add a `> **Resolved …**` note under CC-F2 recording that the
     single read now lives in `read_field_snapshot` with `extract_eulerian_box` delegating, so
     "rather than writing a new reader" means one read *path*, not one module. While there, fix the
     dangling `CC-F5` references (only CC-F1..CC-F4 exist) and CC-F4's "PR2/PR3" → "F2/F3".
-39. [ ] Flip the F2 **Status glyph** `⬜ → ✅` in the roadmap table (it is a glyph, not a checkbox) —
+39. [x] Flip the F2 **Status glyph** `⬜ → ✅` in the roadmap table (it is a glyph, not a checkbox) —
     in-branch, since squash-merge leaves no opportunity to edit at merge time.
 40. [ ] `docs/CHANGELOG.md` entry with the PR number, per repo convention (also covered by
     `/pre-merge-check`).

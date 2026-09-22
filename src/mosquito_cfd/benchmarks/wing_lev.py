@@ -1,6 +1,6 @@
 """Wing LEV report — compose the yt Eulerian-box adapter with the LEV pure functions (Tier T3b).
 
-Reuses :func:`mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box` (the only cluster-touching
+Reuses :func:`mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box` (the repo's single cluster-touching
 read) + the :mod:`mosquito_cfd.benchmarks.lev` pure functions to report the leading-edge-vortex (LEV)
 diagnostic over a **wing near-field box** at a single kinematic phase. Report-only: returns a plain dict
 of numbers, never a pass/fail verdict.
