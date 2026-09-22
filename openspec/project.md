@@ -25,7 +25,9 @@ mosquito-cfd/
 ├── src/mosquito_cfd/         # Python utilities
 │   ├── geometry/             # Wing planform generation (parametric + vertex I/O)
 │   ├── benchmarks/           # Benchmark runner and metadata capture
-│   └── force_surrogate/      # Track B force-surrogate prep (normalization, sweep, dataset, train)
+│   ├── force_surrogate/      # Track B force-surrogate prep (normalization, sweep, dataset, train)
+│   ├── visualization/        # Video and figure builders (viz group; see "Visualization Tooling")
+│   └── field_surrogate/      # Stage-2 field reader (snapshot, corpus, DoMINO adapter)
 ├── scripts/                  # Thin CLI drivers over the tested library (e.g. run_sweep.py, extract_forces.py)
 ├── docker/                   # Container infrastructure
 │   ├── Dockerfile.fp64       # Primary simulation image
@@ -70,6 +72,7 @@ mosquito-cfd/
   - `matplotlib>=3.10.8` - Visualization
   - `pandas>=3.0.0` - Data analysis
   - `yt>=4.4.2` - AMReX plot file visualization
+  - `pyarrow>=18.0.0` - Parquet engine for the force-surrogate dataset
   - Two optional dependency groups exist beyond the base set above: `train` (documented only in
     `pyproject.toml`'s own comment, no dedicated section here) and `viz` (`scipy`,
     `scikit-image`, `imageio-ffmpeg`; installed in CI — see "Visualization Tooling" below)
@@ -209,8 +212,11 @@ through a full run and a green test suite):
    after the fact. Every mandatory check must write its result somewhere machine-readable.
 
 ### Code Style
-- **Python**: Enforce with `ruff` (line-length: 100, target: py311)
-- **Rules**: E, F, I (imports), UP (pyupgrade)
+- **Python**: Enforce with `ruff` (line-length: 88, target: py311). `E501` is ignored --
+  `ruff format` owns line length, so an over-long line fails the *format* check, not the lint.
+- **Rules**: E, F, I (imports), UP (pyupgrade), D (pydocstyle, **google** convention).
+  `D` is enforced on `src/` and ignored under `tests/**`, so every public symbol in `src/`
+  needs a google-style docstring and `D417` wants every parameter listed under `Args:`.
 - **Formatting**: `ruff format`
 
 ### Commit Messages
@@ -227,7 +233,7 @@ Use `uv` for all Python operations:
 ```bash
 uv run python script.py
 uv run pytest
-uv run ruff check .
+uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/
 uv run generate-wing-planform --output wing.vertex
 ```
 
@@ -332,6 +338,36 @@ mpirun --allow-run-as-root -np 1 ./amr3d.gnu.MPI.CUDA.ex inputs.3d.flow_past_sph
   amr.check_file=/workspace/chk \
   max_step=100
 ```
+
+### Field Surrogate Reader (Stage 2)
+
+`src/mosquito_cfd/field_surrogate/` turns AMReX plotfiles into training input for the future
+Stage-2 encoder (`docs/field_surrogate/roadmap.md`, row F2). `snapshot.py` holds the
+repository's **single Eulerian-box covering-grid read path**, `read_field_snapshot`, returning
+an immutable `FieldSnapshot` -- arrays are non-writable **and own their data**, since marking a
+view read-only would leave its base reachable and writable -- (dense FP64 arrays in code units, cell-center coords, `dx`, the
+plotfile's physical `time`, plus `source`/`max_level` provenance) with a `PointCloud` view for
+point-cloud encoders. `corpus.py` addresses plotfiles by `(config_id, step)` against a
+caller-supplied root -- the real corpus lives on cluster NFS, not in the repo -- and
+`domino_adapter.py` emits DoMINO's volume-half keys.
+
+Three conventions that are load-bearing rather than stylistic:
+
+- **`yt` is imported inside the reader, never at module scope**, and
+  `field_surrogate/__init__.py` imports none of its submodules. An eager re-export of
+  `FieldCorpus` would pull `pandas` into every `benchmarks.stress_integral` import and arm a
+  `benchmarks -> field_surrogate -> force_surrogate -> benchmarks` cycle. Import submodules
+  directly.
+- **`benchmarks.stress_integral.extract_eulerian_box` stays the entry point for every in-repo
+  caller** and delegates here; it is not to be bypassed (the `force-surrogate` spec's CC-F1
+  requires it, and ~21 tests replace it as a module global).
+- **Multi-level plotfiles are refused**, naming the still-open CC-F3 AMR decision. Reading
+  level 0 alone would silently return coarse data and discard the refined patches.
+
+The DoMINO adapter is deliberately partial: stock DoMINO is a geometry->fields surrogate, so
+`volume_fields` is a training *target*, and the geometry-half keys (`geometry_coordinates`,
+`sdf_*`, `surface_mesh_*`) are absent rather than zero-filled -- they are F3's work. See
+OpenSpec change `add-field-surrogate-reader` (`design.md` D4, D6, D10).
 
 ### Visualization Tooling
 

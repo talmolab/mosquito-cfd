@@ -40,13 +40,20 @@ TIME = 0.5
 FIXTURE_DIR = Path(__file__).parent / "lev_boxlib_plt"
 # Descriptor copied verbatim from a real wing plotfile FAB header (IEEE double, big-endian order).
 _REAL_DESCRIPTOR = "(8, (64 11 52 0 1 12 0 1023)),(8, (8 7 6 5 4 3 2 1))"
+#: Single-precision counterpart, for building a genuine fp32 plotfile. yt parses the second
+#: group's byte count into ``ds.index._dtype`` -- the only place the on-disk precision
+#: survives, since the AMReX frontend allocates its output buffers float64 unconditionally.
+_REAL_DESCRIPTOR_FP32 = "(8, (32 8 23 0 1 9 0 127)),(4, (4 3 2 1))"
+#: Big-endian double. yt's own source documents this byte-order group as the other standard
+#: "DOUBLE data" layout; it is valid FP64 and must NOT be mistaken for reduced precision.
+_REAL_DESCRIPTOR_BE64 = "(8, (64 11 52 0 1 12 0 1023)),(8, (1 2 3 4 5 6 7 8))"
 
 
-def _fields() -> list[np.ndarray]:
+def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
     xs = (np.arange(N) + 0.5) * DX
     x, y, _ = np.meshgrid(xs, xs, xs, indexing="ij")
     zero = np.zeros_like(x)
-    return [
+    all_fields = [
         -OMEGA * y,  # x_velocity
         OMEGA * x,  # y_velocity
         zero,  # z_velocity
@@ -56,35 +63,64 @@ def _fields() -> list[np.ndarray]:
         zero,  # gradpy
         zero,  # gradpz
     ]
+    by_name = dict(zip(FIELDS, all_fields))
+    return [by_name[n] for n in names]
 
 
-def write_fixture(root: Path = FIXTURE_DIR) -> Path:
-    """Write the fixture plotfile under ``root`` and return the path."""
+def write_fixture(
+    root: Path = FIXTURE_DIR,
+    fields: tuple[str, ...] = FIELDS,
+    real_dtype: str = "float64",
+) -> Path:
+    """Write the fixture plotfile under ``root`` and return the path.
+
+    ``fields`` selects a subset of :data:`FIELDS` (same order), so a caller can build a
+    plotfile deliberately missing a component -- the absent-field error path has no other
+    fixture, since the committed one carries all eight.
+
+    ``real_dtype='float32'`` writes a genuine single-precision plotfile: the FAB body becomes
+    ``<f4`` and the RealDescriptor declares 4-byte reals. This is the only honest way to
+    exercise the fp32-build guard -- stubbing a float32 array into the reader tests the
+    branch, not the property, because yt returns float64 arrays from a real fp32 plotfile.
+    """
     root = Path(root)  # accept a str root too
+    fields = tuple(fields)
+    if real_dtype not in ("float64", "float32", "big_endian_float64"):
+        raise ValueError(
+            f"real_dtype must be float64, float32 or big_endian_float64, got {real_dtype!r}"
+        )
+    descriptor, body_dtype = {
+        "float64": (_REAL_DESCRIPTOR, "<f8"),
+        "float32": (_REAL_DESCRIPTOR_FP32, "<f4"),
+        "big_endian_float64": (_REAL_DESCRIPTOR_BE64, ">f8"),
+    }[real_dtype]
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
-    fields = _fields()
+    arrays = _fields(fields)
     box = f"((0,0,0) ({N - 1},{N - 1},{N - 1}) (0,0,0))"
 
     # Cell_D: ASCII FAB header, then little-endian float64, component-major, x-fastest (Fortran order).
     # AMReX writes native little-endian doubles (verified by decoding a real plotfile FAB), even though
     # its RealDescriptor labels the byte order (8 7 6 5 4 3 2 1); the descriptor is copied verbatim so yt
     # reads this fixture on the exact same path as a real plotfile.
-    fab_hdr = f"FAB ({_REAL_DESCRIPTOR}){box} {len(FIELDS)}\n".encode()
-    body = b"".join(f.flatten(order="F").astype("<f8").tobytes() for f in fields)
+    fab_hdr = f"FAB ({descriptor}){box} {len(fields)}\n".encode()
+    body = b"".join(f.flatten(order="F").astype(body_dtype).tobytes() for f in arrays)
     (lev / "Cell_D_00000").write_bytes(fab_hdr + body)
 
     # Cell_H: version/how/ncomp/nghost, one box, one FabOnDisk, then per-fab min/max blocks.
     def _row(vals: list[float]) -> str:
         return ",".join(f"{v:.17e}" for v in vals) + ","
 
-    mins = [float(f.min()) for f in fields]
-    maxs = [float(f.max()) for f in fields]
+    # Min/max from the values as WRITTEN, so an fp32 fixture is internally consistent with a
+    # real AMReX single-precision write rather than carrying fp64 extrema.
+    written = [f.astype(body_dtype) for f in arrays]
+    mins = [float(f.min()) for f in written]
+    maxs = [float(f.max()) for f in written]
     cell_h = "\n".join(
         [
             "1",
             "1",
-            str(len(FIELDS)),
+            str(len(fields)),
             "0",
             "(1 0",
             box,
@@ -92,10 +128,10 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
             "1",
             "FabOnDisk: Cell_D_00000 0",
             "",
-            f"1,{len(FIELDS)}",
+            f"1,{len(fields)}",
             _row(mins),
             "",
-            f"1,{len(FIELDS)}",
+            f"1,{len(fields)}",
             _row(maxs),
             "",
         ]
@@ -108,8 +144,8 @@ def write_fixture(root: Path = FIXTURE_DIR) -> Path:
     header = "\n".join(
         [
             "NavierStokes-V1.1",
-            str(len(FIELDS)),
-            *FIELDS,
+            str(len(fields)),
+            *fields,
             "3",  # spacedim
             f"{TIME}",  # time
             "0",  # finest_level
