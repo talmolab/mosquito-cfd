@@ -332,4 +332,8 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     `__init__` re-exports; `sdf_nodes` moved to the emitted set and zero-filled. Per
     `feedback-fixes-need-same-scrutiny-as-original-code`, re-run rather than re-read.
 64. [x] Full CI-form lint/format/test from Git Bash, and `openspec validate --strict`.
-65. [ ] File issues for everything deliberately not done here (see the review threads on #105/#106).
+65. [x] File issues for everything deliberately not done here: **#112** (measured performance --
+    the 553K-stat NFS storm, the duplicated `grid`, covering-grid retention, sub-box reads) and
+    **#113** (robustness and provenance -- unhelpful path errors, inverted corners, zero-cell
+    training examples, mixed mutability, and surfacing the digest-pinned `run_metadata.json`
+    that already sits beside every plotfile). **#107** covers the degenerate CI fixture.
