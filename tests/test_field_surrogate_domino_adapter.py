@@ -154,7 +154,53 @@ def test_adapter_runs_with_torch_and_physicsnemo_unimportable():
     ],
 )
 def test_documentation_states_the_cc4_honesty_claims(claim):
-    # Precedent: tests/test_no_false_diffused_ib_claim.py. These facts are the whole reason the
-    # adapter is deliberately partial; a future edit that drops them should fail.
-    doc = (to_domino_volume.__doc__ or "") + (MODULE.read_text(encoding="utf-8"))
-    assert claim.lower() in doc.lower(), f"missing honesty claim: {claim}"
+    # Docstrings ONLY -- not the module source. Concatenating the source made the
+    # GEOMETRY_HALF_KEYS cases tautological (those names are string literals in the tuple
+    # definition), and let the prose be demoted to a # comment that help() never shows:
+    # deleting the entire CC-4 prose failed only 3 of 11 parametrizations.
+    # Precedent: tests/test_no_false_diffused_ib_claim.py.
+    import mosquito_cfd.field_surrogate.domino_adapter as mod
+
+    doc = ((mod.__doc__ or "") + (to_domino_volume.__doc__ or "")).lower()
+    assert claim.lower() in doc, f"missing honesty claim: {claim}"
+
+
+# --- review corrections (task 54) --------------------------------------------------------------
+
+#: Written literally here, NOT imported from the module under test. The original tests read their
+#: expectations from the implementation's own constants, making "absences are real" a tautology:
+#: a reviewer moved sdf_nodes into VOLUME_HALF_KEYS and emitted it zero-filled, and the suite
+#: stayed green while the collected count silently fell by one.
+EXPECTED_VOLUME_KEYS = frozenset(
+    {
+        "volume_mesh_centers",
+        "volume_fields",
+        "grid",
+        "global_params_values",
+        "global_params_reference",
+    }
+)
+EXPECTED_ABSENT_KEYS = frozenset(
+    {
+        "geometry_coordinates",
+        "sdf_grid",
+        "sdf_nodes",
+        "surf_grid",
+        "sdf_surf_grid",
+        "surface_mesh_centers",
+        "surface_normals",
+        "surface_areas",
+    }
+)
+
+
+def test_module_constants_match_the_specified_key_partition():
+    assert frozenset(VOLUME_HALF_KEYS) == EXPECTED_VOLUME_KEYS
+    assert frozenset(GEOMETRY_HALF_KEYS) == EXPECTED_ABSENT_KEYS
+    assert EXPECTED_VOLUME_KEYS.isdisjoint(EXPECTED_ABSENT_KEYS)
+
+
+def test_emitted_keys_are_exactly_the_specified_volume_half():
+    out = _adapt(_snapshot())
+    assert set(out) == EXPECTED_VOLUME_KEYS
+    assert EXPECTED_ABSENT_KEYS.isdisjoint(out)

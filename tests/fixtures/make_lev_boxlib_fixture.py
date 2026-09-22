@@ -40,6 +40,10 @@ TIME = 0.5
 FIXTURE_DIR = Path(__file__).parent / "lev_boxlib_plt"
 # Descriptor copied verbatim from a real wing plotfile FAB header (IEEE double, big-endian order).
 _REAL_DESCRIPTOR = "(8, (64 11 52 0 1 12 0 1023)),(8, (8 7 6 5 4 3 2 1))"
+#: Single-precision counterpart, for building a genuine fp32 plotfile. yt parses the second
+#: group's byte count into ``ds.index._dtype`` -- the only place the on-disk precision
+#: survives, since the AMReX frontend allocates its output buffers float64 unconditionally.
+_REAL_DESCRIPTOR_FP32 = "(8, (32 8 23 0 1 9 0 127)),(4, (4 3 2 1))"
 
 
 def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
@@ -60,15 +64,29 @@ def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
     return [by_name[n] for n in names]
 
 
-def write_fixture(root: Path = FIXTURE_DIR, fields: tuple[str, ...] = FIELDS) -> Path:
+def write_fixture(
+    root: Path = FIXTURE_DIR,
+    fields: tuple[str, ...] = FIELDS,
+    real_dtype: str = "float64",
+) -> Path:
     """Write the fixture plotfile under ``root`` and return the path.
 
     ``fields`` selects a subset of :data:`FIELDS` (same order), so a caller can build a
     plotfile deliberately missing a component -- the absent-field error path has no other
     fixture, since the committed one carries all eight.
+
+    ``real_dtype='float32'`` writes a genuine single-precision plotfile: the FAB body becomes
+    ``<f4`` and the RealDescriptor declares 4-byte reals. This is the only honest way to
+    exercise the fp32-build guard -- stubbing a float32 array into the reader tests the
+    branch, not the property, because yt returns float64 arrays from a real fp32 plotfile.
     """
     root = Path(root)  # accept a str root too
     fields = tuple(fields)
+    if real_dtype not in ("float64", "float32"):
+        raise ValueError(f"real_dtype must be float64 or float32, got {real_dtype!r}")
+    fp32 = real_dtype == "float32"
+    descriptor = _REAL_DESCRIPTOR_FP32 if fp32 else _REAL_DESCRIPTOR
+    body_dtype = "<f4" if fp32 else "<f8"
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
     arrays = _fields(fields)
@@ -78,8 +96,8 @@ def write_fixture(root: Path = FIXTURE_DIR, fields: tuple[str, ...] = FIELDS) ->
     # AMReX writes native little-endian doubles (verified by decoding a real plotfile FAB), even though
     # its RealDescriptor labels the byte order (8 7 6 5 4 3 2 1); the descriptor is copied verbatim so yt
     # reads this fixture on the exact same path as a real plotfile.
-    fab_hdr = f"FAB ({_REAL_DESCRIPTOR}){box} {len(fields)}\n".encode()
-    body = b"".join(f.flatten(order="F").astype("<f8").tobytes() for f in arrays)
+    fab_hdr = f"FAB ({descriptor}){box} {len(fields)}\n".encode()
+    body = b"".join(f.flatten(order="F").astype(body_dtype).tobytes() for f in arrays)
     (lev / "Cell_D_00000").write_bytes(fab_hdr + body)
 
     # Cell_H: version/how/ncomp/nghost, one box, one FabOnDisk, then per-fab min/max blocks.

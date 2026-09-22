@@ -374,6 +374,133 @@ def test_amr_guard_reads_the_attribute_the_proxy_overrides(monkeypatch):
     assert snap.max_level == 0
 
 
+# --- review corrections (tasks 46-51) ---------------------------------------------------------
+
+
+def test_genuine_fp32_plotfile_is_refused(tmp_path):
+    # Task 46/47. The original guard inspected the RETURNED array's dtype, which can never be
+    # float32: yt's AMReX frontend allocates its output buffers float64 unconditionally and
+    # widens the on-disk FAB into them. Verified on this very fixture -- ds.index._dtype is
+    # float32 while cg[...].to_ndarray().dtype is float64 and the values carry ~1.9e-07 of fp32
+    # truncation. A stub returning a float32 array tests the branch, not the property.
+    fp32 = _fixture_generator().write_fixture(
+        tmp_path / "plt_fp32", real_dtype="float32"
+    )
+    with pytest.raises(ValueError, match="float32"):
+        read_field_snapshot(fp32, **FULL)
+
+
+def test_fp64_plotfile_still_accepted(tmp_path):
+    # Positive control: an implementation that refused everything would pass the test above.
+    fp64 = _fixture_generator().write_fixture(tmp_path / "plt_fp64")
+    assert read_field_snapshot(fp64, **FULL).arrays["u"].dtype == np.float64
+
+
+def test_duplicate_field_names_are_rejected(monkeypatch):
+    # Task 48. Previously fields=("u","v","u") gave arrays with 2 entries but field_names with 3,
+    # a point cloud with a duplicated column, and one yt read per repetition.
+    log = _patch_yt(monkeypatch)
+    with pytest.raises(ValueError, match="duplicate"):
+        read_field_snapshot(FIXTURE, **FULL, fields=("u", "v", "u"))
+    assert log == []
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        ((-np.inf,) * 3, (np.inf,) * 3),
+        ((1.2,) * 3, (4.7,) * 3),
+        ((1.2, -np.inf, -np.inf), (4.7, np.inf, np.inf)),
+    ],
+    ids=["full_extent", "sub_box", "x_slab"],
+)
+def test_snapshot_arrays_own_their_data(lo, hi):
+    # Task 49. np.ascontiguousarray does NOT copy a slice that is already C-contiguous -- the
+    # full-extent and single-axis-slab cases -- so setflags(write=False) there left a reachable,
+    # WRITABLE base and the immutability guarantee was a facade. Owning the data is what makes it
+    # real, and it also stops a small region pinning the whole covering grid alive.
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi)
+    for name, arr in snap.arrays.items():
+        assert arr.base is None, f"{name} is a view onto the covering grid"
+        assert arr.flags.writeable is False, name
+    for axis_name, axis in (("x", snap.x), ("y", snap.y), ("z", snap.z)):
+        assert axis.base is None, axis_name
+
+
+@pytest.mark.parametrize(
+    ("halo", "match"),
+    [(-1, "non-negative"), (-5, "non-negative"), (1.9, "integer"), (0.5, "integer")],
+    ids=["negative", "very_negative", "fractional", "half"],
+)
+def test_invalid_halo_is_rejected(halo, match):
+    # Task 50. A negative halo silently eroded the region (halo=-5 silently returned ZERO cells);
+    # a fractional halo truncates per face, so halo=1.9 padded 2 cells low and 1 high -- an
+    # asymmetric stencil pad, wrong for anything differentiating across it.
+    with pytest.raises(ValueError, match=match):
+        read_field_snapshot(FIXTURE, lo=(2.2,) * 3, hi=(3.4,) * 3, halo=halo)
+
+
+_PACKAGE_ONLY_PROBE = """
+import sys
+
+import mosquito_cfd.field_surrogate
+
+leaked = sorted(n for n in sys.modules if n.startswith("mosquito_cfd.field_surrogate."))
+sys.stdout.write("LEAKED:" + ",".join(leaked) if leaked else "OK")
+"""
+
+
+def test_package_init_imports_no_submodule():
+    # Task 51. design.md D4: an eager re-export both ~6x's stress_integral's import cost (corpus
+    # reaches force_surrogate.dataset -> pandas) and arms a
+    # benchmarks -> field_surrogate -> force_surrogate -> benchmarks cycle. The yt/pandas probe
+    # CANNOT see this -- it imports the submodules itself -- and an eager-__init__ mutant left
+    # the whole suite green.
+    result = subprocess.run(
+        [sys.executable, "-c", _PACKAGE_ONLY_PROBE],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "OK", result.stdout
+
+
+def test_missing_private_dtype_attribute_is_a_hard_failure(monkeypatch):
+    # ds.index._dtype is private yt API. An earlier version of this guard used
+    # getattr(..., np.float64), which would silently pass EVERY plotfile if yt renamed it --
+    # re-creating the vacuous check this guard exists to replace, with nothing failing.
+    import yt
+
+    real_load = yt.load
+
+    class _NoDtypeIndex:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            if name == "_dtype":
+                raise AttributeError(name)
+            return getattr(self._inner, name)
+
+    class _NoDtypeDataset:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        @property
+        def index(self):
+            return _NoDtypeIndex(self._inner.index)
+
+    monkeypatch.setattr(
+        yt, "load", lambda p, *a, **k: _NoDtypeDataset(real_load(str(p)))
+    )
+    with pytest.raises(ValueError, match="on-disk precision"):
+        read_field_snapshot(FIXTURE, **FULL)
+
+
 # --- PR B, tasks 20-22: the delegation guards ------------------------------------------------
 
 
