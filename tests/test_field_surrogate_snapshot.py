@@ -381,7 +381,7 @@ def test_amr_guard_reads_the_attribute_the_proxy_overrides(monkeypatch):
 # --- review corrections (tasks 46-51) ---------------------------------------------------------
 
 
-def test_genuine_fp32_plotfile_is_refused(tmp_path):
+def test_genuine_fp32_plotfile_is_refused(tmp_path, monkeypatch):
     # Task 46/47. The original guard inspected the RETURNED array's dtype, which can never be
     # float32: yt's AMReX frontend allocates its output buffers float64 unconditionally and
     # widens the on-disk FAB into them. Verified on this very fixture -- ds.index._dtype is
@@ -390,14 +390,38 @@ def test_genuine_fp32_plotfile_is_refused(tmp_path):
     fp32 = _fixture_generator().write_fixture(
         tmp_path / "plt_fp32", real_dtype="float32"
     )
-    with pytest.raises(ValueError, match="float32"):
+    log = _patch_yt(monkeypatch, path=fp32)
+    with pytest.raises(ValueError, match="not 8-byte floats"):
         read_field_snapshot(fp32, **FULL)
+    # The refusal must precede any read: a 512-cubed fp32 plotfile would otherwise be read in
+    # full -- gigabytes, minutes -- before being rejected. Every neighbouring validation pins
+    # this; the precision guard was the only one that did not, and moving it after the read
+    # loop left the whole suite green.
+    assert log == []
 
 
 def test_fp64_plotfile_still_accepted(tmp_path):
     # Positive control: an implementation that refused everything would pass the test above.
+    # Assert on the VALUES, not on `.dtype == float64` -- the array is built by
+    # np.array(..., dtype=np.float64), so a dtype assertion here could never fail.
     fp64 = _fixture_generator().write_fixture(tmp_path / "plt_fp64")
-    assert read_field_snapshot(fp64, **FULL).arrays["u"].dtype == np.float64
+    snap = read_field_snapshot(fp64, **FULL)
+    _, gy, _ = np.meshgrid(CENTERS, CENTERS, CENTERS, indexing="ij")
+    np.testing.assert_allclose(snap.arrays["u"], -OMEGA * gy)
+
+
+def test_big_endian_double_plotfile_is_accepted(tmp_path):
+    # Regression guard for a false reject introduced by the precision fix itself. yt reports
+    # big-endian doubles as `>f8`, and np.dtype(">f8") != np.float64 on a little-endian host --
+    # so an equality check rejected a bit-exactly valid FP64 plotfile while blaming an "fp32
+    # build" the user does not have. yt's own source documents this descriptor as DOUBLE data.
+    be = _fixture_generator().write_fixture(
+        tmp_path / "plt_be64", real_dtype="big_endian_float64"
+    )
+    snap = read_field_snapshot(be, **FULL)
+    gx, gy, _ = np.meshgrid(CENTERS, CENTERS, CENTERS, indexing="ij")
+    np.testing.assert_array_equal(snap.arrays["u"], -OMEGA * gy)
+    np.testing.assert_array_equal(snap.arrays["v"], OMEGA * gx)
 
 
 def test_duplicate_field_names_are_rejected(monkeypatch):
@@ -433,8 +457,18 @@ def test_snapshot_arrays_own_their_data(lo, hi):
 
 @pytest.mark.parametrize(
     ("halo", "match"),
-    [(-1, "non-negative"), (-5, "non-negative"), (1.9, "integer"), (0.5, "integer")],
-    ids=["negative", "very_negative", "fractional", "half"],
+    [
+        (-1, "non-negative"),
+        (-5, "non-negative"),
+        (1.9, "integer"),
+        (0.5, "integer"),
+        # bool is an int subclass, so without the explicit isinstance(halo, bool) clause
+        # halo=True would silently mean halo=1. Dropping that clause alone left the whole
+        # suite green until these two cases existed.
+        (True, "integer"),
+        (False, "integer"),
+    ],
+    ids=["negative", "very_negative", "fractional", "half", "true", "false"],
 )
 def test_invalid_halo_is_rejected(halo, match):
     # Task 50. A negative halo silently eroded the region (halo=-5 silently returned ZERO cells);

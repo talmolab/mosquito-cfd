@@ -125,12 +125,33 @@ def test_global_params_returns_exactly_the_kinematic_keys(tmp_path):
     assert set(params) == {"stroke_amp_deg", "frequency_fstar", "pitch_amp_deg"}
 
 
-def test_steps_sort_numerically_not_lexically(tmp_path):
-    # Task 53. The regex permits any digit width, and plt10 sorts BEFORE plt2 lexically. With
-    # uniform 5-digit padding lexical and numeric order coincide, so the original matrix could
-    # not detect a dropped sorted() -- verified: `return found` left the suite green.
+def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):
+    # Task 53. The regex permits any digit width, and plt10 sorts BEFORE plt2 lexically, so with
+    # uniform 5-digit padding lexical and numeric order coincide and a dropped sorted() goes
+    # unnoticed.
+    #
+    # The adverse directory order is FORCED rather than assumed. Relying on the filesystem makes
+    # the test's teeth platform-dependent: NTFS happens to yield lexical order (which exposes the
+    # mutant), but CI is ubuntu-latest, where ext4 readdir is hash-ordered -- if that order came
+    # out ascending, `return found` would survive. Pinning the order makes the check
+    # deterministic everywhere.
     root = _corpus(tmp_path, steps=(2, 10, 100))
     run = root / "runs" / "s35_f085_p30"
     for padded, bare in ((2, "plt2"), (10, "plt10")):
         (run / f"plt{padded:05d}").rename(run / bare)
+
+    real_iterdir = Path.iterdir
+
+    def reverse_numeric_iterdir(self):
+        # Order by the STEP NUMBER descending, so the raw listing is [100, 10, 2] -- unambiguously
+        # the wrong answer. Ordering by name descending would yield plt2, plt10, plt00100, i.e.
+        # [2, 10, 100], which is accidentally correct and lets the mutant survive (this test's
+        # first version made exactly that mistake).
+        def step_of(q):
+            digits = q.name[3:]
+            return int(digits) if q.name.startswith("plt") and digits.isdigit() else -1
+
+        return iter(sorted(real_iterdir(self), key=step_of, reverse=True))
+
+    monkeypatch.setattr(Path, "iterdir", reverse_numeric_iterdir)
     assert FieldCorpus(root).steps("s35_f085_p30") == [2, 10, 100]

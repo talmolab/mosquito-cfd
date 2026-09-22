@@ -54,8 +54,12 @@ collides) from `field_names` (a tuple, which does not), yielding a `PointCloud` 
 exceeds the number of distinct fields and duplicating a training column, and it re-reads the same
 field once per repetition.
 
-It SHALL verify the plotfile's **on-disk** precision is `float64`, via the dtype yt parses from the
-FAB RealDescriptor (`ds.index._dtype`). Inspecting the returned array's dtype does **not** work and
+It SHALL verify the plotfile's **on-disk** precision is 8-byte floating point, **before reading any
+field array** -- a 512-cubed plotfile would otherwise be read in full, gigabytes and minutes, before
+being refused -- via the dtype yt parses from the FAB RealDescriptor (`ds.index._dtype`). The check
+SHALL compare the dtype's *format* (kind and itemsize), not equality against `np.float64`: a
+big-endian `>f8` plotfile is bit-exactly valid double precision but compares unequal on a
+little-endian host, and rejecting it would be a false negative with a misleading diagnosis. Inspecting the returned array's dtype does **not** work and
 must not be relied upon: yt's AMReX frontend allocates its output buffers `float64`
 unconditionally and widens the on-disk FAB into them, so an fp32 build yields `float64` arrays
 carrying fp32-truncated values and a returned-dtype check can never fire. The returned-array check
@@ -83,8 +87,18 @@ MAY be kept as a defence-in-depth assertion, but it is not the guard.
 - **Given** a real single-precision boxlib plotfile — one whose FAB RealDescriptor declares `float32`,
   not merely a stub that returns a `float32` array
 - **When** `read_field_snapshot` reads it
-- **Then** it raises `ValueError` naming the observed on-disk precision, and no snapshot is
-  constructed — even though every array yt would return from it reports `dtype == float64`
+- **Then** it raises `ValueError` naming the observed on-disk precision, **no field array has been
+  read**, and no snapshot is constructed — even though every array yt would return from it reports
+  `dtype == float64`
+
+#### Scenario: A big-endian double-precision plotfile is accepted
+
+- **Given** a plotfile whose FAB RealDescriptor declares 8-byte reals in big-endian byte order, which
+  yt reports as `>f8`
+- **When** `read_field_snapshot` reads it
+- **Then** it succeeds and the values are bit-exact, because `>f8` is valid double precision — an
+  equality check against `np.float64` would reject it on a little-endian host and misreport it as an
+  fp32 build
 
 #### Scenario: Duplicate field names are rejected
 

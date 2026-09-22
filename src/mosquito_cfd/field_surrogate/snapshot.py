@@ -118,8 +118,7 @@ def _validate_fields(fields: tuple[str, ...]) -> None:
         raise ValueError(
             f"unknown field name(s) {unknown}; choose from {sorted(CANONICAL_FIELDS)}"
         )
-    seen: set[str] = set()
-    duplicates = sorted({n for n in fields if n in seen or seen.add(n)})
+    duplicates = sorted({n for n in fields if fields.count(n) > 1})
     if duplicates:
         # A duplicate desynchronises `arrays` (a dict, which collides) from `field_names`
         # (a tuple, which does not): the point cloud gains a duplicated column and the same
@@ -220,10 +219,15 @@ def read_field_snapshot(
             "fp32-build guard cannot run. Refusing rather than silently accepting."
         )
     on_disk = np.dtype(ds.index._dtype)
-    if on_disk != np.float64:
+    # Compare the FORMAT, not the dtype object: np.dtype('>f8') != np.float64 on a
+    # little-endian host, yet big-endian doubles are bit-exactly valid FP64 and yt emits
+    # that descriptor for the other standard AMReX layout. An equality check here falsely
+    # rejects such a plotfile -- and blames an "fp32 build" the user does not have.
+    if on_disk.kind != "f" or on_disk.itemsize != 8:
         raise ValueError(
-            f"plotfile {plotfile_path} stores {on_disk} reals, not float64 (fp32 build?); "
-            f"yt would silently widen them to float64"
+            f"plotfile {plotfile_path} stores {on_disk.itemsize}-byte "
+            f"{on_disk.kind!r}-kind reals ({on_disk}), not 8-byte floats; yt would silently "
+            f"widen them to float64"
         )
 
     requested = [CANONICAL_FIELDS[name] for name in fields]
@@ -259,7 +263,8 @@ def read_field_snapshot(
         # copy=True is load-bearing. np.ascontiguousarray returns the input UNCHANGED when the
         # slice is already C-contiguous -- the full-extent read and any single-axis slab -- and
         # marking such a view non-writable leaves its base reachable and writable, so the array
-        # stays mutable through arr.base and a small region pins the whole covering grid alive.
+        # stays mutable through arr.base and a small region retains this field's entire
+        # to_ndarray() buffer (measured ~5x over-retention for an x-slab at 128-cubed).
         arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
         arr.setflags(write=False)
         arrays[name] = arr
