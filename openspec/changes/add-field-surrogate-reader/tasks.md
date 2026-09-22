@@ -199,18 +199,18 @@ per PR, each with its own number.
 delegation against real plotfiles and have nothing to check on the additive PR.
 
 
-41. [ ] `openspec validate add-field-surrogate-reader --strict`. Note this is **not** a CI gate — no
+41. [x] `openspec validate add-field-surrogate-reader --strict`. Note this is **not** a CI gate — no
     workflow runs it — so it is a pre-push checklist item.
-42. [ ] Run the CI form locally **from Git Bash or WSL**, not PowerShell: `uv sync --frozen --group viz`,
+42. [x] Run the CI form locally **from Git Bash or WSL**, not PowerShell: `uv sync --frozen --group viz`,
     then `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`,
     the identical `ruff format --check` with the same six paths spelled out, then
     `uv run pytest -v -m "not gpu"`. (Pre-existing, unrelated: `test_provision_dies_on_wing_vertex_hash_mismatch`
     hard-asserts `shutil.which("sha256sum")` and fails under PowerShell only.)
-43. [ ] **Real-plotfile verification (D11), before merge.** With Z: mounted, run
+43. [x] **Real-plotfile verification (D11), before merge.** With Z: mounted, run
     `MOSQUITO_CFD_PLOTFILE_ROOT=<root> uv run pytest -v -m "not gpu" -rs` and record in the PR **how
     many previously-skipped tests actually ran** — a mandatory check with no recorded result is
     indistinguishable from one never run.
-44. [ ] **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
+44. [x] **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
     coarse/medium, wing T3b-medium), compare `extract_eulerian_box` against
     `legacy_extract_eulerian_box` over the full task-11 region matrix plus the pinned wing near-field
     box and the sphere inlet/outlet planes, with `assert_array_equal` — **zero tolerance, not
@@ -218,3 +218,43 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     non-zero domain origins. Scratchpad script, output pasted into the PR; not a committed test.
 45. [ ] File the D11 follow-up issue: a second committed fixture with anisotropic `dx`, a non-zero
     domain origin, and >1 FAB, so CI stops depending on a degenerate plotfile.
+
+## D11 verification results (recorded, per project.md's verification principles)
+
+A mandatory check with no recorded result is indistinguishable from one never run, so the outcomes
+live here rather than only in a terminal.
+
+**Task 43 -- full suite with the plotfile root mounted.** All **13** `requires_plotfile` tests pass,
+zero failures attributable to the refactor. They need **two different roots**, which is why a single
+run showed 6 failures at first:
+
+| root | tests | result |
+|---|---|---|
+| `Z:/users/eberrigan/mosquito-cfd-benchmarks` | 7 (incl. both direct `extract_eulerian_box` real-plotfile tests) | pass |
+| `Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing` | 6 (`test_flow_video_plotfile.py` x5, `test_wing_lev_medium_vs_coarse`) | pass |
+
+`test_wing_lev_medium_vs_coarse` is the strongest single signal: the T3b LEV composition on real
+coarse+medium wing plotfiles, through `extract_eulerian_box`, reproducing its pinned numbers.
+
+**Task 44 -- bit-exact A/B against the frozen oracle.** **80 region comparisons across 5 real
+plotfiles, all bit-exact** (`assert_array_equal`, zero tolerance), comparing key set, values, dtype,
+shape, Python type and writeability:
+
+| plotfile | grid | dx |
+|---|---|---|
+| `flow_past_sphere_coarse/plt10000` | 128x64x64 | 0.15625 |
+| `flow_past_sphere_10k/plt10000`, `plt05000` | 256x128x128 | 0.078125 |
+| `t3c-fine/plt01000` | 256x128x256 | 0.03125 |
+| `t2a-newconv4/plt01000` | 64x32x64 | 0.125 |
+
+This covers the multi-FAB covering grids and non-unit `dx` that CI's 6-cubed fixture cannot reach.
+
+**Gap that remains open.** Every plotfile in the project's data has `domain_left_edge = [0, 0, 0]`,
+so the **non-zero domain origin path is verified nowhere** -- there is no such plotfile to test
+against. Task 45's follow-up fixture exists to close this and is deliberately still open.
+
+**Process note.** The first A/B run reported "ALL BIT-EXACT" after **zero** comparisons: MSYS
+rewrote the `/z/users/...` form into a backslash path on the way into Python, every plotfile was
+skipped, and the script had no guard against having done no work. Fixed by using the `Z:/` drive
+form and making `checked == 0` a hard failure. Worth remembering for any future verification
+script -- a pass with no recorded count is not a pass.
