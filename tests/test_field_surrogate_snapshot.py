@@ -684,9 +684,12 @@ def test_amr_refusal_propagates_through_the_legacy_wrapper(monkeypatch):
 
 # --- PR B review corrections -----------------------------------------------------------------
 
-#: SHA-256 of the frozen oracle with newlines normalized to LF. Normalized because the repo's
-#: `* text=auto` gives the file CRLF in a Windows checkout and LF in git, so a raw byte hash
-#: would pass on one platform and fail on the other.
+#: SHA-256 of the frozen oracle's RAW BYTES. An earlier version normalized newlines on the
+#: premise that `* text=auto` gives this file CRLF in a Windows checkout. That was wrong:
+#: `.gitattributes` pins `*.py text eol=lf`, so it is LF in every working tree regardless of
+#: `core.autocrlf` (verified with `git check-attr`). Hashing raw bytes is both correct and
+#: stricter -- it also catches a CRLF conversion, which would mean the eol=lf rule had been
+#: dropped, exactly when you would want to know.
 _ORACLE_SHA256 = "3e26a665006a46b0d3e1ca1ea458072d8ec8e1ee69bfbead571cf8c664099c93"
 
 
@@ -697,8 +700,7 @@ def test_frozen_oracle_is_unmodified():
     # become a comparison against post-hoc-modified code with no test failing. A content hash
     # is squash-merge-safe; a `git show <sha>` check is not (this repo squash-merges).
     path = FIXTURE.parent / "legacy_extract_eulerian_box.py"
-    norm = path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    actual = hashlib.sha256(norm.encode("utf-8")).hexdigest()
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
     assert actual == _ORACLE_SHA256, (
         "the frozen oracle changed. It must NOT be edited, reformatted or linted -- it is a "
         "copy of the pre-refactor implementation taken at 86c729e. If the change was "

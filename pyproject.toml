@@ -76,8 +76,11 @@ line-length = 88
 target-version = "py311"
 # The frozen pre-refactor oracle is a byte-for-byte copy of a past implementation; its value
 # is that it is NOT maintained. Reformatting it would silently turn the delegation's
-# equivalence test into a comparison against modified code.
+# equivalence test into a comparison against modified code. force-exclude makes the exclusion
+# hold for an explicitly-named path too (editor format-on-save, `ruff format <file>`), not
+# only CI's directory invocation.
 extend-exclude = ["tests/fixtures/legacy_extract_eulerian_box.py"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
