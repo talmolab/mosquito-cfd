@@ -44,6 +44,9 @@ _REAL_DESCRIPTOR = "(8, (64 11 52 0 1 12 0 1023)),(8, (8 7 6 5 4 3 2 1))"
 #: group's byte count into ``ds.index._dtype`` -- the only place the on-disk precision
 #: survives, since the AMReX frontend allocates its output buffers float64 unconditionally.
 _REAL_DESCRIPTOR_FP32 = "(8, (32 8 23 0 1 9 0 127)),(4, (4 3 2 1))"
+#: Big-endian double. yt's own source documents this byte-order group as the other standard
+#: "DOUBLE data" layout; it is valid FP64 and must NOT be mistaken for reduced precision.
+_REAL_DESCRIPTOR_BE64 = "(8, (64 11 52 0 1 12 0 1023)),(8, (1 2 3 4 5 6 7 8))"
 
 
 def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
@@ -82,11 +85,15 @@ def write_fixture(
     """
     root = Path(root)  # accept a str root too
     fields = tuple(fields)
-    if real_dtype not in ("float64", "float32"):
-        raise ValueError(f"real_dtype must be float64 or float32, got {real_dtype!r}")
-    fp32 = real_dtype == "float32"
-    descriptor = _REAL_DESCRIPTOR_FP32 if fp32 else _REAL_DESCRIPTOR
-    body_dtype = "<f4" if fp32 else "<f8"
+    if real_dtype not in ("float64", "float32", "big_endian_float64"):
+        raise ValueError(
+            f"real_dtype must be float64, float32 or big_endian_float64, got {real_dtype!r}"
+        )
+    descriptor, body_dtype = {
+        "float64": (_REAL_DESCRIPTOR, "<f8"),
+        "float32": (_REAL_DESCRIPTOR_FP32, "<f4"),
+        "big_endian_float64": (_REAL_DESCRIPTOR_BE64, ">f8"),
+    }[real_dtype]
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
     arrays = _fields(fields)
@@ -104,8 +111,11 @@ def write_fixture(
     def _row(vals: list[float]) -> str:
         return ",".join(f"{v:.17e}" for v in vals) + ","
 
-    mins = [float(f.min()) for f in arrays]
-    maxs = [float(f.max()) for f in arrays]
+    # Min/max from the values as WRITTEN, so an fp32 fixture is internally consistent with a
+    # real AMReX single-precision write rather than carrying fp64 extrema.
+    written = [f.astype(body_dtype) for f in arrays]
+    mins = [float(f.min()) for f in written]
+    maxs = [float(f.max()) for f in written]
     cell_h = "\n".join(
         [
             "1",
