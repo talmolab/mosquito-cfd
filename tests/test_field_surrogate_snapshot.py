@@ -429,8 +429,18 @@ def test_snapshot_arrays_own_their_data(lo, hi):
 
 @pytest.mark.parametrize(
     ("halo", "match"),
-    [(-1, "non-negative"), (-5, "non-negative"), (1.9, "integer"), (0.5, "integer")],
-    ids=["negative", "very_negative", "fractional", "half"],
+    [
+        (-1, "non-negative"),
+        (-5, "non-negative"),
+        (1.9, "integer"),
+        (0.5, "integer"),
+        # bool is an int subclass, so without the explicit isinstance(halo, bool) clause
+        # halo=True would silently mean halo=1. Dropping that clause alone left the whole
+        # suite green until these two cases existed.
+        (True, "integer"),
+        (False, "integer"),
+    ],
+    ids=["negative", "very_negative", "fractional", "half", "true", "false"],
 )
 def test_invalid_halo_is_rejected(halo, match):
     # Task 50. A negative halo silently eroded the region (halo=-5 silently returned ZERO cells);

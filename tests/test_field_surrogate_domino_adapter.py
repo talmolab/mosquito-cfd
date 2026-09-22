@@ -21,6 +21,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE = REPO_ROOT / "src" / "mosquito_cfd" / "field_surrogate" / "domino_adapter.py"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "lev_boxlib_plt"
 
+#: Written literally here, NOT imported from the module under test. The original tests read their
+#: expectations from the implementation's own constants, making "absences are real" a tautology:
+#: a reviewer moved sdf_nodes into VOLUME_HALF_KEYS and emitted it zero-filled, and the suite
+#: stayed green while the collected count silently fell by one.
+EXPECTED_VOLUME_KEYS = frozenset(
+    {
+        "volume_mesh_centers",
+        "volume_fields",
+        "grid",
+        "global_params_values",
+        "global_params_reference",
+    }
+)
+EXPECTED_ABSENT_KEYS = frozenset(
+    {
+        "geometry_coordinates",
+        "sdf_grid",
+        "sdf_nodes",
+        "surf_grid",
+        "sdf_surf_grid",
+        "surface_mesh_centers",
+        "surface_normals",
+        "surface_areas",
+    }
+)
+
 GLOBALS_VALUES = (35.0, 0.85, 30.0)
 GLOBALS_REFERENCE = (45.0, 1.0, 45.0)
 
@@ -39,6 +65,9 @@ def _adapt(snap):
 
 
 def test_emits_exactly_the_volume_half_with_no_batch_dimension():
+    # NOTE: reads VOLUME_HALF_KEYS from the module under test, so on its own this is a
+    # tautology. Its backstop is test_module_constants_match_the_specified_key_partition,
+    # which pins those constants to literals. Do not delete that test as redundant.
     snap = _snapshot()
     out = _adapt(snap)
 
@@ -58,6 +87,8 @@ def test_emits_exactly_the_volume_half_with_no_batch_dimension():
 
 
 def test_geometry_half_keys_are_absent_not_zero_filled():
+    # Same caveat as above: GEOMETRY_HALF_KEYS comes from the module under test, and is safe
+    # only because test_module_constants_match_the_specified_key_partition pins it.
     # Zero-filling sdf_nodes would produce a dict that looks trainable and silently is not.
     out = _adapt(_snapshot())
     for key in GEOMETRY_HALF_KEYS:
@@ -150,7 +181,11 @@ def test_adapter_runs_with_torch_and_physicsnemo_unimportable():
         "target",
         "not an encoder input",
         "no pressure field",
-        *GEOMETRY_HALF_KEYS,
+        # From the literal set, NOT the module's GEOMETRY_HALF_KEYS. Parametrizing over the
+        # module's own constant means deleting a key from the constant AND the docstring together
+        # silently REMOVES a case instead of failing one -- the same shape as the defect this
+        # round fixed.
+        *sorted(EXPECTED_ABSENT_KEYS),
     ],
 )
 def test_documentation_states_the_cc4_honesty_claims(claim):
@@ -166,32 +201,6 @@ def test_documentation_states_the_cc4_honesty_claims(claim):
 
 
 # --- review corrections (task 54) --------------------------------------------------------------
-
-#: Written literally here, NOT imported from the module under test. The original tests read their
-#: expectations from the implementation's own constants, making "absences are real" a tautology:
-#: a reviewer moved sdf_nodes into VOLUME_HALF_KEYS and emitted it zero-filled, and the suite
-#: stayed green while the collected count silently fell by one.
-EXPECTED_VOLUME_KEYS = frozenset(
-    {
-        "volume_mesh_centers",
-        "volume_fields",
-        "grid",
-        "global_params_values",
-        "global_params_reference",
-    }
-)
-EXPECTED_ABSENT_KEYS = frozenset(
-    {
-        "geometry_coordinates",
-        "sdf_grid",
-        "sdf_nodes",
-        "surf_grid",
-        "sdf_surf_grid",
-        "surface_mesh_centers",
-        "surface_normals",
-        "surface_areas",
-    }
-)
 
 
 def test_module_constants_match_the_specified_key_partition():
