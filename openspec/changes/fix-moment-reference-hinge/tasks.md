@@ -87,17 +87,22 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
    Quotes were subsequently checked against the source passage supplied by the user and match
    exactly.
 
-   **Resolved an open question in the process.** Van Veen names the world frame's origin the *root*
-   and the wing frame's origin the *hinge*, then relates the frames by rotations alone (stroke about
-   a world axis, then pitch about the wing's own y-axis). A pure Euler construction with no offset
-   term only closes if the origins coincide, so the two terms are interchangeable in that paper.
-   Two consequences, both recorded in `docs/coordinate-convention.md`:
-   - The page's old "origin at the wing hinge (root)" was following van Veen's usage, not conflating
-     two concepts. The real defect was only that the origin sat unquoted beside a quoted clause.
-   - Our 0.025 hinge-vs-root gap is ours alone (deck `hinge_y = 0.5` vs blade root `y = 0.525`),
-     which is why the docs say "the deck's declared pivot" rather than "the wing root".
-   - Converting a lab-frame moment to van Veen's wing frame is therefore a **pure rotation**
-     `R(t)ᵀ`, with no parallel-axis shift — relevant to the issue-#1 body-frame work.
+   **An open question remains open.** Van Veen names the world frame's origin the *root* and the
+   wing frame's origin the *hinge*. Whether those are one point or two is **not** stated in §2.4;
+   figure 1f, which both sentences cite, would settle it.
+
+   A briefly-held claim that they coincide was **withdrawn**: it rested on the frames being related
+   by Euler rotations "with no offset term", which proves nothing — Euler angles describe
+   orientation, and an orientation description never carries origin information, so the absence of
+   a translation term is a property of the formalism rather than evidence about origins.
+
+   What this does and does not affect:
+   - **Not** this change. Our moments stay lab-frame about our own deck's declared pivot throughout;
+     the offset is derived from our decks, not from van Veen's frame definitions.
+   - **Yes** the issue-#1 body-frame work: `R(t)ᵀ` alone suffices only if his origins coincide.
+     Otherwise a parallel-axis shift is needed too. Resolve from figure 1f before attempting it.
+   - Our 0.025 hinge-vs-root gap is real regardless (deck `hinge_y = 0.5` vs blade root
+     `y = 0.525`), which is why the docs say "the deck's declared pivot".
 9. [x] Update the `MomentCoefficients` docstring to cross-reference rather than restate.
 
 **PR1 ships a helper with no caller** — say so in the PR body.
