@@ -66,6 +66,20 @@ achieves at each PR, not the funded end-state. In particular, **DoMINO's fitness
 geometry (insect-wing tip speeds) is an unverified claim** (`ml-surrogate-notes.md`, "Open Questions"
 #2) — F3 below is the first empirical test of it, not a foregone conclusion.
 
+> **Framing gap, verified 2026-09-21 (`add-field-surrogate-reader`'s proposal.md, "Scoping input:
+> what DoMINO actually consumes") — reads as much stronger than "unverified" for the *encoder* role
+> specifically.** Checked directly against `NVIDIA/physicsnemo` `main`, not inferred: stock
+> `DoMINO.forward()` consumes **geometry** (coordinates, SDF grids/nodes, surface mesh) plus sampled
+> query points, and **returns** predicted flow fields — `volume_fields` is the datapipe's *training
+> target*, never an input. The submodule that produces a latent (`GeometryRep`) encodes geometry, not
+> a flow-field snapshot. **This table's own "field snapshot → z" mapping and this Vision's "encoder
+> that compresses CFD flow-field snapshots into a latent state" do not describe stock DoMINO** — it
+> is a geometry→fields regressor, not a fields→latent encoder. F3 cannot proceed on the assumption
+> that DoMINO already does what this roadmap wants; it must either scope a genuinely different
+> encoder architecture, or justify repurposing DoMINO's `GeometryRep` submodule alone (which encodes
+> geometry, not flow state, and so does not obviously give the fields→latent map either). See
+> Open question #1 below for what a 2026-09-23 literature check adds on top of this.
+
 ## Inputs and outputs
 
 - **Input:** the same validated flapping-wing setup and sweep grid as Track B
@@ -129,8 +143,10 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
   - **subsampling interval** (`amr.plot_int`) — balance temporal resolution against storage;
   - **AMR level handling** — interpolate all levels onto a uniform base grid (simpler, loses
     near-wing resolution) vs. keep the native multi-level structure as an unstructured point cloud
-    (preserves resolution, maps onto DoMINO's point-cloud input more naturally, per
-    `ml-surrogate-notes.md` "Moving Boundary Handling").
+    (preserves resolution, maps onto DoMINO's point-cloud **query-point** input more naturally, per
+    `ml-surrogate-notes.md` "Moving Boundary Handling" — this is about the spatial sampling format
+    DoMINO's `volume_mesh_centers` accepts, not about flow-field values being an input to DoMINO at
+    all; see the Vision section's framing-gap note for why that distinction now matters).
 
 > **Superseded 2026-08-10 (see the Sequencing note above):** `add-fine-corpus-field-capture`
 > measures storage from the full corrected 27-config run itself,
@@ -182,8 +198,39 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
 
 ## Open questions (prioritized)
 
-1. **DoMINO for rapid motion** — still unverified; F3's pilot-scale training is the first
-   real signal, not before.
+1. **DoMINO for rapid motion, and the deeper architecture-fit question underneath it** — still
+   unresolved; F3's pilot-scale training is the first real signal, not before. Two distinct layers,
+   don't conflate them:
+   - **Layer 1 (blocking, verified 2026-09-21):** stock DoMINO is geometry→fields, not fields→latent
+     — see the Vision section's framing-gap note above. F3 needs a real scoping decision here before
+     any training happens, not just a "does it work" experiment.
+   - **Layer 2 (literature checked 2026-09-23, still genuinely open):** even setting Layer 1 aside,
+     no published DoMINO result trains on a single geometry moving/deforming continuously through
+     time — every result found (the [DoMINO paper](https://arxiv.org/abs/2501.13350), NVIDIA's own
+     docs) trains on **static geometry variants** (1,000 different car shapes) at **steady-state**.
+     The closest real precedent to this project's actual problem (an immersed-boundary body under
+     **prescribed** kinematics — same one-way coupling this project already uses) is
+     [Neural Operators for Immersed-Boundary Soft Swimmers Locomotion](https://arxiv.org/html/2608.07722),
+     which uses a **grid-based Fourier Neural Operator**, not a point-cloud DoMINO-style model, is
+     trained on IBAMR (not IAMReX) output, and explicitly does **not** generalize to unseen
+     geometries/gaits/actuation patterns (only to held-out Reynolds numbers). This is a real data
+     point against the "DoMINO's point-cloud architecture handles moving geometry naturally"
+     assumption in `ml-surrogate-notes.md`'s Moving Boundary Handling section — worth weighing
+     against a grid/FNO-based encoder architecture instead, not just assuming DoMINO once Layer 1 is
+     resolved.
+   - **Out of scope for this roadmap, not just unresolved:** true elastic, two-way fluid-structure
+     interaction (a body whose deformation is *computed from* fluid loads rather than prescribed —
+     e.g. a jellyfish) is a **different problem class** from anything F1–F6 currently plan. Published
+     work on it ([an ALE-consistent graph-neural-operator + LSTM coupling](https://arxiv.org/abs/2605.00937))
+     is early-stage academic proof-of-concept validated on one simple benchmark (a vibrating beam in
+     a cylinder wake), not a swimmer. More fundamentally, IAMReX itself is a "particle-resolved"
+     solver via **multidirect-forcing immersed boundary** for rigid/prescribed-motion bodies — no
+     evidence found of an elastic-structure solver coupled to the fluid. The soft-swimmer/jellyfish
+     literature that does handle real elastic deformation uses **IBAMR**, a different code with
+     flexible-structure support. A genuine two-way-coupled elastic body would need either a
+     substantial IAMReX extension or a different solver entirely — a CFD-solver-level gap, not
+     something F3's encoder choice can work around. Not planned; noted here so it isn't silently
+     assumed in scope later.
 2. **Storage/subsampling policy** (CC-F3) — no answer until F1 runs; do not pre-commit a `plot_int`
    value in F2/F3 design docs before F1's measurement exists.
 3. **Does F5's latent-dynamics training need the pilot corpus (F1) or the full corpus (F4)?** —
