@@ -22,8 +22,9 @@ planes is O(1/Re) of the pressure/momentum terms in smooth flow and is neglected
 drop across the body is the form drag, which dominates sphere Cd at Re=100.
 
 All numerical functions are pure numpy (FP64), with no plotfile or cluster dependency, so they
-are unit-testable against analytic known-answer fields in cluster-free CI. The yt adapter is the
-only cluster-touching code (lazy yt import).
+are unit-testable against analytic known-answer fields in cluster-free CI. The plotfile read is
+delegated to ``mosquito_cfd.field_surrogate.snapshot`` (which imports yt lazily); this module
+holds no yt call of its own.
 """
 
 from __future__ import annotations
@@ -177,16 +178,10 @@ def cv_force_vector(
     return momentum - pressure
 
 
-# --- yt adapter (the only cluster-touching code; yt imported lazily) --------------------------
+# --- legacy flat-dict wrapper over field_surrogate.snapshot.read_field_snapshot --------------------------
 
-_REQUIRED_FIELDS = (
-    ("boxlib", "x_velocity"),
-    ("boxlib", "y_velocity"),
-    ("boxlib", "z_velocity"),
-    ("boxlib", "gradpx"),
-    ("boxlib", "gradpy"),
-    ("boxlib", "gradpz"),
-)
+#: Short names, in order, of the six fields the legacy flat dict exposes.
+_LEGACY_FIELD_NAMES = ("u", "v", "w", "gradpx", "gradpy", "gradpz")
 
 
 def extract_eulerian_box(
@@ -198,13 +193,13 @@ def extract_eulerian_box(
 ) -> dict[str, np.ndarray]:
     """Read velocity + pressure-gradient over an axis-aligned region of an AMReX plotfile.
 
-    Isolates all yt / plotfile / cluster I/O from the numpy core. Reads the full level-0 covering
-    grid (exact for the single-level sphere runs; ~0.2 GB for 4.2M cells, and free of yt's
-    ghost-cell boundary check on interior sub-regions) and slices the requested region in memory,
-    padded by ``halo`` cells on each side. Fields are read by their ``('boxlib', name)`` tuple
-    identifiers; all are asserted present. Arrays are unwrapped from yt's ``unyt_array`` to bare
-    ``float64`` numpy (yt may return ``float32`` for an fp32 build — the assert doubles as the
-    fp64-build check). Code units throughout (no conversion).
+    Thin legacy wrapper: the actual read lives in the single shared implementation
+    :func:`mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`, which this function
+    delegates to and re-packs into the flat dict its callers expect. Signature, returned keys and
+    value types are unchanged, and this remains the entry point for **every** in-repo caller --
+    the ``force-surrogate`` spec's CC-F1 requires the field-capture velocity check to be built on
+    it, and ~21 tests replace it as a module global, so a call site that bypassed it would
+    silently neuter those fakes. See OpenSpec change ``add-field-surrogate-reader`` (D3, D10).
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt10000``).
@@ -214,53 +209,32 @@ def extract_eulerian_box(
 
     Returns:
         Dict with FP64 arrays ``u, v, w, gradpx, gradpy, gradpz`` (indexed ``[ix, iy, iz]``),
-        cell-center coordinate arrays ``x, y, z``, and ``dx`` (per-axis spacing).
+        cell-center coordinate arrays ``x, y, z``, ``dx`` (per-axis spacing), and
+        ``current_time`` (the plotfile's physical time).
     """
-    import yt
+    # Imported by submodule path, never via the package: field_surrogate/__init__ is deliberately
+    # import-free to avoid a benchmarks -> field_surrogate -> force_surrogate -> benchmarks cycle.
+    from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
-    yt.set_log_level("error")
-    ds = yt.load(str(plotfile_path))
-    if ds.index.max_level != 0:
-        raise ValueError(
-            f"extract_eulerian_box requires a single-level plotfile; "
-            f"max_level={ds.index.max_level}"
-        )
-    present = set(ds.field_list)
-    missing = [f for f in _REQUIRED_FIELDS if f not in present]
-    if missing:
-        raise ValueError(f"plotfile is missing required fields {missing}")
-
-    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
-    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
-    ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
-    dx = (dre - dle) / ddims
-
-    # Clamp to the domain (accepts +/-inf for "full extent" along an axis).
-    lo_c = np.clip(np.asarray(lo, dtype=np.float64), dle, dre)
-    hi_c = np.clip(np.asarray(hi, dtype=np.float64), dle, dre)
-    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
-    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
-    i_lo = np.maximum(i_lo, 0)
-    i_hi = np.minimum(np.maximum(i_hi, i_lo + 1), ddims)  # >=1 cell/axis, within domain
-
-    cg = ds.covering_grid(
-        level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
+    snap = read_field_snapshot(
+        plotfile_path, lo=lo, hi=hi, halo=halo, fields=_LEGACY_FIELD_NAMES
     )
-    sl = tuple(slice(int(a), int(b)) for a, b in zip(i_lo, i_hi))
-    names = ("u", "v", "w", "gradpx", "gradpy", "gradpz")
-    out: dict[str, np.ndarray] = {}
-    for key, field in zip(names, _REQUIRED_FIELDS):
-        raw = cg[field].to_ndarray()
-        if raw.dtype != np.float64:  # check BEFORE casting, so an fp32 build is caught
-            raise ValueError(f"field {field} is {raw.dtype}, not float64 (fp32 build?)")
-        out[key] = np.asarray(raw, dtype=np.float64)[sl]
-    out["x"] = (dle[0] + (np.arange(ddims[0]) + 0.5) * dx[0])[sl[0]]
-    out["y"] = (dle[1] + (np.arange(ddims[1]) + 0.5) * dx[1])[sl[1]]
-    out["z"] = (dle[2] + (np.arange(ddims[2]) + 0.5) * dx[2])[sl[2]]
-    out["dx"] = dx
-    # Physical simulation time of the plotfile (the phase). Additive: existing callers ignore it; the
-    # T3b LEV composition uses it to guard that coarse and medium are compared at the same phase.
-    out["current_time"] = float(ds.current_time)
+    out: dict[str, np.ndarray] = {
+        name: snap.arrays[name] for name in _LEGACY_FIELD_NAMES
+    }
+    out["x"] = snap.x
+    out["y"] = snap.y
+    out["z"] = snap.z
+    out["dx"] = snap.dx
+    # The snapshot exposes read-only arrays; the pre-refactor adapter returned writable ones and
+    # callers may rely on that. Flipping the flag back is safe because read_field_snapshot
+    # copies each array (np.array(..., copy=True)), so every array here owns its data and the
+    # discarded snapshot is its only other referent. That is a property of the callee, not of
+    # this wrapper: if the reader is ever changed to return views or to memoize snapshots, this
+    # line would un-freeze shared state and must be revisited.
+    for value in out.values():
+        value.setflags(write=True)
+    out["current_time"] = float(snap.time)
     return out
 
 
@@ -349,7 +323,8 @@ def check_field_capture_velocity(
     solve legitimately produces NaN or Inf in any velocity component; a field with a NaN/Inf in
     ``y_velocity``/``z_velocity`` is corrupted/diverged data even if ``x_velocity`` itself looks
     clean, so the same reasoning that justifies narrowing the zero-check to ``x_velocity`` does
-    NOT extend to NaN/Inf. Built on :func:`extract_eulerian_box` -- no new plotfile reader.
+    NOT extend to NaN/Inf. Built on :func:`extract_eulerian_box` -- no second plotfile reader (it delegates to the
+    single shared ``field_surrogate.snapshot.read_field_snapshot``).
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
