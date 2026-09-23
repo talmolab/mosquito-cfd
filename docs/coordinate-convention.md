@@ -127,27 +127,37 @@ right-handed world reference frame with its **origin at the root of the wing**" 
 paper's frames are rooted at the wing, neither at mid-span. The origin and the axis directions come
 from the same sentence, quoted in full under [Axes](#axes-wing-reference-frame) above.
 
-**"Root" and "hinge": whether van Veen means one point or two is unresolved.** §2.4 names the world
-frame's origin "the root of the wing" and the wing frame's origin "the wing hinge location" — two
-different phrases, in consecutive paragraphs, for two frames' origins. The text does not state
-whether they denote the same point, and **figure 1f**, which both sentences cite, is what would
-settle it.
+**"Root" and "hinge" are the same point in van Veen.** §2.4 names the world frame's origin "the root
+of the wing" and the wing frame's origin "the wing hinge location" — two phrases, one point. The
+evidence is in **§2.2**, not §2.4:
 
-Do **not** infer coincidence from the Euler-angle construction in that section. Euler angles
-describe *orientation*; an orientation description carries no origin information, so the absence of
-a translation term there is a property of the formalism, not evidence about the origins.
+> "A single rigid wing with a span of approximately R = 3 mm and a thickness of τ = 18 μm was placed
+> with **its root in the centre of a domain** with a size of 5 cm × 5 cm × 5 cm."
 
-In our geometry they are certainly two points: the deck declares `hinge_y = 0.5` while the committed
-mesh's blade starts at `y = 0.525` (half-span 1.4750 about the centre at `y = 2.0`), so our pivot
-sits 0.025 **inboard** of our own wing surface — physically reasonable for a joint proximal to the
-blade it drives. Hence "the deck's declared pivot" below: the wording tracks our geometry, and does
-not depend on how van Veen resolves the question.
+A single rigid plate, no body and no articulation, rooted at the domain centre — which §2.4 then
+makes the world frame's origin. The hinge has to land there too: the stroke rotation is about
+`z_world` through that origin and the pitch rotation is about the wing's own spanwise axis through
+its root, so the two rotation axes intersect at the root. With no joint in the model, that
+intersection is the only thing "the wing hinge location" can denote.
 
-**Consequence for the issue-#1 body-frame work.** Converting a lab-frame moment into van Veen's wing
-frame is a pure rotation by `R(t)ᵀ` **only if** his two frames share an origin. If they do not, the
-conversion needs a parallel-axis shift as well — the same class of error this page exists to prevent.
-Resolve it from figure 1f before attempting that conversion; nothing in this repository currently
-establishes it either way.
+Two cautions for anyone re-checking this:
+
+- **Figure 1f draws the two triads at different heights.** That is drafting — the world triad is
+  offset down `z_world` so it does not collide with the wing triad, with the `z_world` line running
+  up to the shared origin. Do not read the separation as a geometric claim.
+- **Do not argue it from the Euler-angle construction either.** Euler angles describe *orientation*,
+  and an orientation description carries no origin information, so the absence of a translation term
+  there proves nothing in either direction.
+
+Our geometry does carry a gap van Veen's does not: the deck declares `hinge_y = 0.5` while the
+committed mesh's blade starts at `y = 0.525` (half-span 1.4750 about the centre at `y = 2.0`), so our
+pivot sits 0.025 **inboard** of our own wing surface, where his root and hinge coincide exactly.
+Hence "the deck's declared pivot" below — the wording tracks our geometry, not his.
+
+**Consequence for the issue-#1 body-frame work.** Because his two frames share an origin, converting
+a lab-frame moment into van Veen's wing frame is a **pure rotation** by `R(t)ᵀ`, with no
+parallel-axis shift on top. Our own 0.025 offset is a separate, smaller matter and is ours to
+account for.
 
 **A deferred alternative.** A future body-in-the-loop model — one that integrates the insect's
 own dynamics rather than prescribing wing motion — would want moments about the **centre of mass**,

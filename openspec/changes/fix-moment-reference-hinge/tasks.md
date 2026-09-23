@@ -87,22 +87,28 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
    Quotes were subsequently checked against the source passage supplied by the user and match
    exactly.
 
-   **An open question remains open.** Van Veen names the world frame's origin the *root* and the
-   wing frame's origin the *hinge*. Whether those are one point or two is **not** stated in §2.4;
-   figure 1f, which both sentences cite, would settle it.
+   **Resolved from the PDF: root and hinge are the same point in van Veen.** §2.2 states the wing
+   "was placed with its root in the centre of a domain" — a single rigid plate, no body, no
+   articulation — and §2.4 makes that root the world frame's origin. The hinge lands there too:
+   stroke rotation is about `z_world` through the origin, pitch rotation about the wing's spanwise
+   axis through its root, and the two axes intersect at the root, which is the only thing "the wing
+   hinge location" can denote in a model with no joint.
 
-   A briefly-held claim that they coincide was **withdrawn**: it rested on the frames being related
-   by Euler rotations "with no offset term", which proves nothing — Euler angles describe
-   orientation, and an orientation description never carries origin information, so the absence of
-   a translation term is a property of the formalism rather than evidence about origins.
+   This question took three positions in one session — claimed, withdrawn, re-established. The
+   withdrawal was correct on its own terms: the first argument inferred coincidence from the
+   frames being related by Euler rotations "with no offset term", which proves nothing, since an
+   orientation description never carries origin information. The conclusion is now grounded in the
+   numerical set-up instead. Two traps are recorded in `docs/coordinate-convention.md` so the next
+   reader does not repeat either: the Euler-angle non-argument, and figure 1f drawing the two
+   triads apart for legibility.
 
    What this does and does not affect:
    - **Not** this change. Our moments stay lab-frame about our own deck's declared pivot throughout;
      the offset is derived from our decks, not from van Veen's frame definitions.
-   - **Yes** the issue-#1 body-frame work: `R(t)ᵀ` alone suffices only if his origins coincide.
-     Otherwise a parallel-axis shift is needed too. Resolve from figure 1f before attempting it.
-   - Our 0.025 hinge-vs-root gap is real regardless (deck `hinge_y = 0.5` vs blade root
-     `y = 0.525`), which is why the docs say "the deck's declared pivot".
+   - **Yes** the issue-#1 body-frame work, now favourably: `R(t)ᵀ` alone suffices, with no
+     parallel-axis shift.
+   - Our 0.025 hinge-vs-root gap is ours alone (deck `hinge_y = 0.5` vs blade root `y = 0.525`),
+     where van Veen's root and hinge coincide exactly. Hence "the deck's declared pivot".
 9. [x] Update the `MomentCoefficients` docstring to cross-reference rather than restate.
 
 **PR1 ships a helper with no caller** — say so in the PR body.
