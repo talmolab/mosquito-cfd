@@ -81,8 +81,23 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
    - The pre-existing "verbatim" axis quote was not verbatim: it rendered "the y-axis parallel to
      the wing tip" where the paper says "the y-axis parallel to the **surface pointing towards** the
      wing tip".
-   - The page cited "the fig 2 caption"; the definition is in §2.4 and is illustrated by fig 1(f),
-     which is what the axis table's own column header already said. The citation now names §2.4.
+   - The page cited "the fig 2 caption"; the definition is in §2.4 and both sentences cite
+     "(figure 1f)", which is what the axis table's own column header already said.
+
+   Quotes were subsequently checked against the source passage supplied by the user and match
+   exactly.
+
+   **Resolved an open question in the process.** Van Veen names the world frame's origin the *root*
+   and the wing frame's origin the *hinge*, then relates the frames by rotations alone (stroke about
+   a world axis, then pitch about the wing's own y-axis). A pure Euler construction with no offset
+   term only closes if the origins coincide, so the two terms are interchangeable in that paper.
+   Two consequences, both recorded in `docs/coordinate-convention.md`:
+   - The page's old "origin at the wing hinge (root)" was following van Veen's usage, not conflating
+     two concepts. The real defect was only that the origin sat unquoted beside a quoted clause.
+   - Our 0.025 hinge-vs-root gap is ours alone (deck `hinge_y = 0.5` vs blade root `y = 0.525`),
+     which is why the docs say "the deck's declared pivot" rather than "the wing root".
+   - Converting a lab-frame moment to van Veen's wing frame is therefore a **pure rotation**
+     `R(t)ᵀ`, with no parallel-axis shift — relevant to the issue-#1 body-frame work.
 9. [x] Update the `MomentCoefficients` docstring to cross-reference rather than restate.
 
 **PR1 ships a helper with no caller** — say so in the PR body.

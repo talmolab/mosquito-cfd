@@ -127,6 +127,23 @@ right-handed world reference frame with its **origin at the root of the wing**" 
 paper's frames are rooted at the wing, neither at mid-span. The origin and the axis directions come
 from the same sentence, quoted in full under [Axes](#axes-wing-reference-frame) above.
 
+**"Root" and "hinge" are one point in van Veen, two in our geometry.** He names the world frame's
+origin the root and the wing frame's origin the hinge, then relates the two frames by *rotations
+alone* — "first rotating around the […]-axis of the world reference frame with the stroke angle,
+and then by rotating it around its spanwise axis (y-axis of the wing reference frame) with a
+wing-pitch angle". A pure Euler construction with no offset term only closes if both origins
+coincide, so in that paper the terms are interchangeable.
+
+Ours are not quite. The deck declares `hinge_y = 0.5` while the committed mesh's blade starts at
+`y = 0.525` (half-span 1.4750 about the centre at `y = 2.0`), so our pivot sits 0.025 **inboard** of
+our own wing surface — physically reasonable for a joint proximal to the blade it drives, but a
+distinction van Veen does not carry. Hence "the deck's declared pivot" below: the wording tracks
+*our* geometry, not a split inherited from the paper.
+
+One useful consequence: because his two frames share an origin, converting a lab-frame moment into
+his wing frame is a pure rotation by `R(t)ᵀ` — no parallel-axis shift on top. That matters whenever
+the body-frame moment work under issue #1 is picked up.
+
 **A deferred alternative.** A future body-in-the-loop model — one that integrates the insect's
 own dynamics rather than prescribing wing motion — would want moments about the **centre of mass**,
 not the hinge. That is a deliberate deferral, recorded so the next reader finds a decision rather
