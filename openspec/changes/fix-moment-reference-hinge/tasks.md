@@ -69,13 +69,20 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
    existing axis-direction quote. Drop the *world*-frame half of the claim unless it can be quoted —
    no in-repo source corroborates it. Do not repeat the species framing (issue #79).
 
-   **Done as the narrowed variant, not the quotation.** The paper is not in the repository, so the
-   verbatim passage could not be checked. Per the spec ("where a claim cannot be sourced verbatim,
-   it SHALL be narrowed to what the source supports"), the `## Moments` section now states the
-   sourcing asymmetry explicitly — axis directions are quoted, the hinge origin is the
-   repository's own documented convention "consistent with van Veen" rather than a quoted claim
-   about it — and the world-frame half is dropped entirely. **Follow-up for someone with the PDF:**
-   add the verbatim origin passage and promote the claim.
+   **Done in full.** Initially landed as the narrowed variant (paper not in the repo); the passage
+   was then retrieved from the open-access article and both halves are now quoted verbatim:
+   - wing frame — "a right-handed coordinate frame with the origin at the wing hinge location"
+   - world frame — "a right-handed world reference frame with its origin at the root of the wing"
+
+   Both are §2.4 ("Reference frames"). The world-frame half, dropped earlier as uncorroborated, is
+   restored — it was correct.
+
+   **Two corrections this surfaced in the existing page**, both now fixed:
+   - The pre-existing "verbatim" axis quote was not verbatim: it rendered "the y-axis parallel to
+     the wing tip" where the paper says "the y-axis parallel to the **surface pointing towards** the
+     wing tip".
+   - The page cited "the fig 2 caption"; the definition is in §2.4 and is illustrated by fig 1(f),
+     which is what the axis table's own column header already said. The citation now names §2.4.
 9. [x] Update the `MomentCoefficients` docstring to cross-reference rather than restate.
 
 **PR1 ships a helper with no caller** — say so in the PR body.

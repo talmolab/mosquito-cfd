@@ -6,9 +6,14 @@
 wing's **mid-span** point `(4, 2, 4)`, not the hinge `(4, 0.5, 4)`. The origin is *inherited*
 from the immersed-boundary particle's own position, not chosen (issue #108).
 
+This is not our convention diverging from a citation — it diverges from **both** of van Veen's
+frames. §2.4 defines the wing frame as "a right-handed coordinate frame with the origin at the wing
+hinge location" and the world frame as "a right-handed world reference frame with its origin at the
+root of the wing". Neither is at mid-span.
+
 The decisive evidence is that **the repository has documented a hinge origin all along**:
-`docs/coordinate-convention.md:15`, the project's mandated canonical frame page, already states
-"Right-handed, **origin at the wing hinge (root)**", sourced to van Veen et al. (2022) §2.4. That
+`docs/coordinate-convention.md`, the project's mandated canonical frame page, already states
+"Right-handed, origin at the wing hinge", sourced to van Veen et al. (2022) §2.4. That
 page has `## Axes`, `## Kinematic angles`, `## Forces` and `## Simulation deck mapping` — and **no
 `## Moments` section**. The canonical page declared a hinge origin, the forces section was written,
 moments were never covered, and the extractor quietly inherited the particle origin. Meanwhile

@@ -12,9 +12,16 @@ literature the project validates against — **van Veen et al. (2022)**, *J. Flu
 
 ## Axes (wing reference frame)
 
-Right-handed, origin at the wing hinge (root). Sourced verbatim from van Veen 2022 §2.4 and the fig 2
-caption ("the x-axis parallel to the wing surface pointing towards the trailing edge, the y-axis
-parallel to the wing tip, and the z-axis perpendicular to the wing surface"):
+Right-handed, origin at the wing hinge. Sourced verbatim from van Veen 2022 §2.4 ("Reference
+frames"), which defines the wing reference frame in one sentence — origin and axes together:
+
+> "The aerodynamic forces on the wings are expressed in the wing reference frame, which is a
+> right-handed coordinate frame with **the origin at the wing hinge location**, the x-axis parallel
+> to the wing surface pointing towards the trailing edge, the y-axis parallel to the surface
+> pointing towards the wing tip and the z-axis perpendicular to the wing surface"
+
+The same section places the *world* frame's origin at the wing root: "a right-handed world reference
+frame with its origin at the root of the wing".
 
 | Axis | Physical role | van Veen (fig 1f) |
 |------|---------------|-------------------|
@@ -114,12 +121,11 @@ columns unshifted preserves the audit trail back to solver output and makes the 
 re-derivable from the committed parquet alone.
 
 **Why the hinge.** For a single-wing prescribed-motion run the hinge moment *is* the actuation
-torque, and van Veen (2022) places the wing reference frame's origin at the wing hinge — the same
-frame this page's axis table is drawn from. Note the sourcing is asymmetric: the axis *directions*
-above are quoted verbatim from §2.4 / the fig 2 caption, whereas the hinge **origin** is not yet
-backed by a verbatim quotation in this repository. Treat the origin as the repository's own
-documented convention, consistent with van Veen, rather than as a quoted claim about that paper,
-until the verbatim passage is added here.
+torque. It is also van Veen's frame: §2.4 defines the wing reference frame as "a right-handed
+coordinate frame with **the origin at the wing hinge location**", and the world frame as "a
+right-handed world reference frame with its **origin at the root of the wing**" — so both of that
+paper's frames are rooted at the wing, neither at mid-span. The origin and the axis directions come
+from the same sentence, quoted in full under [Axes](#axes-wing-reference-frame) above.
 
 **A deferred alternative.** A future body-in-the-loop model — one that integrates the insect's
 own dynamics rather than prescribing wing motion — would want moments about the **centre of mass**,
