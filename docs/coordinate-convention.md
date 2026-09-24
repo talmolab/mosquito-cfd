@@ -39,7 +39,7 @@ frame with its origin at the root of the wing".
         |  /
         | /
         +---------------- x (chord, toward trailing edge)
-      hinge (root)
+      hinge
 ```
 
 ## Kinematic angles and rotation order
@@ -97,6 +97,15 @@ delivered by `decompose_wing_force` (Tier T4 — normal peak magnitude graded, p
 **Reference point: the deck's declared pivot** (`particle_inputs.hinge_{x,y,z}`), i.e. the wing
 hinge. Derived moment coefficients `CF_mx/CF_my/CF_mz` are taken about that point.
 
+> ⚠️ **Not yet applied.** As of this commit the extractor still emits coefficients about the
+> immersed-boundary particle's own origin — `dataset.py` calls `compute_moment_coefficient` on the
+> raw solver columns, and both committed corpora satisfy `CF_mx == Mx / m_ref`, not the hinge form.
+> The parallel-axis shift described below is wired into extraction in a later increment of
+> `openspec/changes/fix-moment-reference-hinge`, and this notice is removed there.
+>
+> This page having described a hinge origin the pipeline did not implement is what produced issue
+> #108 in the first place; the marker exists so the gap cannot repeat silently.
+
 **Frame: lab, not wing.** Unlike the forces above — which are reported in the wing body frame —
 moments are reported as **lab-frame components about the hinge origin**. Only the origin is the
 hinge; the axes are not rotated. A wing-frame (body-frame) moment would additionally require
@@ -127,18 +136,24 @@ right-handed world reference frame with its **origin at the root of the wing**" 
 paper's frames are rooted at the wing, neither at mid-span. The origin and the axis directions come
 from the same sentence, quoted in full under [Axes](#axes-wing-reference-frame) above.
 
-**"Root" and "hinge" are the same point in van Veen.** §2.4 names the world frame's origin "the root
-of the wing" and the wing frame's origin "the wing hinge location" — two phrases, one point. The
-evidence is in **§2.2**, not §2.4:
+**"Root" and "hinge" are almost certainly one point in van Veen — an inference, not a quotation.**
+§2.4 names the world frame's origin "the root of the wing" and the wing frame's origin "the wing
+hinge location". The paper never states that these coincide. The supporting evidence is in **§2.2**,
+not §2.4:
 
 > "A single rigid wing with a span of approximately R = 3 mm and a thickness of τ = 18 μm was placed
 > with **its root in the centre of a domain** with a size of 5 cm × 5 cm × 5 cm."
 
 A single rigid plate, no body and no articulation, rooted at the domain centre — which §2.4 then
-makes the world frame's origin. The hinge has to land there too: the stroke rotation is about
-`z_world` through that origin and the pitch rotation is about the wing's own spanwise axis through
-its root, so the two rotation axes intersect at the root. With no joint in the model, that
-intersection is the only thing "the wing hinge location" can denote.
+makes the world frame's origin. §2.5 adds that "the wing was not given an additional translational
+motion", so the root stays at the domain centre throughout, and the stroke axis therefore passes
+through it. The pitch rotation is about the wing's own spanwise axis through its root, so the two
+rotation axes intersect at the root. With no joint in the model, that intersection is the only thing
+"the wing hinge location" can denote.
+
+That chain is sound but it is **reasoning, not a quoted statement** — figure 1f would settle it
+directly, and it does not (see the caution below). Treat the identification as a well-supported
+inference and anything downstream of it as conditional.
 
 Two cautions for anyone re-checking this:
 
@@ -149,15 +164,16 @@ Two cautions for anyone re-checking this:
   and an orientation description carries no origin information, so the absence of a translation term
   there proves nothing in either direction.
 
-Our geometry does carry a gap van Veen's does not: the deck declares `hinge_y = 0.5` while the
-committed mesh's blade starts at `y = 0.525` (half-span 1.4750 about the centre at `y = 2.0`), so our
-pivot sits 0.025 **inboard** of our own wing surface, where his root and hinge coincide exactly.
-Hence "the deck's declared pivot" below — the wording tracks our geometry, not his.
+Our geometry carries a gap van Veen's does not — where his root and hinge coincide, ours are 0.025
+apart. See **Precision note** below for the numbers; it is why this page says "the deck's declared
+pivot" rather than "the wing root".
 
-**Consequence for the issue-#1 body-frame work.** Because his two frames share an origin, converting
-a lab-frame moment into van Veen's wing frame is a **pure rotation** by `R(t)ᵀ`, with no
-parallel-axis shift on top. Our own 0.025 offset is a separate, smaller matter and is ours to
-account for.
+**Consequence for the issue-#1 body-frame work — conditional on the inference above.** *If* his two
+frames share an origin, converting a lab-frame moment into van Veen's wing frame is a **pure
+rotation** by `R(t)ᵀ`, with no parallel-axis shift on top. Should the identification turn out to be
+wrong, that conversion additionally needs a translation, and omitting it would reintroduce exactly
+the error class #108 exists to fix — so confirm it against figure 1f before relying on it. Our own
+0.025 offset is a separate, smaller matter and is ours to account for either way.
 
 **A deferred alternative.** A future body-in-the-loop model — one that integrates the insect's
 own dynamics rather than prescribing wing motion — would want moments about the **centre of mass**,
