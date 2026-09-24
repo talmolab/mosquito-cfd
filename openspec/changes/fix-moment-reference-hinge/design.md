@@ -22,8 +22,10 @@ lockstep across the `loop_ns` sub-iterations (`:363-364`, `:393-394`). Since the
 
 ### D1 — Apply the shift at extraction, not post-hoc on the parquet
 
-`normalization.py` converts a moment into a coefficient; it knows nothing about reference points or
-geometry files. A change of reference frame applies to the raw measurement, upstream of
+`normalization.py` converts a moment into a coefficient. It hosts the pure `shift_moment_reference`
+primitive (a frame change is moment algebra, and the module is where that algebra lives), but it
+never resolves a reference point itself — no deck reading, no geometry files, no I/O. The *caller*
+supplies the displacement. A change of reference frame applies to the raw measurement, upstream of
 normalization, beside where the CSV columns are read.
 
 **Rejected:** transforming the committed parquet in place. It would work numerically (the parquet
@@ -157,7 +159,7 @@ turns that from a prose claim into an enforced property.
 ### D8 — Verification reconciles externally, and the regression guard is the point
 
 Per the repo's verification principle — a check reconciling an artifact only against itself cannot
-detect a wrong artifact — the correction is checked four ways:
+detect a wrong artifact — the correction is checked six ways:
 
 1. **Known-answer parallel-axis test.** Hand-computed `M`, `F` and displacement, compared to the
    implementation. This is the only place a sign or cross-product-order error can hide, which is
@@ -187,32 +189,55 @@ detect a wrong artifact — the correction is checked four ways:
    `d = r_hinge − r_origin` would record `a = −1.5` and the guard would reconcile the two happily.
    The deck is a different code path and a different artifact, which is what makes this external.
 
-6. **A physical bound that no artifact can talk its way out of.** All five checks above are
-   internal to our own convention — they verify that the recorded offset matches the applied one,
-   not that either is *right*. The force-weighted spanwise centre-of-pressure arm from the hinge,
-   `b = M_hinge_x / F_z` (equivalently `−M_hinge_z / F_x`), must lie within the wing: the hinge is
-   at `y = 0.5` and the tip at `y = 3.5`, so `b ∈ (0, 3]`. No free parameters, nothing read back.
-   Measured on the committed corpora over settled beats:
-
-   | | correct `M + d×F` | sign-flipped `M − d×F` |
-   |---|---|---|
-   | coarse | median `+1.599`, 96.8% in bounds | median `−1.401`, **0.9%** |
-   | fine | median `+1.586`, 98.1% in bounds | median `−1.414`, **0.5%** |
-
-   A sign flip collapses from ~97% to under 1%, and the medians land near `R_GYRATION = 1.6985`,
-   which is independent corroboration. This is the only check in the set that compares a number to
-   physics rather than to our own bookkeeping, and it also catches a wrong magnitude, a wrong axis
-   and a units error. It is three lines of pandas over the committed parquet.
 5. **The derived offset reconciles against the independently-declared span.** For the committed
    corpora the deck places the hinge at `y = 0.5` and the particle at `y = 2.0`, while
    `constants.py` declares `SPAN = 3.0` — authored separately. The identity
-   `hinge_y + SPAN/2 == particle_y` holds exactly, confirming the particle origin is the wing's
-   mid-span point and, critically, that `particle_inputs.hinge_*` is an **absolute position in the
-   same frame** as `particle_inputs.{x,y,z}` rather than a relative offset. Had it been relative,
-   the entire shift would be wrong while every self-consistency check still passed. Assert this for
-   the committed corpora as a corpus-level reconciliation — not as a general rule, since a future
-   multi-wing deck may legitimately break it.
+   `hinge_y + SPAN/2 == particle_y` holds exactly, which establishes the load-bearing fact: that
+   `particle_inputs.hinge_*` is an **absolute position in the same frame** as
+   `particle_inputs.{x,y,z}`, not a relative offset. Had it been relative, the entire shift would
+   be wrong while every self-consistency check still passed.
 
+   **It does not establish that the particle origin is the mesh's mid-span point.** Both sides of
+   the identity use the *nominal* `SPAN = 3.0`, while the committed geometry's actual span is 2.95
+   (half-span 1.475). So it reconciles two declared constants against each other, not a declaration
+   against the mesh. An earlier draft claimed the stronger reading. Assert it for the committed
+   corpora only — a future multi-wing deck may legitimately break it.
+
+6. **A physically-grounded empirical discriminator — the only check that leaves our own
+   bookkeeping entirely.** Checks 1-5 verify internal consistency: that the recorded offset matches
+   the applied one, or that two of our own declarations agree. The force-weighted spanwise arm from
+   the hinge,
+   `b = M_hinge_x / F_z` (equivalently `−M_hinge_z / F_x`), should sit inside the wing: hinge at
+   `y = 0.5`, tip at `y = 3.475` (half-span 1.475 about `y = 2.0`), so the physically sensible band
+   is `b ∈ (0, 2.975]`. Measured on the committed corpora over settled beats:
+
+   | | correct `M + d×F` | sign-flipped `M − d×F` |
+   |---|---|---|
+   | coarse | median `+1.599`, 96.8% in band | median `−1.401`, **0.9%** |
+   | fine | median `+1.586`, 98.1% in band | median `−1.414`, **0.5%** |
+
+   A sign flip collapses from ~97% to under 1%. That discrimination is the result; it also catches
+   a wrong magnitude, a wrong axis and a units error, and it is three lines of pandas over the
+   committed parquet.
+
+   **State it as an empirical discriminator with a calibrated pass band, not as a theorem.** An
+   earlier draft of this design called it "a physical bound that no artifact can talk its way out
+   of". It is not a bound:
+
+   - `b` is a **mixed-sign-weighted mean**, `Σ(y_i − y_h)·f_{z,i} / Σ f_{z,i}`. `f_z` changes sign
+     across the wing during a stroke, and a weighted mean with sign-changing weights is *not*
+     bounded by the range of its inputs. The ~97% in-band figure is measured, not guaranteed.
+   - It drops the `−(z_i − z_h)·F_y` term of `M_x`, which is nonzero once the wing pitches.
+   - `F` and `M` here are the **spread IB force and moment only**, not the full hydrodynamic force,
+     so `b` is the IB-part arm rather than the true centre of pressure. Consistent with the
+     existing corpus convention, but it should be named rather than implied.
+   - The medians (1.599, 1.586) are ~6% below `R_GYRATION = 1.6985`, and an `f_z`-weighted arm has
+     no reason to equal an area-weighted rms radius — that is coincidence, not corroboration.
+
+   So the PR2 gate asserts a **calibrated fraction in band** (e.g. ≥ 90%, against a measured ~97%),
+   not "all rows within `(0, 2.975]`". A hard bound would risk spurious failure on a corpus with
+   different kinematics while buying nothing: the signal is the 97%-vs-1% gap, which survives any
+   reasonable threshold.
 Byte-diffing the parquets is useless — `dataset.py:355-357` documents that pyarrow embeds writer
 metadata, so the blobs differ even for unchanged rows. Value-level gates are the only handle a
 reviewer has on 26 MiB of unrenderable binary, so each gate ships as a **committed script**, not an

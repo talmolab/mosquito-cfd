@@ -184,11 +184,18 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     `CF_mx` is **not** `allclose` to `Mx/m_ref`.
     **Expected to fail against the not-yet-regenerated parquets — that is the point.** Commit before
     task 28 and paste the failure output in the PR body.
-24a. [ ] **Test first — the physical bound (design D8.6).** Assert the force-weighted spanwise arm
-    `b = M_hinge_x / F_z` lies in `(0, 3]` for the overwhelming majority of settled-beat rows on
-    both corpora. Measured: correct sign gives 96.8% (coarse) / 98.1% (fine) in bounds with median
-    ≈ 1.59; a sign flip gives **0.9% / 0.5%**. This is the only check that compares a number to
-    physics rather than to our own bookkeeping.
+24a. [ ] **Test first — the empirical sign discriminator (design D8.6).** Assert that the
+    force-weighted spanwise arm `b = M_hinge_x / F_z` falls inside the physically sensible band
+    `(0, 2.975]` (hinge `y = 0.5`, tip `y = 3.475`) for a **calibrated fraction** of settled-beat
+    rows on both corpora — threshold ≥ 0.90 against a measured 96.8% (coarse) / 98.1% (fine).
+    A sign flip gives 0.9% / 0.5%, so the 97%-vs-1% gap survives any reasonable threshold.
+
+    Do **not** assert every row is in band. `b` is a mixed-sign-weighted mean (`f_z` changes sign
+    across the wing), so it is not mathematically bounded by the wing's extent, and it omits the
+    `−(z_i − z_h)·F_y` term of `M_x`. A hard bound would risk spurious failure on a corpus with
+    different kinematics while adding nothing. Name in the test docstring that `F`/`M` are the
+    spread IB force and moment only, so `b` is the IB-part arm rather than the true centre of
+    pressure.
 24b. [ ] **Test first** — extend `tests/test_sweep_hinge_geometry.py` to parametrize
     `assert_hinge_at_span_root` over `glob("examples/prelim_sweep*/inputs/inputs.3d.*")`. It
     currently covers **2 base decks and zero of the 57 per-config decks** — one of those two being

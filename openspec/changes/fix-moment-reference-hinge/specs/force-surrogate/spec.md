@@ -41,11 +41,13 @@ provenance so the correction is re-derivable from the committed parquet alone.
 - **And** `CF_mx` and `CF_mz` equal `(Mx + a·Fz)/m_ref` and `(Mz − a·Fx)/m_ref` exactly — this clause, **not** the `M_y` invariance, is what pins the cross-product **order**, since a reversed `F × d` would also leave the y-component zero
 - **And** the y-term arises from evaluating the full three-component cross product, not from special-casing the `y` component
 
-#### Scenario: A non-finite force contaminates all three components
+#### Scenario: A non-finite Fx or Fz breaks the M_y invariance
 
-- **Given** a purely spanwise offset and a row whose `Fx` or `Fz` is NaN or infinite
+- **Given** a purely spanwise offset `(0, a, 0)` and a row whose `Fx` or `Fz` is NaN or infinite
 - **When** the shift is applied
-- **Then** that row's `CF_my` is NaN, because the zero-valued coefficient multiplies a non-finite force (`0.0 · NaN = NaN`) — the `M_y` invariance holds only for finite forces, and the shift SHALL NOT special-case the term to preserve invariance
+- **Then** that row's `CF_my` is NaN, because the zero-valued coefficient multiplies a non-finite force (`0.0 · NaN = NaN`), and the shift SHALL NOT special-case the term to preserve invariance
+- **And** the invariance is conditional on `Fx` and `Fz` specifically, **not** on the forces generally: only those two enter `cross_y = d_z·F_x − d_x·F_z`, so a non-finite `F_y` leaves `CF_my` exactly invariant while contaminating `CF_mx` and `CF_mz`
+- **And** no single non-finite force component contaminates all three outputs — each contaminates exactly two
 
 #### Scenario: Committed corpora reconcile against their declared offset
 
@@ -133,7 +135,21 @@ unit-testable independently of extraction.
 
 - **Given** an empty moment/force array, mismatched `M`/`F` shapes, or a zero displacement
 - **When** `shift_moment_reference` is called
-- **Then** an empty input yields empty outputs without error; mismatched shapes raise `ValueError`; and a zero displacement returns the inputs unchanged for all-finite inputs
+- **Then** an empty input yields empty outputs without error; mismatched shapes raise `ValueError`; and a zero displacement leaves all-finite inputs comparing equal (`==`, accepting `-0.0 == 0.0`)
+- **And** the shape check SHALL reject a mismatch **within** the moment triple or **within** the force triple, not merely between the two groups — an intra-group mismatch is the broadcasting hazard that would pair a force with the wrong moment row
+
+#### Scenario: Non-finite moments propagate unmasked
+
+- **Given** a moment component that is NaN or infinite, with finite forces and a finite offset
+- **When** `shift_moment_reference` is called
+- **Then** that component's output is non-finite — the helper SHALL NOT mask, zero or `nan_to_num` its inputs, so a corrupt upstream value stays visible rather than being silently repaired
+
+#### Scenario: A malformed offset is rejected
+
+- **Given** an `offset` that is not exactly three components — including a `(3,1)` or `(1,3)` array, a two- or four-element sequence, or a scalar — or one containing NaN or infinity
+- **When** `shift_moment_reference` is called
+- **Then** it raises `ValueError` naming the problem, rather than broadcasting a wrongly-shaped displacement or silently producing all-NaN moments
+- **And** the check is on the **shape**, not merely the element count, so a `(3,1)` array is rejected rather than reshaped
 
 ## MODIFIED Requirements
 

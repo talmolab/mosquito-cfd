@@ -46,3 +46,17 @@ verbatim, it SHALL be narrowed to what the source supports rather than asserted 
 - **Given** the force-surrogate module documentation and the corpus READMEs
 - **When** they refer to the moment reference point
 - **Then** they name it and point at `docs/coordinate-convention.md`, without restating its justification or its van Veen citation
+
+#### Scenario: Documentation does not assert a reference point the pipeline does not yet produce
+
+- **Given** a commit in which the extractor still emits particle-origin moment coefficients — because the parallel-axis shift is delivered in a later increment — and the canonical page and module docstring already describe the hinge reference
+- **When** either is read
+- **Then** each SHALL carry an explicit pending-status marker naming the increment that applies the shift, so no reader can take the description for the current behaviour of the committed corpora
+- **And** the marker SHALL be removed in the increment that wires the shift into extraction, so it cannot outlive the gap it describes
+
+#### Scenario: A claim that rests on inference is labelled as inference
+
+- **Given** a statement on the canonical page that is argued from the source rather than quoted from it — for example the identification of van Veen's world-frame "root" with his wing-frame "hinge"
+- **When** it is read
+- **Then** it is presented as an inference with its supporting argument, not as an established quotation
+- **And** any downstream conclusion drawn from it — such as a lab-to-wing-frame moment conversion being a pure rotation with no parallel-axis shift — is marked conditional on that inference
