@@ -242,15 +242,23 @@ def test_shift_moment_reference_known_answer():
     Pins both the cross-product ORDER and the sign convention: the reversed product
     ``F x d`` negates every component, so this case distinguishes them.
 
+    ``F`` is chosen so ``d x F`` has three **distinct** components. With the obvious
+    ``F = (4,5,6)`` the product is ``(-3, 6, -3)``, whose x and z are equal -- an x/z
+    transposition would then pass this test and be caught only elsewhere. Mutation
+    testing found that gap; do not "simplify" F back.
+
+    All values are small dyadic integers, so the arithmetic is exact -- assert with
+    ``==`` rather than a tolerance, which is strictly stronger and costs nothing.
+
     Spec scenario: Known-answer parallel-axis shift.
     """
-    # d x F = (2*6-3*5, 3*4-1*6, 1*5-2*4) = (-3, 6, -3)
+    # d x F = (2*7-3*5, 3*4-1*7, 1*5-2*4) = (-1, 5, -3)  -- all distinct
     mx, my, mz = shift_moment_reference(
-        10.0, 20.0, 30.0, 4.0, 5.0, 6.0, offset=(1.0, 2.0, 3.0)
+        10.0, 20.0, 30.0, 4.0, 5.0, 7.0, offset=(1.0, 2.0, 3.0)
     )
-    assert float(mx) == pytest.approx(7.0)
-    assert float(my) == pytest.approx(26.0)
-    assert float(mz) == pytest.approx(27.0)
+    assert float(mx) == 9.0
+    assert float(my) == 25.0
+    assert float(mz) == 27.0
 
 
 def test_shift_moment_reference_spanwise_leaves_my_equal():
@@ -276,14 +284,15 @@ def test_shift_moment_reference_spanwise_leaves_my_equal():
     np.testing.assert_allclose(sz, m - a * fx, rtol=1e-15)
 
 
-def test_shift_moment_reference_nonfinite_force_breaks_my_invariance():
+def test_shift_moment_reference_nonfinite_fx_or_fz_breaks_my_invariance():
     """A non-finite ``Fx``/``Fz`` contaminates ``M_y``, because ``0.0 * NaN = NaN``.
 
-    The invariance holds only for finite forces; the shift must NOT special-case the
-    y component to preserve it.
+    The shift must NOT special-case the y component to preserve the invariance.
 
-    Spec scenario: A non-finite force contaminates all three components.
+    Spec scenario: A non-finite Fx or Fz breaks the M_y invariance.
     """
+    # np.errstate: 0.0 * inf raises numpy's `invalid` flag. The NaN case does not --
+    # only the inf case needs suppressing, but both calls are wrapped for symmetry.
     with np.errstate(invalid="ignore"):
         _, sy_nan, _ = shift_moment_reference(
             1.0, 1.0, 1.0, np.nan, 0.0, 0.0, offset=(0.0, 1.5, 0.0)
@@ -293,6 +302,54 @@ def test_shift_moment_reference_nonfinite_force_breaks_my_invariance():
         )
     assert np.isnan(sy_nan)
     assert np.isnan(sy_inf)
+
+
+def test_shift_moment_reference_nonfinite_fy_leaves_my_invariant():
+    """A non-finite ``Fy`` does NOT break the ``M_y`` invariance.
+
+    Only ``Fx`` and ``Fz`` enter ``cross_y = d_z*F_x - d_x*F_z``; ``Fy`` never does.
+    So the invariance is conditional on those two specifically, not on "finite forces"
+    generally -- and no single non-finite component contaminates all three outputs.
+
+    Spec scenario: A non-finite Fx or Fz breaks the M_y invariance.
+    """
+    d = (0.0, 1.5, 0.0)
+    with np.errstate(invalid="ignore"):
+        sx, sy, sz = shift_moment_reference(7.0, 7.0, 7.0, 2.0, np.inf, 3.0, offset=d)
+    assert float(sy) == 7.0  # exactly invariant despite a non-finite force
+    assert np.isnan(sx) and np.isnan(sz)  # the other two are contaminated
+
+    # Each non-finite force component contaminates exactly two outputs, never three.
+    for force, expect_finite in [
+        ((np.nan, 2.0, 3.0), 0),  # Fx  -> Mx survives
+        ((2.0, np.nan, 3.0), 1),  # Fy  -> My survives
+        ((2.0, 3.0, np.nan), 2),  # Fz  -> Mz survives
+    ]:
+        with np.errstate(invalid="ignore"):
+            out = shift_moment_reference(1.0, 1.0, 1.0, *force, offset=d)
+        finite = [i for i, v in enumerate(out) if np.isfinite(v)]
+        assert finite == [expect_finite], f"{force} -> finite at {finite}"
+
+
+def test_shift_moment_reference_nonfinite_moments_propagate_unmasked():
+    """A non-finite moment passes through; the helper never repairs its inputs.
+
+    Guards against a ``nan_to_num`` creeping in: with finite forces the cross terms are
+    finite, so only the moment's own corruption can reach the output.
+
+    Spec scenario: Non-finite moments propagate unmasked.
+    """
+    sx, sy, sz = shift_moment_reference(
+        np.nan, np.inf, 1.0, 2.0, 3.0, 4.0, offset=(0.0, 1.5, 0.0)
+    )
+    assert np.isnan(sx)
+    assert np.isinf(sy)
+    assert np.isfinite(sz)
+
+    m = np.array([np.nan, 1.0])
+    f = np.array([2.0, 2.0])
+    ax, _, _ = shift_moment_reference(m, m, m, f, f, f, offset=(0.0, 1.5, 0.0))
+    assert np.isnan(ax[0]) and np.isfinite(ax[1])
 
 
 def test_shift_moment_reference_zero_offset_is_computed_not_short_circuited():
@@ -324,43 +381,90 @@ def test_shift_moment_reference_zero_offset_finite_compares_equal():
 def test_shift_moment_reference_empty_and_mismatched_shapes():
     """Empty -> empty without error; mismatched M/F shapes raise ``ValueError``.
 
+    Covers three mismatch topologies, not just the easy one: across the two triples,
+    **within** the moments, and **within** the forces. The intra-group cases are the
+    actual broadcasting hazard -- a ragged ``my`` against ``mx`` is what would pair a
+    force with the wrong moment row.
+
     Spec scenario: Degenerate shift inputs.
     """
     e = np.array([])
     sx, sy, sz = shift_moment_reference(e, e, e, e, e, e, offset=(0.0, 1.5, 0.0))
     assert sx.shape == (0,) and sy.shape == (0,) and sz.shape == (0,)
 
-    with pytest.raises(ValueError):
-        shift_moment_reference(
-            np.array([1.0, 2.0]),
-            np.array([1.0, 2.0]),
-            np.array([1.0, 2.0]),
-            np.array([1.0]),
-            np.array([1.0]),
-            np.array([1.0]),
-            offset=(0.0, 1.5, 0.0),
-        )
+    two = np.array([1.0, 2.0])
+    one = np.array([1.0])
+    mismatches = [
+        # (mx, my, mz, fx, fy, fz) -- across groups, within moments, within forces
+        (two, two, two, one, one, one),
+        (two, one, two, two, two, two),
+        (two, two, two, two, one, two),
+    ]
+    for args in mismatches:
+        with pytest.raises(ValueError):
+            shift_moment_reference(*args, offset=(0.0, 1.5, 0.0))
 
 
 def test_shift_moment_reference_rejects_malformed_offset():
-    """An offset that is not three finite components is rejected.
+    """An offset that is not exactly three finite components is rejected.
 
-    A NaN offset would silently NaN every moment; a wrong-length offset is a caller bug.
+    A NaN offset would silently NaN every moment; a wrong-shaped offset is a caller bug.
+    The ``(3,1)`` and ``(1,3)`` cases pin that the guard is on **shape**, not element
+    count -- a ``d.size == 3`` check would accept both and then broadcast or IndexError.
+
+    Spec scenario: A malformed offset is rejected.
     """
-    with pytest.raises(ValueError):
-        shift_moment_reference(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, offset=(0.0, 1.5))
-    with pytest.raises(ValueError):
-        shift_moment_reference(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, offset=(0.0, np.nan, 0.0))
+    bad_offsets = [
+        (0.0, 1.5),  # too few
+        (0.0, 1.5, 0.0, 0.0),  # too many
+        0.0,  # scalar
+        np.array([[0.0], [1.5], [0.0]]),  # (3,1) -- right size, wrong shape
+        np.array([[0.0, 1.5, 0.0]]),  # (1,3) -- right size, wrong shape
+        (0.0, np.nan, 0.0),  # non-finite
+        (0.0, np.inf, 0.0),
+    ]
+    for bad in bad_offsets:
+        with pytest.raises(ValueError):
+            shift_moment_reference(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, offset=bad)
 
 
 def test_moment_coefficients_docstring_names_the_hinge():
     """``MomentCoefficients`` documents the reference point, not "the body center".
+
+    NOTE on assertion choice: a bare ``"lab" in doc`` would be **unfailable** -- the
+    pre-change docstring already said "carried in the lab frame". The discriminating
+    claim this change adds is the *disclaimer* that the axes are not rotated, so these
+    are not van Veen wing-frame moments. Assert that instead.
 
     Spec scenario: Reference point is named, not implied.
     """
     doc = MomentCoefficients.__doc__ or ""
     low = doc.lower()
     assert "hinge" in low
-    assert "body center" not in low
+    assert "about the body center" not in low
     assert "docs/coordinate-convention.md" in doc
-    assert "lab" in low  # axes remain lab axes; only the origin moves
+    # The substantive new claim: origin moves, axes do not.
+    assert "wing frame" in low or "wing-frame" in low
+    assert "r(t)" in low
+
+
+def test_moment_coefficients_docstring_flags_the_shift_as_not_yet_applied():
+    """The docstring must not describe the hinge reference as current behaviour.
+
+    Until extraction applies the parallel-axis shift, ``dataset.py`` still emits
+    particle-origin coefficients and both committed corpora satisfy
+    ``CF_mx == Mx / m_ref``. A docstring asserting the hinge reference in the present
+    tense would be false for every value the repo has produced -- which is the exact
+    defect (docs ahead of the pipeline) that issue #108 exists to correct.
+
+    Remove this test in the increment that wires the shift into extraction.
+
+    Spec scenario: Documentation does not assert a reference point the pipeline does
+    not yet produce.
+    """
+    doc = MomentCoefficients.__doc__ or ""
+    low = doc.lower()
+    assert "not yet applied" in low, (
+        "the pending-status marker is missing; while the extractor still emits "
+        "particle-origin coefficients the docstring must say so"
+    )

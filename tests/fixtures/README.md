@@ -5,7 +5,8 @@ AMReX plotfiles** (roadmap CC-2).
 
 - `synthetic_ib_particle.csv` — **synthetic, not a real simulation run.** Mirrors the real
   IAMReX IB-particle CSV schema (29 columns, identical order). All columns are zero except the
-  body center (`X,Y,Z = 4,2,4`), the forces `Fx,Fy,Fz`, and the moments `Mx,My,Mz` — both of
+  moment origin (`X,Y,Z = 4,2,4` — IAMReX's `kernel.location`, the wing's mid-span point, **not**
+  the hinge at `y = 0.5`), the forces `Fx,Fy,Fz`, and the moments `Mx,My,Mz` — both of
   which are exact multiples of a round reference (`F_ref = M_ref = 100.0`) so force and moment
   coefficients are exact decimals. Load name-based (never positional).
 - `micro_sweep.json` — a 2-config kinematic micro-sweep (stroke/frequency/pitch); consumed by
