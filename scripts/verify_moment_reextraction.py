@@ -336,7 +336,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"  run_metadata.json   sha256 {_sha256(new_md)}")
     print(f"raw Fx..Mz digest: baseline {raw_force_digest(baseline)}")
     print(f"                   new      {raw_force_digest(new)}")
-    print(f"deck offsets: {sorted({tuple(d) for d in offsets.values()})}")
+    distinct = sorted({tuple(d.tolist()) for d in offsets.values()})
+    print(f"deck offsets (particle - hinge): {distinct} across {len(offsets)} configs")
 
     checks = compare_frames(baseline, new, offsets)
     checks += compare_metadata(baseline_meta, new_meta, offsets)
