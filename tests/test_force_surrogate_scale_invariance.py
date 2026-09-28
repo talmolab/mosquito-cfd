@@ -122,6 +122,45 @@ def test_committed_corpus_cf_is_van_veen_consistent():
     )
 
 
+# The fine corpus's equivalent of _FROZEN_RAW_FORCE_SHA (same hash recipe), minted from the
+# committed examples/prelim_sweep_fine/dataset.parquet BEFORE fix-moment-reference-hinge
+# re-extracted it, in a commit touching no parquet -- a digest minted from the regenerated
+# file could not tell it apart from the old one and would launder raw-column corruption.
+# Row counts cannot do this job: both corpora have identical per-config max_step maps
+# (109,656 rows each), so only these two digests distinguish a swapped --input-dir.
+# A trip during a corpus re-extraction is a HALT, not a re-pin: the pandas-upgrade re-pin
+# allowance above does not extend to a change that rewrites the parquet.
+_FROZEN_FINE_RAW_FORCE_SHA = (
+    "2666301934a30dd378ec3594709d3ed9f0e464398ec8515c4b47ac3d84e846e4"
+)
+
+
+@pytest.mark.parametrize(
+    ("corpus", "expected"),
+    [
+        ("examples/prelim_sweep", _FROZEN_RAW_FORCE_SHA),
+        ("examples/prelim_sweep_fine", _FROZEN_FINE_RAW_FORCE_SHA),
+    ],
+)
+def test_committed_corpus_raw_forces_are_frozen(corpus, expected):
+    """Each corpus's raw Fx..Mz columns hash to their pinned digest, and the two differ.
+
+    Scenario: A reference-point change ... the raw Fx..Mz columns remain exactly equal to the
+    committed corpus.
+    """
+    import hashlib
+
+    assert _FROZEN_RAW_FORCE_SHA != _FROZEN_FINE_RAW_FORCE_SHA
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    raw = df[["Fx", "Fy", "Fz", "Mx", "My", "Mz"]]
+    raw_sha = hashlib.sha256(
+        pd.util.hash_pandas_object(raw, index=False).values.tobytes()
+    ).hexdigest()
+    assert raw_sha == expected, (
+        f"{corpus}: raw CFD forces changed — they must stay frozen"
+    )
+
+
 def test_degenerate_renormalization_is_rejected():
     """A zero new reference (k undefined) or a missing column is rejected, not inf/NaN.
 
