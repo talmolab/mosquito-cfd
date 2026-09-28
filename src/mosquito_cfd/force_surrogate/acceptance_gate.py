@@ -64,7 +64,12 @@ def run_acceptance_gate(
     failures: list[str] = []
 
     try:
-        df, dropped, _ = build_dataset(manifest_path, csv_paths, allow_missing=True)
+        df, dropped, _ = build_dataset(
+            manifest_path,
+            csv_paths,
+            allow_missing=True,
+            run_metadata_paths=run_metadata_paths,
+        )
     except ConfigExtractionError as exc:
         # The extractor rejected a config's own inputs (no locatable deck, no finite hinge,
         # a deck changed since its run, absent/moving/non-finite X,Y,Z). Nothing downstream

@@ -90,10 +90,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     df, dropped, provenance = build_dataset(
         args.manifest, csv_paths, allow_missing=args.allow_missing
     )
-    write_dataset(df, args.out, args.units)
-
     # The moment frame and the consumed inputs come from what build_dataset applied and
-    # read, not re-derived here, so the record cannot drift from the parquet.
+    # read, not re-derived here, so the record cannot drift from the parquet. Captured
+    # BEFORE writing anything: the git state then describes the tree extraction ran from
+    # rather than one its own output already dirtied, and a provenance failure leaves no
+    # new parquet beside stale metadata.
     metadata = build_run_metadata(
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
@@ -103,6 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             provenance, input_dir=args.input_dir, csv_name=args.csv_name
         ),
     )
+    write_dataset(df, args.out, args.units)
     args.metadata.parent.mkdir(parents=True, exist_ok=True)
     with open(args.metadata, "w", encoding="utf-8", newline="") as handle:
         json.dump(metadata, handle, indent=2, ensure_ascii=False)

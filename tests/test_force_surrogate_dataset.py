@@ -782,7 +782,7 @@ def test_config_whose_deck_does_not_exist_raises_naming_resolved_path(tmp_path):
     ids=["missing-hinge_y", "nan-hinge_y", "inf-hinge_x"],
 )
 def test_deck_without_finite_hinge_raises_naming_config_and_deck(tmp_path, deck_text):
-    """No silent fallback to the particle origin (that would reinstate mid-span moments).
+    """No silent fallback to the particle origin (that would reinstate particle-origin moments).
 
     `read_deck_value` names neither config nor deck, so extraction must wrap it.
     Spec: A deck without a declared hinge is rejected.
@@ -831,7 +831,8 @@ def test_moving_origin_rejected_under_exact_equality(tmp_path, column):
     [[4.0, np.nan, 4.0, 4.0, 4.0], [np.nan] * 5, [np.inf] * 5],
     ids=["one-nan", "all-nan", "all-inf"],
 )
-def test_non_finite_origin_rejected(tmp_path, values):
+@pytest.mark.parametrize("column", ["X", "Y", "Z"])
+def test_non_finite_origin_rejected(tmp_path, values, column):
     """The hazard is pandas: `Series([4, nan, 4]).max() - .min() == 0` and `.nunique() == 1`
     both PASS a naive constancy check. Finiteness must be asserted explicitly.
 
@@ -843,8 +844,8 @@ def test_non_finite_origin_rejected(tmp_path, values):
 
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    csv = _csv_with(tmp_path, "nan_origin.csv", X=values)
-    with pytest.raises(ValueError, match=rf"{cfg['name']}.*finite"):
+    csv = _csv_with(tmp_path, "nan_origin.csv", **{column: values})
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*finite.*'{column}'"):
         build_dataset(manifest, {cfg["name"]: csv})
 
 
@@ -1029,6 +1030,8 @@ def test_deck_is_reconciled_against_the_runs_recorded_deck_sha256(tmp_path):
     with pytest.raises(ValueError, match=rf"{cfg['name']}.*deck_sha256") as excinfo:
         build_dataset(manifest, {cfg["name"]: FIXTURE})
     assert str(deck) in str(excinfo.value)
+    # Both hashes, so the operator can tell which side moved.
+    assert good in str(excinfo.value) and "0" * 64 in str(excinfo.value)
 
 
 def test_run_metadata_without_deck_sha256_is_recorded_as_unverified(tmp_path):
@@ -1064,3 +1067,91 @@ def test_build_run_metadata_passes_extra_through_top_level():
                 dropped_configs=[],
                 extra={key: "clobber"},
             )
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 on PR #118: every per-config input defect is a ConfigExtractionError that
+# names the config, so the acceptance gate reports it instead of tracebacking.
+# ---------------------------------------------------------------------------
+
+
+def test_non_utf8_deck_is_a_named_extraction_error(tmp_path):
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    deck = tmp_path / "inputs" / "latin1_deck"
+    deck.parent.mkdir()
+    deck.write_bytes(b"# caf\xe9\nparticle_inputs.hinge_x = 4.0\n")
+    cfg = {**_validated_point_config(), "input_file": "inputs/latin1_deck"}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    with pytest.raises(ConfigExtractionError, match=cfg["name"]) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(deck) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", '"text"', "3"])
+def test_non_object_run_metadata_is_a_named_extraction_error(tmp_path, payload):
+    """A per-config run_metadata that parses to a non-object raised a bare AttributeError."""
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    meta = manifest.parent / f"run_metadata_{cfg['name']}.json"
+    meta.write_text(payload, encoding="utf-8")
+    with pytest.raises(ConfigExtractionError, match=cfg["name"]) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(meta) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("column", ["X", "Y", "Z"])
+def test_non_numeric_origin_is_a_named_extraction_error(tmp_path, column):
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    csv = _csv_with(tmp_path, "text_origin.csv", **{column: "abc"})
+    with pytest.raises(ConfigExtractionError, match=rf"{cfg['name']}.*'{column}'"):
+        build_dataset(manifest, {cfg["name"]: csv})
+
+
+def test_recorded_deck_sha256_matches_case_insensitively(tmp_path):
+    """Uppercase hex is the same hash; a non-string record is an error, not a mismatch."""
+    import hashlib
+
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    deck = tmp_path / "inputs" / f"deck_{cfg['name']}"
+    good = hashlib.sha256(deck.read_bytes()).hexdigest()
+
+    _write_config_run_metadata(manifest, cfg["name"], good.upper())
+    _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] is not None
+
+    (manifest.parent / f"run_metadata_{cfg['name']}.json").write_text(
+        json.dumps({"deck_sha256": 12345}), encoding="utf-8"
+    )
+    with pytest.raises(ConfigExtractionError, match="deck_sha256"):
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+
+
+def test_explicit_run_metadata_paths_are_used_for_the_deck_check(tmp_path):
+    """The acceptance gate takes an explicit run_metadata_paths mapping. The deck check must
+    use the same files, not assume they sit beside the manifest, or a mismatch elsewhere is
+    silently recorded as "unverified"."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    elsewhere = tmp_path / "metadata_elsewhere"
+    elsewhere.mkdir()
+    stale = elsewhere / f"run_metadata_{cfg['name']}.json"
+    stale.write_text(json.dumps({"deck_sha256": "0" * 64}), encoding="utf-8")
+
+    # Beside-the-manifest convention: nothing there, so no anchor.
+    _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] is None
+
+    # Explicit mapping: the stale hash is found and rejected.
+    with pytest.raises(ValueError, match="deck_sha256"):
+        build_dataset(
+            manifest, {cfg["name"]: FIXTURE}, run_metadata_paths={cfg["name"]: stale}
+        )

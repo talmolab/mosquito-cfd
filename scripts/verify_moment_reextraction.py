@@ -30,6 +30,14 @@ Run from anywhere inside the repository, e.g.::
 
     uv run python scripts/verify_moment_reextraction.py --corpus examples/prelim_sweep_fine \
         --zero-offset-control --input-dir Z:/.../runs
+
+It supports only purely spanwise offsets (``d_x = d_z = 0``, true of every committed deck),
+because only then is ``CF_my`` exactly unchanged; any other offset fails the gate outright.
+
+The default ``--baseline-ref HEAD`` is right only BEFORE the regenerated corpus is committed.
+Re-verifying afterwards needs ``--baseline-ref`` set to the last commit with particle-origin
+moments (for #108, ``fea817a``, PR1's merge commit on ``main``). Compared against itself, a
+corpus fails the "changed" check by design.
 """
 
 from __future__ import annotations
@@ -54,6 +62,9 @@ from mosquito_cfd.force_surrogate.dataset import DATASET_COLUMNS
 from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
 
 _CHANGED = ("CF_mx", "CF_mz")
+# CF_mx/CF_mz must move by clearly more than float noise to count as "changed"; every other
+# comparison in this gate is exact.
+_CHANGED_RTOL, _CHANGED_ATOL = 1e-9, 1e-12
 _RAW = ["Fx", "Fy", "Fz", "Mx", "My", "Mz"]
 
 
@@ -67,13 +78,21 @@ class Check:
 
 
 def _git(repo: Path, *args: str) -> bytes:
-    return subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, check=True
-    ).stdout
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=repo, capture_output=True, check=True
+        ).stdout
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"git {' '.join(args)} failed in {repo}: "
+            f"{exc.stderr.decode(errors='replace').strip()}"
+        ) from exc
 
 
 def _repo_root(path: Path) -> Path:
-    return Path(_git(path, "rev-parse", "--show-toplevel").decode().strip())
+    # Resolved like the corpus path, so a junction or mapped drive cannot make
+    # relative_to() compare two spellings of the same directory.
+    return Path(_git(path, "rev-parse", "--show-toplevel").decode().strip()).resolve()
 
 
 def git_show_to_temp(
@@ -137,6 +156,16 @@ def compare_frames(
     baseline: pd.DataFrame, new: pd.DataFrame, offsets: Mapping[str, np.ndarray]
 ) -> list[Check]:
     """Frame-level checks of a hinge re-extraction against its pre-change baseline."""
+    non_spanwise = sorted(n for n, d in offsets.items() if d[0] != 0 or d[2] != 0)
+    if non_spanwise:
+        return [
+            Check(
+                "offsets are spanwise (d_x = d_z = 0)",
+                False,
+                f"{non_spanwise}: this gate treats CF_my as exactly unchanged, which "
+                "holds only for d_x = d_z = 0",
+            )
+        ]
     checks = []
     schema_ok = list(new.columns) == DATASET_COLUMNS == list(baseline.columns)
     dtypes_ok = schema_ok and new.dtypes.to_dict() == baseline.dtypes.to_dict()
@@ -171,7 +200,10 @@ def compare_frames(
     moved = []
     for name, sub in new.groupby("config_name"):
         old = baseline.loc[sub.index]
-        if any(np.allclose(sub[c], old[c], rtol=1e-9, atol=1e-12) for c in _CHANGED):
+        if any(
+            np.allclose(sub[c], old[c], rtol=_CHANGED_RTOL, atol=_CHANGED_ATOL)
+            for c in _CHANGED
+        ):
             moved.append(name)
     checks.append(
         Check(
@@ -262,24 +294,40 @@ def _shift_forced_to_zero():
 
 def build_with_zero_offset(
     manifest: Path, input_dir: Path, csv_name: str
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, dict]:
     """The rewired extractor over the raw CSVs, with only the shift disabled.
 
     Deck resolution, the ``X,Y,Z`` read and its guards, the ``iStep`` dedup, column order and
     dtypes all run for real. Round-tripped through parquet so dtypes match a committed file.
+    Also returns the build's per-config provenance (including each CSV's sha256).
     """
     csv_paths = {
         c["name"]: input_dir / c["name"] / csv_name
         for c in load_manifest_configs(manifest)
     }
     with _shift_forced_to_zero():
-        frame, dropped, _ = dataset_module.build_dataset(manifest, csv_paths)
+        frame, dropped, provenance = dataset_module.build_dataset(manifest, csv_paths)
     if dropped:
         raise ValueError(f"zero-offset control dropped configs {dropped}")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "zero_offset.parquet"
         frame.to_parquet(path, index=False)
-        return pd.read_parquet(path)
+        return pd.read_parquet(path), provenance
+
+
+def compare_csv_hashes(new_meta: Mapping, provenance: Mapping) -> list[Check]:
+    """The recorded ``csv_sha256`` must be the bytes on disk now, not just present."""
+    recorded = (new_meta.get("extraction_inputs") or {}).get("csv_sha256") or {}
+    actual = {name: record["csv_sha256"] for name, record in provenance.items()}
+    names = actual.keys() | recorded.keys()
+    bad = sorted(n for n in names if recorded.get(n) != actual.get(n))
+    return [
+        Check(
+            "recorded CSV hashes match the raw CSVs",
+            not bad,
+            f"mismatch in {bad}" if bad else f"{len(actual)} CSVs re-hashed",
+        )
+    ]
 
 
 def compare_zero_offset(baseline: pd.DataFrame, zero: pd.DataFrame) -> list[Check]:
@@ -342,10 +390,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     checks = compare_frames(baseline, new, offsets)
     checks += compare_metadata(baseline_meta, new_meta, offsets)
     if args.zero_offset_control:
-        zero = build_with_zero_offset(
+        zero, zero_provenance = build_with_zero_offset(
             corpus / "sweep_manifest.json", args.input_dir, args.csv_name
         )
         checks += compare_zero_offset(baseline, zero)
+        checks += compare_csv_hashes(new_meta, zero_provenance)
 
     print()
     for check in checks:

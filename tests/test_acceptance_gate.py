@@ -555,3 +555,27 @@ def test_extraction_errors_become_gate_failures_not_tracebacks(
     assert any(c["config_name"] in f and expected in f for f in result.failures), (
         result.failures
     )
+
+
+def test_gate_reconciles_decks_against_its_own_run_metadata_paths(tmp_path):
+    """The deck-hash check must read the metadata files the gate was given, not assume they
+    sit beside the manifest. Otherwise metadata stored elsewhere silently leaves every deck
+    "unverified" and an edited deck passes the gate."""
+    c = _make_corpus(tmp_path)
+    elsewhere = tmp_path / "metadata_elsewhere"
+    elsewhere.mkdir()
+    moved = elsewhere / c["run_metadata_paths"][c["config_name"]].name
+    c["run_metadata_paths"][c["config_name"]].rename(moved)
+    moved.write_text(
+        json.dumps({"interior_dt_below_nominal": False, "deck_sha256": "0" * 64}),
+        encoding="utf-8",
+    )
+
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths={c["config_name"]: moved},
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert any("deck_sha256" in f and c["config_name"] in f for f in result.failures)

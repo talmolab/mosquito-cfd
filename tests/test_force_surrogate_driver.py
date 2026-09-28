@@ -169,6 +169,7 @@ def test_driver_records_moment_reference_and_extraction_inputs(tmp_path):
     assert ref["axes"] == "lab"
     assert ref["offset"] == "r_origin - r_hinge"
     assert ref["raw_moments_about"] == "particle_origin"
+    assert ref["applies_to"] == ["CF_mx", "CF_my", "CF_mz"]
     assert set(ref["configs"]) == {"a", "b"}
     for name in ("a", "b"):
         record = ref["configs"][name]
@@ -176,10 +177,14 @@ def test_driver_records_moment_reference_and_extraction_inputs(tmp_path):
         assert record["origin"] == [4.0, 2.0, 4.0]
         assert record["hinge"] == [4.0, 0.5, 4.0]
         assert record["deck"] == f"inputs/inputs.3d.{name}"
+        deck = tmp_path / "inputs" / f"inputs.3d.{name}"
+        assert record["deck_sha256"] == hashlib.sha256(deck.read_bytes()).hexdigest()
+        assert record["deck_sha256_verified_against"] is None  # no per-config metadata
         assert "csv_sha256" not in record  # lives under extraction_inputs, once
 
     inputs = meta["extraction_inputs"]
-    assert inputs["input_dir"] == str(input_dir.resolve())
+    # As given, not resolved: resolving a mapped drive records a machine-specific UNC path.
+    assert inputs["input_dir"] == input_dir.as_posix()
     assert inputs["csv_name"] == "IB_Particle_1.csv"
     # Hash of the bytes on disk that were consumed (write_text may have translated EOLs).
     assert inputs["csv_sha256"] == {
@@ -214,3 +219,25 @@ def test_driver_records_no_extraction_inputs_for_a_dropped_config(tmp_path):
     meta = json.loads(metadata.read_text(encoding="utf-8"))
     assert set(meta["moment_reference"]["configs"]) == {"a"}
     assert set(meta["extraction_inputs"]["csv_sha256"]) == {"a"}
+
+
+def test_driver_writes_nothing_when_provenance_fails(tmp_path):
+    """Metadata is captured BEFORE any output is written. So git state is recorded on the
+    tree the extraction ran from (not one its own parquet already dirtied), and a
+    provenance failure cannot leave a new parquet next to stale metadata."""
+    manifest, input_dir = _make_run_tree(tmp_path, ["a"])
+    out = tmp_path / "dataset.parquet"
+    with pytest.raises(ValueError):
+        _load_driver().main(
+            [
+                "--manifest", str(manifest),
+                "--input-dir", str(input_dir),
+                "--out", str(out),
+                "--units", str(tmp_path / "u.json"),
+                "--metadata", str(tmp_path / "m.json"),
+                "--docker-digest", "ghcr.io/talmolab/mosquito-cfd:latest",
+                "--timestamp", TS,
+            ]
+        )  # fmt: skip
+    assert not out.exists()
+    assert not (tmp_path / "u.json").exists()

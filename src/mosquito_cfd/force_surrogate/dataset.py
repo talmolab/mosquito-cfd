@@ -107,6 +107,7 @@ _REQUIRED_CONFIG_KEYS = frozenset(
     }
 )
 # X,Y,Z are the moment origin IAMReX wrote (kernel.location); the shift needs them.
+# fmt: skip keeps the tuple on one line, in the CSV header's own column order.
 _REQUIRED_CSV_COLUMNS = (
     "iStep", "time", "X", "Y", "Z", "Fx", "Fy", "Fz", "Mx", "My", "Mz",
 )  # fmt: skip
@@ -209,9 +210,10 @@ def _resolve_deck(config: Mapping, manifest_dir: Path) -> tuple[str, Path]:
     return input_file, deck_path
 
 
-def _read_hinge(name: str, deck_path: Path, deck_text: str) -> np.ndarray:
+def _read_hinge(name: str, deck_path: Path, deck_bytes: bytes) -> np.ndarray:
     """Read the deck's declared pivot, naming the config and deck on any failure."""
     try:
+        deck_text = deck_bytes.decode("utf-8")
         return np.array(
             [
                 read_deck_value(deck_text, f"particle_inputs.hinge_{axis}")
@@ -219,16 +221,16 @@ def _read_hinge(name: str, deck_path: Path, deck_text: str) -> np.ndarray:
             ],
             dtype=float,
         )
-    except ValueError as exc:
+    except ValueError as exc:  # UnicodeDecodeError is a ValueError subclass
         raise ConfigExtractionError(
             f"deck for config {name!r} at {deck_path} has no usable moment reference "
             f"point: {exc}. Refusing to fall back to the particle origin, which would "
-            "silently reinstate particle-origin (mid-span) moments."
+            "silently reinstate particle-origin moments."
         ) from exc
 
 
 def _verify_deck_sha256(
-    name: str, deck_path: Path, deck_sha256: str, manifest_dir: Path
+    name: str, deck_path: Path, deck_sha256: str, metadata_path: Path | None
 ) -> str | None:
     """Reconcile the deck against the ``deck_sha256`` its run recorded, if it recorded one.
 
@@ -237,15 +239,23 @@ def _verify_deck_sha256(
     the anchoring metadata file's name, or ``None`` when there is no anchor (no per-config
     run metadata, or one without ``deck_sha256`` -- the coarse corpus's known limitation).
     """
-    metadata_path = manifest_dir / f"run_metadata_{name}.json"
-    if not metadata_path.is_file():
+    if metadata_path is None or not metadata_path.is_file():
         return None
-    recorded = load_json_clear_error(metadata_path, label="run_metadata file").get(
-        "deck_sha256"
-    )
+    metadata = load_json_clear_error(metadata_path, label="run_metadata file")
+    if not isinstance(metadata, Mapping):
+        raise ConfigExtractionError(
+            f"run metadata for config {name!r} at {metadata_path} is a JSON "
+            f"{type(metadata).__name__}, not an object"
+        )
+    recorded = metadata.get("deck_sha256")
     if recorded is None:
         return None
-    if recorded != deck_sha256:
+    if not isinstance(recorded, str):
+        raise ConfigExtractionError(
+            f"run metadata for config {name!r} at {metadata_path} records a non-string "
+            f"deck_sha256 {recorded!r}"
+        )
+    if recorded.lower() != deck_sha256:
         raise ConfigExtractionError(
             f"deck for config {name!r} at {deck_path} has sha256 {deck_sha256}, but its run "
             f"recorded deck_sha256 {recorded} in {metadata_path}: the deck changed after the "
@@ -263,7 +273,13 @@ def _moment_origin(name: str, csv_path: Path, raw: pd.DataFrame) -> np.ndarray |
         return None
     origin = []
     for axis in ("X", "Y", "Z"):
-        values = raw[axis].to_numpy(dtype=float)
+        try:
+            values = raw[axis].to_numpy(dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ConfigExtractionError(
+                f"IB-particle CSV for config {name!r} at {csv_path} has a non-numeric "
+                f"moment origin in column {axis!r}: {exc}"
+            ) from exc
         # Explicit: pandas' max()-min() and nunique() both skip NaN, so a naive constancy
         # check would pass [4, nan, 4].
         if not np.isfinite(values).all():
@@ -274,8 +290,8 @@ def _moment_origin(name: str, csv_path: Path, raw: pd.DataFrame) -> np.ndarray |
         if not (values == values[0]).all():
             raise ConfigExtractionError(
                 f"IB-particle CSV for config {name!r} at {csv_path} has a moment origin that "
-                f"is not constant in column {axis!r} (range {values.min()!r}.."
-                f"{values.max()!r}): the particle moved, so no single parallel-axis shift "
+                f"is not constant in column {axis!r} (range {float(values.min())!r}.."
+                f"{float(values.max())!r}): the particle moved, so no single parallel-axis shift "
                 "describes the run"
             )
         origin.append(values[0])
@@ -283,7 +299,7 @@ def _moment_origin(name: str, csv_path: Path, raw: pd.DataFrame) -> np.ndarray |
 
 
 def _extract_config(
-    config: Mapping, csv_path: Path, manifest_dir: Path
+    config: Mapping, csv_path: Path, manifest_dir: Path, metadata_path: Path | None
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Build the per-config rows from one IB-particle CSV (name-based, normalized).
 
@@ -293,8 +309,8 @@ def _extract_config(
     input_file, deck_path = _resolve_deck(config, manifest_dir)
     deck_bytes = deck_path.read_bytes()
     deck_sha256 = hashlib.sha256(deck_bytes).hexdigest()
-    verified_against = _verify_deck_sha256(name, deck_path, deck_sha256, manifest_dir)
-    hinge = _read_hinge(name, deck_path, deck_bytes.decode("utf-8"))
+    verified_against = _verify_deck_sha256(name, deck_path, deck_sha256, metadata_path)
+    hinge = _read_hinge(name, deck_path, deck_bytes)
 
     # Hash and parse the SAME bytes, so the recorded hash is of what was consumed.
     csv_bytes = Path(csv_path).read_bytes()
@@ -456,6 +472,7 @@ def build_dataset(
     csv_paths: Mapping[str, Path | str],
     *,
     allow_missing: bool = False,
+    run_metadata_paths: Mapping[str, Path | str] | None = None,
 ) -> DatasetBuild:
     """Extract the tidy force-coefficient dataset from per-config IB-particle CSVs.
 
@@ -480,18 +497,32 @@ def build_dataset(
         allow_missing: If ``False`` (default) a missing CSV raises ``ValueError`` naming the
             config. If ``True`` the config is skipped with a logged warning and its name is
             returned in the second element.
+        run_metadata_paths: Optional mapping of config name to its per-config run
+            metadata, whose recorded ``deck_sha256`` the deck is reconciled against. When
+            omitted, ``run_metadata_<name>.json`` beside the manifest is used. A config
+            absent from the mapping, or whose file does not exist, has no anchor and is
+            recorded as unverified.
 
     Returns:
         A :class:`DatasetBuild` ``(frame, dropped, provenance)``.
 
     Raises:
-        ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``; if a
-            config's deck cannot be located, lacks a finite ``particle_inputs.hinge_*``, or
-            no longer matches the ``deck_sha256`` its run recorded; or if a CSV lacks
-            ``X,Y,Z`` or its moment origin is non-finite or not exactly constant.
+        ConfigExtractionError: (a ``ValueError``) if a config's own inputs are unusable:
+            its deck cannot be located or decoded, lacks a finite
+            ``particle_inputs.hinge_*``, or no longer matches the ``deck_sha256`` its run
+            recorded; its run metadata is not a JSON object; or its CSV lacks a required
+            column or has a non-numeric, non-finite or non-constant ``X,Y,Z`` origin.
+        ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``, or on
+            a malformed manifest, run-metadata JSON or ``iStep`` sequence.
     """
     configs = load_manifest_configs(manifest_path)
     manifest_dir = Path(manifest_path).parent
+
+    def metadata_path_for(name: str) -> Path | None:
+        if run_metadata_paths is None:
+            return manifest_dir / f"run_metadata_{name}.json"
+        raw_path = run_metadata_paths.get(name)
+        return Path(raw_path) if raw_path is not None else None
 
     frames: list[pd.DataFrame] = []
     dropped: list[str] = []
@@ -514,7 +545,9 @@ def build_dataset(
                 f"(path={str(path) if path is not None else None!r}); pass allow_missing=True "
                 "to skip missing configs and record them in run metadata."
             )
-        frame, record = _extract_config(config, path, manifest_dir)
+        frame, record = _extract_config(
+            config, path, manifest_dir, metadata_path_for(name)
+        )
         frames.append(frame)
         provenance[name] = record
 
@@ -541,7 +574,10 @@ def moment_reference_provenance(
 
     Args:
         provenance: The per-config records from :func:`build_dataset`.
-        input_dir: The runs directory the CSVs were read from; recorded resolved.
+        input_dir: The runs directory the CSVs were read from. Recorded exactly as given
+            (posix separators), not resolved: resolving a mapped drive yields a
+            machine-specific network path. ``csv_sha256`` is the inputs' identity; the
+            directory is only a locator.
         csv_name: The per-config CSV filename under ``<input_dir>/<config>/``.
 
     Returns:
@@ -566,7 +602,7 @@ def moment_reference_provenance(
             },
         },
         "extraction_inputs": {
-            "input_dir": str(Path(input_dir).resolve()),
+            "input_dir": Path(input_dir).as_posix(),
             "csv_name": csv_name,
             "csv_sha256": {
                 name: record["csv_sha256"] for name, record in provenance.items()

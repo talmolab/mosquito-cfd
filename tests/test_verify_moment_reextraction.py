@@ -8,6 +8,7 @@ cannot pass vacuously when the corpus has not been regenerated.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -200,10 +201,13 @@ def test_deck_offsets_come_from_the_committed_decks():
         assert d.tolist() == [0.0, 1.5, 0.0]
 
 
-def test_gate_against_an_unregenerated_corpus_fails_and_names_its_baseline(capsys):
-    """Run against the real corpus as committed: the working tree equals the baseline, so the
-    gate must FAIL (CF_mx did not change), and its output must print the baseline blob SHA git
-    reports -- the proof of which side it compared against."""
+def test_gate_comparing_a_committed_corpus_to_itself_fails_and_names_its_baseline(
+    capsys,
+):
+    """With the working tree equal to the baseline, the gate compares a corpus to itself.
+    It must FAIL (CF_mx did not change), whatever the corpus's convention, and print the
+    baseline blob SHA git reports -- the proof of which side it compared against. (After
+    merge, re-verifying needs --baseline-ref set to the pre-change commit.)"""
     corpus = "examples/prelim_sweep"
     status = subprocess.run(
         ["git", "status", "--porcelain", "--", corpus],
@@ -248,8 +252,12 @@ def test_zero_offset_control_reproduces_a_pre_change_parquet(tmp_path):
     raw = pd.read_csv(fixture)
     m_ref = compute_moment_reference(1.0, 45.0, R_GYRATION, SPAN, CHORD, RHO).m_ref
     module = _load()
-    frame = module.build_with_zero_offset(
+    frame, provenance = module.build_with_zero_offset(
         manifest, tmp_path / "runs", "IB_Particle_1.csv"
+    )
+    assert (
+        provenance["c"]["csv_sha256"]
+        == hashlib.sha256(fixture.read_bytes()).hexdigest()
     )
     np.testing.assert_array_equal(frame["CF_mx"], raw["Mx"].to_numpy(float) / m_ref)
     np.testing.assert_array_equal(frame["CF_mz"], raw["Mz"].to_numpy(float) / m_ref)
@@ -325,8 +333,11 @@ def test_end_to_end_compares_the_working_tree_against_the_committed_baseline(
     _git_in(repo, "init", "-q")
     _git_in(repo, "add", ".")
     _git_in(
-        repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"
-    )
+        repo,
+        "-c", "user.name=t", "-c", "user.email=t@t",
+        "-c", "commit.gpgsign=false", "-c", "core.hooksPath=",
+        "commit", "-q", "-m", "base",
+    )  # fmt: skip
 
     # Regenerate in the working tree, as extract_forces.py would.
     _corrected(pd.read_parquet(corpus / "dataset.parquet")).to_parquet(
@@ -359,3 +370,39 @@ def test_cf_mz_alone_unshifted_or_wrong_fails():
     flipped_mz["CF_mz"] = _corrected(base, d=-OFFSET)["CF_mz"]
     failed = _failed(module.compare_frames(base, flipped_mz, _offsets(base)))
     assert failed == ["algebraic control (design D11)"]
+
+
+def test_a_non_spanwise_offset_is_refused_rather_than_misjudged():
+    """The gate's unchanged-column set assumes d_x = d_z = 0 (only then is CF_my exactly
+    invariant). Any other offset must fail clearly, not report a misleading column diff."""
+    base = _baseline()
+    d = np.array([0.5, 1.5, 0.0])
+    new = _corrected(base, d=d)
+    failed = _failed(_load().compare_frames(base, new, {n: d for n in _offsets(base)}))
+    assert failed == ["offsets are spanwise (d_x = d_z = 0)"]
+
+
+def test_git_failure_is_reported_with_its_message(tmp_path):
+    """A missing ref or path exits with git's own message, not a bare CalledProcessError."""
+    with pytest.raises(SystemExit, match="no-such-ref"):
+        _load().main(
+            [
+                "--corpus",
+                str(REPO / "examples" / "prelim_sweep"),
+                "--baseline-ref",
+                "no-such-ref",
+            ]
+        )
+
+
+def test_recorded_csv_hashes_are_rechecked_against_the_raw_csvs():
+    """With --zero-offset-control the gate re-reads every CSV, so it can confirm the recorded
+    csv_sha256 values are the bytes actually on disk, not just that a hash key exists."""
+    module = _load()
+    good = {"a": {"csv_sha256": "1" * 64}, "b": {"csv_sha256": "2" * 64}}
+    meta = {"extraction_inputs": {"csv_sha256": {"a": "1" * 64, "b": "2" * 64}}}
+    assert _failed(module.compare_csv_hashes(meta, good)) == []
+    meta["extraction_inputs"]["csv_sha256"]["b"] = "3" * 64
+    assert _failed(module.compare_csv_hashes(meta, good)) == [
+        "recorded CSV hashes match the raw CSVs"
+    ]

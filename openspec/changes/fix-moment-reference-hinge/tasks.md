@@ -263,6 +263,51 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 > **Do not push a corpus regeneration you have not already gated.** Before the push the blobs are
 > unreferenced and `git reset` prunes them for free.
 
+## 6a. PR2 review round 1 (5-reviewer team on #118) — addressed in PR2
+
+32a. [x] **BLOCKING — the PR1 "not yet applied" markers outlived the gap.** Both
+    `docs/coordinate-convention.md` `## Moments` and the `MomentCoefficients` docstring still said
+    the committed corpora satisfy `CF_mx == Mx / m_ref`, which became false once PR2 re-extracted them.
+    The coordinate-convention spec requires the marker to be removed "in the increment that wires
+    the shift into extraction", and this task list had no task for it. Both are removed.
+    **Task-0 exception, recorded:** the two tests pinning the marker,
+    `test_force_surrogate_normalization.py::test_moment_coefficients_docstring_flags_the_shift_as_not_yet_applied`
+    and `test_new_convention_deck_and_docs.py::test_coordinate_convention_doc_flags_the_shift_as_not_yet_applied`,
+    were not on task 0's list. Their own docstrings said to remove them in this increment. Each is
+    inverted to assert the marker is **absent**, which enforces the spec's removal clause. This is
+    not the shift leaking beyond `CF_mx`/`CF_mz`: neither test pins a number.
+32b. [x] `extraction_inputs.input_dir` is recorded as given (posix separators) instead of
+    `Path.resolve()`d. Resolving `Z:` had recorded a machine-specific UNC path naming internal
+    infrastructure. The spec delta is amended accordingly.
+32c. [x] `extract_forces.py` captures provenance **before** writing outputs, so `git` records the
+    tree extraction ran from rather than one its own parquet had already dirtied, and a provenance
+    failure leaves no new parquet. Both corpora are re-extracted from a clean committed tree. The
+    parquet writer was verified byte-deterministic (same sha256 on rewrite), so this adds no blobs.
+32d. [x] `build_dataset(..., run_metadata_paths=)` lets the acceptance gate reconcile decks against
+    the metadata files it was given, instead of silently finding none beside the manifest.
+32e. [x] A non-UTF-8 deck, a run-metadata file that is not a JSON object, a non-string
+    `deck_sha256`, and non-numeric `X,Y,Z` cells now raise `ConfigExtractionError` naming the config
+    and file. Previously they escaped as `UnicodeDecodeError`, `AttributeError` or a bare
+    `ValueError`. `deck_sha256` compares case-insensitively.
+32f. [x] CI guards tightened:
+    - `CF_my` compares **equal** to `My/m_ref` on committed data (D8.2).
+    - A new guard reconciles each committed `run_metadata.json`'s `moment_reference` against the
+      decks and its `docker_image` against the CFD runs' own digest records.
+    - The CoP test is renamed `..._ib_part_arm_...` (D8.6: not the centre of pressure).
+    - "mid-span" wording is removed (D8.5).
+    - The non-finite-origin, hash-message and driver-key assertions cover the gaps mutation found.
+32g. [x] The gate script refuses non-spanwise offsets outright (its unchanged-column set assumes
+    `d_x = d_z = 0`), reports `git` failures with git's message, resolves the repo root before
+    `relative_to`, re-hashes CSVs against the recorded `csv_sha256` under `--zero-offset-control`,
+    and documents that post-merge re-verification needs `--baseline-ref fea817a`.
+32h. [x] `examples/prelim_sweep/README.md` carries a staleness banner for `surrogate/` and
+    `figures/`. A test ties the banner to the actual state: it must be present exactly while
+    `holdout_predictions.parquet`'s `CF_m*_true` disagree with the dataset. PR3's retrain therefore
+    has to remove it. A BREAKING `### Changed` entry is added to `docs/CHANGELOG.md` now (task 45
+    extends it in PR3).
+32i. Deferred to #119: the acceptance gate stops at the first `ConfigExtractionError` instead of
+    enumerating; `input_file`/config-name path escaping; the posix form of `inputs.file`.
+
 ---
 
 # PR 3 — retrain, regenerate the figure, refresh prose
