@@ -1,11 +1,10 @@
 {
-  "run_id": "1681261b-473d-42f0-9d6c-814a49e62134",
-  "timestamp": "2026-08-21T19:23:37Z",
+  "run_id": "bb31ec73-ccba-407b-961c-0458c682db7a",
+  "timestamp": "2026-09-28T22:33:03+00:00",
   "git": {
-    "commit": "7740c70cf6bd79b66552e44b8462ca4583d9f56d",
-    "branch": "fix-hinge-corpus-regen",
-    "dirty": true,
-    "diff_hash": "54056da79a3f",
+    "commit": "7a81c5198d15a9d6a8032a7911e3a18c160329dc",
+    "branch": "fix-moment-reference-hinge-pr2",
+    "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -24,5 +23,592 @@
     "file": "examples\\prelim_sweep\\sweep_manifest.json",
     "hash": "8b6fd56d4d4f637ca756c2f3889f3279bbfd0408cfbf825001447a5324bdf69c"
   },
-  "dropped_configs": []
+  "dropped_configs": [],
+  "moment_reference": {
+    "point": "wing_hinge",
+    "definition": "docs/coordinate-convention.md#moments",
+    "axes": "lab",
+    "offset": "r_origin - r_hinge",
+    "applies_to": [
+      "CF_mx",
+      "CF_my",
+      "CF_mz"
+    ],
+    "raw_moments_about": "particle_origin",
+    "configs": {
+      "s35_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p30",
+        "deck_sha256": "2adcf16409b77142a46710da016333dcbc1a8b4045a06639f97768da50fff630",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p45",
+        "deck_sha256": "84ba338de617bf70f87e9a7f31f3d579432b8d6cfdd84975c64fc452940a5d87",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p60",
+        "deck_sha256": "c5847dc7f10d77f529e34dcd79fa17700c446df33494c082d7d6293f049847bc",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p30",
+        "deck_sha256": "2d8a50a6cfadbbd323e74a31a4d2a6b3616a1e679cc495da71ecc8224086bb01",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p45",
+        "deck_sha256": "14e1e7c1fab8e4cb70f4c5a54072ae23226444d67131b3b96cb404534e104dd0",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p60",
+        "deck_sha256": "63d42d8849f20a28616667d543434623235351d859ce30650b5394d9dfca9905",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p30",
+        "deck_sha256": "c2efb661cd7d9523b219d8c541a17d401c06a23b0431f23104308f2a838a630e",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p45",
+        "deck_sha256": "e705f28f87e1e0facb857b3f55efbc7c2e45fa47a84d692906f8e01d78d532b9",
+        "deck_sha256_verified_against": null
+      },
+      "s35_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p60",
+        "deck_sha256": "0d24bf575706903362b341ca0bb85782aa02c038bf552310cf7f38e2b22d7ad2",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p30",
+        "deck_sha256": "08b787dcd98f481decc3093d18b8fa941cbf5c832b33102e7f12eeb62c508032",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p45",
+        "deck_sha256": "3d1aaff10fee49c0fb0660b04992dfcbe0d9c32cdb125c025d6f223e18dfc40e",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p60",
+        "deck_sha256": "12f19e2be6b1592a5a07bca15314a4a7b0072300732bd27989facee3a8f16442",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p30",
+        "deck_sha256": "1273980ad0d0f1d6d8076d26ab7c9e9c7df7dd50ef42657d3fb5a494d2773668",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p45",
+        "deck_sha256": "739b439c8efe823d804bae863f062d9844dbd71550e33a66effe65e93cec1ade",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p60",
+        "deck_sha256": "2470c097b2399b85a56500b92ec1f4f8c7483aa39fa81b62abf86227fd5b6d8b",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p30",
+        "deck_sha256": "fb91a54d305ad70ad70e834bdf10828382ecbb33ff76e7c235490a9bd244b2ea",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p45",
+        "deck_sha256": "19aa4d8aaa4219738fa82ad2841695dfa97191c4451f2660753e5dc7f8c95258",
+        "deck_sha256_verified_against": null
+      },
+      "s45_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p60",
+        "deck_sha256": "823f1395366c85ff4fb365749578f778c901b7675fecf68d4f46c12785c976c5",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p30",
+        "deck_sha256": "54d3fa80b433ecdcaecebeac56ee31e42080c92d0e202b67f4832bf24774959d",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p45",
+        "deck_sha256": "8a3e38dcc22ca521909f4187a9c295c0f83389436a42b6b5b280a1a6afe9ae0a",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p60",
+        "deck_sha256": "1b18d692fddae1cd3c7c380ce521bac1e8aaf16344b4881bb4e0f226e03b47ef",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p30",
+        "deck_sha256": "386a3c2a7559a0d827b5ba3af99a19e7249d0ae02a54cdd1787a00821c577147",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p45",
+        "deck_sha256": "05e54298e7002511458e1d55f32ff7051155eaa431963c2151b035cdb1d9c6e6",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p60",
+        "deck_sha256": "18a57f7432ad683e28be70a9269b60b6b1d8812e6ffc0fe208b043c4dfa23196",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p30",
+        "deck_sha256": "fc6d150d232ee6482a2b8c22e505fd855f2b272fd0858af9a559cf18fbbaf2f0",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p45",
+        "deck_sha256": "ca40573e3808efe8250f2428a6ad8eafbaa7e9a72df56106ae3a6610b8e09131",
+        "deck_sha256_verified_against": null
+      },
+      "s55_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p60",
+        "deck_sha256": "a41a31e2d61b60253c91a5bb068f81501330b1ec69b1f09a8341256102f3b9f9",
+        "deck_sha256_verified_against": null
+      }
+    }
+  },
+  "extraction_inputs": {
+    "input_dir": "Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep/runs",
+    "csv_name": "IB_Particle_1.csv",
+    "csv_sha256": {
+      "s35_f085_p30": "8e7cf3b8a41408b0de4e413027f475d7ec2211cd37c25519f2e3e862739b78e6",
+      "s35_f085_p45": "0ab3cc37f5f4e1a73c0a44f83805449ab9ccaff35f1e944650c998b6717c1c01",
+      "s35_f085_p60": "d843386967de5a719f6869797adf88c31b820239a20ae2846429dc542f3e2665",
+      "s35_f100_p30": "35feeecae69c4de098cb5e4a1dc4df7e1bee666b2e42f588d554fe67680facc2",
+      "s35_f100_p45": "fd5c8b8270b4d444472e36cfec095abc0d96b9b06230c4a22d2ad20fcd0e7ca1",
+      "s35_f100_p60": "195f538bc5f64cefc65b3f1bdf791864574785a409525de04d99cf55caa7e6c6",
+      "s35_f115_p30": "46b708719594fd6ac67e7a3498bbe6d6128a3330d527ddf186bd78f04ab7cb28",
+      "s35_f115_p45": "03b0117da84fc26b61b5dd69e704bba3ff63aa1388dc693ff21e6eaaaa2e2b12",
+      "s35_f115_p60": "a2b5bbd756dc4cce096fa8d430cff158751b9149e846fc60cf4081de6a4623fd",
+      "s45_f085_p30": "44d568c0f990f450409a154a34bdf48fd4a22da6b1f085ef69dfd43994593d2b",
+      "s45_f085_p45": "43ce9f1703b93de88ccbcbea3a37adafc28adab486ef84de588c77c56f93f321",
+      "s45_f085_p60": "d66ca54f3d8f541d3c1d05c800ec1efa3377783b66628124b350b792d2673094",
+      "s45_f100_p30": "a42962a9cb68611e9d3d1839a5421d0798bd5cffdb92b88e052d847036bb7257",
+      "s45_f100_p45": "be552e4b1762680babe5afe7ab15bf2ca130f942f089e3a55315c9a8eeedfb0a",
+      "s45_f100_p60": "20c46abf8dc21e1c3976d943436d31d284a901ff8c2aaf7b9d8e890a950d4d7d",
+      "s45_f115_p30": "6448a3e0edddc3c1d4c26e65f37578e733f6468c9488aca03fec5e494b82b842",
+      "s45_f115_p45": "c2f39f66015676c71428e4bf431fe21ff85bc4b2c9ecba72ee62b561a47ec42e",
+      "s45_f115_p60": "ecebff1849b5cd1ae75d13e9dc6cae7ab6ab499d41384472875775268b301de1",
+      "s55_f085_p30": "1ca9a5ab5f0e5fa667dfd84886929efe7703b7a7052d4a5d58ca28b335ed915f",
+      "s55_f085_p45": "75ec348ef913ef1a190642b2092ff3c0f290278da6a8115c3883ae41c01e588a",
+      "s55_f085_p60": "30d73c3faecf21c5ba374d55718309ad8909d654203cb02a93e234e02496fb83",
+      "s55_f100_p30": "9ef9057439ec8cacf8819478394f16c481362487b52fe5fc4420813985eab89e",
+      "s55_f100_p45": "6c652aa55f5752bdbe1705c81cf9c917bdf475aa52047b96181111747c7e9b2f",
+      "s55_f100_p60": "852dc9b4c80b8e9fef9c45f2c8352dfde155a16778a4d7fe246b4e6d63d1e72a",
+      "s55_f115_p30": "b7fd1c05e31d82ef0b307abe98ac945004e89379740f2561292347b8f54a721e",
+      "s55_f115_p45": "1fd19ef7cae718a3883391dceba3630a8a9950fc98205d316f0c5ee97219ce00",
+      "s55_f115_p60": "b7be6e0518225ee20fdf6346c4b03f258ee401579efe0f0c578a4d1b2a8924f5"
+    }
+  }
 }

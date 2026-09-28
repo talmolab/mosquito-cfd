@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - T3c local run script `t3c_run_local.sh` for reproducible A5000 re-runs with D6 dt/step overrides (#52)
 
 ### Changed
+- **BREAKING:** moment coefficients `CF_mx/CF_my/CF_mz` are now taken about the deck's declared hinge (`particle_inputs.hinge_*`) instead of the IB particle's own origin. Extraction applies the parallel-axis shift `M + (r_origin − r_hinge) × F` before normalizing, deriving `r_origin` from the CSV's `X,Y,Z` and `r_hinge` from each config's deck, which is located through the manifest's `input_file` and checked against its run's `deck_sha256` when one was recorded.
+  - `build_dataset` now returns `DatasetBuild(frame, dropped, provenance)` rather than `(frame, dropped)`.
+  - Both committed `dataset.parquet` files were re-extracted. Only `CF_mx`/`CF_mz` changed; raw `Fx..Mz`, the force coefficients and `CF_my` are unchanged.
+  - Each corpus's `run_metadata.json` now records `moment_reference` (per-config origin, hinge, offset and deck hash) and `extraction_inputs` (the runs directory and a sha256 per consumed CSV).
+  - The committed coarse `surrogate/` and `figures/` still reflect the old targets until the retrain (issue #108) (#118)
 - `CLAUDE.md` stripped to OpenSpec managed block only — all operational docs (Python/uv commands, RunAI pattern, cluster path mappings) moved to `openspec/project.md` (#52)
 - `benchmarks/METHODS.md` fine-grid column corrected: dt=2.5×10⁻⁴ (D6 fallback), 4000 steps; prose updated to document temporal confound in Richardson analysis (#52)
 - `docs/aerodynamics_validation/roadmap.md`: T3c flipped ⬜ → ✅ with results summary (#52)

@@ -1,5 +1,13 @@
 # Force-surrogate kinematic sweep (`prelim_sweep`)
 
+> ⚠️ **`surrogate/` and `figures/` are stale against `dataset.parquet`.** The dataset was
+> re-extracted with hinge-referenced moment coefficients (OpenSpec change
+> `fix-moment-reference-hinge`, issue #108). The committed surrogate, its metrics and the
+> evidence figure were trained on the earlier particle-origin `CF_mx`/`CF_mz`, and every
+> `CF_mx`/`CF_mz` number quoted below describes those old targets. `CF_my` and the forces are
+> unchanged. The retrain in that change's final PR regenerates both directories and removes
+> this notice.
+
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see
 [`docs/force_surrogate/roadmap.md`](../../docs/force_surrogate/roadmap.md), row #2). These decks are

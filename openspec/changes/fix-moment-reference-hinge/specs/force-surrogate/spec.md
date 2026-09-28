@@ -51,10 +51,17 @@ provenance so the correction is re-derivable from the committed parquet alone.
 
 #### Scenario: Committed corpora reconcile against their declared offset
 
-- **Given** a committed `dataset.parquet` and the origin-to-hinge offset `(0, a, 0)` recorded in its dataset-build provenance
-- **When** the derived coefficients are recomputed from the parquet's own raw `Fx..Mz` columns
+- **Given** a committed `dataset.parquet` and, for each configuration, the origin-to-hinge offset `(0, a, 0)` derived from that configuration's **committed deck** (`particle_inputs.{x,y,z}` − `particle_inputs.hinge_{x,y,z}`) — **not** read back from the dataset-build provenance the same extraction wrote, which would make the check blind to a sign flip (an extractor computing `hinge − origin` records the negated offset and reconciles against it)
+- **When** the derived coefficients are recomputed, **per configuration**, from the parquet's own raw `Fx..Mz` columns
 - **Then** `CF_mx == (Mx + a·Fz)/m_ref` and `CF_mz == (Mz − a·Fx)/m_ref` to `rtol=1e-9`, and `CF_my == My/m_ref`
 - **And** `CF_mx` is **not** `allclose` to `Mx/m_ref`, so the check cannot be vacuously satisfied by a zero offset and a re-extraction that dropped the shift fails loudly
+
+#### Scenario: Committed moments put the IB-part arm on the wing
+
+- **Given** a committed `dataset.parquet` restricted to settled beats (`wingbeat ≥ 1`), and each configuration's hinge and tip taken from its deck and the wing's vertex file
+- **When** the force-weighted spanwise arm `b = M_hinge_x / F_z` is computed per row
+- **Then** at least 90% of rows fall in `(0, tip − hinge]` (measured ~97% with the correct shift and under 1% with a sign-flipped one)
+- **And** the check is a **calibrated fraction**, not a bound on every row: `b` is a mixed-sign-weighted mean and omits the `−(z_i − z_h)·F_y` term, and `F`/`M` are the spread IB force and moment only, so `b` is the IB-part arm rather than the true centre of pressure
 
 ### Requirement: The moment origin offset is derived per configuration and validated
 
@@ -117,6 +124,20 @@ second parser.
 - **Given** a manifest configuration with no `input_file` entry, or whose declared deck path does not exist on disk
 - **When** the dataset is extracted
 - **Then** it raises `ValueError` naming the configuration and the resolved path — never a bare `TypeError` from a missing argument, and never a silent emission of particle-origin moments
+
+#### Scenario: A deck edited since its run is rejected
+
+- **Given** a configuration whose per-configuration run metadata (the file named for it in an explicit `run_metadata_paths` mapping — which the acceptance gate passes, so both read the same files — or else `run_metadata_<name>.json` beside the manifest) records a `deck_sha256`, and a working-tree deck whose sha256 differs
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration, the deck path and both hashes, rather than shifting about a hinge the solver never used
+- **And** where the run recorded no `deck_sha256` (no per-configuration metadata, as for the coarse corpus), extraction proceeds and records the deck as **unverified** rather than claiming a verification that did not happen
+
+#### Scenario: The acceptance gate reports extraction rejections instead of raising
+
+- **Given** a corpus with a configuration that extraction rejects for a missing deck, absent `X,Y,Z` columns, or a moving moment origin
+- **When** `run_acceptance_gate` is run on it
+- **Then** it returns `GateResult(passed=False, failures)` whose failure names the configuration, rather than raising a traceback out of an enumerating gate
+- **And** a malformed-file error (e.g. unparseable JSON) still raises, as before
 
 ### Requirement: Parallel-axis shift helper
 
@@ -229,10 +250,13 @@ schema (never positional), join each configuration's kinematics, `reynolds`, and
 single-source normalization helpers (with `f_star = frequency_fstar`, `phi_amp_deg = stroke_amp_deg`,
 and the geometry's `r_gyr`/`span`/`chord`), and emit **one row per (configuration × timestep)**. Raw
 force/moment columns SHALL be carried through unchanged; only the derived coefficient columns reflect
-the convention — including the hinge moment reference point. The build SHALL return both the
-dataframe and the list of any configurations dropped
-under `allow_missing`, so the caller can record the drop in run metadata (the dataframe alone provides
-no channel for the dropped names).
+the convention — including the hinge moment reference point. The build SHALL return the
+dataframe, the list of any configurations dropped
+under `allow_missing`, and a per-configuration record of the moment origin, hinge and offset it
+applied and the deck and CSV it consumed — `(frame, dropped, provenance)` — so the caller can record
+the drop and the frame in run metadata (the dataframe alone provides no channel for either).
+
+**BREAKING**: `build_dataset` returns three elements where it returned two.
 
 **BREAKING**: because `ns.init_iter = N` causes the solver to write `1 + N` rows at `iStep = 0` — the
 first with all-zero forces and the remainder being initial-pressure iterations — the extractor SHALL
@@ -332,7 +356,7 @@ masking at the dataset layer.
 
 - **Given** the same missing-CSV configuration
 - **When** `build_dataset` is called with `allow_missing=True`
-- **Then** it skips that configuration with a logged warning, emits the rows for the present configurations, and **returns the dropped configuration name(s) as the second element of its `(dataframe, dropped)` return** so the truncation can be recorded in run metadata (no silent caps)
+- **Then** it skips that configuration with a logged warning, emits the rows for the present configurations, and **returns the dropped configuration name(s) as the second element of its `(frame, dropped, provenance)` return** so the truncation can be recorded in run metadata (no silent caps)
 
 ### Requirement: Dataset build provenance
 
@@ -373,6 +397,10 @@ extraction — a corpus's provenance names what produced its measurements.
 - **Given** a corpus extracted from decks whose hinge is 1.5 span-units inboard of the particle origin
 - **When** its dataset-build provenance is read
 - **Then** it names the wing hinge as the reference point for `CF_mx/CF_my/CF_mz`, records the applied offset `(0, 1.5, 0)`, and states that the raw `Mx/My/Mz` columns remain about the solver's own origin
+- **And** these live under two top-level keys of the corpus `run_metadata.json`, fixed here so writer and guard are not specified independently:
+  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's name, or `null`)
+  - `extraction_inputs`: `input_dir` (the `--input-dir` exactly as given, posix separators — **not** resolved, since resolving a mapped drive records a machine-specific network path; `csv_sha256` is the inputs' identity and the directory only a locator), `csv_name`, and `csv_sha256.<name>` — the sha256 of the exact bytes of each consumed IB-particle CSV
+- **And** the per-configuration values are the ones extraction **applied**, returned by `build_dataset` alongside the frame, not re-derived by the driver
 - **And** `dataset.units.json` is unchanged in shape — still a flat column-to-unit map over exactly the measured columns
 
 #### Scenario: Re-extraction preserves the CFD digest

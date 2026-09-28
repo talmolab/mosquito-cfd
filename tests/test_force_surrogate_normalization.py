@@ -448,23 +448,18 @@ def test_moment_coefficients_docstring_names_the_hinge():
     assert "r(t)" in low
 
 
-def test_moment_coefficients_docstring_flags_the_shift_as_not_yet_applied():
-    """The docstring must not describe the hinge reference as current behaviour.
+def test_moment_coefficients_docstring_no_longer_carries_the_pending_marker():
+    """Extraction now applies the shift, so the pending-status marker must be gone.
 
-    Until extraction applies the parallel-axis shift, ``dataset.py`` still emits
-    particle-origin coefficients and both committed corpora satisfy
-    ``CF_mx == Mx / m_ref``. A docstring asserting the hinge reference in the present
-    tense would be false for every value the repo has produced -- which is the exact
-    defect (docs ahead of the pipeline) that issue #108 exists to correct.
-
-    Remove this test in the increment that wires the shift into extraction.
+    PR1 of fix-moment-reference-hinge added a "not yet applied" marker, because the
+    docstring described a hinge reference the pipeline did not yet produce. PR2 wired the
+    shift into extraction and re-extracted both corpora. A marker left in place would
+    now say the opposite of the committed data.
 
     Spec scenario: Documentation does not assert a reference point the pipeline does
-    not yet produce.
+    not yet produce ("the marker SHALL be removed in the increment that wires the shift
+    into extraction").
     """
-    doc = MomentCoefficients.__doc__ or ""
-    low = doc.lower()
-    assert "not yet applied" in low, (
-        "the pending-status marker is missing; while the extractor still emits "
-        "particle-origin coefficients the docstring must say so"
-    )
+    low = (MomentCoefficients.__doc__ or "").lower()
+    assert "not yet applied" not in low
+    assert "shift_moment_reference" in low

@@ -127,19 +127,16 @@ def test_coordinate_convention_doc_states_moment_reference_point():
 
 
 @pytest.mark.skipif(not _DOC.exists(), reason="coordinate-convention doc not present")
-def test_coordinate_convention_doc_flags_the_shift_as_not_yet_applied():
-    """The canonical doc must not describe the hinge reference as current behaviour.
+def test_coordinate_convention_doc_no_longer_carries_the_pending_marker():
+    """Extraction now applies the shift, so the page's pending-status marker must be gone.
 
-    While the extractor still emits particle-origin coefficients, the page has to say
-    so -- otherwise it repeats, one layer down, the defect that created issue #108: a
-    canonical page documenting a reference point the pipeline does not implement.
-
-    Remove this test in the increment that wires the shift into extraction.
+    A marker left behind would contradict the committed corpora: the same docs-vs-pipeline
+    disagreement that created issue #108, only reversed.
 
     Spec scenario: Documentation does not assert a reference point the pipeline does
-    not yet produce.
+    not yet produce ("the marker SHALL be removed in the increment that wires the shift
+    into extraction").
     """
     low = _DOC.read_text(encoding="utf-8").lower()
-    assert "not yet applied" in low, (
-        "the Moments section is missing its pending-status marker"
-    )
+    assert "not yet applied" not in low
+    assert "build_dataset" in low

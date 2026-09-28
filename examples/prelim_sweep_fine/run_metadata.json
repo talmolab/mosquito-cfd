@@ -1,11 +1,10 @@
 {
-  "run_id": "f3c2e6d8-b022-46c9-83c8-589933e76f93",
-  "timestamp": "2026-09-21T15:30:06+0000",
+  "run_id": "e18e5ea8-c7df-402b-ad0b-79b6c29ef961",
+  "timestamp": "2026-09-28T22:33:03+00:00",
   "git": {
-    "commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
-    "branch": "main",
-    "dirty": true,
-    "diff_hash": "1917f436bec1",
+    "commit": "7a81c5198d15a9d6a8032a7911e3a18c160329dc",
+    "branch": "fix-moment-reference-hinge-pr2",
+    "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -24,5 +23,592 @@
     "file": "examples\\prelim_sweep_fine\\sweep_manifest.json",
     "hash": "c523acb9bd4a5390287dcb53c04009dba72d1c4ba0c6999c85998035542bc170"
   },
-  "dropped_configs": []
+  "dropped_configs": [],
+  "moment_reference": {
+    "point": "wing_hinge",
+    "definition": "docs/coordinate-convention.md#moments",
+    "axes": "lab",
+    "offset": "r_origin - r_hinge",
+    "applies_to": [
+      "CF_mx",
+      "CF_my",
+      "CF_mz"
+    ],
+    "raw_moments_about": "particle_origin",
+    "configs": {
+      "s35_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p30",
+        "deck_sha256": "c72e402512948bfbd6f0d693dbbc630cbdc6ec2d9cd552df4cff41c883de197d",
+        "deck_sha256_verified_against": "run_metadata_s35_f085_p30.json"
+      },
+      "s35_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p45",
+        "deck_sha256": "2523276ef1cabcd124c7ad9215d0c77902831f5c60945ac1c97025e01483a4b8",
+        "deck_sha256_verified_against": "run_metadata_s35_f085_p45.json"
+      },
+      "s35_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f085_p60",
+        "deck_sha256": "2d15fced7ec92190f5783cbb16a8c0760f4e1877d881786ecdf917594f8bab90",
+        "deck_sha256_verified_against": "run_metadata_s35_f085_p60.json"
+      },
+      "s35_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p30",
+        "deck_sha256": "1ebe739af1254bb21241e6a2cf67f63668d3c4e7837f7890552314eb689da609",
+        "deck_sha256_verified_against": "run_metadata_s35_f100_p30.json"
+      },
+      "s35_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p45",
+        "deck_sha256": "8f03c9b2f1cf7c1b9bd2f92b6fe37604e4e4787fcd2adb5ad72b05b90a11e67e",
+        "deck_sha256_verified_against": "run_metadata_s35_f100_p45.json"
+      },
+      "s35_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f100_p60",
+        "deck_sha256": "0d3bfdf3595b73393c4f06477f872170b9723eb36553549757e539beeb6db962",
+        "deck_sha256_verified_against": "run_metadata_s35_f100_p60.json"
+      },
+      "s35_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p30",
+        "deck_sha256": "12538bfc5d78efc2f77e8c0a71cdf853270ebb2b6233df6be05a538847e77cca",
+        "deck_sha256_verified_against": "run_metadata_s35_f115_p30.json"
+      },
+      "s35_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p45",
+        "deck_sha256": "29d3bd6334df284e5bb95d2d5e012570a48f52da789711a8c0ccb43205247892",
+        "deck_sha256_verified_against": "run_metadata_s35_f115_p45.json"
+      },
+      "s35_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s35_f115_p60",
+        "deck_sha256": "9c4d1b178932d82893f4ebbe6201f52ee801fe84670fdc8cf979dcaf88e3587e",
+        "deck_sha256_verified_against": "run_metadata_s35_f115_p60.json"
+      },
+      "s45_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p30",
+        "deck_sha256": "1ccce224ab4ed97cbb33d355efd19cd6068f412d75cf98fe7df80c06c1e51c9a",
+        "deck_sha256_verified_against": "run_metadata_s45_f085_p30.json"
+      },
+      "s45_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p45",
+        "deck_sha256": "277a7d3a066976f983ca8750eef6bb67c6f039b327b877801f601c768803680c",
+        "deck_sha256_verified_against": "run_metadata_s45_f085_p45.json"
+      },
+      "s45_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f085_p60",
+        "deck_sha256": "e08512004d7eb194de5abb7cbc775f6524daa0add987248228403c3a4b32cf97",
+        "deck_sha256_verified_against": "run_metadata_s45_f085_p60.json"
+      },
+      "s45_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p30",
+        "deck_sha256": "f8b21d2461b931992b9dde0bb43fc1afe7329cd2be6e7a289bf43ebb6e99ae49",
+        "deck_sha256_verified_against": "run_metadata_s45_f100_p30.json"
+      },
+      "s45_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p45",
+        "deck_sha256": "237509b306c6432ab7cdf31e97454e305b8913d01beffd5326010f68e5df5566",
+        "deck_sha256_verified_against": "run_metadata_s45_f100_p45.json"
+      },
+      "s45_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f100_p60",
+        "deck_sha256": "181e93dd3033c3ee8ac9a4930cb97e2977d50bef7ac03d682c363621a7a5644f",
+        "deck_sha256_verified_against": "run_metadata_s45_f100_p60.json"
+      },
+      "s45_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p30",
+        "deck_sha256": "2a1e5e0ce15b0fe7f9182a8f5bb6199ab3737a3a6ed6589e05242e6c66f36c14",
+        "deck_sha256_verified_against": "run_metadata_s45_f115_p30.json"
+      },
+      "s45_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p45",
+        "deck_sha256": "a1a3b0751e8c43c2222b080e359869f045eeb1006f9c0c66e621d102d2d34ca4",
+        "deck_sha256_verified_against": "run_metadata_s45_f115_p45.json"
+      },
+      "s45_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s45_f115_p60",
+        "deck_sha256": "c4f8c725f16b1f9a6a71d1da5fc8ea9ebe31d8d7bf57284fd9834dfd92c5a03c",
+        "deck_sha256_verified_against": "run_metadata_s45_f115_p60.json"
+      },
+      "s55_f085_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p30",
+        "deck_sha256": "0d8ecc8b29a9b21ba7c39daa91f242552bfbadbb10b098d4891fb1aaa77e6875",
+        "deck_sha256_verified_against": "run_metadata_s55_f085_p30.json"
+      },
+      "s55_f085_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p45",
+        "deck_sha256": "01ade0875c8d2a56100c54ad22b0450a4e1508a190aa7128aeff11657a9a5e5b",
+        "deck_sha256_verified_against": "run_metadata_s55_f085_p45.json"
+      },
+      "s55_f085_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f085_p60",
+        "deck_sha256": "90ba59982684ade6c601e83a44fdf68bb1c2d78be4ec9e29f28b30adcae46379",
+        "deck_sha256_verified_against": "run_metadata_s55_f085_p60.json"
+      },
+      "s55_f100_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p30",
+        "deck_sha256": "0ae398f719bad56f1f171b9b0f808423a0d8a683374fc10b2c8e0a7e098658b2",
+        "deck_sha256_verified_against": "run_metadata_s55_f100_p30.json"
+      },
+      "s55_f100_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p45",
+        "deck_sha256": "4c795733cee82be10e3ec5ce95a43fcff2753f36d654c2636fad48ce08a68403",
+        "deck_sha256_verified_against": "run_metadata_s55_f100_p45.json"
+      },
+      "s55_f100_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f100_p60",
+        "deck_sha256": "9c182f4a5aeec36b94ac46f4045004c2112be19f81edb25a3e24cedef215bacd",
+        "deck_sha256_verified_against": "run_metadata_s55_f100_p60.json"
+      },
+      "s55_f115_p30": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p30",
+        "deck_sha256": "1f85aedf62576c5b8eb2cee0be04d26b6461cf333bb84b5c175077c940a289c8",
+        "deck_sha256_verified_against": "run_metadata_s55_f115_p30.json"
+      },
+      "s55_f115_p45": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p45",
+        "deck_sha256": "a8624a2181c1a856d0c965ffd23dda39ee0ca1518205eba833644c32d9c75e2b",
+        "deck_sha256_verified_against": "run_metadata_s55_f115_p45.json"
+      },
+      "s55_f115_p60": {
+        "origin": [
+          4.0,
+          2.0,
+          4.0
+        ],
+        "hinge": [
+          4.0,
+          0.5,
+          4.0
+        ],
+        "offset": [
+          0.0,
+          1.5,
+          0.0
+        ],
+        "deck": "inputs/inputs.3d.s55_f115_p60",
+        "deck_sha256": "35873a979613ff85855bb35359927695c917f1639c9166d1ced1cae8afa124ad",
+        "deck_sha256_verified_against": "run_metadata_s55_f115_p60.json"
+      }
+    }
+  },
+  "extraction_inputs": {
+    "input_dir": "Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine/runs",
+    "csv_name": "IB_Particle_1.csv",
+    "csv_sha256": {
+      "s35_f085_p30": "57247b8f91e41d03ed34e9923f6eb9ec34df6be293c9e19d248cc65f650cb463",
+      "s35_f085_p45": "5f8e5cbee920aa7ebd43b27ef37c9f531cc2ad416652544cdf8e1d17bbc909a9",
+      "s35_f085_p60": "56b0413d05a03beda36deeefe99f1f33b2f2c9ce0fc38caba51c74ebcce01127",
+      "s35_f100_p30": "a0010e2a30bdc7b466d491619b49d76900f9ef1579d92828347b9a610e859583",
+      "s35_f100_p45": "e860bd6e2a26ac2b0fdbc48526467f2954822a05a47170922f7e0eb63d15e575",
+      "s35_f100_p60": "8bb5a6b9701d614e2dc482919c1bee8cb248181f50b79cac9112687e7557e1dd",
+      "s35_f115_p30": "105e42a1c39b72bd6217f65ad47951393414e632ce76805af3570769fb8a5e10",
+      "s35_f115_p45": "2424915c0325dd5aabba131068305f33911cdd03453c20a18a1aeb3127d4c510",
+      "s35_f115_p60": "6afb29333f0c4de136f594406feba71b45f75412218b65146e2a143c4bd15018",
+      "s45_f085_p30": "fd4a8011ada7f7352229a89d5c13b02223babfa7c298e432260ba67e383a60b3",
+      "s45_f085_p45": "cd2c2b26b1be23c943b607cc711067eee684f0295ff34001ef8d1163bb6f1e05",
+      "s45_f085_p60": "d0d9f269721444c8a5cfbb3beb1d5b9d8757933c64ed641c8e2f2bb771c73974",
+      "s45_f100_p30": "8229cd6fe86ddbad172d231b574e550e5f19ba5d8a03c37d64f3b0a28a2997cd",
+      "s45_f100_p45": "975a45b86ecfc28b6082acfaa0ab653ade944d9aaf16c2328b7676470f6ae764",
+      "s45_f100_p60": "97c1bd44b637238601b653372763bd5a65bd4e0e93d32185989d41f29c98e0ab",
+      "s45_f115_p30": "5683e73e31d38237ed6b1ff738d152a579a6bf0697c6315f5b9730295c8313be",
+      "s45_f115_p45": "8e13ec696a3a06b95b02d2e02b8815f38f58cdc1406f495570eb7f4345499cf2",
+      "s45_f115_p60": "0531e3fc8fb2d50f943435fcbc1d136baec3d26f613e04b4098b095170c3bc23",
+      "s55_f085_p30": "7cfa612d143a3c3f014a70569ba345462a4e391ac3833accde788408ea38c77c",
+      "s55_f085_p45": "293887bd08c10ad327fc101f9e55c77276d6ea0dfceac2945c5b39e73509ff16",
+      "s55_f085_p60": "5574cfb0a14c5a69799c7365ab1df7c865e84f9d67abe1dbadabaf04d1220308",
+      "s55_f100_p30": "0414255ddb6d4fd2690a098f7c790ccdab450c8d0e0e4203323315279106b745",
+      "s55_f100_p45": "7119975e6bfa24ae74a6489f1f664670e5b79992ad5ee51e83b1e48030072aef",
+      "s55_f100_p60": "153ff5e2f097b2c96e4a15d46ade566dc376e3cc7ec469895e57476773e32535",
+      "s55_f115_p30": "fe9fbffa800a8ee675d20e45443003e870583cb8e4dbbd62f6021fc66ffdcfa7",
+      "s55_f115_p45": "c81e822c4591cb802c4d77dd88f411e8529564b7d5034915a443d5c56e970711",
+      "s55_f115_p60": "4df52afe843338183ee80e9f52a0b6154cfd452c5ad1b78af959e8fa28e395cf"
+    }
+  }
 }
