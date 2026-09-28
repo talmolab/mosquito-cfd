@@ -37,6 +37,7 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_force_reference,
     compute_moment_coefficient,
     compute_moment_reference,
+    shift_moment_reference,
 )
 from mosquito_cfd.force_surrogate.run_one_config import run_config
 from mosquito_cfd.force_surrogate.runner import (
@@ -108,6 +109,7 @@ __all__ = [
     "compute_force_reference",
     "compute_moment_coefficient",
     "compute_moment_reference",
+    "shift_moment_reference",
     "build_dataset",
     "build_run_metadata",
     "load_manifest_configs",

@@ -97,3 +97,49 @@ def test_coordinate_convention_doc_states_axes():
     assert "s_yy" in text or "½·ρ·ω²·s_yy" in text or "f_ref" in text
     # Cites both sources.
     assert "van veen" in text and "bomphrey" in text
+
+
+@pytest.mark.skipif(not _DOC.exists(), reason="coordinate-convention doc not present")
+def test_coordinate_convention_doc_states_moment_reference_point():
+    """The canonical doc carries a Moments section naming the reference point.
+
+    The absence of such a section is how the force-surrogate extractor came to inherit
+    the immersed-boundary particle's own mid-span origin while this very page declared
+    a hinge origin (issue #108). The section's factual content changed three times
+    while it was being written, so it is guarded rather than trusted.
+
+    Spec scenario: The canonical page documents the moment reference point.
+    """
+    text = _DOC.read_text(encoding="utf-8")
+    low = text.lower()
+
+    assert "## moments" in low, "no Moments section"
+    # The reference point, and that it is the deck's pivot rather than the blade root
+    # (they differ by 0.025 in our geometry, which assert_hinge_at_span_root tolerates).
+    assert "declared pivot" in low
+    # Origin moves, axes do not -- these are not van Veen wing-frame moments.
+    assert "r(t)" in low
+    # Raw solver columns vs derived coefficients are about different points. Anchored
+    # on the solver symbol rather than prose, which is stable across rewording.
+    assert "kernel.location" in low
+    # The centre-of-mass alternative is recorded as deferred, not overlooked.
+    assert "centre of mass" in low or "center of mass" in low
+
+
+@pytest.mark.skipif(not _DOC.exists(), reason="coordinate-convention doc not present")
+def test_coordinate_convention_doc_flags_the_shift_as_not_yet_applied():
+    """The canonical doc must not describe the hinge reference as current behaviour.
+
+    While the extractor still emits particle-origin coefficients, the page has to say
+    so -- otherwise it repeats, one layer down, the defect that created issue #108: a
+    canonical page documenting a reference point the pipeline does not implement.
+
+    Remove this test in the increment that wires the shift into extraction.
+
+    Spec scenario: Documentation does not assert a reference point the pipeline does
+    not yet produce.
+    """
+    low = _DOC.read_text(encoding="utf-8").lower()
+    assert "not yet applied" in low, (
+        "the Moments section is missing its pending-status marker"
+    )
