@@ -122,11 +122,21 @@ producing an **asymmetric** pad — two extra cells on one side and one on the o
 answer for any consumer that differentiates across the pad.
 
 The index arithmetic SHALL be preserved exactly as
-`i_hi = min(max(i_hi, i_lo + 1), ddims)`. Note that this yields **at least one cell per axis only for
-regions that begin inside the domain**: a request at or beyond the upper domain edge clamps `i_lo` and
-`i_hi` to `ddims` and correctly yields a **zero-cell** region. Zero-cell regions are a reachable,
-supported outcome — `check_field_capture_velocity` already has a dedicated empty-region error path —
-and SHALL NOT be silently widened to one cell.
+`i_hi = min(max(i_hi, i_lo + 1), ddims)` **on axes that overlap the domain**. An axis overlaps the
+domain's half-open cell coverage `[domain_left_edge, domain_right_edge)` iff, using the *unclamped*
+corners, `lo < domain_right_edge AND hi >= domain_left_edge`; `domain_left_edge` is inclusive (it is
+the left edge of cell 0) and `domain_right_edge` is exclusive (cell `ddims - 1` ends just short of
+it). On an axis that does **not** overlap — wholly below `domain_left_edge`, or at or beyond
+`domain_right_edge` — the region SHALL clamp to exactly zero cells regardless of `halo`, rather than
+being widened. Without this distinction, a request wholly outside the domain clips `lo_c` and `hi_c`
+to the *same* edge and is indistinguishable, to the plain `i_lo + 1` floor, from a genuine interior
+zero-width query (which correctly gets widened to one cell) — an earlier draft of this reader widened
+a request wholly **below** the domain into a spurious one-cell result, asymmetrically with the
+already-correct upper-edge/outside-domain behavior.
+
+Zero-cell regions are a reachable, supported outcome — `check_field_capture_velocity` already has a
+dedicated empty-region error path — and SHALL NOT be silently widened to one cell on either side of
+the domain.
 
 #### Scenario: An invalid halo is rejected
 
@@ -140,11 +150,12 @@ and SHALL NOT be silently widened to one cell.
 - **Given** the committed 6³ fixture with domain `[0, 6]³` and `dx = 1`
 - **When** `read_field_snapshot` is called with each of: full `±inf` extent; a non-cell-aligned
   interior box; an exactly cell-aligned box; `halo` values that do and do not clip at the boundary;
-  mixed `±inf` on some axes only; a zero-width interior request; a request at the upper domain edge;
-  and a request wholly outside the domain
+  mixed `±inf` on some axes only; a zero-width interior request; a request at the lower domain edge;
+  a request wholly below the domain; a request at the upper domain edge; and a request wholly above
+  the domain
 - **Then** each returned region matches the legacy adapter's for the same request, the interior
-  zero-width request yields one cell per axis, and the upper-edge and outside-domain requests each
-  yield a zero-cell region rather than being widened
+  zero-width request and the lower-edge request each yield one cell per axis, and the upper-edge,
+  wholly-below, and wholly-above requests each yield a zero-cell region rather than being widened
 
 ### Requirement: `yt` is imported lazily and confined to one covering-grid read path
 

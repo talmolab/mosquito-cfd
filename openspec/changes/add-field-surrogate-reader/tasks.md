@@ -274,7 +274,17 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
 59. [ ] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
     `lo`/`hi` both previously succeeded and now raise. State the narrowing.
-60. [ ] Fix the test-count claim (55, not 56) and make the patch-site count say which set it counts.
+60. [x] Fix the test-count claim. Both "55" and "56" were wrong: collecting the three
+    `test_field_surrogate_*.py` files as committed gives **74** tests (parametrization, not a typo,
+    accounts for the gap: `test_region_clamping_matrix` x11, `test_documentation_states_the_cc4_...`
+    x11, `test_invalid_halo_is_rejected` x6, etc.). The PR body's "1014 passed... (baseline 958)" was
+    arithmetically self-consistent with the false "56" (958+56=1014) but not with reality
+    (958+74=1032), meaning it was computed once and never re-run against the diff actually under
+    review. A follow-up review round found and fixed two BLOCKING correctness bugs (asymmetric
+    outside-domain clamping; an unreachable-but-silent key-drop hardened defensively) plus several
+    IMPORTANT items, adding 9 more tests -- the true count as of that round is 83. Both the PR body
+    and this line must be re-verified with a fresh `pytest --collect-only` at merge time, not copied
+    forward again.
 
 ## 13. Guarding the guards (PR B)
 

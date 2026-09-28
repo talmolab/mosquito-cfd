@@ -22,6 +22,30 @@ The `ddims` clamp removes the floor the `i_lo + 1` term just applied. Zero-cell 
 and already handled downstream — `check_field_capture_velocity` has a dedicated empty-region error
 path. The spec now states this accurately instead of promising a floor the code does not provide.
 
+**Second correction, found in follow-up review of #105.** The table above only exercised the upper
+edge; the *lower* edge was asymmetric. A request wholly **below** the domain (e.g. `lo = (-9,-9,-9),
+hi = (-7,-7,-7)` on the same 6³ fixture) clips both `lo_c` and `hi_c` to `domain_left_edge`, which
+looks — to the plain `i_hi = min(max(i_hi, i_lo + 1), ddims)` arithmetic — identical to a genuine
+interior zero-width query (`lo = hi = (2,2,2)`, which correctly gets widened to one cell). The floor
+could not tell them apart, and silently widened the wholly-outside request into a spurious one-cell
+result at index `0`. The upper edge never showed this because the same widening is always then
+re-clamped down by `min(..., ddims)`, which happens to restore zero cells there but has no lower-side
+counterpart.
+
+The fix distinguishes the two cases directly: an axis "overlaps" the domain's half-open cell coverage
+`[domain_left_edge, domain_right_edge)` iff `lo_v < domain_right_edge AND hi_v >= domain_left_edge`
+(computed from the *unclamped* corners). The one-cell floor now applies only on axes that overlap;
+an axis that does not clamps to exactly zero cells regardless of `halo`. `domain_left_edge` is
+deliberately inclusive and `domain_right_edge` exclusive in this test — matching which cell each
+value actually falls into — so the two edge cases end up symmetric:
+
+| request | cells |
+|---|---|
+| `lo = hi = (0,0,0)` (lower edge, inclusive) | `[1 1 1]` |
+| `lo = (-9,-9,-9), hi = (-7,-7,-7)` (wholly below) | `[0 0 0]` |
+| `lo = hi = (6,6,6)` (upper edge, exclusive) | `[0 0 0]` |
+| `lo = (7,7,7), hi = (9,9,9)` (wholly above) | `[0 0 0]` |
+
 ## D2. Three spec deltas are staleness corrections, generated mechanically
 
 Three specs describe `extract_eulerian_box` as the place the `yt` read happens:
