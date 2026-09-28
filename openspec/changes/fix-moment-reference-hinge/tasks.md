@@ -119,63 +119,69 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 
 ## 3. Deck source and the three signature changes
 
-10. [ ] **Test first** — a config with no locatable deck raises `ValueError` naming the config and
+10. [x] **Test first** — a config with no locatable deck raises `ValueError` naming the config and
     the resolved path — never a bare `TypeError`.
-11. [ ] **Test first** — a deck missing `particle_inputs.hinge_*`, or with a non-finite hinge,
+11. [x] **Test first** — a deck missing `particle_inputs.hinge_*`, or with a non-finite hinge,
     raises `ValueError` naming **both** config and deck path. (`read_deck_value` rejects non-finite
     but names neither, so a wrapping layer is required.)
-12. [ ] Update `_write_manifest` and `_validated_point_config` to emit `input_file` plus a minimal
+12. [x] Update `_write_manifest` and `_validated_point_config` to emit `input_file` plus a minimal
     deck — **and** handle the four `COMMITTED_MANIFEST` sites from task 0 separately, since they
     resolve real decks and will see a real `(0, 1.5, 0)` shift.
-13. [ ] Implement deck resolution inside `build_dataset` (manifest `input_file` resolved against
+13. [x] Implement deck resolution inside `build_dataset` (manifest `input_file` resolved against
     `Path(manifest_path).parent`, hinge via `geometry_guard.read_deck_value`). Because
     `acceptance_gate.py:64` already passes `manifest_path`, neither production call site changes for
     the directory.
-13a. [ ] Add the **offset return channel**: the derived per-config offsets must travel out of
+13a. [x] Add the **offset return channel**: the derived per-config offsets must travel out of
     `build_dataset` with the data. Do **not** let the driver re-derive them — a second derivation
     can drift from the applied one, and the CI guard would then reconcile the driver's value while
     the parquet carries another.
-13b. [ ] Add an `extra` passthrough to `build_run_metadata` (`dataset.py:370-400`), whose `extra` is
+13b. [x] Add an `extra` passthrough to `build_run_metadata` (`dataset.py:370-400`), whose `extra` is
     currently hardcoded to `{"dropped_configs": ...}`. `scripts/extract_forces.py:92-97` calls it,
     not `capture_surrogate_run_metadata`, so there is no channel for the frame record today.
-13c. [ ] **Test first** — `run_acceptance_gate` still returns `GateResult(passed, failures)` rather
+13c. [x] **Test first** — `run_acceptance_gate` still returns `GateResult(passed, failures)` rather
     than raising, when a deck is missing / `X,Y,Z` absent / the origin moves. The new `ValueError`s
     would otherwise convert an enumerating gate into a traceback.
 
 ## 4. Origin columns and the shift
 
-14. [ ] **Test first** — `X,Y,Z` added to `_REQUIRED_CSV_COLUMNS`; a CSV lacking them raises the
+14. [x] **Test first** — `X,Y,Z` added to `_REQUIRED_CSV_COLUMNS`; a CSV lacking them raises the
     existing missing-column `ValueError` naming config and absent columns.
-15. [ ] **Test first** — a CSV whose `X,Y,Z` **varies** raises `ValueError` naming the config.
+15. [x] **Test first** — a CSV whose `X,Y,Z` **varies** raises `ValueError` naming the config.
     Exact equality, no tolerance.
-16. [ ] **Test first** — constant-but-**NaN** `X,Y,Z` is rejected. Note the hazard is **pandas**,
+16. [x] **Test first** — constant-but-**NaN** `X,Y,Z` is rejected. Note the hazard is **pandas**,
     not numpy: `pd.Series([4.0, nan, 4.0]).max() - .min() == 0` is `True` and `.nunique()` is `1`,
     both of which *pass* a naive constancy check, while `np.ptp(...) == 0` and `all(x == x[0])`
     both correctly reject NaN. The guard must assert finiteness explicitly.
-17. [ ] **Test first** — a header-only CSV contributes zero rows without the origin guard raising
+    **Implementation note (13c).** The gate catches a narrow `ConfigExtractionError(ValueError)`
+    raised only by the per-config extraction checks, not `ValueError` in general. The extractor
+    now also reads `run_metadata_<name>.json` for `deck_sha256`, and a blanket catch would have
+    swallowed the malformed-JSON error that
+    `test_acceptance_gate.py::test_malformed_run_metadata_json_raises_clear_file_identified_error`
+    requires to raise. That test is outside the task-0 list and is unedited.
+17. [x] **Test first** — a header-only CSV contributes zero rows without the origin guard raising
     on an empty array (both `np.ptp` and `x == x[0]` raise on empty, so an explicit length guard is
     needed either way).
-18. [ ] **Test first** — end-to-end through `build_dataset` with a **non-`(0,1.5,0)`** offset so a
+18. [x] **Test first** — end-to-end through `build_dataset` with a **non-`(0,1.5,0)`** offset so a
     hardcoded constant fails: `CF_mx`/`CF_mz` equal `(Mx + a·Fz)/m_ref` and `(Mz − a·Fx)/m_ref`,
     `CF_my` unchanged.
-19. [ ] **Test first** — a two-config manifest whose decks differ in **`hinge_y`** (with nonzero
+19. [x] **Test first** — a two-config manifest whose decks differ in **`hinge_y`** (with nonzero
     `Fz`) emits correspondingly different `CF_mx`. Note decks differing only in `hinge_x` would
     leave `CF_mx` identical, so the fixture must vary the component that enters it.
-20. [ ] **Test first** — raw `Mx/My/Mz` stay bitwise equal to the CSV values.
-21. [ ] Implement the wiring in `dataset.py` at the raw-column read (`:186-193`).
-22. [ ] **Test first** — the corpus `run_metadata.json` records, under named keys, the moment
+20. [x] **Test first** — raw `Mx/My/Mz` stay bitwise equal to the CSV values.
+21. [x] Implement the wiring in `dataset.py` at the raw-column read (`:186-193`).
+22. [x] **Test first** — the corpus `run_metadata.json` records, under named keys, the moment
     reference point, the **per-configuration** offsets, the resolved `--input-dir`, and a
     **per-config sha256 of each consumed IB-particle CSV**; and `dataset.units.json` is unchanged in
     shape. Name the keys in the spec so writer and guard are not specified independently.
-23. [ ] Implement the provenance record through the task-13b passthrough.
-23a. [ ] **Test first** — extraction reconciles the deck it read against the run's recorded
+23. [x] Implement the provenance record through the task-13b passthrough.
+23a. [x] **Test first** — extraction reconciles the deck it read against the run's recorded
     `deck_sha256` (present in every fine per-config `run_metadata_<name>.json`) and fails loudly on
     mismatch. This closes the mutable-deck/immutable-CSV gap. The coarse corpus has no per-config
     metadata and therefore no anchor — record that asymmetry as a known limitation.
 
 ## 5. Guards that land BEFORE re-extraction
 
-24. [ ] **Test first** — extend `tests/test_force_surrogate_scale_invariance.py`: for **both**
+24. [x] **Test first** — extend `tests/test_force_surrogate_scale_invariance.py`: for **both**
     committed parquets, derive the offset **from the committed deck**
     (`particle_inputs.{x,y,z} − particle_inputs.hinge_{x,y,z}`) — *not* from the `run_metadata.json`
     the same extraction wrote, which would make the guard blind to a sign flip — and assert
@@ -184,7 +190,7 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     `CF_mx` is **not** `allclose` to `Mx/m_ref`.
     **Expected to fail against the not-yet-regenerated parquets — that is the point.** Commit before
     task 28 and paste the failure output in the PR body.
-24a. [ ] **Test first — the empirical sign discriminator (design D8.6).** Assert that the
+24a. [x] **Test first — the empirical sign discriminator (design D8.6).** Assert that the
     force-weighted spanwise arm `b = M_hinge_x / F_z` falls inside the physically sensible band
     `(0, 2.975]` (hinge `y = 0.5`, tip `y = 3.475`) for a **calibrated fraction** of settled-beat
     rows on both corpora — threshold ≥ 0.90 against a measured 96.8% (coarse) / 98.1% (fine).
@@ -196,15 +202,24 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     different kinematics while adding nothing. Name in the test docstring that `F`/`M` are the
     spread IB force and moment only, so `b` is the IB-part arm rather than the true centre of
     pressure.
-24b. [ ] **Test first** — extend `tests/test_sweep_hinge_geometry.py` to parametrize
+24b. [x] **Test first** — extend `tests/test_sweep_hinge_geometry.py` to parametrize
     `assert_hinge_at_span_root` over `glob("examples/prelim_sweep*/inputs/inputs.3d.*")`. It
     currently covers **2 base decks and zero of the 57 per-config decks** — one of those two being
     the *pilot* directory, not the fine corpus. This change makes all 57 numerically load-bearing.
-25. [ ] Mint a `_FROZEN_RAW_FORCE_SHA` equivalent for `examples/prelim_sweep_fine` from the
+
+    **Corrected in implementation: 54, not 57.** The glob as written fails on the pilot's three
+    per-config decks, which carry `hinge_y = 2.0, hinge_z = 2.5`. That is the pre-#71 midspan pivot
+    the pilot actually ran with. Only the pilot's *base* deck was corrected afterwards, and the
+    pilot report is test-pinned to flag the defect (`test_fine_pilot_deck.py`). Those decks are a
+    historical record and no dataset is extracted from them, so they are not load-bearing here, and
+    "fixing" them would falsify the record. The guard covers the 54 decks of the two extracted
+    corpora, and a separate test pins the three pilot decks *as* the known defect, so a later edit
+    or glob widening cannot turn them silently green.
+25. [x] Mint a `_FROZEN_RAW_FORCE_SHA` equivalent for `examples/prelim_sweep_fine` from the
     **committed** parquet. Land it in a commit that touches **no parquet**, before the
     re-extraction commit, with its own green CI run — otherwise a SHA minted from the *new* parquet
     is indistinguishable from one minted from the old and launders any raw-column corruption.
-26. [ ] Commit the task-30 gate as a script under `scripts/`. It MUST read its baseline from
+26. [x] Commit the task-30 gate as a script under `scripts/`. It MUST read its baseline from
     `git show HEAD:<path>` into a temp file and print the baseline blob SHA in its output, so the
     pasted stdout proves which side it compared against. Comparing the re-extracted file to itself
     would pass every item vacuously.
@@ -214,7 +229,13 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 > Requires the `Z:` NFS mount. Extraction runs on **Windows**. Evidence: gate script committed, full
 > stdout in the PR body, regenerated `run_metadata.json` committed.
 
-27. [ ] Precheck `Z:` is mounted and non-stale. Run under the locked environment
+27. [ ] *(Read-only half done 2026-09-28: `Z:/users/eberrigan/mosquito-cfd/examples/{prelim_sweep,
+    prelim_sweep_fine}/runs/` each hold 27 `IB_Particle_1.csv`. The zero-offset control, run in
+    memory with nothing written, reproduces all 22 columns of both committed parquets, including
+    raw digests `02b04f46…` / `26663019…`, and all 27 fine decks reconcile against their runs'
+    `deck_sha256`. Beware the sibling `prelim_sweep_fine_runs_pr91_snapshot_20260918/`: that is
+    the superseded #91 run and the wrong `--input-dir`.)*
+    Precheck `Z:` is mounted and non-stale. Run under the locked environment
     (`git diff --exit-code uv.lock` afterwards) — the parquet's `str` dtype is pandas-version-coupled.
 28. [ ] Re-extract `examples/prelim_sweep/dataset.parquet` (+ sidecar + metadata) from its runs
     directory, deriving `--docker-digest` programmatically from the committed `run_metadata.json`
