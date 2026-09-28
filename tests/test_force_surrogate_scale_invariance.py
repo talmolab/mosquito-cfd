@@ -173,3 +173,138 @@ def test_degenerate_renormalization_is_rejected():
     df = pd.read_parquet(_PRED)
     with pytest.raises(KeyError):
         _ = df["CF_q_true"]  # absent target column
+
+
+# ---------------------------------------------------------------------------
+# Hinge-referenced moments in the committed corpora (fix-moment-reference-hinge, design D8)
+# ---------------------------------------------------------------------------
+
+_CORPORA = ("examples/prelim_sweep", "examples/prelim_sweep_fine")
+_CANONICAL_VERTEX = Path("examples/flapping_wing/wing.vertex")
+
+
+def _committed_decks(corpus: str) -> dict[str, dict[str, np.ndarray]]:
+    """Each config's particle origin and declared hinge, read from its COMMITTED deck.
+
+    Deliberately not from the corpus run_metadata.json that the same extraction wrote: an
+    extractor computing ``hinge - origin`` would record the negated offset and a guard reading
+    it back would reconcile the two happily. The deck is a different artifact and code path.
+    """
+    import json
+
+    from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
+
+    manifest = json.loads(
+        (Path(corpus) / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    decks = {}
+    for config in manifest["configs"]:
+        text = (Path(corpus) / config["input_file"]).read_text(encoding="utf-8")
+        decks[config["name"]] = {
+            "particle": np.array(
+                [read_deck_value(text, f"particle_inputs.{a}") for a in "xyz"]
+            ),
+            "hinge": np.array(
+                [read_deck_value(text, f"particle_inputs.hinge_{a}") for a in "xyz"]
+            ),
+        }
+    return decks
+
+
+def _m_ref(sub: pd.DataFrame) -> float:
+    from mosquito_cfd.force_surrogate import compute_moment_reference
+
+    (stroke,) = sub["stroke_amp_deg"].unique()
+    (freq,) = sub["frequency_fstar"].unique()
+    return compute_moment_reference(freq, stroke, R_GYRATION, SPAN, CHORD, RHO).m_ref
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_moment_coefficients_are_hinge_referenced(corpus):
+    """Per config (not per (stroke, freq) key, which groups 3 configs and can mask one):
+    CF_m* equal the raw moments shifted by (particle - hinge) x F, over m_ref; and CF_mx is
+    NOT the unshifted Mx/m_ref, so a zero offset or a dropped shift cannot pass vacuously.
+
+    Scenario: Committed corpora reconcile against their declared offset (design D8.4).
+    """
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    decks = _committed_decks(corpus)
+    assert set(df["config_name"]) == set(decks)
+    failures = []
+    for name, deck in decks.items():
+        d = deck["particle"] - deck["hinge"]
+        sub = df[df["config_name"] == name]
+        m_ref = _m_ref(sub)
+        fx, fy, fz = (sub[c].to_numpy() for c in ("Fx", "Fy", "Fz"))
+        mx, my, mz = (sub[c].to_numpy() for c in ("Mx", "My", "Mz"))
+        expected = {
+            "CF_mx": (mx + d[1] * fz - d[2] * fy) / m_ref,
+            "CF_my": (my + d[2] * fx - d[0] * fz) / m_ref,
+            "CF_mz": (mz + d[0] * fy - d[1] * fx) / m_ref,
+        }
+        for col, want in expected.items():
+            if not np.allclose(sub[col].to_numpy(), want, rtol=1e-9, atol=1e-12):
+                failures.append(f"{name}: {col} != (M + (particle - hinge) x F)/m_ref")
+        if np.allclose(sub["CF_mx"].to_numpy(), mx / m_ref, rtol=1e-9, atol=1e-12):
+            failures.append(f"{name}: CF_mx equals the unshifted Mx/m_ref")
+    assert not failures, f"{corpus}: {len(failures)} failure(s):\n" + "\n".join(
+        failures
+    )
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_decks_declare_the_hinge_in_the_particle_frame(corpus):
+    """hinge_y + SPAN/2 == particle_y (and x, z coincide) for every committed deck.
+
+    ``constants.SPAN`` is authored separately from the decks, so this reconciles the deck's
+    ``particle_inputs.hinge_*`` against an independent declaration, establishing that it is
+    an absolute position in the same frame as ``particle_inputs.{x,y,z}`` -- not a relative
+    offset, under which the whole shift would be wrong while every self-consistency check
+    passed. It does NOT establish that the particle origin is the mesh's mid-span point: both
+    sides use the nominal SPAN = 3.0, while the committed geometry's span is 2.95. Committed
+    corpora only; a future multi-wing deck may legitimately break it. (Design D8.5.)
+    """
+    for name, deck in _committed_decks(corpus).items():
+        particle, hinge = deck["particle"], deck["hinge"]
+        assert hinge[1] + SPAN / 2 == particle[1], name
+        assert (hinge[0], hinge[2]) == (particle[0], particle[2]), name
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_moments_put_the_centre_of_pressure_on_the_wing(corpus):
+    """Empirical sign discriminator (design D8.6) -- the one check that leaves our bookkeeping.
+
+    The force-weighted spanwise arm from the hinge, ``b = M_hinge_x / F_z``, should fall
+    inside the wing, ``(0, tip_arm]``, for most settled-beat rows. Measured with the correct
+    sign: 96.8% (coarse) / 98.1% (fine); with a sign-flipped shift: 0.9% / 0.5%. The gate is
+    a calibrated fraction (>= 0.90), NOT a bound on every row: ``b`` is a mixed-sign-weighted
+    mean (f_z changes sign across the wing), so it is not bounded by the wing's extent; it
+    also omits the ``-(z_i - z_h) F_y`` term of M_x. ``F``/``M`` are the spread IB force and
+    moment only, so ``b`` is the IB-part arm, not the true centre of pressure.
+
+    ``tip_arm`` is derived from the deck and the wing's own vertex file (hinge 0.5, tip
+    2.0 + 1.475 = 3.475, so 2.975 for the committed geometry), not typed in.
+    """
+    from mosquito_cfd.force_surrogate.geometry_guard import wing_half_span
+
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    settled = df[df["wingbeat"] >= 1]
+    half_span = wing_half_span(_CANONICAL_VERTEX)
+    in_band = flipped_in_band = 0
+    for name, deck in _committed_decks(corpus).items():
+        sub = settled[settled["config_name"] == name]
+        tip_arm = deck["particle"][1] + half_span - deck["hinge"][1]
+        b = sub["CF_mx"].to_numpy() * _m_ref(sub) / sub["Fz"].to_numpy()
+        in_band += int(((b > 0) & (b <= tip_arm)).sum())
+        # Calibration: the same rows with the shift's sign reversed, from the raw columns.
+        a = deck["particle"][1] - deck["hinge"][1]
+        b_flip = (sub["Mx"].to_numpy() - a * sub["Fz"].to_numpy()) / sub[
+            "Fz"
+        ].to_numpy()
+        flipped_in_band += int(((b_flip > 0) & (b_flip <= tip_arm)).sum())
+    assert flipped_in_band / len(settled) < 0.10  # the discriminator discriminates here
+    fraction = in_band / len(settled)
+    assert fraction >= 0.90, (
+        f"{corpus}: only {fraction:.1%} of settled-beat rows put the IB-part arm "
+        "M_hinge_x/F_z on the wing (expected ~97%; a sign-flipped shift gives <1%)"
+    )
