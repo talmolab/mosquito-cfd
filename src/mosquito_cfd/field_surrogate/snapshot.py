@@ -1,7 +1,7 @@
 """Plotfile -> ``FieldSnapshot`` reader: the repository's single Eulerian-box covering-grid read.
 
-``yt`` is imported lazily inside the reader, never at module scope, so importing this module (or
-``benchmarks.stress_integral``, which delegates to it) stays cheap.
+``yt`` is imported lazily inside the reader, never at module scope, so importing this module
+stays cheap for callers that never read a plotfile.
 
 Code units throughout -- values are returned exactly as the plotfile stores them, with no unit
 conversion, unwrapped from yt's ``unyt_array`` to bare FP64 numpy.
@@ -152,6 +152,35 @@ def _corner(value, name: str) -> np.ndarray:
     return arr
 
 
+def _region_bounds(
+    lo: np.ndarray,
+    hi: np.ndarray,
+    halo: int,
+    *,
+    dle: np.ndarray,
+    dre: np.ndarray,
+    ddims: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-axis cell index bounds ``[i_lo, i_hi)`` for a physical request ("halo is reach").
+
+    Pads the request by ``halo`` cells first, then keeps the part of the padded range that lies
+    inside the domain. The corners are clipped only to one reach beyond the domain, which removes
+    ``+/-inf`` and bounds the arithmetic without changing the result (design.md D1).
+    """
+    dx = (dre - dle) / ddims
+    margin = (halo + 1) * dx
+    lo_c = np.clip(lo, dle - margin, dre + margin)
+    hi_c = np.clip(hi, dle - margin, dre + margin)
+    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
+    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
+    # A zero-width (or inverted) request takes the cell at `lo`. Applied BEFORE the domain
+    # intersection, so it can never add a cell outside the padded request.
+    i_hi = np.maximum(i_hi, i_lo + 1)
+    i_lo = np.clip(i_lo, 0, ddims)
+    i_hi = np.clip(i_hi, i_lo, ddims)
+    return i_lo, i_hi
+
+
 def read_field_snapshot(
     plotfile_path: str | Path,
     *,
@@ -162,14 +191,17 @@ def read_field_snapshot(
 ) -> FieldSnapshot:
     """Read an axis-aligned region of a single-level AMReX plotfile.
 
-    Reads the full level-0 covering grid and slices the requested region in memory, padded by
-    ``halo`` cells on each side and clamped to the domain. Region semantics are identical to the
-    legacy ``benchmarks.stress_integral.extract_eulerian_box``, which delegates here.
+    Reads the full level-0 covering grid and slices the requested region in memory. The request
+    is padded by ``halo`` cells on each side, and the part of the padded request inside the
+    domain is kept ("halo is reach"): a request up to ``halo`` cells outside the domain returns
+    the in-domain cells it reaches, and one farther out returns zero cells on that axis. A
+    zero-width request inside the domain yields one cell; a point exactly on the upper domain
+    edge yields none, since cells cover the half-open ``[domain_left_edge, domain_right_edge)``.
 
-    Note that the "at least one cell" floor is applied only on axes that overlap the domain's
-    half-open cell coverage ``[domain_left_edge, domain_right_edge)``: a request wholly on one
-    side of the domain -- at or beyond the upper edge, or wholly below the lower edge -- correctly
-    yields a zero-cell region on that axis.
+    This matches ``benchmarks.stress_integral.extract_eulerian_box`` whenever
+    ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside that, the
+    legacy adapter clamps the corners onto the domain edge *before* padding and so returns edge
+    cells however far away the request is; this reader returns fewer cells there, never more.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
@@ -246,26 +278,7 @@ def read_field_snapshot(
     ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
     dx = (dre - dle) / ddims
 
-    # A request axis "overlaps" the domain's half-open cell coverage [dle, dre) when it is not
-    # wholly on one side of it. dle is deliberately inclusive (it is the left edge of cell 0) and
-    # dre is deliberately exclusive (cell ddims-1 ends just short of it): a degenerate point query
-    # exactly at dle lands in one cell, while the same query exactly at dre (the upper_edge case
-    # above) correctly yields zero.
-    overlaps = (lo_v < dre) & (hi_v >= dle)
-
-    lo_c = np.clip(lo_v, dle, dre)
-    hi_c = np.clip(hi_v, dle, dre)
-    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
-    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
-    i_lo = np.maximum(i_lo, 0)
-    # The "at least one cell" floor applies only on an axis that overlaps the domain. Without
-    # `overlaps` gating it, a request wholly outside the domain clips lo_c and hi_c to the SAME
-    # edge (both to dle, or both to dre) and becomes indistinguishable from a genuine degenerate
-    # interior point query (zero_width_interior, above) -- the floor could not tell them apart and
-    # used to widen a request wholly below the domain into a spurious one-cell result at index 0,
-    # even though the symmetric case at or beyond the upper edge already clamped to zero correctly
-    # (review correction; see design.md D1).
-    i_hi = np.minimum(np.where(overlaps, np.maximum(i_hi, i_lo + 1), i_lo), ddims)
+    i_lo, i_hi = _region_bounds(lo_v, hi_v, halo, dle=dle, dre=dre, ddims=ddims)
 
     cg = ds.covering_grid(
         level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)

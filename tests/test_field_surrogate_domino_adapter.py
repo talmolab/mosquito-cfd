@@ -95,33 +95,13 @@ def test_geometry_half_keys_are_absent_not_zero_filled():
         assert key not in out, f"{key} must be absent, not present-and-empty"
 
 
-def test_grid_is_built_from_the_point_cloud_not_a_second_meshgrid(monkeypatch):
-    # Review correction. `to_domino_volume` used to call `np.meshgrid(snapshot.x, snapshot.y,
-    # snapshot.z, indexing="ij")` itself even though `snapshot.to_point_cloud()` (called two
-    # lines earlier) already builds the identical grid internally to produce `coords` -- doubling
-    # the allocation and FLOPs (~800MB of duplicate transient memory at 256-cubed), and keeping
-    # `grid` consistent with `volume_mesh_centers` only by test coverage, not by construction.
-    # `grid` must instead be a reshape of `cloud.coords`, which does no new meshgrid at all.
-    import mosquito_cfd.field_surrogate.domino_adapter as mod
-
-    calls = []
-    real_meshgrid = mod.np.meshgrid
-
-    def _counting(*args, **kwargs):
-        calls.append(1)
-        return real_meshgrid(*args, **kwargs)
-
-    # numpy is a single shared module object, so this also counts to_point_cloud()'s own
-    # (legitimate) call -- the point is the TOTAL across both, not whether domino_adapter calls
-    # it at all.
-    monkeypatch.setattr(mod.np, "meshgrid", _counting)
-    snap = _snapshot()
-    out = _adapt(snap)
-    nx, ny, nz = snap.x.size, snap.y.size, snap.z.size
-    assert out["grid"].shape == (nx, ny, nz, 3)
-    assert len(calls) == 1, (
-        f"expected exactly one meshgrid call total, got {len(calls)}"
-    )
+def test_grid_shares_memory_with_volume_mesh_centers():
+    # `grid` is the (nx, ny, nz, 3) reshape of `volume_mesh_centers`, not a second copy of the
+    # same coordinates (384MB at 256-cubed, measured). Asserting the memory relationship directly
+    # catches both a recomputed meshgrid and a `.copy()`, and survives any refactor of how
+    # to_point_cloud builds its coordinates.
+    out = _adapt(_snapshot())
+    assert np.shares_memory(out["grid"], out["volume_mesh_centers"])
 
 
 def test_grid_is_oriented_to_the_snapshot_axes():
@@ -160,16 +140,37 @@ def test_mismatched_global_param_lengths_are_rejected():
     [
         ((np.nan, 0.85, 30.0), (45.0, 1.0, 45.0)),
         ((35.0, 0.85, 30.0), (45.0, np.nan, 45.0)),
+        ((np.inf, 0.85, 30.0), (45.0, 1.0, 45.0)),
+        ((35.0, 0.85, 30.0), (45.0, -np.inf, 45.0)),
     ],
-    ids=["nan_in_values", "nan_in_reference"],
+    ids=["nan_in_values", "nan_in_reference", "inf_in_values", "neg_inf_in_reference"],
 )
-def test_nan_global_params_are_rejected(values, reference):
-    # Review correction. Unlike snapshot._corner()'s explicit NaN rejection for lo/hi, a NaN
-    # here silently reached the returned training dict with no guard at all.
-    with pytest.raises(ValueError, match="NaN"):
+def test_non_finite_global_params_are_rejected(values, reference):
+    # Nothing downstream checks these, so a NaN or inf would reach the training dict silently.
+    # Unlike lo/hi, there is no "full extent" meaning for inf here.
+    with pytest.raises(ValueError, match="finite"):
         to_domino_volume(
             _snapshot(), global_params_values=values, global_params_reference=reference
         )
+
+
+def test_every_output_array_is_read_only_and_owns_no_caller_memory():
+    # One rule for every key: read-only, like FieldSnapshot's own arrays. The global-params
+    # arrays used to be writable AND aliased the caller's input, so mutating the input after the
+    # call silently changed the "returned" training example.
+    caller_values = np.array([35.0, 0.85, 30.0])
+    caller_reference = np.array([45.0, 1.0, 45.0])
+    out = to_domino_volume(
+        _snapshot(),
+        global_params_values=caller_values,
+        global_params_reference=caller_reference,
+    )
+    for key, arr in out.items():
+        assert arr.flags.writeable is False, key
+    assert not np.shares_memory(out["global_params_values"], caller_values)
+    assert not np.shares_memory(out["global_params_reference"], caller_reference)
+    caller_values[0] = 99.0
+    assert out["global_params_values"][0, 0] == 35.0
 
 
 def test_module_contains_no_torch_or_physicsnemo_import_at_any_scope():

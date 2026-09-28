@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import itertools
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -277,9 +279,12 @@ def test_fp32_field_is_refused_not_upcast(monkeypatch):
 
 _INF = np.inf
 
+#: PARITY cases: requests where read_field_snapshot and the legacy extract_eulerian_box must agree.
 #: (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
 #: reference arithmetic, not recomputed with the same formula the reader uses -- that would be
-#: tautological. PR B's differential test against the frozen oracle reuses this matrix.
+#: tautological. PR B's differential test against the frozen oracle iterates THIS matrix, so every
+#: entry here must be one where the two implementations agree; divergences go in
+#: DIVERGENCE_CASES below.
 REGION_CASES = [
     ("full", (-_INF, -_INF, -_INF), (_INF, _INF, _INF), 0, (6, 6, 6)),
     ("interior_unaligned", (1.2, 1.2, 1.2), (4.7, 4.7, 4.7), 0, (4, 4, 4)),
@@ -290,20 +295,43 @@ REGION_CASES = [
     ("halo3_clipped", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 3, (6, 6, 6)),
     ("mixed_inf", (-_INF, 1.5, -_INF), (_INF, 4.5, _INF), 0, (6, 4, 6)),
     ("zero_width_interior", (2.0, 2.0, 2.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
-    # At and beyond the upper domain edge the ddims clamp removes the one-cell floor, yielding a
-    # zero-cell region. The spec says so explicitly (design.md D1) -- an earlier draft claimed a
-    # guaranteed floor, which is false.
+    # A point at the upper edge is outside the half-open cell coverage [0, 6): zero cells, and
+    # NOT widened to one (design.md D1).
     ("upper_edge", (6.0, 6.0, 6.0), (6.0, 6.0, 6.0), 0, (0, 0, 0)),
     ("outside_domain", (7.0, 7.0, 7.0), (9.0, 9.0, 9.0), 0, (0, 0, 0)),
-    # Review correction: a request wholly BELOW the domain's lower edge must clamp to zero
-    # cells too, symmetrically with the upper-edge/outside_domain cases above. The prior
-    # implementation clipped lo_c and hi_c to the same value (dle) and then the i_lo+1 floor
-    # widened that into a spurious 1-cell region at index 0 -- the floor did not distinguish
-    # "degenerate because entirely outside the domain" from "degenerate because it is a genuine
-    # interior point query" (zero_width_interior, above).
-    ("outside_domain_low", (-9.0, -9.0, -9.0), (-7.0, -7.0, -7.0), 0, (0, 0, 0)),
     ("lower_edge", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0, (1, 1, 1)),
+    # halo at both edges: a point on either edge reaches `halo` cells inward -- symmetric.
+    ("lower_edge_halo2", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 2, (2, 2, 2)),
+    ("upper_edge_halo2", (6.0, 6.0, 6.0), (6.0, 6.0, 6.0), 2, (2, 2, 2)),
+    # Less than one cell below the domain, with halo 1: the pad reaches cell 0.
+    ("just_below_halo1", (-0.5, -0.5, -0.5), (-0.2, -0.2, -0.2), 1, (1, 1, 1)),
     ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
+]
+
+#: DIVERGENCE cases: requests lying outside the domain on some axis (hi <= dle or lo > dre), where
+#: the legacy adapter clamps the corners onto the domain edge BEFORE padding and so returns edge
+#: cells however far away the request is, while read_field_snapshot pads first and keeps only the
+#: part of the padded request inside the domain ("halo is reach", design.md D1).
+#: (id, lo, hi, halo, legacy cells per axis, read_field_snapshot cells per axis).
+DIVERGENCE_CASES = [
+    ("below_h0", (-9.0,) * 3, (-7.0,) * 3, 0, (1, 1, 1), (0, 0, 0)),
+    ("below_beyond_reach_h2", (-9.0,) * 3, (-7.0,) * 3, 2, (2, 2, 2), (0, 0, 0)),
+    ("below_within_reach_h2", (-1.5,) * 3, (-1.2,) * 3, 2, (2, 2, 2), (1, 1, 1)),
+    ("above_within_reach_h2", (7.0,) * 3, (9.0,) * 3, 2, (2, 2, 2), (1, 1, 1)),
+    ("above_beyond_reach_h2", (100.0,) * 3, (200.0,) * 3, 2, (2, 2, 2), (0, 0, 0)),
+    # A range ending exactly on the lower edge covers no cell: upper bounds are exclusive, exactly
+    # as in the interior ((1.5, 2.0) yields cell 1 only). A POINT at the lower edge still yields
+    # cell 0 (lower_edge, above).
+    ("range_ending_at_lower_edge", (-5.0,) * 3, (0.0,) * 3, 0, (1, 1, 1), (0, 0, 0)),
+    ("minus_inf_point", (-_INF,) * 3, (-_INF,) * 3, 0, (1, 1, 1), (0, 0, 0)),
+    (
+        "x_below_yz_inside_h1",
+        (-3.0, 1.0, 1.0),
+        (-1.0, 5.0, 5.0),
+        1,
+        (1, 6, 6),
+        (0, 6, 6),
+    ),
 ]
 
 
@@ -317,6 +345,90 @@ def test_region_clamping_matrix(lo, hi, halo, expected):
     for name, arr in snap.arrays.items():
         assert arr.shape == expected, name
     assert (snap.x.size, snap.y.size, snap.z.size) == expected
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "legacy_expected", "expected"),
+    [c[1:] for c in DIVERGENCE_CASES],
+    ids=[c[0] for c in DIVERGENCE_CASES],
+)
+def test_region_divergence_from_legacy_is_pinned(
+    lo, hi, halo, legacy_expected, expected
+):
+    # Both sides are asserted, so the divergence is recorded rather than merely tolerated: if
+    # either implementation drifts, this fails. The legacy side reads
+    # stress_integral.extract_eulerian_box, which is still the pre-refactor code in PR A. PR B
+    # makes that function delegate here, so PR B MUST re-point the legacy side at the frozen
+    # oracle (tasks.md) -- otherwise this assertion fails there, by design.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
+    assert (snap.x.size, snap.y.size, snap.z.size) == expected
+    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
+    assert legacy["u"].shape == legacy_expected
+
+
+def _legacy_axis(lo, hi, halo, dle=0.0, dre=6.0, n=6, dx=1.0):
+    # A literal transcription of the pre-change legacy arithmetic (clamp the corners onto the
+    # domain, THEN pad) -- deliberately a different formula from the one under test.
+    lo_c = min(max(lo, dle), dre)
+    hi_c = min(max(hi, dle), dre)
+    i_lo = max(math.floor((lo_c - dle) / dx) - halo, 0)
+    i_hi = min(max(math.ceil((hi_c - dle) / dx) + halo, i_lo + 1), n)
+    return i_lo, i_hi
+
+
+def _axis_values():
+    edges = {-1e-12, 1e-12, 6 - 1e-12, 6 + 1e-12, -100.0, 100.0, -_INF, _INF}
+    return sorted(edges | {x / 4 for x in range(-40, 65)})
+
+
+def _region(lo, hi, halo):
+    from mosquito_cfd.field_surrogate.snapshot import _region_bounds
+
+    i_lo, i_hi = _region_bounds(
+        np.array([lo, 2.0, 2.0]),
+        np.array([hi, 3.0, 3.0]),
+        halo,
+        dle=np.zeros(3),
+        dre=np.full(3, 6.0),
+        ddims=np.full(3, 6, dtype=np.int64),
+    )
+    return int(i_lo[0]), int(i_hi[0])
+
+
+def test_region_arithmetic_matches_legacy_wherever_the_request_meets_the_domain():
+    # The parity region stated in the spec: identical to legacy whenever lo <= dre and hi > dle.
+    # A sweep over ~12k (lo, hi, halo) triples, including inverted requests and +/-inf, so a
+    # divergence cannot hide between the hand-picked REGION_CASES.
+    mismatches = []
+    for lo, hi in itertools.product(_axis_values(), repeat=2):
+        if not (lo <= 6.0 and hi > 0.0):
+            continue
+        for halo in (0, 1, 2, 3):
+            new, old = _region(lo, hi, halo), _legacy_axis(lo, hi, halo)
+            if max(new[1] - new[0], 0) != max(old[1] - old[0], 0) or (
+                new[1] > new[0] and new != old
+            ):
+                mismatches.append((lo, hi, halo, old, new))
+    assert not mismatches, mismatches[:5]
+
+
+def test_region_arithmetic_never_returns_more_cells_than_legacy():
+    # Outside the parity region the new rule may return FEWER cells (it drops edge cells the
+    # legacy clamp invented for a far-away request), but never more.
+    grew, unordered = [], []
+    for lo, hi in itertools.product(_axis_values(), repeat=2):
+        for halo in (0, 1, 2, 3):
+            new, old = _region(lo, hi, halo), _legacy_axis(lo, hi, halo)
+            if max(new[1] - new[0], 0) > max(old[1] - old[0], 0):
+                grew.append((lo, hi, halo, old, new))
+            # The helper's own contract: ordered bounds inside [0, 6], so `i_hi - i_lo` is always
+            # a valid cell count, not merely a slice that happens to come out empty.
+            if not 0 <= new[0] <= new[1] <= 6:
+                unordered.append((lo, hi, halo, new))
+    assert not grew, grew[:5]
+    assert not unordered, unordered[:5]
 
 
 def test_nan_corner_is_rejected():

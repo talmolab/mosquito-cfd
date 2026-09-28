@@ -142,17 +142,9 @@ def test_global_params_returns_exactly_the_kinematic_keys(tmp_path):
     assert set(params) == {"stroke_amp_deg", "frequency_fstar", "pitch_amp_deg"}
 
 
-def test_global_params_raises_on_a_missing_kinematic_key(tmp_path):
-    # Review flagged `{k: config[k] for k in GLOBAL_PARAM_KEYS if k in config}` as a silent
-    # partial-dict risk: a caller building global_params_values from a shortened dict against a
-    # global_params_reference table that happens to also be short by one would misalign
-    # positionally with no error anywhere in to_domino_volume. Verified NOT independently
-    # reachable through the public API: GLOBAL_PARAM_KEYS is a subset of
-    # force_surrogate.dataset._REQUIRED_CONFIG_KEYS, which _configs() already enforces via
-    # load_manifest_configs -> _validate_configs for every config, before global_params() ever
-    # runs -- so this test exercises that upstream guard end-to-end, not a corpus.py-specific
-    # fix. global_params() is still hardened below (unconditional key access instead of a silent
-    # `if k in config`) so a future change to that upstream guarantee fails loudly.
+def test_manifest_missing_a_kinematic_key_is_rejected_by_the_manifest_guard(tmp_path):
+    # End-to-end: the rejection comes from force_surrogate.dataset._validate_configs, reached
+    # through _configs() before global_params() runs -- not from corpus.py itself.
     root = _corpus(tmp_path)
     manifest_path = root / "sweep_manifest.json"
     manifest = json.loads(manifest_path.read_text())
@@ -162,6 +154,28 @@ def test_global_params_raises_on_a_missing_kinematic_key(tmp_path):
     corpus = FieldCorpus(root)
     with pytest.raises(ValueError, match="pitch_amp_deg"):
         corpus.global_params("s35_f085_p30")
+
+
+def test_global_param_keys_are_all_required_by_the_manifest_guard():
+    # The invariant global_params() relies on to index keys directly. If a kinematic key is ever
+    # added to GLOBAL_PARAM_KEYS without the manifest guard requiring it, this fails first.
+    from mosquito_cfd.field_surrogate.corpus import GLOBAL_PARAM_KEYS
+    from mosquito_cfd.force_surrogate.dataset import _REQUIRED_CONFIG_KEYS
+
+    assert set(GLOBAL_PARAM_KEYS) <= _REQUIRED_CONFIG_KEYS
+
+
+def test_global_params_never_returns_a_shortened_dict(tmp_path, monkeypatch):
+    # Bypasses the manifest guard to exercise global_params() itself: a config missing a key
+    # must fail loudly, not come back one entry short and misalign positionally against
+    # global_params_reference in to_domino_volume.
+    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+
+    root = _corpus(tmp_path)
+    config = {"name": "s35_f085_p30", "stroke_amp_deg": 35.0, "frequency_fstar": 0.85}
+    monkeypatch.setattr(fs_dataset, "load_manifest_configs", lambda _path: [config])
+    with pytest.raises(KeyError, match="pitch_amp_deg"):
+        FieldCorpus(root).global_params("s35_f085_p30")
 
 
 def test_manifest_is_parsed_from_disk_only_once_per_instance(tmp_path, monkeypatch):

@@ -80,35 +80,35 @@ def to_domino_volume(
         global_params_reference: Normalization baselines, same length and positional order.
 
     Returns:
-        A dict with exactly :data:`VOLUME_HALF_KEYS` and **no** leading batch dimension. The
+        A dict with exactly :data:`VOLUME_HALF_KEYS` and **no** leading batch dimension. Every
+        array is read-only (copy one before normalizing it in place). ``grid`` is a view of
+        ``volume_mesh_centers`` reshaped to ``(nx, ny, nz, 3)``, not a separate copy, and the
+        global-params arrays are copies that do not alias the caller's input. The
         :data:`GEOMETRY_HALF_KEYS` are absent; see the module docstring for why.
 
     Raises:
         ValueError: If ``global_params_values`` and ``global_params_reference`` differ in
-            length, or if either contains NaN.
+            length, or if either contains a non-finite value (NaN or +/-inf).
     """
-    values = np.asarray(global_params_values, dtype=np.float64).reshape(-1, 1)
-    reference = np.asarray(global_params_reference, dtype=np.float64).reshape(-1, 1)
+    values = np.array(global_params_values, dtype=np.float64).reshape(-1, 1)
+    reference = np.array(global_params_reference, dtype=np.float64).reshape(-1, 1)
     if values.shape != reference.shape:
         raise ValueError(
             f"global_params_values and global_params_reference must have the same length; "
             f"got {values.shape[0]} and {reference.shape[0]}"
         )
-    if np.isnan(values).any() or np.isnan(reference).any():
-        # Unlike snapshot._corner()'s NaN rejection for lo/hi, nothing else in this pipeline
-        # checks these -- a NaN here would otherwise reach the returned training dict silently.
+    # Nothing downstream checks these, so a NaN or inf would reach the training dict silently.
+    if not (np.isfinite(values).all() and np.isfinite(reference).all()):
         raise ValueError(
-            "global_params_values and global_params_reference must not contain NaN"
+            "global_params_values and global_params_reference must be finite; "
+            f"got {values.ravel().tolist()} and {reference.ravel().tolist()}"
         )
+    for arr in (values, reference):
+        arr.setflags(write=False)
 
     cloud = snapshot.to_point_cloud()
-    # `cloud.coords` is already the (x, y, z) meshgrid raveled in C-order over (nx, ny, nz) --
-    # see FieldSnapshot.to_point_cloud(). Reshaping it back reconstructs the same (nx, ny, nz, 3)
-    # grid bit-for-bit without a second np.meshgrid call (review correction: recomputing it here
-    # duplicated the allocation and FLOPs, and kept `grid` consistent with `volume_mesh_centers`
-    # only by test coverage rather than by construction).
-    nx, ny, nz = snapshot.x.size, snapshot.y.size, snapshot.z.size
-    grid = cloud.coords.reshape(nx, ny, nz, 3)
+    # cloud.coords is the C-order ravel over (nx, ny, nz), so this reshape is a zero-copy view.
+    grid = cloud.coords.reshape(snapshot.x.size, snapshot.y.size, snapshot.z.size, 3)
 
     return {
         "volume_mesh_centers": cloud.coords,
