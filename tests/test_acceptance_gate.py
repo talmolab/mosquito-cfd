@@ -18,6 +18,13 @@ from mosquito_cfd.force_surrogate.acceptance_gate import (
     run_acceptance_gate,
 )
 
+# A minimal deck: only the keys extraction reads. The CSVs below write X,Y,Z = 0.
+_DECK_TEXT = (
+    "particle_inputs.x = 0.0\nparticle_inputs.y = 0.0\nparticle_inputs.z = 0.0\n"
+    "particle_inputs.hinge_x = 0.0\nparticle_inputs.hinge_y = -1.5\n"
+    "particle_inputs.hinge_z = 0.0\n"
+)
+
 _IB_HEADER = "iStep,time,X,Y,Z,Vx,Vy,Vz,Rx,Ry,Rz,Fx,Fy,Fz,Mx,My,Mz,Fcpx,Fcpy,Fcpz,Tcpx,Tcpy,Tcpz,SumUx,SumUy,SumUz,SumTx,SumTy,SumTz"
 
 
@@ -99,11 +106,17 @@ def _make_corpus(
                 "reynolds": 42.0,
                 "split": "train",
                 "max_step": n_rows,
+                "input_file": f"inputs/inputs.3d.{config_name}",
             }
         ]
     }
     manifest_path = corpus_dir / "sweep_manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    # The extractor reads the moment reference point from each config's deck.
+    deck_path = corpus_dir / "inputs" / f"inputs.3d.{config_name}"
+    deck_path.parent.mkdir()
+    deck_path.write_text(_DECK_TEXT, encoding="utf-8")
 
     csv_path = corpus_dir / f"forces_{config_name}.csv"
     _write_csv(
@@ -141,6 +154,7 @@ def _make_corpus(
         "run_metadata_paths": {config_name: metadata_path},
         "provenance_path": provenance_path,
         "config_name": config_name,
+        "deck_path": deck_path,
     }
 
 
@@ -487,3 +501,57 @@ def test_record_check_result_accumulates_multiple_checks(tmp_path):
     written = json.loads(provenance_path.read_text(encoding="utf-8"))
     assert "cc_f1" in written["cluster_run"]
     assert "orchestration" in written["cluster_run"]
+
+
+# ---------------------------------------------------------------------------
+# Moment-reference extraction errors surface as gate failures, not tracebacks
+# (fix-moment-reference-hinge task 13c)
+# ---------------------------------------------------------------------------
+
+
+def _rewrite_csv(csv_path: Path, transform) -> None:
+    import pandas as pd
+
+    df = pd.read_csv(csv_path)
+    transform(df).to_csv(csv_path, index=False)
+
+
+def _moved_origin(df):
+    df["Y"] = df["Y"].astype(float)
+    df.loc[df.index[-1], "Y"] = 1e-9
+    return df
+
+
+@pytest.mark.parametrize(
+    ("breakage", "expected"),
+    [
+        ("missing_deck", "not found"),
+        ("no_origin_columns", "'X'"),
+        ("moving_origin", "not constant"),
+    ],
+)
+def test_extraction_errors_become_gate_failures_not_tracebacks(
+    tmp_path, breakage, expected
+):
+    """`run_acceptance_gate` returns `GateResult(passed=False, failures)` rather than raising
+    when extraction rejects a config's deck or moment origin -- the gate enumerates, and the
+    new extraction `ValueError`s would otherwise turn it into a traceback."""
+    c = _make_corpus(tmp_path)
+    csv_path = c["csv_paths"][c["config_name"]]
+    if breakage == "missing_deck":
+        c["deck_path"].unlink()
+    elif breakage == "no_origin_columns":
+        _rewrite_csv(csv_path, lambda df: df.drop(columns=["X", "Y", "Z"]))
+    else:
+        _rewrite_csv(csv_path, _moved_origin)
+
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert any(c["config_name"] in f and expected in f for f in result.failures), (
+        result.failures
+    )

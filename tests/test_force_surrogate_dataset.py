@@ -45,9 +45,55 @@ FIXTURE_MX = np.array([0.0, 20.0, -40.0, 90.0, -70.0])
 FIXTURE_TIME = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
 
 
-def _write_manifest(path: Path, configs: list[dict]) -> Path:
-    """Write a minimal sweep manifest (only the keys build_dataset reads)."""
-    path.write_text(json.dumps({"configs": configs}), encoding="utf-8")
+# The committed fixture CSVs record the IB particle origin (4, 2, 4) in their X,Y,Z columns.
+FIXTURE_ORIGIN = (4.0, 2.0, 4.0)
+
+
+def _write_deck(
+    path: Path,
+    *,
+    hinge: tuple[float, float, float] = FIXTURE_ORIGIN,
+    particle: tuple[float, float, float] = FIXTURE_ORIGIN,
+) -> Path:
+    """Write a minimal IAMReX deck carrying only the keys extraction reads.
+
+    The default hinge coincides with the fixture CSV's particle origin, so the moment shift is
+    zero and the pre-existing ``CF_m* == M*/m_ref`` relationships hold (spec: the degenerate
+    case of "Coefficients use the single-source per-config normalization").
+    """
+    lines = [f"particle_inputs.{a} = {v}" for a, v in zip("xyz", particle, strict=True)]
+    lines += [
+        f"particle_inputs.hinge_{a} = {v}" for a, v in zip("xyz", hinge, strict=True)
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_manifest(
+    path: Path,
+    configs: list[dict],
+    *,
+    hinges: dict[str, tuple[float, float, float]] | None = None,
+) -> Path:
+    """Write a minimal sweep manifest (only the keys build_dataset reads), plus decks.
+
+    Each config lacking an ``input_file`` gets one pointing at a minimal deck written beside
+    the manifest (hinge from ``hinges[name]``, else the zero-shift default). A config that
+    already carries ``input_file`` -- including ``None`` -- is written verbatim, so the
+    missing-deck error paths stay reachable.
+    """
+    hinges = hinges or {}
+    written = []
+    for config in configs:
+        if "input_file" not in config:
+            rel = f"inputs/deck_{config.get('name', 'unnamed')}"
+            _write_deck(
+                path.parent / rel, hinge=hinges.get(config.get("name"), FIXTURE_ORIGIN)
+            )
+            config = {**config, "input_file": rel}
+        written.append(config)
+    path.write_text(json.dumps({"configs": written}), encoding="utf-8")
     return path
 
 
@@ -78,7 +124,7 @@ def test_one_row_per_config_and_timestep():
     manifest = json.loads(COMMITTED_MANIFEST.read_text(encoding="utf-8"))
     n_configs = len(manifest["configs"])
     csv_paths = {c["name"]: FIXTURE for c in manifest["configs"]}
-    df, dropped = build_dataset(COMMITTED_MANIFEST, csv_paths)
+    df, dropped, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
     assert dropped == []
     assert len(df) == n_configs * len(FIXTURE_TIME)
 
@@ -87,7 +133,7 @@ def test_columns_are_documented_schema():
     """Columns are exactly the 22-column schema. Spec: Columns are the documented schema."""
     manifest = json.loads(COMMITTED_MANIFEST.read_text(encoding="utf-8"))
     csv_paths = {c["name"]: FIXTURE for c in manifest["configs"]}
-    df, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
+    df, _, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
     assert list(df.columns) == DATASET_COLUMNS
     assert DATASET_COLUMNS == [
         "config_name",
@@ -119,7 +165,7 @@ def test_holdout_split_carried_through():
     """Each row carries its config's split verbatim. Spec: Held-out split carried through."""
     manifest = json.loads(COMMITTED_MANIFEST.read_text(encoding="utf-8"))
     csv_paths = {c["name"]: FIXTURE for c in manifest["configs"]}
-    df, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
+    df, _, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
     # The committed manifest has both train and holdout configs.
     by_name = {c["name"]: c["split"] for c in manifest["configs"]}
     for name, group in df.groupby("config_name"):
@@ -131,7 +177,7 @@ def test_complete_build_reports_no_drops():
     """A complete build returns dropped == []. Spec: Complete build reports no drops."""
     manifest = json.loads(COMMITTED_MANIFEST.read_text(encoding="utf-8"))
     csv_paths = {c["name"]: FIXTURE for c in manifest["configs"]}
-    _, dropped = build_dataset(COMMITTED_MANIFEST, csv_paths)
+    _, dropped, _ = build_dataset(COMMITTED_MANIFEST, csv_paths)
     assert dropped == []
 
 
@@ -147,7 +193,7 @@ def test_coefficients_use_single_source_per_config_normalization(tmp_path):
     """
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
 
     f_ref = compute_force_reference(
         f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
@@ -170,7 +216,7 @@ def test_phase_and_wingbeat_tag_every_timestep(tmp_path):
     """
     cfg = _validated_point_config()  # frequency_fstar = 1.0
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     assert len(df) == len(FIXTURE_TIME)  # no rows dropped
     np.testing.assert_allclose(df["phase"].to_numpy(), [0.0, 0.25, 0.5, 0.75, 0.0])
     np.testing.assert_array_equal(df["wingbeat"].to_numpy(), [0, 0, 0, 0, 1])
@@ -182,12 +228,12 @@ def test_name_based_parse_is_robust_to_column_order(tmp_path):
     """A column-reordered CSV yields identical coefficients. Spec: Name-based parse."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df_canonical, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df_canonical, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
 
     reordered = pd.read_csv(FIXTURE)[list(reversed(IB_PARTICLE_COLUMNS))]
     reordered_path = tmp_path / "reordered.csv"
     reordered.to_csv(reordered_path, index=False)
-    df_reordered, _ = build_dataset(manifest, {cfg["name"]: reordered_path})
+    df_reordered, _, _ = build_dataset(manifest, {cfg["name"]: reordered_path})
 
     for col in ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"):
         np.testing.assert_allclose(
@@ -206,7 +252,7 @@ def test_empty_csv_yields_no_rows(tmp_path):
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
     empty = tmp_path / "empty.csv"
     empty.write_text(",".join(IB_PARTICLE_COLUMNS) + "\n", encoding="utf-8")
-    df, dropped = build_dataset(manifest, {cfg["name"]: empty})
+    df, dropped, _ = build_dataset(manifest, {cfg["name"]: empty})
     assert len(df) == 0
     assert dropped == []  # present-but-empty is NOT a drop
     assert list(df.columns) == DATASET_COLUMNS
@@ -236,7 +282,7 @@ def test_allow_missing_skips_and_returns_dropped(tmp_path):
         "split": "train",
     }
     manifest = _write_manifest(tmp_path / "m.json", [present, absent])
-    df, dropped = build_dataset(
+    df, dropped, _ = build_dataset(
         manifest,
         {present["name"]: FIXTURE},  # absent config has no path
         allow_missing=True,
@@ -250,7 +296,7 @@ def test_allow_missing_all_dropped_yields_empty_framed_dataset(tmp_path):
     """If every config is dropped, the frame is empty but keeps the full schema."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, dropped = build_dataset(
+    df, dropped, _ = build_dataset(
         manifest, {cfg["name"]: tmp_path / "absent.csv"}, allow_missing=True
     )
     assert dropped == [cfg["name"]]
@@ -272,7 +318,7 @@ def test_force_only_no_plotfile_parameter(tmp_path):
     # And it runs with no plotfile present.
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     assert len(df) == len(FIXTURE_TIME)
 
 
@@ -284,7 +330,7 @@ def test_force_only_no_plotfile_parameter(tmp_path):
 def _build_demo(tmp_path):
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     return df
 
 
@@ -406,7 +452,7 @@ def test_nan_force_row_propagates_to_nan_coefficient(tmp_path):
     raw.loc[0, "Fx"] = np.nan
     nan_csv = tmp_path / "nan.csv"
     raw.to_csv(nan_csv, index=False)
-    df, dropped = build_dataset(manifest, {cfg["name"]: nan_csv})
+    df, dropped, _ = build_dataset(manifest, {cfg["name"]: nan_csv})
     assert dropped == []
     assert len(df) == len(FIXTURE_TIME)
     assert np.isnan(df["CF_x"].iloc[0])
@@ -490,7 +536,7 @@ def test_per_config_normalization_varies_with_stroke(tmp_path):
     lo = {**_validated_point_config(), "index": 0, "name": "lo", "stroke_amp_deg": 35.0}
     hi = {**_validated_point_config(), "index": 1, "name": "hi", "stroke_amp_deg": 55.0}
     manifest = _write_manifest(tmp_path / "m.json", [lo, hi])
-    df, _ = build_dataset(manifest, {"lo": FIXTURE, "hi": FIXTURE})
+    df, _, _ = build_dataset(manifest, {"lo": FIXTURE, "hi": FIXTURE})
     cf_lo = df[df["config_name"] == "lo"]["CF_x"].to_numpy()
     cf_hi = df[df["config_name"] == "hi"]["CF_x"].to_numpy()
     # Larger stroke -> larger F_ref -> smaller |CF_x| for the same raw force.
@@ -506,7 +552,7 @@ def test_phase_wingbeat_at_non_unity_frequency(tmp_path):
     """
     cfg = {**_validated_point_config(), "frequency_fstar": 0.85}
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     np.testing.assert_array_equal(df["wingbeat"].to_numpy(), [0, 0, 0, 0, 0])
     np.testing.assert_allclose(df["phase"].to_numpy(), FIXTURE_TIME * 0.85)
 
@@ -515,8 +561,8 @@ def test_empty_build_has_stable_dtypes(tmp_path):
     """The all-dropped empty frame has the SAME dtypes as a populated frame (schema stable)."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    populated, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
-    empty, dropped = build_dataset(
+    populated, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    empty, dropped, _ = build_dataset(
         manifest, {cfg["name"]: tmp_path / "absent.csv"}, allow_missing=True
     )
     assert dropped == [cfg["name"]]
@@ -568,7 +614,7 @@ def test_dedup_removes_duplicate_init_rows_keeps_last(tmp_path):
     """3 rows at iStep=0 (init_iter=2) collapse to 1: the last, non-zero row is kept."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
     assert (df["time"] == 0.0).sum() == 1
     first_row = df.iloc[0]
     assert (
@@ -581,7 +627,7 @@ def test_dedup_time_strictly_increasing(tmp_path):
     """After dedup, time is strictly increasing (no duplicate timestamps)."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: INIT_ITER_FIXTURE})
     diffs = np.diff(df["time"].to_numpy())
     assert np.all(diffs > 0)
 
@@ -593,7 +639,7 @@ def test_dedup_parametrized_over_init_iter(tmp_path, init_iter):
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
     csv_path = _write_init_iter_csv(tmp_path / f"forces_init{init_iter}.csv", init_iter)
-    df, _ = build_dataset(manifest, {cfg["name"]: csv_path})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: csv_path})
     n_real_steps = 2
     assert len(df) == 1 + n_real_steps  # iStep 0 (deduped to 1) + n_real_steps
     assert (df["time"] == 0.0).sum() == 1
@@ -606,7 +652,7 @@ def test_dedup_is_noop_without_duplicates(tmp_path):
     init_iter=None) is byte-for-byte unaffected by the dedup logic."""
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    df, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
     assert len(df) == len(FIXTURE_TIME)
     np.testing.assert_array_equal(df["Fx"].to_numpy(), FIXTURE_FX)
     np.testing.assert_array_equal(df["time"].to_numpy(), FIXTURE_TIME)
@@ -663,3 +709,358 @@ def test_missing_istep_column_raises_naming_config(tmp_path):
     df.to_csv(csv_path, index=False)
     with pytest.raises(ValueError, match=cfg["name"]):
         build_dataset(manifest, {cfg["name"]: csv_path})
+
+
+# ---------------------------------------------------------------------------
+# Moment reference point: hinge-referenced moments (fix-moment-reference-hinge, PR2)
+# ---------------------------------------------------------------------------
+
+FIXTURE_RAW = pd.read_csv(FIXTURE)
+
+
+def _m_ref(cfg: dict) -> float:
+    return compute_moment_reference(
+        f_star=cfg["frequency_fstar"],
+        phi_amp_deg=cfg["stroke_amp_deg"],
+        r_gyr=R_GYRATION,
+        span=SPAN,
+        chord=CHORD,
+        rho=RHO,
+    ).m_ref
+
+
+def _csv_with(tmp_path: Path, name: str, **columns) -> Path:
+    """The committed fixture with some columns overwritten (scalars broadcast)."""
+    raw = FIXTURE_RAW.copy()
+    for col, values in columns.items():
+        raw[col] = values
+    path = tmp_path / name
+    raw.to_csv(path, index=False)
+    return path
+
+
+def test_config_without_input_file_raises_naming_config(tmp_path):
+    """No manifest `input_file` -> ValueError naming the config, never a bare TypeError/KeyError.
+
+    Spec: A configuration with no locatable deck is rejected.
+    """
+    cfg = {**_validated_point_config(), "input_file": None}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*input_file"):
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    no_key = _validated_point_config()
+    manifest.write_text(json.dumps({"configs": [no_key]}), encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"{no_key['name']}.*input_file"):
+        build_dataset(manifest, {no_key["name"]: FIXTURE})
+
+
+def test_config_whose_deck_does_not_exist_raises_naming_resolved_path(tmp_path):
+    """A declared deck absent on disk -> ValueError naming the config and the RESOLVED path
+    (resolved against the manifest's own directory, not the CWD).
+
+    Spec: A configuration with no locatable deck is rejected.
+    """
+    cfg = {**_validated_point_config(), "input_file": "inputs/nope"}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    resolved = tmp_path / "inputs" / "nope"
+    with pytest.raises(ValueError, match=cfg["name"]) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(resolved) in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "deck_text",
+    [
+        # hinge_y absent entirely
+        "particle_inputs.hinge_x = 4.0\nparticle_inputs.hinge_z = 4.0\n",
+        # non-finite hinge
+        "particle_inputs.hinge_x = 4.0\nparticle_inputs.hinge_y = nan\n"
+        "particle_inputs.hinge_z = 4.0\n",
+        "particle_inputs.hinge_x = inf\nparticle_inputs.hinge_y = 0.5\n"
+        "particle_inputs.hinge_z = 4.0\n",
+    ],
+    ids=["missing-hinge_y", "nan-hinge_y", "inf-hinge_x"],
+)
+def test_deck_without_finite_hinge_raises_naming_config_and_deck(tmp_path, deck_text):
+    """No silent fallback to the particle origin (that would reinstate mid-span moments).
+
+    `read_deck_value` names neither config nor deck, so extraction must wrap it.
+    Spec: A deck without a declared hinge is rejected.
+    """
+    deck = tmp_path / "inputs" / "bad_deck"
+    deck.parent.mkdir()
+    deck.write_text(deck_text, encoding="utf-8")
+    cfg = {**_validated_point_config(), "input_file": "inputs/bad_deck"}
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    with pytest.raises(ValueError, match=cfg["name"]) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(deck) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("column", ["X", "Y", "Z"])
+def test_csv_without_origin_column_raises_naming_config_and_column(tmp_path, column):
+    """X,Y,Z are required: IAMReX writes the moment origin there.
+
+    Spec: A CSV lacking the origin columns is rejected.
+    """
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    bad = tmp_path / "no_origin.csv"
+    FIXTURE_RAW.drop(columns=[column]).to_csv(bad, index=False)
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*'{column}'"):
+        build_dataset(manifest, {cfg["name"]: bad})
+
+
+@pytest.mark.parametrize("column", ["X", "Y", "Z"])
+def test_moving_origin_rejected_under_exact_equality(tmp_path, column):
+    """Any variation, however small, is rejected -- no tolerance.
+
+    Spec: A moving moment origin is rejected rather than shifted.
+    """
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    moved = FIXTURE_RAW[column].to_numpy(dtype=float).copy()
+    moved[-1] = np.nextafter(moved[-1], np.inf)  # one ulp
+    csv = _csv_with(tmp_path, "moving.csv", **{column: moved})
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*not constant"):
+        build_dataset(manifest, {cfg["name"]: csv})
+
+
+@pytest.mark.parametrize(
+    "values",
+    [[4.0, np.nan, 4.0, 4.0, 4.0], [np.nan] * 5, [np.inf] * 5],
+    ids=["one-nan", "all-nan", "all-inf"],
+)
+def test_non_finite_origin_rejected(tmp_path, values):
+    """The hazard is pandas: `Series([4, nan, 4]).max() - .min() == 0` and `.nunique() == 1`
+    both PASS a naive constancy check. Finiteness must be asserted explicitly.
+
+    Spec: A NaN moment origin is rejected.
+    """
+    # Pin the hazard itself, so the test documents why an explicit check is needed.
+    s = pd.Series([4.0, np.nan, 4.0])
+    assert s.max() - s.min() == 0 and s.nunique() == 1
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    csv = _csv_with(tmp_path, "nan_origin.csv", X=values)
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*finite"):
+        build_dataset(manifest, {cfg["name"]: csv})
+
+
+def test_header_only_csv_does_not_trip_the_origin_guard(tmp_path):
+    """Zero rows -> zero contribution, no error from the constancy check on an empty array,
+    and no offset recorded (there is no origin to derive one from).
+
+    Spec: A header-only CSV contributes no rows without tripping the origin guard.
+    """
+    cfg = _validated_point_config()
+    manifest = _write_manifest(
+        tmp_path / "m.json", [cfg], hinges={cfg["name"]: (4.0, 0.5, 4.0)}
+    )
+    empty = tmp_path / "empty.csv"
+    empty.write_text(",".join(IB_PARTICLE_COLUMNS) + "\n", encoding="utf-8")
+    df, dropped, provenance = build_dataset(manifest, {cfg["name"]: empty})
+    assert len(df) == 0 and dropped == []
+    assert provenance[cfg["name"]]["origin"] is None
+    assert provenance[cfg["name"]]["offset"] is None
+
+
+def test_shift_applied_with_a_non_committed_offset(tmp_path):
+    """End-to-end through build_dataset with an offset that is NOT (0, 1.5, 0), on all three
+    axes, so a hardcoded constant or a special-cased axis fails. Expected values are the
+    hand-expanded cross product, not a call to the helper under test.
+
+    Spec: Offset is derived, not hardcoded; Parallel-axis shift is applied at extraction.
+    """
+    cfg = _validated_point_config()
+    hinge = (3.5, 0.25, 4.75)
+    manifest = _write_manifest(tmp_path / "m.json", [cfg], hinges={cfg["name"]: hinge})
+    df, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+
+    dx, dy, dz = (o - h for o, h in zip(FIXTURE_ORIGIN, hinge, strict=True))
+    assert (dx, dy, dz) == (0.5, 1.75, -0.75)
+    fx, fy, fz = (FIXTURE_RAW[c].to_numpy(dtype=float) for c in ("Fx", "Fy", "Fz"))
+    mx, my, mz = (FIXTURE_RAW[c].to_numpy(dtype=float) for c in ("Mx", "My", "Mz"))
+    m_ref = _m_ref(cfg)
+    np.testing.assert_allclose(
+        df["CF_mx"], (mx + dy * fz - dz * fy) / m_ref, rtol=1e-12
+    )
+    np.testing.assert_allclose(
+        df["CF_my"], (my + dz * fx - dx * fz) / m_ref, rtol=1e-12
+    )
+    np.testing.assert_allclose(
+        df["CF_mz"], (mz + dx * fy - dy * fx) / m_ref, rtol=1e-12
+    )
+    # Non-vacuous: the fixture's forces make the shift visible on every moment axis.
+    assert not np.allclose(df["CF_mx"], mx / m_ref)
+    assert not np.allclose(df["CF_my"], my / m_ref)
+    assert not np.allclose(df["CF_mz"], mz / m_ref)
+    assert provenance[cfg["name"]]["offset"] == [0.5, 1.75, -0.75]
+
+
+def test_committed_geometry_shift_is_spanwise_and_leaves_cf_my_invariant(tmp_path):
+    """The committed geometry: origin (4,2,4), hinge (4,0.5,4) -> offset (0,1.5,0).
+    CF_mx/CF_mz move by +a*Fz / -a*Fx (this clause pins cross-product ORDER); CF_my compares
+    equal to My/m_ref (this does NOT pin order: F x d also has a zero y-term).
+
+    Spec: A spanwise shift leaves the M_y component invariant.
+    """
+    cfg = _validated_point_config()
+    manifest = _write_manifest(
+        tmp_path / "m.json", [cfg], hinges={cfg["name"]: (4.0, 0.5, 4.0)}
+    )
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    a = 1.5
+    fx, fz = FIXTURE_RAW["Fx"].to_numpy(float), FIXTURE_RAW["Fz"].to_numpy(float)
+    mx, my, mz = (FIXTURE_RAW[c].to_numpy(float) for c in ("Mx", "My", "Mz"))
+    m_ref = _m_ref(cfg)
+    np.testing.assert_allclose(df["CF_mx"], (mx + a * fz) / m_ref, rtol=1e-12)
+    np.testing.assert_allclose(df["CF_mz"], (mz - a * fx) / m_ref, rtol=1e-12)
+    assert (df["CF_my"].to_numpy() == my / m_ref).all()
+
+
+def test_offset_is_derived_per_configuration(tmp_path):
+    """Two configs, identical CSVs, decks differing in hinge_y (the component that enters
+    CF_mx) -> CF_mx differs by exactly (delta a)*Fz/m_ref. A derive-once-and-reuse bug emits
+    identical columns. (Varying only hinge_x would leave CF_mx identical -- not a test.)
+
+    Spec: The offset is derived independently for each configuration.
+    """
+    a_cfg = {**_validated_point_config(), "name": "a", "index": 0}
+    b_cfg = {**_validated_point_config(), "name": "b", "index": 1}
+    manifest = _write_manifest(
+        tmp_path / "m.json",
+        [a_cfg, b_cfg],
+        hinges={"a": (4.0, 0.5, 4.0), "b": (4.0, 1.0, 4.0)},
+    )
+    df, _, provenance = build_dataset(manifest, {"a": FIXTURE, "b": FIXTURE})
+    cf_a = df.loc[df["config_name"] == "a", "CF_mx"].to_numpy()
+    cf_b = df.loc[df["config_name"] == "b", "CF_mx"].to_numpy()
+    fz = FIXTURE_RAW["Fz"].to_numpy(float)
+    np.testing.assert_allclose(
+        cf_a - cf_b, (1.5 - 1.0) * fz / _m_ref(a_cfg), atol=1e-15
+    )
+    assert not np.array_equal(cf_a, cf_b)
+    assert provenance["a"]["offset"] == [0.0, 1.5, 0.0]
+    assert provenance["b"]["offset"] == [0.0, 1.0, 0.0]
+
+
+def test_raw_moments_stay_bitwise_equal_to_csv(tmp_path):
+    """Only derived CF_m* move; raw Mx/My/Mz (and Fx..Fz) are IAMReX's as-written values.
+
+    Spec: Parallel-axis shift is applied at extraction ("raw ... bitwise equal").
+    """
+    cfg = _validated_point_config()
+    manifest = _write_manifest(
+        tmp_path / "m.json", [cfg], hinges={cfg["name"]: (3.5, 0.25, 4.75)}
+    )
+    df, _, _ = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    for col in ("Fx", "Fy", "Fz", "Mx", "My", "Mz"):
+        np.testing.assert_array_equal(
+            df[col].to_numpy(), FIXTURE_RAW[col].to_numpy(float)
+        )
+
+
+def test_build_provenance_records_origin_hinge_deck_and_csv_hashes(tmp_path):
+    """The per-config record travels out of build_dataset with the data (a second derivation
+    in the driver could drift from the applied one). Hashes are of the exact bytes consumed.
+
+    Spec: Moment reference point travels with the corpus.
+    """
+    import hashlib
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(
+        tmp_path / "m.json", [cfg], hinges={cfg["name"]: (4.0, 0.5, 4.0)}
+    )
+    _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    deck = tmp_path / "inputs" / f"deck_{cfg['name']}"
+    assert provenance[cfg["name"]] == {
+        "origin": [4.0, 2.0, 4.0],
+        "hinge": [4.0, 0.5, 4.0],
+        "offset": [0.0, 1.5, 0.0],
+        "deck": f"inputs/deck_{cfg['name']}",
+        "deck_sha256": hashlib.sha256(deck.read_bytes()).hexdigest(),
+        "deck_sha256_verified_against": None,
+        "csv_sha256": hashlib.sha256(FIXTURE.read_bytes()).hexdigest(),
+    }
+
+
+def test_dropped_config_has_no_provenance_record(tmp_path):
+    """A config skipped under allow_missing consumed no CSV, so it carries no record."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    _, dropped, provenance = build_dataset(
+        manifest, {cfg["name"]: tmp_path / "absent.csv"}, allow_missing=True
+    )
+    assert dropped == [cfg["name"]] and provenance == {}
+
+
+def _write_config_run_metadata(manifest: Path, name: str, deck_sha256: str) -> Path:
+    path = manifest.parent / f"run_metadata_{name}.json"
+    path.write_text(
+        json.dumps({"config": name, "deck_sha256": deck_sha256}), encoding="utf-8"
+    )
+    return path
+
+
+def test_deck_is_reconciled_against_the_runs_recorded_deck_sha256(tmp_path):
+    """The deck is mutable; the CSV is not. When the run recorded the hash of the deck it ran
+    (every fine per-config run_metadata_<name>.json does), a working-tree deck edited since
+    fails loudly instead of shifting about a hinge the solver never used.
+
+    Spec: The moment origin offset is derived per configuration and validated (design D2).
+    """
+    import hashlib
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(
+        tmp_path / "m.json", [cfg], hinges={cfg["name"]: (4.0, 0.5, 4.0)}
+    )
+    deck = tmp_path / "inputs" / f"deck_{cfg['name']}"
+    good = hashlib.sha256(deck.read_bytes()).hexdigest()
+
+    meta = _write_config_run_metadata(manifest, cfg["name"], good)
+    _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] == meta.name
+
+    _write_config_run_metadata(manifest, cfg["name"], "0" * 64)
+    with pytest.raises(ValueError, match=rf"{cfg['name']}.*deck_sha256") as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(deck) in str(excinfo.value)
+
+
+def test_run_metadata_without_deck_sha256_is_recorded_as_unverified(tmp_path):
+    """A per-config metadata file with no deck_sha256 is no anchor: extraction proceeds and
+    records that the deck was NOT verified (the coarse corpus's known limitation), rather
+    than claiming a verification that never happened."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    (manifest.parent / f"run_metadata_{cfg['name']}.json").write_text(
+        "{}", encoding="utf-8"
+    )
+    _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] is None
+
+
+def test_build_run_metadata_passes_extra_through_top_level():
+    """build_run_metadata's `extra` was hardcoded to dropped_configs; the frame record needs
+    a channel. Collisions with dropped_configs or base provenance keys are rejected rather
+    than silently overwriting them."""
+    meta = build_run_metadata(
+        docker_image_digest=_DIGEST,
+        timestamp=_TS,
+        dropped_configs=[],
+        extra={"moment_reference": {"point": "wing_hinge"}},
+    )
+    assert meta["moment_reference"] == {"point": "wing_hinge"}
+    assert meta["dropped_configs"] == []
+    for key in ("dropped_configs", "docker_image", "git", "timestamp"):
+        with pytest.raises(ValueError, match=key):
+            build_run_metadata(
+                docker_image_digest=_DIGEST,
+                timestamp=_TS,
+                dropped_configs=[],
+                extra={key: "clobber"},
+            )

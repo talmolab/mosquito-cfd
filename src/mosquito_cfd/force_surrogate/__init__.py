@@ -9,9 +9,12 @@ torch-free feature/split/metrics helpers).
 """
 
 from mosquito_cfd.force_surrogate.dataset import (
+    ConfigExtractionError,
+    DatasetBuild,
     build_dataset,
     build_run_metadata,
     load_manifest_configs,
+    moment_reference_provenance,
     write_dataset,
 )
 from mosquito_cfd.force_surrogate.evidence_figure import (
@@ -110,9 +113,12 @@ __all__ = [
     "compute_moment_coefficient",
     "compute_moment_reference",
     "shift_moment_reference",
+    "ConfigExtractionError",
+    "DatasetBuild",
     "build_dataset",
     "build_run_metadata",
     "load_manifest_configs",
+    "moment_reference_provenance",
     "write_dataset",
     "UNITS_VOCABULARY",
     "capture_surrogate_run_metadata",

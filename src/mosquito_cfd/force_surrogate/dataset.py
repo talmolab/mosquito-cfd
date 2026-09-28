@@ -20,23 +20,34 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-dat
 - **Missing CSV** (path absent) hard-fails by default; ``allow_missing=True`` skips it and
   returns the dropped name. A present-but-empty (header-only) CSV contributes zero rows and
   is **not** a drop (D6).
+- **Moment reference point** (OpenSpec change ``fix-moment-reference-hinge``): IAMReX takes
+  its moments about the IB particle's own origin, which it writes to the CSV's ``X,Y,Z``
+  columns. The derived ``CF_m*`` are shifted to the deck's declared pivot
+  (``particle_inputs.hinge_*``, read from the deck the manifest's ``input_file`` names) with
+  :func:`.normalization.shift_moment_reference`; the raw ``M*`` columns keep the solver's
+  values. The canonical definition is ``docs/coordinate-convention.md`` ``## Moments``.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import logging
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
+from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
 from mosquito_cfd.force_surrogate.normalization import (
     compute_force_coefficients,
     compute_force_reference,
     compute_moment_coefficient,
     compute_moment_reference,
+    shift_moment_reference,
 )
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
@@ -95,7 +106,10 @@ _REQUIRED_CONFIG_KEYS = frozenset(
         "split",
     }
 )
-_REQUIRED_CSV_COLUMNS = ("iStep", "time", "Fx", "Fy", "Fz", "Mx", "My", "Mz")
+# X,Y,Z are the moment origin IAMReX wrote (kernel.location); the shift needs them.
+_REQUIRED_CSV_COLUMNS = (
+    "iStep", "time", "X", "Y", "Z", "Fx", "Fy", "Fz", "Mx", "My", "Mz",
+)  # fmt: skip
 
 # String / integer-count output columns; everything else in DATASET_COLUMNS is float64.
 # Used to give the empty (all-dropped) frame the SAME dtypes as a populated frame so the
@@ -143,13 +157,151 @@ def _empty_dataset() -> pd.DataFrame:
     return pd.DataFrame(columns)
 
 
-def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
-    """Build the per-config rows from one IB-particle CSV (name-based, normalized)."""
+class ConfigExtractionError(ValueError):
+    """A configuration's own inputs are unusable for extraction.
+
+    Raised for no locatable deck, no finite declared hinge, a deck changed since its run, or a
+    CSV missing required columns or with a non-finite / non-constant moment origin. A
+    ``ValueError`` subclass, so callers that catch ``ValueError`` are unaffected; the
+    acceptance gate catches this narrower type to report the config as a failure while
+    letting malformed-file errors (bad JSON) propagate as before.
+    """
+
+
+class DatasetBuild(NamedTuple):
+    """What :func:`build_dataset` returns.
+
+    Attributes:
+        frame: The tidy dataframe (columns :data:`DATASET_COLUMNS`).
+        dropped: Config names skipped under ``allow_missing`` (``[]`` for a complete build).
+        provenance: Per-config record of what extraction consumed and applied, keyed by config
+            name (dropped configs have none): ``origin``/``hinge``/``offset`` (the moment
+            origin from the CSV, the deck's pivot, and ``origin - hinge``, each a 3-list;
+            ``origin``/``offset`` are ``None`` for a header-only CSV), ``deck`` (the
+            manifest's ``input_file``), ``deck_sha256``, ``deck_sha256_verified_against``
+            (the per-config run-metadata file whose recorded ``deck_sha256`` matched, or
+            ``None`` when the run recorded none), and ``csv_sha256`` (of the exact bytes
+            parsed). Returned rather than re-derived by the caller, so what is recorded is
+            what was applied.
+    """
+
+    frame: pd.DataFrame
+    dropped: list[str]
+    provenance: dict[str, dict[str, Any]]
+
+
+def _resolve_deck(config: Mapping, manifest_dir: Path) -> tuple[str, Path]:
+    """Locate a config's deck via its manifest ``input_file``, relative to the manifest."""
     name = str(config["name"])
-    raw = pd.read_csv(csv_path)
+    input_file = config.get("input_file")
+    if not isinstance(input_file, str) or not input_file:
+        raise ConfigExtractionError(
+            f"config {name!r} has no usable 'input_file' entry in the manifest "
+            f"(got {input_file!r}); its deck is needed for the moment reference point "
+            "(particle_inputs.hinge_*)"
+        )
+    deck_path = manifest_dir / input_file
+    if not deck_path.is_file():
+        raise ConfigExtractionError(
+            f"deck for config {name!r} not found at {deck_path} (manifest input_file "
+            f"{input_file!r}, resolved against the manifest's directory)"
+        )
+    return input_file, deck_path
+
+
+def _read_hinge(name: str, deck_path: Path, deck_text: str) -> np.ndarray:
+    """Read the deck's declared pivot, naming the config and deck on any failure."""
+    try:
+        return np.array(
+            [
+                read_deck_value(deck_text, f"particle_inputs.hinge_{axis}")
+                for axis in "xyz"
+            ],
+            dtype=float,
+        )
+    except ValueError as exc:
+        raise ConfigExtractionError(
+            f"deck for config {name!r} at {deck_path} has no usable moment reference "
+            f"point: {exc}. Refusing to fall back to the particle origin, which would "
+            "silently reinstate particle-origin (mid-span) moments."
+        ) from exc
+
+
+def _verify_deck_sha256(
+    name: str, deck_path: Path, deck_sha256: str, manifest_dir: Path
+) -> str | None:
+    """Reconcile the deck against the ``deck_sha256`` its run recorded, if it recorded one.
+
+    The deck is a mutable working-tree file while the CSV was written by the solver; a deck
+    edited without re-running the CFD would shift about a hinge the run never used. Returns
+    the anchoring metadata file's name, or ``None`` when there is no anchor (no per-config
+    run metadata, or one without ``deck_sha256`` -- the coarse corpus's known limitation).
+    """
+    metadata_path = manifest_dir / f"run_metadata_{name}.json"
+    if not metadata_path.is_file():
+        return None
+    recorded = load_json_clear_error(metadata_path, label="run_metadata file").get(
+        "deck_sha256"
+    )
+    if recorded is None:
+        return None
+    if recorded != deck_sha256:
+        raise ConfigExtractionError(
+            f"deck for config {name!r} at {deck_path} has sha256 {deck_sha256}, but its run "
+            f"recorded deck_sha256 {recorded} in {metadata_path}: the deck changed after the "
+            "CFD ran, so its hinge is not the one the solver's moments belong to"
+        )
+    return metadata_path.name
+
+
+def _moment_origin(name: str, csv_path: Path, raw: pd.DataFrame) -> np.ndarray | None:
+    """The run's moment origin from ``X,Y,Z``.
+
+    It must be finite and exactly constant; ``None`` if the CSV has no rows.
+    """
+    if len(raw) == 0:
+        return None
+    origin = []
+    for axis in ("X", "Y", "Z"):
+        values = raw[axis].to_numpy(dtype=float)
+        # Explicit: pandas' max()-min() and nunique() both skip NaN, so a naive constancy
+        # check would pass [4, nan, 4].
+        if not np.isfinite(values).all():
+            raise ConfigExtractionError(
+                f"IB-particle CSV for config {name!r} at {csv_path} has a non-finite moment "
+                f"origin in column {axis!r}; refusing to derive a NaN/inf shift"
+            )
+        if not (values == values[0]).all():
+            raise ConfigExtractionError(
+                f"IB-particle CSV for config {name!r} at {csv_path} has a moment origin that "
+                f"is not constant in column {axis!r} (range {values.min()!r}.."
+                f"{values.max()!r}): the particle moved, so no single parallel-axis shift "
+                "describes the run"
+            )
+        origin.append(values[0])
+    return np.array(origin, dtype=float)
+
+
+def _extract_config(
+    config: Mapping, csv_path: Path, manifest_dir: Path
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Build the per-config rows from one IB-particle CSV (name-based, normalized).
+
+    Also returns the record of what was consumed and applied (see :class:`DatasetBuild`).
+    """
+    name = str(config["name"])
+    input_file, deck_path = _resolve_deck(config, manifest_dir)
+    deck_bytes = deck_path.read_bytes()
+    deck_sha256 = hashlib.sha256(deck_bytes).hexdigest()
+    verified_against = _verify_deck_sha256(name, deck_path, deck_sha256, manifest_dir)
+    hinge = _read_hinge(name, deck_path, deck_bytes.decode("utf-8"))
+
+    # Hash and parse the SAME bytes, so the recorded hash is of what was consumed.
+    csv_bytes = Path(csv_path).read_bytes()
+    raw = pd.read_csv(io.BytesIO(csv_bytes))
     missing = [c for c in _REQUIRED_CSV_COLUMNS if c not in raw.columns]
     if missing:
-        raise ValueError(
+        raise ConfigExtractionError(
             f"IB-particle CSV for config {name!r} at {csv_path} is missing required "
             f"column(s) {missing}; expected the IAMReX schema {list(_REQUIRED_CSV_COLUMNS)}"
         )
@@ -178,6 +330,8 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
             "otherwise silently collapse the whole file to a single row)"
         )
     raw = raw.drop_duplicates(subset="iStep", keep="last")
+    origin = _moment_origin(name, csv_path, raw)
+    offset = None if origin is None else origin - hinge
 
     time = raw["time"].to_numpy(dtype=float)
     fx = raw["Fx"].to_numpy(dtype=float)
@@ -190,14 +344,29 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
     f_ref = compute_force_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).f_ref
     m_ref = compute_moment_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).m_ref
     fc = compute_force_coefficients(fx, fy, fz, f_ref)
-    mc = compute_moment_coefficient(mx, my, mz, m_ref)
+    # Reference-frame change before normalization, into new arrays: raw M* stay as written.
+    if offset is None:
+        hinge_moments = (mx, my, mz)  # zero rows; nothing to shift
+    else:
+        hinge_moments = shift_moment_reference(mx, my, mz, fx, fy, fz, offset=offset)
+    mc = compute_moment_coefficient(*hinge_moments, m_ref)
 
     cycles = time * f_star
     phase = np.mod(cycles, 1.0)
     wingbeat = np.floor(cycles).astype(np.int64)
 
+    record = {
+        "origin": None if origin is None else origin.tolist(),
+        "hinge": hinge.tolist(),
+        "offset": None if offset is None else offset.tolist(),
+        "deck": input_file,
+        "deck_sha256": deck_sha256,
+        "deck_sha256_verified_against": verified_against,
+        "csv_sha256": hashlib.sha256(csv_bytes).hexdigest(),
+    }
+
     n = time.shape[0]
-    return pd.DataFrame(
+    frame = pd.DataFrame(
         {
             # Explicit "str" dtype so a 0-row CSV yields StringDtype (not float64) — matches
             # the populated and empty-build schemas for a stable parquet across builds.
@@ -225,6 +394,7 @@ def _extract_config(config: Mapping, csv_path: Path) -> pd.DataFrame:
             "CF_mz": np.asarray(mc.cf_mz, dtype=float),
         }
     )
+    return frame, record
 
 
 def _validate_configs(configs: object) -> None:
@@ -286,7 +456,7 @@ def build_dataset(
     csv_paths: Mapping[str, Path | str],
     *,
     allow_missing: bool = False,
-) -> tuple[pd.DataFrame, list[str]]:
+) -> DatasetBuild:
     """Extract the tidy force-coefficient dataset from per-config IB-particle CSVs.
 
     For each config in ``sweep_manifest.json`` this reads its IB-particle CSV name-based,
@@ -294,8 +464,15 @@ def build_dataset(
     (CC-3), and emits one row per ``(config, timestep)`` with kinematics, ``phase``,
     ``wingbeat``, the six coefficients, and the raw forces/moments.
 
+    Moment coefficients are taken about the deck's declared pivot: each config's deck is
+    located via its manifest ``input_file`` (relative to the manifest's directory), and the
+    solver's moments -- about the origin in the CSV's ``X,Y,Z`` -- are shifted by
+    ``(origin - hinge) x F`` before normalization. The raw ``Mx/My/Mz`` columns are unshifted.
+    See ``docs/coordinate-convention.md`` ``## Moments``.
+
     Args:
-        manifest_path: Path to the sweep manifest (its ``configs[]`` drives the join).
+        manifest_path: Path to the sweep manifest (its ``configs[]`` drives the join, and
+            its directory anchors each config's ``input_file``).
         csv_paths: Mapping of config ``name`` to its IB-particle CSV path. A config whose
             name is absent from the mapping, or whose path does not exist on disk, is
             "missing"; a present header-only CSV (zero data rows) is **not** missing and
@@ -305,16 +482,20 @@ def build_dataset(
             returned in the second element.
 
     Returns:
-        ``(frame, dropped)`` — the tidy dataframe (columns :data:`DATASET_COLUMNS`) and the
-        list of config names dropped under ``allow_missing`` (``[]`` for a complete build).
+        A :class:`DatasetBuild` ``(frame, dropped, provenance)``.
 
     Raises:
-        ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``.
+        ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``; if a
+            config's deck cannot be located, lacks a finite ``particle_inputs.hinge_*``, or
+            no longer matches the ``deck_sha256`` its run recorded; or if a CSV lacks
+            ``X,Y,Z`` or its moment origin is non-finite or not exactly constant.
     """
     configs = load_manifest_configs(manifest_path)
+    manifest_dir = Path(manifest_path).parent
 
     frames: list[pd.DataFrame] = []
     dropped: list[str] = []
+    provenance: dict[str, dict[str, Any]] = {}
     for config in configs:
         name = str(config["name"])
         raw_path = csv_paths.get(name)
@@ -333,14 +514,65 @@ def build_dataset(
                 f"(path={str(path) if path is not None else None!r}); pass allow_missing=True "
                 "to skip missing configs and record them in run metadata."
             )
-        frames.append(_extract_config(config, path))
+        frame, record = _extract_config(config, path, manifest_dir)
+        frames.append(frame)
+        provenance[name] = record
 
     if frames:
         df = pd.concat(frames, ignore_index=True)
         df = df[DATASET_COLUMNS]
     else:
         df = _empty_dataset()
-    return df, dropped
+    return DatasetBuild(df, dropped, provenance)
+
+
+def moment_reference_provenance(
+    provenance: Mapping[str, Mapping[str, Any]],
+    *,
+    input_dir: Path | str,
+    csv_name: str,
+) -> dict[str, dict[str, Any]]:
+    """The corpus ``run_metadata.json`` entries recording the moment frame and the inputs.
+
+    Built from :attr:`DatasetBuild.provenance` -- what extraction actually applied and
+    consumed -- never re-derived. Pass the result as :func:`build_run_metadata`'s ``extra``.
+    Recorded here and **not** in ``dataset.units.json``, whose closed vocabulary admits only
+    unit strings.
+
+    Args:
+        provenance: The per-config records from :func:`build_dataset`.
+        input_dir: The runs directory the CSVs were read from; recorded resolved.
+        csv_name: The per-config CSV filename under ``<input_dir>/<config>/``.
+
+    Returns:
+        ``{"moment_reference": ..., "extraction_inputs": ...}``. ``moment_reference`` names the
+        point (``"wing_hinge"``), its canonical definition, that the axes are lab axes, the
+        offset convention, what the raw ``M*`` are about, and each config's ``origin``,
+        ``hinge``, ``offset``, ``deck``, ``deck_sha256`` and ``deck_sha256_verified_against``.
+        ``extraction_inputs`` records ``input_dir``, ``csv_name`` and per-config
+        ``csv_sha256``.
+    """
+    return {
+        "moment_reference": {
+            "point": "wing_hinge",
+            "definition": "docs/coordinate-convention.md#moments",
+            "axes": "lab",
+            "offset": "r_origin - r_hinge",
+            "applies_to": ["CF_mx", "CF_my", "CF_mz"],
+            "raw_moments_about": "particle_origin",
+            "configs": {
+                name: {k: v for k, v in record.items() if k != "csv_sha256"}
+                for name, record in provenance.items()
+            },
+        },
+        "extraction_inputs": {
+            "input_dir": str(Path(input_dir).resolve()),
+            "csv_name": csv_name,
+            "csv_sha256": {
+                name: record["csv_sha256"] for name, record in provenance.items()
+            },
+        },
+    }
 
 
 def write_dataset(
@@ -373,6 +605,7 @@ def build_run_metadata(
     timestamp: str,
     dropped_configs: list[str],
     inputs_file: Path | str | None = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> dict:
     """Capture provenance for a dataset build (CC-1), recording any dropped configs.
 
@@ -388,13 +621,29 @@ def build_run_metadata(
         timestamp: Caller-supplied ISO-8601 timestamp.
         dropped_configs: Config names skipped under ``allow_missing`` (``[]`` if none).
         inputs_file: Optional inputs file whose SHA256 is recorded.
+        extra: Optional further top-level entries (e.g. the moment-reference record). A key
+            colliding with ``dropped_configs`` or a base provenance key is rejected rather
+            than silently overwriting it.
 
     Returns:
-        The provenance metadata dict, with ``dropped_configs`` at the top level.
+        The provenance metadata dict, with ``dropped_configs`` (and any ``extra``) at the
+        top level.
+
+    Raises:
+        ValueError: On a mutable image tag, or an ``extra`` key collision.
     """
-    return capture_surrogate_run_metadata(
+    metadata = capture_surrogate_run_metadata(
         docker_image_digest=docker_image_digest,
         inputs_file=Path(inputs_file) if inputs_file is not None else None,
         timestamp=timestamp,
         extra={"dropped_configs": list(dropped_configs)},
     )
+    extra = dict(extra or {})
+    collisions = sorted(set(extra) & set(metadata))
+    if collisions:
+        raise ValueError(
+            f"build_run_metadata extra key(s) {collisions} collide with existing "
+            "provenance keys; refusing to overwrite them"
+        )
+    metadata.update(extra)
+    return metadata

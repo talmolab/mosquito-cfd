@@ -4,8 +4,10 @@ Thin driver over :mod:`mosquito_cfd.force_surrogate.dataset` (all logic lives in
 library). It resolves each config's IB-particle CSV from a configurable ``--input-dir`` +
 filename template (default ``<input-dir>/<config name>/IB_Particle_1.csv`` — IAMReX's actual
 per-run output name), builds the dataset, and writes the parquet, the ``dataset.units.json``
-sidecar, and a ``run_metadata.json`` provenance file. Force-only (CC-6): the IB-particle CSV
-is the only input; no plotfiles.
+sidecar, and a ``run_metadata.json`` provenance file (including the moment reference point and
+the sha256 of every consumed CSV). Force-only (CC-6): the inputs are the IB-particle CSVs plus
+each config's deck (named by the manifest's ``input_file``, read for its declared hinge); no
+plotfiles.
 
 Run from the repository root once PR3's real corpus exists, e.g.::
 
@@ -30,6 +32,7 @@ from mosquito_cfd.force_surrogate import (
     build_dataset,
     build_run_metadata,
     load_manifest_configs,
+    moment_reference_provenance,
     write_dataset,
 )
 
@@ -84,16 +87,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         for config in configs
     }
 
-    df, dropped = build_dataset(
+    df, dropped, provenance = build_dataset(
         args.manifest, csv_paths, allow_missing=args.allow_missing
     )
     write_dataset(df, args.out, args.units)
 
+    # The moment frame and the consumed inputs come from what build_dataset applied and
+    # read, not re-derived here, so the record cannot drift from the parquet.
     metadata = build_run_metadata(
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
         dropped_configs=dropped,
         inputs_file=args.manifest,
+        extra=moment_reference_provenance(
+            provenance, input_dir=args.input_dir, csv_name=args.csv_name
+        ),
     )
     args.metadata.parent.mkdir(parents=True, exist_ok=True)
     with open(args.metadata, "w", encoding="utf-8", newline="") as handle:
