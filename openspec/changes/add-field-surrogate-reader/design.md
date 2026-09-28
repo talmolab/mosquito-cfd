@@ -1,12 +1,14 @@
 # Design — add-field-surrogate-reader
 
-## D1. `lo`/`hi`/`halo` semantics are preserved exactly
+## D1. `lo`/`hi`/`halo` semantics match legacy wherever the request meets the domain
 
-Domain clamping, `±inf` as "full extent", the `i_hi = min(max(i_hi, i_lo + 1), ddims)` index
-arithmetic, and the read-the-full-level-0-covering-grid-then-slice strategy are carried over verbatim.
-This is what makes the legacy wrapper behavior-identical. `flow_video.py` depends on the clipping
-behaviour and derives its box origin from the returned `x`/`y`/`z` rather than from its own request —
-its own docstring documents this, so it is not restated here.
+`±inf` as "full extent", the one-cell floor for a zero-width request, and the
+read-the-full-level-0-covering-grid-then-slice strategy are carried over from the legacy adapter.
+Region results are **identical to legacy whenever `lo <= domain_right_edge` and
+`hi > domain_left_edge` on every axis**. Outside that, they deliberately differ (the third
+correction below). `flow_video.py` depends on the clipping behaviour and derives its box origin
+from the returned `x`/`y`/`z` rather than from its own request — its own docstring documents this,
+so it is not restated here.
 
 **Correction found in review:** an earlier draft of the spec claimed the reader yields "at least one
 cell per axis". That is **false** at the upper domain edge. Reproduced against the reference
@@ -22,29 +24,66 @@ The `ddims` clamp removes the floor the `i_lo + 1` term just applied. Zero-cell 
 and already handled downstream — `check_field_capture_velocity` has a dedicated empty-region error
 path. The spec now states this accurately instead of promising a floor the code does not provide.
 
-**Second correction, found in follow-up review of #105.** The table above only exercised the upper
-edge; the *lower* edge was asymmetric. A request wholly **below** the domain (e.g. `lo = (-9,-9,-9),
-hi = (-7,-7,-7)` on the same 6³ fixture) clips both `lo_c` and `hi_c` to `domain_left_edge`, which
-looks — to the plain `i_hi = min(max(i_hi, i_lo + 1), ddims)` arithmetic — identical to a genuine
-interior zero-width query (`lo = hi = (2,2,2)`, which correctly gets widened to one cell). The floor
-could not tell them apart, and silently widened the wholly-outside request into a spurious one-cell
-result at index `0`. The upper edge never showed this because the same widening is always then
-re-clamped down by `min(..., ddims)`, which happens to restore zero cells there but has no lower-side
-counterpart.
+**Third correction, found in review of #105: a deliberate divergence from legacy ("halo is
+reach").** The legacy adapter clamps `lo`/`hi` onto the domain edge *before* padding by `halo`. So
+a request anywhere outside the domain is treated as if it sat exactly on the edge, and it returns
+edge cells however far away it is. With `halo = 0`, a request wholly below the domain comes back as
+one spurious cell at index 0 — the plain `i_lo + 1` floor cannot tell it apart from a genuine
+interior point query. With `halo > 0` the same happens at *both* edges: `(7..9)` and `(100..200)`
+each return the two cells nearest the upper edge.
 
-The fix distinguishes the two cases directly: an axis "overlaps" the domain's half-open cell coverage
-`[domain_left_edge, domain_right_edge)` iff `lo_v < domain_right_edge AND hi_v >= domain_left_edge`
-(computed from the *unclamped* corners). The one-cell floor now applies only on axes that overlap;
-an axis that does not clamps to exactly zero cells regardless of `halo`. `domain_left_edge` is
-deliberately inclusive and `domain_right_edge` exclusive in this test — matching which cell each
-value actually falls into — so the two edge cases end up symmetric:
+A first attempt (review round 1) gated the floor on an "overlaps the domain" test and zeroed
+every non-overlapping axis. Round 2 showed that it was wrong in three ways:
 
-| request | cells |
-|---|---|
-| `lo = hi = (0,0,0)` (lower edge, inclusive) | `[1 1 1]` |
-| `lo = (-9,-9,-9), hi = (-7,-7,-7)` (wholly below) | `[0 0 0]` |
-| `lo = hi = (6,6,6)` (upper edge, exclusive) | `[0 0 0]` |
-| `lo = (7,7,7), hi = (9,9,9)` (wholly above) | `[0 0 0]` |
+- It discarded halo cells a stencil touching the wall legitimately needs.
+- It made the two edges asymmetric once `halo > 0`: a point at `dle` got its halo, a point at
+  `dre` got none.
+- It broke parity on cases where legacy was correct.
+
+Its claim that "the upper edge never showed this" held only at `halo = 0`.
+
+The rule adopted instead pads first and then intersects with the domain: the request's index range
+is widened by `halo`, the one-cell floor is applied to that padded range, and only the part inside
+`[0, ddims)` is kept. Corners are clipped to one reach (`(halo + 1)·dx`) beyond the domain, which
+removes `±inf` without changing the result. It is implemented as the pure helper
+`snapshot._region_bounds` so it can be swept without yt.
+
+Properties, verified by sweeping about 66k `(lo, hi, halo)` triples per axis against a literal
+transcription of the legacy formula (now permanent tests):
+
+- **Identical to legacy whenever `lo <= dre` and `hi > dle` on every axis.** Zero mismatches,
+  including inverted requests and `±inf`.
+- **Otherwise never more cells than legacy.** For non-inverted requests the result is always a
+  sub-range of legacy's.
+- **Symmetric at both edges.** A point on either edge reaches `halo` cells inward.
+
+| request (6³ fixture) | halo | legacy | this reader |
+|---|---|---|---|
+| `lo = hi = 0` (lower edge) | 0 / 2 | 1 / 2 | 1 / 2 |
+| `lo = hi = 6` (upper edge) | 0 / 2 | 0 / 2 | 0 / 2 |
+| `-1.5 .. -1.2` (within reach) | 2 | 2 | 1 |
+| `-9 .. -7` (below, beyond reach) | 0 / 2 | 1 / 2 | 0 / 0 |
+| `7 .. 9` (above, within reach) | 2 | 2 | 1 |
+| `100 .. 200` (above, beyond reach) | 2 | 2 | 0 |
+| `-5 .. 0` (range ending on the lower edge) | 0 | 1 | 0 |
+
+The last row follows from upper bounds being exclusive, exactly as in the interior (`1.5 .. 2.0`
+yields cell 1 only). A *point* on the lower edge still yields cell 0. Inverted requests
+(`lo > hi`) keep legacy's "take the cell at `lo`" behaviour, and rejecting them is a follow-up
+issue.
+
+**Consequence for PR B.** Its frozen oracle is legacy and must not change. The test matrix is
+therefore split:
+
+- `REGION_CASES` holds parity cases only; PR B's oracle test iterates it unchanged.
+- `DIVERGENCE_CASES` asserts both the legacy value and this reader's value.
+
+In PR A the legacy side of `DIVERGENCE_CASES` reads `stress_integral.extract_eulerian_box`, which is
+still pre-refactor there. PR B must re-point it at the frozen oracle, or that test fails there by
+design. Once PR B lands, `extract_eulerian_box`'s own behaviour narrows accordingly, and PR B's
+CHANGELOG must say so (task 59). No in-repo caller passes `halo` today, and with `halo = 0` only a
+request lying outside the domain on some axis is affected. `check_field_capture_velocity` then gets
+the empty region its dedicated error path exists for, instead of silently reading a boundary cell.
 
 ## D2. Three spec deltas are staleness corrections, generated mechanically
 

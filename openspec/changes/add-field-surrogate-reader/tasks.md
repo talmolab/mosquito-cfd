@@ -273,18 +273,19 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
 58. [ ] Correct the two false comments claiming `ascontiguousarray` copies / arrays are "freshly
     allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
 59. [ ] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
-    `lo`/`hi` both previously succeeded and now raise. State the narrowing.
+    `lo`/`hi` both previously succeeded and now raise. State the narrowing. Also state the region
+    narrowing from section 15: once `extract_eulerian_box` delegates, a request outside the domain
+    on some axis returns only the in-domain cells its halo reaches — zero at `halo = 0` — instead of
+    edge cells (design.md D1, third correction).
 60. [x] Fix the test-count claim. Both "55" and "56" were wrong: collecting the three
     `test_field_surrogate_*.py` files as committed gives **74** tests (parametrization, not a typo,
     accounts for the gap: `test_region_clamping_matrix` x11, `test_documentation_states_the_cc4_...`
     x11, `test_invalid_halo_is_rejected` x6, etc.). The PR body's "1014 passed... (baseline 958)" was
     arithmetically self-consistent with the false "56" (958+56=1014) but not with reality
     (958+74=1032), meaning it was computed once and never re-run against the diff actually under
-    review. A follow-up review round found and fixed two BLOCKING correctness bugs (asymmetric
-    outside-domain clamping; an unreachable-but-silent key-drop hardened defensively) plus several
-    IMPORTANT items, adding 9 more tests -- the true count as of that round is 83. Both the PR body
-    and this line must be re-verified with a fresh `pytest --collect-only` at merge time, not copied
-    forward again.
+    review. Later review rounds changed the count again; the current, re-collected number is
+    recorded in section 15, and must be re-verified with a fresh `pytest --collect-only` at merge
+    time, not copied forward.
 
 ## 13. Guarding the guards (PR B)
 
@@ -304,3 +305,43 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     `feedback-fixes-need-same-scrutiny-as-original-code`, re-run rather than re-read.
 64. [ ] Full CI-form lint/format/test from Git Bash, and `openspec validate --strict`.
 65. [ ] File issues for everything deliberately not done here (see the review threads on #105/#106).
+
+## 15. Review rounds 1-2 on #105 (PR A)
+
+Round 1's clamping fix gated the one-cell floor on an "overlaps the domain" test. Round 2 showed it
+broke parity with the legacy adapter and PR B's frozen oracle, and zeroed halo cells asymmetrically.
+Replaced with the "halo is reach" rule (design.md D1, third correction), after the user chose to
+keep the behaviour change as a documented divergence.
+
+66. [x] **Test first**: split the region matrix into `REGION_CASES` (parity only; PR B's oracle
+    iterates it) and `DIVERGENCE_CASES` (asserts both the legacy and the new cell counts). Add
+    `halo = 2` points on both edges and a just-below `halo = 1` case to the parity set.
+67. [x] **Test first**: sweep the pure `_region_bounds` helper against a literal transcription of the
+    legacy formula. It must be identical where `lo <= dre and hi > dle`, and never return more cells
+    than legacy anywhere.
+68. [x] Implement "halo is reach" in `snapshot._region_bounds` (pad, floor, then intersect).
+69. [x] **Test first**: `global_params` pinned for real — bypass the manifest guard and assert
+    `KeyError` (the old `if k in config` mutant survived every prior test). Pin the invariant
+    `set(GLOBAL_PARAM_KEYS) <= _REQUIRED_CONFIG_KEYS`, and rename the end-to-end test to say the
+    manifest guard catches it.
+70. [x] **Test first**: `to_domino_volume` rejects non-finite global params (inf, not only NaN), and
+    every returned array is read-only with no caller aliasing. Replace the brittle
+    meshgrid-call-counting test with `np.shares_memory(grid, volume_mesh_centers)`, which also
+    catches a `.copy()`.
+71. [x] Correct stale claims: `snapshot.py` module and function docstrings ("identical to legacy",
+    "delegates here"), design.md D1 heading/body, the spec's region requirement and both
+    oracle-scenario titles, the "~800MB" test comment (measured: 384MB), and review-history prose in
+    `src` comments.
+72. [ ] **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
+    `stress_integral.extract_eulerian_box` to the frozen oracle, and add the wrapper-divergence
+    scenario's test. Until then that test fails on PR B by design.
+73. [x] Follow-up issues filed for non-regressions: #120 (reader peak memory and yt objects retained
+    until GC), #121 (`plotfile()` fast path, step validation, duplicate steps), #122 (reject inverted
+    `lo > hi` requests).
+74. [x] Verification, re-run rather than re-read:
+    - 17 mutants against this round's code. 16 are killed, including every survivor from round 2
+      (G1, D6, D8, and the region-logic ones). R9, `np.clip(i_hi, 0, ddims)`, is equivalent because
+      the floor always runs first, and the helper's ordered-bounds contract is now asserted anyway.
+    - `pytest --collect-only` on the three field-surrogate files: **100** tests.
+    - Full `-m "not gpu"` suite: 1059 passed, 14 skipped, 6 deselected.
+    - Ruff check and format: clean. `openspec validate --strict`: valid.
