@@ -229,7 +229,7 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 > Requires the `Z:` NFS mount. Extraction runs on **Windows**. Evidence: gate script committed, full
 > stdout in the PR body, regenerated `run_metadata.json` committed.
 
-27. [ ] *(Read-only half done 2026-09-28: `Z:/users/eberrigan/mosquito-cfd/examples/{prelim_sweep,
+27. [x] *(Read-only half done 2026-09-28: `Z:/users/eberrigan/mosquito-cfd/examples/{prelim_sweep,
     prelim_sweep_fine}/runs/` each hold 27 `IB_Particle_1.csv`. The zero-offset control, run in
     memory with nothing written, reproduces all 22 columns of both committed parquets, including
     raw digests `02b04f46…` / `26663019…`, and all 27 fine decks reconcile against their runs'
@@ -237,26 +237,26 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     the superseded #91 run and the wrong `--input-dir`.)*
     Precheck `Z:` is mounted and non-stale. Run under the locked environment
     (`git diff --exit-code uv.lock` afterwards) — the parquet's `str` dtype is pandas-version-coupled.
-28. [ ] Re-extract `examples/prelim_sweep/dataset.parquet` (+ sidecar + metadata) from its runs
+28. [x] Re-extract `examples/prelim_sweep/dataset.parquet` (+ sidecar + metadata) from its runs
     directory, deriving `--docker-digest` programmatically from the committed `run_metadata.json`
     (`sha256:07625ce4…`).
-29. [ ] Re-extract `examples/prelim_sweep_fine/dataset.parquet` (+ sidecar + metadata) with its
+29. [x] Re-extract `examples/prelim_sweep_fine/dataset.parquet` (+ sidecar + metadata) with its
     **own, different** digest (`sha256:92817878…`).
-30. [ ] **Verification gate**, per corpus, against the `git show HEAD:` baseline: `Fx..Fz`,
+30. [x] **Verification gate**, per corpus, against the `git show HEAD:` baseline: `Fx..Fz`,
     `CF_x/CF_y/CF_z`, `My`, `CF_my`, `config_name`, `split`, and row counts **per config** all
     unchanged; exactly `CF_mx`/`CF_mz` differ; `dropped_configs == []`; regenerated `docker_image`
     equals the committed one. Note row counts **cannot** discriminate the corpora — both have
     identical per-config `max_step` maps summing to 109,656 — so only the raw-force SHA tripwires
     distinguish a swapped `--input-dir`.
-30a. [ ] **Zero-offset end-to-end control (design D11)** — run the new extractor over the real `Z:`
+30a. [x] **Zero-offset end-to-end control (design D11)** — run the new extractor over the real `Z:`
     CSVs with the offset forced to zero; the emitted parquet must be value-identical to the
     committed pre-change parquet across all 22 columns. Isolates "the rewired pipeline changed
     something" from "the shift changed something".
-30b. [ ] **Algebraic control (design D11)** — derive corrected `CF_mx`/`CF_mz` from the *old*
+30b. [x] **Algebraic control (design D11)** — derive corrected `CF_mx`/`CF_mz` from the *old*
     committed parquet in pandas and assert value-equality with the re-extracted columns. Gives a
     reviewer without `Z:` a way to regenerate the target from first principles.
-31. [ ] Tasks 24/24a/25 now pass. Paste all outputs in the PR body.
-32. [ ] Run the corpus acceptance gate on the fine corpus. Note honestly that it is **near-vacuous
+31. [x] Tasks 24/24a/25 now pass. Paste all outputs in the PR body.
+32. [x] Run the corpus acceptance gate on the fine corpus. Note honestly that it is **near-vacuous
     for this change** — its symmetry and tripwire checks operate on `CF_x` only; the moment-relevant
     part is `check_no_nan_or_inf` over `CF_m*`.
 
@@ -325,4 +325,4 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     round-trip through `read_units_sidecar`.
 51. [ ] `openspec validate fix-moment-reference-hinge --strict`
 52. [ ] `/pre-merge-check`
-53. [ ] State the ~26 MiB binary growth in the PR body for issue #102's evidence.
+53. [x] *(PR2: 24.2 MiB of new parquet blobs, stated in #118 and on #102; PR3 adds the surrogate/figure share.)* State the ~26 MiB binary growth in the PR body for issue #102's evidence.
