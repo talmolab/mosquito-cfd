@@ -95,6 +95,35 @@ def test_geometry_half_keys_are_absent_not_zero_filled():
         assert key not in out, f"{key} must be absent, not present-and-empty"
 
 
+def test_grid_is_built_from_the_point_cloud_not_a_second_meshgrid(monkeypatch):
+    # Review correction. `to_domino_volume` used to call `np.meshgrid(snapshot.x, snapshot.y,
+    # snapshot.z, indexing="ij")` itself even though `snapshot.to_point_cloud()` (called two
+    # lines earlier) already builds the identical grid internally to produce `coords` -- doubling
+    # the allocation and FLOPs (~800MB of duplicate transient memory at 256-cubed), and keeping
+    # `grid` consistent with `volume_mesh_centers` only by test coverage, not by construction.
+    # `grid` must instead be a reshape of `cloud.coords`, which does no new meshgrid at all.
+    import mosquito_cfd.field_surrogate.domino_adapter as mod
+
+    calls = []
+    real_meshgrid = mod.np.meshgrid
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return real_meshgrid(*args, **kwargs)
+
+    # numpy is a single shared module object, so this also counts to_point_cloud()'s own
+    # (legitimate) call -- the point is the TOTAL across both, not whether domino_adapter calls
+    # it at all.
+    monkeypatch.setattr(mod.np, "meshgrid", _counting)
+    snap = _snapshot()
+    out = _adapt(snap)
+    nx, ny, nz = snap.x.size, snap.y.size, snap.z.size
+    assert out["grid"].shape == (nx, ny, nz, 3)
+    assert len(calls) == 1, (
+        f"expected exactly one meshgrid call total, got {len(calls)}"
+    )
+
+
 def test_grid_is_oriented_to_the_snapshot_axes():
     snap = _snapshot()
     out = _adapt(snap)
@@ -123,6 +152,23 @@ def test_mismatched_global_param_lengths_are_rejected():
             _snapshot(),
             global_params_values=(1.0, 2.0),
             global_params_reference=(1.0,),
+        )
+
+
+@pytest.mark.parametrize(
+    ("values", "reference"),
+    [
+        ((np.nan, 0.85, 30.0), (45.0, 1.0, 45.0)),
+        ((35.0, 0.85, 30.0), (45.0, np.nan, 45.0)),
+    ],
+    ids=["nan_in_values", "nan_in_reference"],
+)
+def test_nan_global_params_are_rejected(values, reference):
+    # Review correction. Unlike snapshot._corner()'s explicit NaN rejection for lo/hi, a NaN
+    # here silently reached the returned training dict with no guard at all.
+    with pytest.raises(ValueError, match="NaN"):
+        to_domino_volume(
+            _snapshot(), global_params_values=values, global_params_reference=reference
         )
 
 

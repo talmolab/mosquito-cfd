@@ -101,6 +101,23 @@ def test_missing_step_is_self_describing(tmp_path):
     assert "plt00999" in message or "s35_f085_p30" in message
 
 
+def test_missing_step_message_does_not_claim_a_fixed_digit_width(tmp_path):
+    # Review correction. The message hardcoded `plt{step:05d}` as "looked for", but the actual
+    # matching regex (_PLT_PATTERN, shared with steps()) accepts any digit width and compares by
+    # parsed integer -- so once a plotfile directory uses non-5-digit padding, the message names
+    # a literal filename the code never actually searches for.
+    root = _corpus(tmp_path, steps=(100,))
+    run = root / "runs" / "s35_f085_p30"
+    (run / "plt00100").rename(run / "plt100")
+
+    corpus = FieldCorpus(root)
+    with pytest.raises(ValueError) as excinfo:
+        corpus.plotfile("s35_f085_p30", step=999)
+    message = str(excinfo.value)
+    assert "plt00999" not in message
+    assert "999" in message
+
+
 def test_missing_root_is_self_describing(tmp_path):
     with pytest.raises(ValueError, match="does_not_exist"):
         FieldCorpus(tmp_path / "does_not_exist")
@@ -123,6 +140,51 @@ def test_global_params_returns_exactly_the_kinematic_keys(tmp_path):
     # Key names are literal here, NOT imported from the module under test.
     params = FieldCorpus(_corpus(tmp_path)).global_params("s35_f085_p30")
     assert set(params) == {"stroke_amp_deg", "frequency_fstar", "pitch_amp_deg"}
+
+
+def test_global_params_raises_on_a_missing_kinematic_key(tmp_path):
+    # Review flagged `{k: config[k] for k in GLOBAL_PARAM_KEYS if k in config}` as a silent
+    # partial-dict risk: a caller building global_params_values from a shortened dict against a
+    # global_params_reference table that happens to also be short by one would misalign
+    # positionally with no error anywhere in to_domino_volume. Verified NOT independently
+    # reachable through the public API: GLOBAL_PARAM_KEYS is a subset of
+    # force_surrogate.dataset._REQUIRED_CONFIG_KEYS, which _configs() already enforces via
+    # load_manifest_configs -> _validate_configs for every config, before global_params() ever
+    # runs -- so this test exercises that upstream guard end-to-end, not a corpus.py-specific
+    # fix. global_params() is still hardened below (unconditional key access instead of a silent
+    # `if k in config`) so a future change to that upstream guarantee fails loudly.
+    root = _corpus(tmp_path)
+    manifest_path = root / "sweep_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["configs"][0]["pitch_amp_deg"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    corpus = FieldCorpus(root)
+    with pytest.raises(ValueError, match="pitch_amp_deg"):
+        corpus.global_params("s35_f085_p30")
+
+
+def test_manifest_is_parsed_from_disk_only_once_per_instance(tmp_path, monkeypatch):
+    # Review correction. _configs() re-parsed sweep_manifest.json from disk on every call, with
+    # no caching -- config_ids(), _config() (hence run_dir/global_params/plotfile/snapshot) all
+    # go through it. The module docstring says the real corpus root lives on cluster NFS, so this
+    # becomes a real per-call cost once F3 builds a DataLoader on top of it.
+    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+
+    root = _corpus(tmp_path)
+    calls = []
+    real = fs_dataset.load_manifest_configs
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(fs_dataset, "load_manifest_configs", _counting)
+    corpus = FieldCorpus(root)
+    corpus.config_ids()
+    corpus.global_params("s35_f085_p30")
+    corpus.steps("s35_f085_p30")
+    assert len(calls) == 1, f"expected exactly one manifest parse, got {len(calls)}"
 
 
 def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):

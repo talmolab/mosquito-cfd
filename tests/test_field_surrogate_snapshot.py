@@ -295,6 +295,14 @@ REGION_CASES = [
     # guaranteed floor, which is false.
     ("upper_edge", (6.0, 6.0, 6.0), (6.0, 6.0, 6.0), 0, (0, 0, 0)),
     ("outside_domain", (7.0, 7.0, 7.0), (9.0, 9.0, 9.0), 0, (0, 0, 0)),
+    # Review correction: a request wholly BELOW the domain's lower edge must clamp to zero
+    # cells too, symmetrically with the upper-edge/outside_domain cases above. The prior
+    # implementation clipped lo_c and hi_c to the same value (dle) and then the i_lo+1 floor
+    # widened that into a spurious 1-cell region at index 0 -- the floor did not distinguish
+    # "degenerate because entirely outside the domain" from "degenerate because it is a genuine
+    # interior point query" (zero_width_interior, above).
+    ("outside_domain_low", (-9.0, -9.0, -9.0), (-7.0, -7.0, -7.0), 0, (0, 0, 0)),
+    ("lower_edge", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), 0, (1, 1, 1)),
     ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
 ]
 
@@ -418,6 +426,23 @@ def test_big_endian_double_plotfile_is_accepted(tmp_path):
     gx, gy, _ = np.meshgrid(CENTERS, CENTERS, CENTERS, indexing="ij")
     np.testing.assert_array_equal(snap.arrays["u"], -OMEGA * gy)
     np.testing.assert_array_equal(snap.arrays["v"], OMEGA * gx)
+
+
+def test_empty_field_selection_is_accepted(monkeypatch):
+    # Review correction: fields=() was already accepted by _validate_fields (an empty tuple has
+    # no unknown/duplicate names) and by to_point_cloud()'s `if self.field_names: ... else:
+    # np.empty((n, 0))` branch, but had no test pinning that this is the intended contract rather
+    # than an accidental gap. Zero fields still means zero reads.
+    log = _patch_yt(monkeypatch)
+    snap = read_field_snapshot(FIXTURE, **FULL, fields=())
+    assert snap.field_names == ()
+    assert dict(snap.arrays) == {}
+    assert log == []
+
+    pc = snap.to_point_cloud()
+    assert pc.coords.shape == (216, 3)
+    assert pc.values.shape == (216, 0)
+    assert pc.values.flags.writeable is False
 
 
 def test_duplicate_field_names_are_rejected(monkeypatch):

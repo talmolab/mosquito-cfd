@@ -166,9 +166,10 @@ def read_field_snapshot(
     ``halo`` cells on each side and clamped to the domain. Region semantics are identical to the
     legacy ``benchmarks.stress_integral.extract_eulerian_box``, which delegates here.
 
-    Note that the ``i_hi = min(max(i_hi, i_lo + 1), ddims)`` clamp guarantees at least one cell
-    per axis only for regions beginning **inside** the domain: a request at or beyond the upper
-    domain edge correctly yields a zero-cell region.
+    Note that the "at least one cell" floor is applied only on axes that overlap the domain's
+    half-open cell coverage ``[domain_left_edge, domain_right_edge)``: a request wholly on one
+    side of the domain -- at or beyond the upper edge, or wholly below the lower edge -- correctly
+    yields a zero-cell region on that axis.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
@@ -193,6 +194,10 @@ def read_field_snapshot(
 
     import yt
 
+    # yt logs an INFO line on every dataset load (domain extent, field list, etc.) that would
+    # otherwise spam stdout on every snapshot read in a per-frame loop (flow_video) or a training
+    # DataLoader (F3). This only raises yt's logging threshold; genuine errors still raise
+    # exceptions regardless of log level, so no failure mode is silenced by this call.
     yt.set_log_level("error")
     ds = yt.load(str(plotfile_path))
 
@@ -241,12 +246,26 @@ def read_field_snapshot(
     ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
     dx = (dre - dle) / ddims
 
+    # A request axis "overlaps" the domain's half-open cell coverage [dle, dre) when it is not
+    # wholly on one side of it. dle is deliberately inclusive (it is the left edge of cell 0) and
+    # dre is deliberately exclusive (cell ddims-1 ends just short of it): a degenerate point query
+    # exactly at dle lands in one cell, while the same query exactly at dre (the upper_edge case
+    # above) correctly yields zero.
+    overlaps = (lo_v < dre) & (hi_v >= dle)
+
     lo_c = np.clip(lo_v, dle, dre)
     hi_c = np.clip(hi_v, dle, dre)
     i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
     i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
     i_lo = np.maximum(i_lo, 0)
-    i_hi = np.minimum(np.maximum(i_hi, i_lo + 1), ddims)
+    # The "at least one cell" floor applies only on an axis that overlaps the domain. Without
+    # `overlaps` gating it, a request wholly outside the domain clips lo_c and hi_c to the SAME
+    # edge (both to dle, or both to dre) and becomes indistinguishable from a genuine degenerate
+    # interior point query (zero_width_interior, above) -- the floor could not tell them apart and
+    # used to widen a request wholly below the domain into a spurious one-cell result at index 0,
+    # even though the symmetric case at or beyond the upper edge already clamped to zero correctly
+    # (review correction; see design.md D1).
+    i_hi = np.minimum(np.where(overlaps, np.maximum(i_hi, i_lo + 1), i_lo), ddims)
 
     cg = ds.covering_grid(
         level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
