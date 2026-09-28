@@ -1,11 +1,10 @@
 {
-  "run_id": "27829ad7-49be-41b0-b97c-99b0ca843498",
-  "timestamp": "2026-09-28T21:48:23+00:00",
+  "run_id": "e18e5ea8-c7df-402b-ad0b-79b6c29ef961",
+  "timestamp": "2026-09-28T22:33:03+00:00",
   "git": {
-    "commit": "4dafc1cdb9b974215145195c0b86e054ec99ebb4",
+    "commit": "7a81c5198d15a9d6a8032a7911e3a18c160329dc",
     "branch": "fix-moment-reference-hinge-pr2",
-    "dirty": true,
-    "diff_hash": "ff409c36872a",
+    "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -580,7 +579,7 @@
     }
   },
   "extraction_inputs": {
-    "input_dir": "\\\\multilab-na.ad.salk.edu\\hpi_dev\\users\\eberrigan\\mosquito-cfd\\examples\\prelim_sweep_fine\\runs",
+    "input_dir": "Z:/users/eberrigan/mosquito-cfd/examples/prelim_sweep_fine/runs",
     "csv_name": "IB_Particle_1.csv",
     "csv_sha256": {
       "s35_f085_p30": "57247b8f91e41d03ed34e9923f6eb9ec34df6be293c9e19d248cc65f650cb463",
