@@ -9,13 +9,22 @@ requested fields as bare FP64 numpy arrays indexed `[ix, iy, iz]`; the cell-cent
 `x`, `y`, `z`; the per-axis spacing `dx` as a `float64` array of shape `(3,)`; the plotfile's physical
 `time` as a Python `float`; and the provenance fields `source` and `max_level`.
 
-Immutability SHALL be enforced, not merely declared: the dataclass is frozen, every array it exposes
-is non-writable (`arr.flags.writeable is False`), **and every array owns its data**
-(`arr.base is None`). Owning the data is the load-bearing half: marking a *view* non-writable leaves
-its `base` reachable and writable, so the array can be mutated through it and the guarantee is a
-facade. Note that `np.ascontiguousarray` does not copy a slice that is already C-contiguous — which
-includes the full-extent read and any single-axis slab — so it cannot be relied on to produce an
-owning array.
+The snapshot SHALL be protected against *accidental* mutation. That is, an ordinary assignment
+must raise, and no writable object may share its memory. This is enforced, not merely declared:
+- the dataclass is frozen;
+- every array it exposes is non-writable (`arr.flags.writeable is False`);
+- **every array owns its data** (`arr.base is None`).
+
+Owning the data is what makes the read-only flag meaningful. A non-writable *view* leaves its `base`
+reachable and writable, so the snapshot could be mutated through the covering-grid buffer without any
+call touching the snapshot itself. Note that `np.ascontiguousarray` does not copy a slice that is
+already C-contiguous — which includes the full-extent read and any single-axis slab — so it cannot
+be relied on to produce an owning array.
+
+This is not a guarantee against *deliberate* mutation. numpy lets the owner of a buffer call
+`arr.setflags(write=True)` and then write to it. That applies to snapshot arrays and to
+`to_domino_volume`'s outputs, where re-enabling writes on `volume_mesh_centers` would also change
+`grid`, its view. Callers that need a mutable array SHALL copy it.
 
 Owning the data also bounds retention: a small region must not keep the whole level-0 covering grid
 alive behind a view. Two reads of the same region SHALL return arrays that do not share memory; note
@@ -38,7 +47,7 @@ that this holds trivially because each read allocates a fresh buffer, so a test 
   where `np.ascontiguousarray` returns a view rather than a copy
 - **When** the returned snapshots are inspected
 - **Then** in **both** cases every exposed array reports `flags.writeable is False` **and**
-  `base is None`, so there is no reachable writable buffer behind it; assigning into any array raises;
+  `base is None`, so no other writable object shares its memory; assigning into any array raises;
   and two reads of the same region do not share memory
 
 ### Requirement: Field selection validated before any array is read
@@ -133,7 +142,15 @@ answer for any consumer that differentiates across the pad.
 Cells cover the half-open `[domain_left_edge, domain_right_edge)`, and upper bounds are exclusive
 everywhere. A zero-width request inside the domain SHALL yield one cell (the cell containing it). A
 point exactly on the upper edge, and a range ending exactly on the lower edge, SHALL yield none.
-The rule SHALL be symmetric: a point on either edge reaches `halo` cells inward.
+For `halo >= 1` the two edges SHALL behave the same: a point on either edge reaches exactly `halo`
+cells inward. At `halo = 0` they differ by construction of the half-open coverage: a point on the
+lower edge yields cell 0, and a point on the upper edge yields none.
+
+These edge statements are exact when the cell spacing `(domain_right_edge - domain_left_edge) /
+domain_dimensions` is exactly representable, as it is for every corpus deck: power-of-two cell counts
+on integer extents. On other grids, float rounding at a cell face can move an edge point by one cell,
+e.g. placing a point exactly on the upper edge in the last cell. The legacy adapter shares this
+behaviour, since it uses the same floor/ceil of the same quotient.
 
 Zero-cell regions are a reachable, supported outcome — `check_field_capture_velocity` already has a
 dedicated empty-region error path — and SHALL NOT be silently widened to one cell on either side of

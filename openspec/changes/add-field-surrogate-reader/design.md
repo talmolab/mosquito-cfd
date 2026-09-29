@@ -45,17 +45,33 @@ Its claim that "the upper edge never showed this" held only at `halo = 0`.
 The rule adopted instead pads first and then intersects with the domain: the request's index range
 is widened by `halo`, the one-cell floor is applied to that padded range, and only the part inside
 `[0, ddims)` is kept. Corners are clipped to one reach (`(halo + 1)·dx`) beyond the domain, which
-removes `±inf` without changing the result. It is implemented as the pure helper
-`snapshot._region_bounds` so it can be swept without yt.
+removes `±inf` without changing the result. The one exception is a degenerate grid whose cells are
+narrower than the coordinate ULP, where `dre + (halo + 1)·dx` rounds back to `dre`. It is
+implemented as the pure helper `snapshot._region_bounds` so it can be swept without yt.
 
-Properties, verified by sweeping about 66k `(lo, hi, halo)` triples per axis against a literal
-transcription of the legacy formula (now permanent tests):
+These properties are verified by permanent tests. They sweep every pair of a value set — cell faces
+and ±1–4 ULP around them, quarter-cell points, both edges ±1e-12, far values, `±inf` — against a
+literal transcription of the legacy formula. The sweep runs on three grids: the unit 6-cell grid,
+a 24-cell grid with `halo` up to 9, and an offset, non-unit, inexact 20-cell grid.
 
 - **Identical to legacy whenever `lo <= dre` and `hi > dle` on every axis.** Zero mismatches,
   including inverted requests and `±inf`.
 - **Otherwise never more cells than legacy.** For non-inverted requests the result is always a
-  sub-range of legacy's.
-- **Symmetric at both edges.** A point on either edge reaches `halo` cells inward.
+  sub-range of legacy's. Both the count and the range are asserted.
+- **Edges agree for `halo >= 1`.** A point on either edge reaches exactly `halo` cells inward. At
+  `halo = 0` the half-open coverage makes them differ: the lower edge yields cell 0, and the upper
+  edge yields none.
+
+In round 3, an independent reviewer also compared the reader against legacy bit for bit on two
+plotfiles:
+- a real wing plotfile (`t2a-clean/plt00500`: 64×32×64, dx = 0.125, 4 FABs);
+- a synthetic plotfile with a non-zero origin, anisotropic inexact dx, and 2 FABs.
+
+Every parity request matched in shape, coordinates and values. The same review found that the
+edge statements above are exact only when `dx` is exactly representable. Every corpus deck
+qualifies: origin 0, integer extents, power-of-two cell counts. On a grid like 7 cells over
+`[12, 12.3]`, float rounding of `(dre - dle)/dx` puts a point exactly on the upper edge in the last
+cell. Legacy behaves identically.
 
 | request (6³ fixture) | halo | legacy | this reader |
 |---|---|---|---|
@@ -68,9 +84,10 @@ transcription of the legacy formula (now permanent tests):
 | `-5 .. 0` (range ending on the lower edge) | 0 | 1 | 0 |
 
 The last row follows from upper bounds being exclusive, exactly as in the interior (`1.5 .. 2.0`
-yields cell 1 only). A *point* on the lower edge still yields cell 0. Inverted requests
-(`lo > hi`) keep legacy's "take the cell at `lo`" behaviour, and rejecting them is a follow-up
-issue.
+yields cell 1 only). A *point* on the lower edge still yields cell 0.
+
+Inverted requests (`lo > hi`) keep legacy's behaviour exactly. That means the single cell at
+`floor(lo) - halo`, which is neither the cell at `lo` nor that cell padded. Rejecting them is #122.
 
 **Consequence for PR B.** Its frozen oracle is legacy and must not change. The test matrix is
 therefore split:

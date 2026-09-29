@@ -165,7 +165,8 @@ def _region_bounds(
 
     Pads the request by ``halo`` cells first, then keeps the part of the padded range that lies
     inside the domain. The corners are clipped only to one reach beyond the domain, which removes
-    ``+/-inf`` and bounds the arithmetic without changing the result (design.md D1).
+    ``+/-inf`` and bounds the arithmetic without changing the result, except on a degenerate grid
+    whose cells are narrower than the coordinate ULP (design.md D1).
     """
     dx = (dre - dle) / ddims
     margin = (halo + 1) * dx
@@ -173,8 +174,8 @@ def _region_bounds(
     hi_c = np.clip(hi, dle - margin, dre + margin)
     i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
     i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
-    # A zero-width (or inverted) request takes the cell at `lo`. Applied BEFORE the domain
-    # intersection, so it can never add a cell outside the padded request.
+    # An empty or inverted padded range becomes the single cell at its start. Applied BEFORE the
+    # domain intersection, so it can never add a cell outside the padded request.
     i_hi = np.maximum(i_hi, i_lo + 1)
     i_lo = np.clip(i_lo, 0, ddims)
     i_hi = np.clip(i_hi, i_lo, ddims)
@@ -197,6 +198,11 @@ def read_field_snapshot(
     the in-domain cells it reaches, and one farther out returns zero cells on that axis. A
     zero-width request inside the domain yields one cell; a point exactly on the upper domain
     edge yields none, since cells cover the half-open ``[domain_left_edge, domain_right_edge)``.
+    The edge cases are exact when the cell spacing is exactly representable (every corpus deck);
+    on other grids float rounding at a face can move an edge point by one cell, as in legacy.
+
+    Returned arrays are read-only against accidental writes, not tamper-proof: numpy lets the
+    owner call ``setflags(write=True)``. Copy an array before modifying it.
 
     This matches ``benchmarks.stress_integral.extract_eulerian_box`` whenever
     ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside that, the

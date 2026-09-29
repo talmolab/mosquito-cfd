@@ -104,8 +104,8 @@ tests auto-skip on the runner and are never a gate). Fixture properties are docu
 19. [ ] Create `tests/fixtures/legacy_extract_eulerian_box.py`: the current body of
     `extract_eulerian_box` copied **byte-for-byte from HEAD before any edit**, as
     `legacy_extract_eulerian_box`, with a header comment recording the source commit SHA.
-20. [ ] **Test first — differential, not self-referential**: for every case in the task-11 clamping
-    matrix, assert the refactored `extract_eulerian_box` and `legacy_extract_eulerian_box` return
+20. [ ] **Test first — differential, not self-referential**: for every case in the `REGION_CASES`
+    parity matrix (task 66), assert the refactored `extract_eulerian_box` and `legacy_extract_eulerian_box` return
     dicts with identical **key sets** (`sorted(a) == sorted(b)`, so `time`/`source`/`max_level` cannot
     leak in), `np.testing.assert_array_equal` on every value, and matching Python **types** — `dx` an
     `ndarray` of `dtype float64` shape `(3,)`, `current_time` a `float`. Per D10, comparing the wrapper
@@ -212,7 +212,8 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     indistinguishable from one never run.
 44. [ ] **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
     coarse/medium, wing T3b-medium), compare `extract_eulerian_box` against
-    `legacy_extract_eulerian_box` over the full task-11 region matrix plus the pinned wing near-field
+    `legacy_extract_eulerian_box` over the full `REGION_CASES` parity matrix (and assert the
+    recorded divergence for each `DIVERGENCE_CASES` entry) plus the pinned wing near-field
     box and the sphere inlet/outlet planes, with `assert_array_equal` — **zero tolerance, not
     `allclose`**. This is the only check covering multi-FAB covering grids, non-unit `dx`, and
     non-zero domain origins. Scratchpad script, output pasted into the PR; not a committed test.
@@ -293,7 +294,7 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     content-hash test pinning it. Nothing currently stops `ruff format` from rewriting the frozen
     oracle, which would silently turn the equivalence claim into a comparison against modified code.
     A hash is squash-merge-safe; a `git show 86c729e` test is not.
-62. [ ] Move the writeability assertion into the parametrized differential (it covers 1 region of 11),
+62. [ ] Move the writeability assertion into the parametrized differential (it covers only one region),
     and add an x-slab-only case — the shape `sphere_cv_drag_cd` actually requests in production, and
     one of the two zero-copy regimes.
 
@@ -345,3 +346,36 @@ keep the behaviour change as a documented divergence.
     - `pytest --collect-only` on the three field-surrogate files: **100** tests.
     - Full `-m "not gpu"` suite: 1059 passed, 14 skipped, 6 deselected.
     - Ruff check and format: clean. `openspec validate --strict`: valid.
+75. [ ] **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
+    the earlier real-plotfile A/B ran under the old rule and is no longer evidence. Then rewrite PR
+    B's CHANGELOG and PR body claims that describe that A/B:
+    - "unchanged for every valid 3-tuple request" — now false outside the parity region;
+    - "an 11-case clamping matrix";
+    - "80 bit-exact region comparisons across 5 real plotfiles".
+
+    Replace them with the parity-region statement and fresh numbers.
+
+## 16. Review round 3 on #105 (PR A)
+
+Two targeted reviewers found no blocking issue. The rule held on a real wing plotfile and on a
+synthetic anisotropic, offset, multi-FAB grid. The remaining findings were tests that could not
+fail and wording that overpromised.
+
+76. [x] **Test first**: parity cases now compare coordinates and field values against legacy and
+    against the fixture's analytic field, not shapes alone. A one-cell shift of coordinates or
+    values previously survived every PR A test.
+77. [x] **Test first**: a spy asserts the requested `halo` reaches `_region_bounds` unchanged. A halo
+    silently capped at 2 previously survived both PRs, because the 6-cell fixture clips larger halos.
+78. [x] **Test first**: the sweep is vectorized and runs on three grids. Unit 6-cell; 24-cell with
+    halo up to 9; offset, non-unit, inexact 20-cell. It covers faces ±1–4 ULP, and it asserts the
+    sub-range property as well as counts.
+79. [x] **Test first**: anisotropic `cell_volume` (a `dx[0]**3` mutant survived on the isotropic
+    fixture); `to_domino_volume` returns fresh buffers on each call.
+80. [x] Wording.
+    - Immutability is scoped to accidental mutation, since owners can `setflags(write=True)`.
+    - Edge statements are scoped to exactly representable `dx`, which holds for every corpus deck
+      (verified: all 65 committed decks have origin 0, integer extents and power-of-two cells).
+    - "Symmetric at both edges" becomes "agree for `halo >= 1`".
+    - Removed the unmeasured sweep sizes, and noted the inverted-with-halo cell and the
+      degenerate-grid margin caveat.
+    - Stale "11-case" references in tasks 20, 44 and 62 are updated.

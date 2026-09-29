@@ -118,6 +118,15 @@ def test_grid_is_oriented_to_the_snapshot_axes():
     )
 
 
+def test_each_call_returns_fresh_buffers():
+    # Outputs are read-only, but a buffer cached on the snapshot and handed to every caller would
+    # still couple two training examples built from the same snapshot.
+    snap = _snapshot()
+    a, b = _adapt(snap), _adapt(snap)
+    for key in ("volume_mesh_centers", "volume_fields", "grid"):
+        assert not np.shares_memory(a[key], b[key]), key
+
+
 def test_volume_fields_columns_follow_field_names():
     snap = _snapshot()
     out = _adapt(snap)

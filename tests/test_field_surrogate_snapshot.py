@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import itertools
-import math
 import subprocess
 import sys
 from pathlib import Path
@@ -341,10 +339,47 @@ DIVERGENCE_CASES = [
     ids=[c[0] for c in REGION_CASES],
 )
 def test_region_clamping_matrix(lo, hi, halo, expected):
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
     snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     for name, arr in snap.arrays.items():
         assert arr.shape == expected, name
     assert (snap.x.size, snap.y.size, snap.z.size) == expected
+
+    # Shapes alone let a region shifted by one cell pass. Values must also match the fixture's
+    # analytic solid-body rotation at the RETURNED coordinates (catches values sliced off the
+    # coordinates), and coordinates and values must match the legacy adapter (catches a shift of
+    # both together). In PR A that adapter is still the legacy code; after PR B's delegation the
+    # frozen oracle carries this comparison.
+    shape = snap.arrays["u"].shape
+    np.testing.assert_allclose(
+        snap.arrays["u"], np.broadcast_to(-OMEGA * snap.y[None, :, None], shape)
+    )
+    np.testing.assert_allclose(
+        snap.arrays["v"], np.broadcast_to(OMEGA * snap.x[:, None, None], shape)
+    )
+    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
+    for axis in ("x", "y", "z"):
+        np.testing.assert_array_equal(getattr(snap, axis), legacy[axis], err_msg=axis)
+    for name in snap.field_names:
+        np.testing.assert_array_equal(snap.arrays[name], legacy[name], err_msg=name)
+
+
+def test_read_passes_the_requested_halo_to_the_region_helper(monkeypatch):
+    # The 6-cell fixture clips any halo above 2 on most boxes, so a halo altered on its way into
+    # the helper (e.g. silently capped) is invisible to every shape assertion. Spy on the call.
+    import mosquito_cfd.field_surrogate.snapshot as mod
+
+    seen = []
+    real = mod._region_bounds
+
+    def spy(lo, hi, halo, **kwargs):
+        seen.append(halo)
+        return real(lo, hi, halo, **kwargs)
+
+    monkeypatch.setattr(mod, "_region_bounds", spy)
+    read_field_snapshot(FIXTURE, lo=(3.0,) * 3, hi=(3.0,) * 3, halo=7)
+    assert seen == [7]
 
 
 @pytest.mark.parametrize(
@@ -368,67 +403,102 @@ def test_region_divergence_from_legacy_is_pinned(
     assert legacy["u"].shape == legacy_expected
 
 
-def _legacy_axis(lo, hi, halo, dle=0.0, dre=6.0, n=6, dx=1.0):
-    # A literal transcription of the pre-change legacy arithmetic (clamp the corners onto the
+def _legacy_bounds(lo, hi, halo, dle, dre, n):
+    # A literal transcription of the legacy stress_integral arithmetic (clamp the corners onto the
     # domain, THEN pad) -- deliberately a different formula from the one under test.
-    lo_c = min(max(lo, dle), dre)
-    hi_c = min(max(hi, dle), dre)
-    i_lo = max(math.floor((lo_c - dle) / dx) - halo, 0)
-    i_hi = min(max(math.ceil((hi_c - dle) / dx) + halo, i_lo + 1), n)
+    dx = (dre - dle) / n
+    lo_c = np.clip(lo, dle, dre)
+    hi_c = np.clip(hi, dle, dre)
+    i_lo = np.maximum(np.floor((lo_c - dle) / dx).astype(np.int64) - halo, 0)
+    i_hi = np.minimum(
+        np.maximum(np.ceil((hi_c - dle) / dx).astype(np.int64) + halo, i_lo + 1), n
+    )
     return i_lo, i_hi
 
 
-def _axis_values():
-    edges = {-1e-12, 1e-12, 6 - 1e-12, 6 + 1e-12, -100.0, 100.0, -_INF, _INF}
-    return sorted(edges | {x / 4 for x in range(-40, 65)})
+def _grid_values(dle, dre, n):
+    # Cell faces (in and beyond the domain) and 1/4 ULPs either side of each, quarter-cell
+    # points, both edges +/- 1e-12, far-away values, and +/-inf.
+    dx = (dre - dle) / n
+    faces = dle + np.arange(-3, n + 4) * dx
+    near = [faces]
+    for direction in (-np.inf, np.inf):
+        v = faces
+        for _ in range(4):
+            v = np.nextafter(v, direction)
+            near.append(v)
+    quarters = dle + np.arange(-12, 4 * n + 13) / 4 * dx
+    extras = np.array(
+        [
+            dle - 1e-12,
+            dle + 1e-12,
+            dre - 1e-12,
+            dre + 1e-12,
+            dle - 100 * dx,
+            dre + 100 * dx,
+        ]
+    )
+    return np.unique(np.concatenate([*near, quarters, extras, [-_INF, _INF]]))
 
 
-def _region(lo, hi, halo):
+#: (id, domain_left_edge, domain_right_edge, cells, halos). The unit grid is the fixture's; the
+#: others exercise halos far larger than 6 cells allow and a non-unit, offset, inexact spacing.
+SWEEP_GRIDS = [
+    ("unit_6", 0.0, 6.0, 6, range(4)),
+    ("unit_24_large_halo", 0.0, 24.0, 24, range(10)),
+    ("offset_nonunit_20", -3.7, 2.3, 20, range(5)),
+]
+
+
+def _sweep(dle, dre, n, halos):
     from mosquito_cfd.field_surrogate.snapshot import _region_bounds
 
-    i_lo, i_hi = _region_bounds(
-        np.array([lo, 2.0, 2.0]),
-        np.array([hi, 3.0, 3.0]),
-        halo,
-        dle=np.zeros(3),
-        dre=np.full(3, 6.0),
-        ddims=np.full(3, 6, dtype=np.int64),
-    )
-    return int(i_lo[0]), int(i_hi[0])
+    vals = _grid_values(dle, dre, n)
+    lo, hi = (a.ravel() for a in np.meshgrid(vals, vals, indexing="ij"))
+    for halo in halos:
+        new = _region_bounds(
+            lo, hi, halo, dle=np.float64(dle), dre=np.float64(dre), ddims=np.int64(n)
+        )
+        yield lo, hi, halo, new, _legacy_bounds(lo, hi, halo, dle, dre, n)
 
 
-def test_region_arithmetic_matches_legacy_wherever_the_request_meets_the_domain():
+@pytest.mark.parametrize(
+    ("dle", "dre", "n", "halos"),
+    [g[1:] for g in SWEEP_GRIDS],
+    ids=[g[0] for g in SWEEP_GRIDS],
+)
+def test_region_arithmetic_matches_legacy_wherever_the_request_meets_the_domain(
+    dle, dre, n, halos
+):
     # The parity region stated in the spec: identical to legacy whenever lo <= dre and hi > dle.
-    # A sweep over ~12k (lo, hi, halo) triples, including inverted requests and +/-inf, so a
-    # divergence cannot hide between the hand-picked REGION_CASES.
-    mismatches = []
-    for lo, hi in itertools.product(_axis_values(), repeat=2):
-        if not (lo <= 6.0 and hi > 0.0):
-            continue
-        for halo in (0, 1, 2, 3):
-            new, old = _region(lo, hi, halo), _legacy_axis(lo, hi, halo)
-            if max(new[1] - new[0], 0) != max(old[1] - old[0], 0) or (
-                new[1] > new[0] and new != old
-            ):
-                mismatches.append((lo, hi, halo, old, new))
-    assert not mismatches, mismatches[:5]
+    # Every pair of the swept values, so a divergence cannot hide between the hand-picked
+    # REGION_CASES.
+    for lo, hi, halo, (n_lo, n_hi), (o_lo, o_hi) in _sweep(dle, dre, n, halos):
+        parity = (lo <= dre) & (hi > dle)
+        new_count = np.maximum(n_hi - n_lo, 0)
+        old_count = np.maximum(o_hi - o_lo, 0)
+        bad = parity & ((new_count != old_count) | ((new_count > 0) & (n_lo != o_lo)))
+        assert not bad.any(), (halo, lo[bad][:3], hi[bad][:3])
 
 
-def test_region_arithmetic_never_returns_more_cells_than_legacy():
+@pytest.mark.parametrize(
+    ("dle", "dre", "n", "halos"),
+    [g[1:] for g in SWEEP_GRIDS],
+    ids=[g[0] for g in SWEEP_GRIDS],
+)
+def test_region_arithmetic_never_returns_more_cells_than_legacy(dle, dre, n, halos):
     # Outside the parity region the new rule may return FEWER cells (it drops edge cells the
-    # legacy clamp invented for a far-away request), but never more.
-    grew, unordered = [], []
-    for lo, hi in itertools.product(_axis_values(), repeat=2):
-        for halo in (0, 1, 2, 3):
-            new, old = _region(lo, hi, halo), _legacy_axis(lo, hi, halo)
-            if max(new[1] - new[0], 0) > max(old[1] - old[0], 0):
-                grew.append((lo, hi, halo, old, new))
-            # The helper's own contract: ordered bounds inside [0, 6], so `i_hi - i_lo` is always
-            # a valid cell count, not merely a slice that happens to come out empty.
-            if not 0 <= new[0] <= new[1] <= 6:
-                unordered.append((lo, hi, halo, new))
-    assert not grew, grew[:5]
-    assert not unordered, unordered[:5]
+    # legacy clamp invented for a far-away request), but never more; for a non-inverted request
+    # its range lies inside legacy's. The helper's own contract is ordered bounds in [0, n], so
+    # `i_hi - i_lo` is always a valid cell count.
+    for lo, hi, halo, (n_lo, n_hi), (o_lo, o_hi) in _sweep(dle, dre, n, halos):
+        new_count = n_hi - n_lo
+        grew = new_count > np.maximum(o_hi - o_lo, 0)
+        assert not grew.any(), (halo, lo[grew][:3], hi[grew][:3])
+        outside = (lo <= hi) & (new_count > 0) & ((n_lo < o_lo) | (n_hi > o_hi))
+        assert not outside.any(), (halo, lo[outside][:3], hi[outside][:3])
+        unordered = ~((0 <= n_lo) & (n_lo <= n_hi) & (n_hi <= n))
+        assert not unordered.any(), (halo, lo[unordered][:3], hi[unordered][:3])
 
 
 def test_nan_corner_is_rejected():
@@ -461,6 +531,27 @@ def test_point_cloud_is_aligned_and_complete():
 
     for arr in (pc.coords, pc.values, pc.cell_volume):
         assert arr.flags.writeable is False
+
+
+def test_point_cloud_cell_volume_is_the_product_of_all_three_spacings():
+    # The fixture is isotropic (dx = 1 on every axis), so dx[0]**3 and prod(dx) agree on it and
+    # an axis-dropping bug is invisible. Real decks are not guaranteed isotropic.
+    from types import MappingProxyType
+
+    from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
+
+    snap = FieldSnapshot(
+        arrays=MappingProxyType({}),
+        x=np.array([0.5, 1.5]),
+        y=np.array([1.0]),
+        z=np.array([1.5, 4.5, 7.5]),
+        dx=np.array([1.0, 2.0, 3.0]),
+        time=0.0,
+        source="synthetic",
+        max_level=0,
+        field_names=(),
+    )
+    np.testing.assert_array_equal(snap.to_point_cloud().cell_volume, np.full(6, 6.0))
 
 
 @pytest.mark.parametrize(

@@ -81,8 +81,9 @@ def to_domino_volume(
 
     Returns:
         A dict with exactly :data:`VOLUME_HALF_KEYS` and **no** leading batch dimension. Every
-        array is read-only (copy one before normalizing it in place). ``grid`` is a view of
-        ``volume_mesh_centers`` reshaped to ``(nx, ny, nz, 3)``, not a separate copy, and the
+        array is read-only against accidental writes (copy one before normalizing it in place).
+        ``grid`` is a view of ``volume_mesh_centers`` reshaped to ``(nx, ny, nz, 3)``, not a
+        separate copy — the two share memory — and the
         global-params arrays are copies that do not alias the caller's input. The
         :data:`GEOMETRY_HALF_KEYS` are absent; see the module docstring for why.
 
