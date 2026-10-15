@@ -278,8 +278,10 @@ def test_fp32_field_is_refused_not_upcast(monkeypatch):
 
 _INF = np.inf
 
-#: PARITY cases: requests where read_field_snapshot and the legacy extract_eulerian_box must agree.
-#: (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
+#: AGREEMENT cases: requests where read_field_snapshot and the frozen pre-refactor
+#: extract_eulerian_box (tests/fixtures/legacy_extract_eulerian_box.py) agree -- the parity region
+#: of design.md D1, plus three edge points outside it that agree anyway (lower_edge,
+#: lower_edge_halo2, just_below_halo1). (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
 #: reference arithmetic, not recomputed with the same formula the reader uses -- that would be
 #: tautological. PR B's differential test against the frozen oracle iterates THIS matrix, so every
 #: entry here must be one where the two implementations agree; divergences go in
@@ -343,8 +345,6 @@ DIVERGENCE_CASES = [
     ids=[c[0] for c in REGION_CASES],
 )
 def test_region_clamping_matrix(lo, hi, halo, expected):
-    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
-
     snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     for name, arr in snap.arrays.items():
         assert arr.shape == expected, name
@@ -352,9 +352,9 @@ def test_region_clamping_matrix(lo, hi, halo, expected):
 
     # Shapes alone let a region shifted by one cell pass. Values must also match the fixture's
     # analytic solid-body rotation at the RETURNED coordinates (catches values sliced off the
-    # coordinates), and coordinates and values must match the legacy adapter (catches a shift of
-    # both together). In PR A that adapter is still the legacy code; after PR B's delegation the
-    # frozen oracle carries this comparison.
+    # coordinates), and coordinates and values must match the frozen pre-refactor copy (catches a
+    # shift of both together). Not the importable extract_eulerian_box: that delegates here, so
+    # comparing against it would be a self-comparison.
     shape = snap.arrays["u"].shape
     np.testing.assert_allclose(
         snap.arrays["u"], np.broadcast_to(-OMEGA * snap.y[None, :, None], shape)
@@ -362,7 +362,7 @@ def test_region_clamping_matrix(lo, hi, halo, expected):
     np.testing.assert_allclose(
         snap.arrays["v"], np.broadcast_to(OMEGA * snap.x[:, None, None], shape)
     )
-    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
+    legacy = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
     for axis in ("x", "y", "z"):
         np.testing.assert_array_equal(getattr(snap, axis), legacy[axis], err_msg=axis)
     for name in snap.field_names:
