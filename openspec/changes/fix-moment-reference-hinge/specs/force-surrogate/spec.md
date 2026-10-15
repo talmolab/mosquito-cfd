@@ -138,6 +138,7 @@ second parser.
 - **Then** it raises `ValueError` naming the configuration, the deck path and both hashes, rather than shifting about a hinge the solver never used
 - **And** where the run recorded no `deck_sha256` (no per-configuration metadata found), extraction proceeds and records the deck as **unverified** rather than claiming a verification that did not happen
 - **And** a per-configuration metadata file that cannot be decoded or is not a JSON object raises `ValueError` naming the configuration and the file
+- **And** with `extract_forces.py --run-metadata-name` given, verification is mandatory: every extracted configuration must be anchored, or extraction fails before writing anything, and a name that is not a bare file name (it contains a path separator or `..`, or is absolute) is rejected
 
 #### Scenario: The acceptance gate reports extraction rejections instead of raising
 
@@ -405,7 +406,7 @@ extraction — a corpus's provenance names what produced its measurements.
 - **When** its dataset-build provenance is read
 - **Then** it names the wing hinge as the reference point for `CF_mx/CF_my/CF_mz`, records the applied offset `(0, 1.5, 0)`, and states that the raw `Mx/My/Mz` columns remain about the solver's own origin
 - **And** these live under two top-level keys of the corpus `run_metadata.json`, fixed here so writer and guard are not specified independently:
-  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's path as given, posix separators, or `null`)
+  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's path, in posix form and not resolved, or `null`)
   - `extraction_inputs`: `input_dir` (the `--input-dir` exactly as given, posix separators — **not** resolved, since resolving a mapped drive records a machine-specific network path; `csv_sha256` is the inputs' identity and the directory only a locator), `csv_name`, and `csv_sha256.<name>` — the sha256 of the exact bytes of each consumed IB-particle CSV
 - **And** the per-configuration values are the ones extraction **applied**, returned by `build_dataset` alongside the frame, not re-derived by the driver
 - **And** `dataset.units.json` is unchanged in shape — still a flat column-to-unit map over exactly the measured columns
@@ -420,7 +421,10 @@ extraction — a corpus's provenance names what produced its measurements.
 
 - **Given** an extraction whose dataset, units sidecar or provenance cannot be written
 - **When** `extract_forces.py` runs
-- **Then** every output is first written in full to a temporary beside its target and moved into place only after all writes succeeded, so a failure leaves the previous outputs unchanged and never pairs a new parquet with stale provenance
+- **Then** every output is first written in full to a temporary beside its target, and nothing is moved into place until all writes succeeded, so a failure **while writing** leaves every previous output unchanged
+- **And** the dataset parquet is moved into place **last**, after its units sidecar and provenance, because three renames cannot be atomic
+- **And** a failure **while moving** raises an error naming the outputs already replaced, and keeps the temporaries not yet moved, rather than silently leaving a new parquet beside stale provenance
+- **And** duplicate output paths and directory targets are rejected before anything is written
 
 ### Requirement: Headline moment axis is CF_my, named as a component
 

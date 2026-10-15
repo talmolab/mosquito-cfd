@@ -333,7 +333,7 @@ behaviour.
       basename.
     - Test first: the driver honours the flag; a stale anchor in the runs directory fails
       extraction.
-32l. [x] **Every per-config CSV/metadata defect is a named `ConfigExtractionError`.**
+32l. [x] **Non-numeric and boolean CSV values, and undecodable metadata, are named `ConfigExtractionError`s.** (Retitled in round 3: empty, `NaN` and `inf` cells still pass this check; deferred to #119, see 32x.)
     - Problem: a non-UTF-8 run-metadata file escaped as a bare `UnicodeDecodeError`. Non-numeric
       `iStep`/`time`/`Fx..Mz` cells escaped as a bare `ValueError`/`TypeError` with no config
       name. A boolean `X` column was silently read as 1.0.
@@ -386,6 +386,63 @@ behaviour.
     - cwd-independent test paths;
     - two PR1-era wording items: `tests/fixtures/README.md` calls `(4,2,4)` the mid-span point,
       and `docs/coordinate-convention.md` equates the IB hinge moment with the actuation torque.
+
+## 6c. PR2 review round 3 (scoped to the round-2 delta `44241c1..3d5833d`) — addressed in PR2
+
+Two reviewers (testing, edge cases) found no blocking issue and re-verified the data from `Z:`
+byte-for-byte. Both found independently that 32m overclaimed.
+
+32r. [ ] **Output writes: say what is true, and narrow the window.**
+    - Problem: 32m claimed "a failure leaves the previous outputs unchanged". That holds only while
+      writing. The temporaries were moved in the order parquet, units, metadata, so a later move
+      failure (on Windows, any open handle or a read-only attribute) left a new parquet beside
+      stale metadata, and `finally` then deleted the new metadata's temporary.
+    - Fix: three renames cannot be atomic.
+      - Move the parquet **last**, so the provenance is in place before the data changes.
+      - On a move failure, raise an error naming which outputs were already replaced, and keep
+        the unmoved temporaries so the operator can finish or discard them.
+      - Make cleanup of a stale temporary tolerate an `OSError`.
+      - Reject duplicate output paths, which previously succeeded and silently lost an output.
+    - Narrow the spec scenario and the docstring to match.
+    - Test first: inject an `os.replace` failure on the second move, and assert the parquet is
+      unchanged, the error names what was replaced, and the remaining temporary survives. Run the
+      directory-target test over all three outputs (M10). Detect leftovers by comparing directory
+      snapshots, not by name (M17). Add a duplicate-path test.
+32s. [ ] **The coarse deck anchors are actually checked.**
+    - Problem: the CI guard accepted any coarse anchor ending in `/<name>/run_metadata.json`,
+      including one pointing into the fine corpus, a `nowhere/` path and a UNC path. Its
+      docstring claimed the gate script re-checked the anchor, which it did not.
+    - Fix:
+      - The CI guard requires each coarse anchor to equal
+        `<recorded input_dir>/<name>/run_metadata.json`.
+      - It rejects a network-path anchor for both corpora.
+      - Under `--zero-offset-control`, the gate script re-extracts with the recorded anchors as
+        `run_metadata_paths` and reports whether each deck re-verifies against the same file.
+    - Test first: a pure comparison of anchors, plus the wiring through `main()`.
+32t. [ ] **`--run-metadata-name` fails closed.**
+    - Problem: a misspelled or empty name silently left every deck "unverified" with exit code 0,
+      although the flag is an explicit opt-in to verification.
+    - Fix:
+      - With the flag given, every extracted config must be anchored, otherwise extraction fails
+        before anything is written.
+      - A name containing a path separator, `..`, or an absolute path is rejected.
+      - Combined with `--allow-missing`, dropped configs need no anchor (M15).
+    - Test first.
+32u. [ ] **The anchor-as-recorded test uses a non-canonical input directory (M09)**, so that
+    recording a resolved path would be caught.
+32v. [ ] **Wording:**
+    - the `_verify_deck_sha256` docstring;
+    - the README banner names the evidence figure's own provenance files too;
+    - the spec's "path as given" becomes "posix form";
+    - the stubbed `--zero-offset-control` `main()` test says its zero-offset line is a placeholder.
+32w. [ ] **Re-record both corpora's `run_metadata.json`** at the new commit, so the recorded commit
+    is again exactly the extractor that ran. Re-gate against `fea817a`. The parquets must stay
+    byte-identical.
+32x. **Deferred to #119:**
+    - empty, `NaN` and `inf` CSV cells pass the numeric check (pre-existing, absent from the real
+      data);
+    - an empty `iStep` cell is misreported as "non-monotonic";
+    - a fractional `iStep` is accepted.
 
 ---
 
