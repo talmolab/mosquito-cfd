@@ -67,12 +67,9 @@ class MomentCoefficients:
     (the deck's declared pivot). ``docs/coordinate-convention.md`` is the canonical
     definition of that reference point -- it is named, not justified, here.
 
-    **Not yet applied.** As of this commit the extractor still emits coefficients about
-    the immersed-boundary particle's own origin: ``dataset.py`` calls
-    :func:`compute_moment_coefficient` on the raw solver columns, and both committed
-    corpora satisfy ``CF_mx == Mx / m_ref``. The parallel-axis shift that makes the
-    paragraph above true is wired into extraction in a later increment of
-    ``openspec/changes/fix-moment-reference-hinge``; this notice is removed there.
+    Dataset extraction applies :func:`shift_moment_reference` to the solver's moments
+    before calling :func:`compute_moment_coefficient`, so the committed corpora carry
+    hinge-referenced coefficients.
 
     Only the *origin* is the hinge: the axes remain the lab axes as written by IAMReX,
     so these are **not** van Veen wing frame moments (that would additionally require

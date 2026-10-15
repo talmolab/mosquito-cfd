@@ -122,6 +122,45 @@ def test_committed_corpus_cf_is_van_veen_consistent():
     )
 
 
+# The fine corpus's equivalent of _FROZEN_RAW_FORCE_SHA (same hash recipe), minted from the
+# committed examples/prelim_sweep_fine/dataset.parquet BEFORE fix-moment-reference-hinge
+# re-extracted it, in a commit touching no parquet -- a digest minted from the regenerated
+# file could not tell it apart from the old one and would launder raw-column corruption.
+# Row counts cannot do this job: both corpora have identical per-config max_step maps
+# (109,656 rows each), so only these two digests distinguish a swapped --input-dir.
+# A trip during a corpus re-extraction is a HALT, not a re-pin: the pandas-upgrade re-pin
+# allowance above does not extend to a change that rewrites the parquet.
+_FROZEN_FINE_RAW_FORCE_SHA = (
+    "2666301934a30dd378ec3594709d3ed9f0e464398ec8515c4b47ac3d84e846e4"
+)
+
+
+@pytest.mark.parametrize(
+    ("corpus", "expected"),
+    [
+        ("examples/prelim_sweep", _FROZEN_RAW_FORCE_SHA),
+        ("examples/prelim_sweep_fine", _FROZEN_FINE_RAW_FORCE_SHA),
+    ],
+)
+def test_committed_corpus_raw_forces_are_frozen(corpus, expected):
+    """Each corpus's raw Fx..Mz columns hash to their pinned digest, and the two differ.
+
+    Scenario: A reference-point change ... the raw Fx..Mz columns remain exactly equal to the
+    committed corpus.
+    """
+    import hashlib
+
+    assert _FROZEN_RAW_FORCE_SHA != _FROZEN_FINE_RAW_FORCE_SHA
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    raw = df[["Fx", "Fy", "Fz", "Mx", "My", "Mz"]]
+    raw_sha = hashlib.sha256(
+        pd.util.hash_pandas_object(raw, index=False).values.tobytes()
+    ).hexdigest()
+    assert raw_sha == expected, (
+        f"{corpus}: raw CFD forces changed — they must stay frozen"
+    )
+
+
 def test_degenerate_renormalization_is_rejected():
     """A zero new reference (k undefined) or a missing column is rejected, not inf/NaN.
 
@@ -134,3 +173,271 @@ def test_degenerate_renormalization_is_rejected():
     df = pd.read_parquet(_PRED)
     with pytest.raises(KeyError):
         _ = df["CF_q_true"]  # absent target column
+
+
+# ---------------------------------------------------------------------------
+# Hinge-referenced moments in the committed corpora (fix-moment-reference-hinge, design D8)
+# ---------------------------------------------------------------------------
+
+_CORPORA = ("examples/prelim_sweep", "examples/prelim_sweep_fine")
+_CANONICAL_VERTEX = Path("examples/flapping_wing/wing.vertex")
+
+
+def _committed_decks(corpus: str) -> dict[str, dict[str, np.ndarray]]:
+    """Each config's particle origin and declared hinge, read from its COMMITTED deck.
+
+    Deliberately not from the corpus run_metadata.json that the same extraction wrote: an
+    extractor computing ``hinge - origin`` would record the negated offset and a guard reading
+    it back would reconcile the two happily. The deck is a different artifact and code path.
+    """
+    import json
+
+    from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
+
+    manifest = json.loads(
+        (Path(corpus) / "sweep_manifest.json").read_text(encoding="utf-8")
+    )
+    decks = {}
+    for config in manifest["configs"]:
+        text = (Path(corpus) / config["input_file"]).read_text(encoding="utf-8")
+        decks[config["name"]] = {
+            "particle": np.array(
+                [read_deck_value(text, f"particle_inputs.{a}") for a in "xyz"]
+            ),
+            "hinge": np.array(
+                [read_deck_value(text, f"particle_inputs.hinge_{a}") for a in "xyz"]
+            ),
+        }
+    return decks
+
+
+def _m_ref(sub: pd.DataFrame) -> float:
+    from mosquito_cfd.force_surrogate import compute_moment_reference
+
+    (stroke,) = sub["stroke_amp_deg"].unique()
+    (freq,) = sub["frequency_fstar"].unique()
+    return compute_moment_reference(freq, stroke, R_GYRATION, SPAN, CHORD, RHO).m_ref
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_moment_coefficients_are_hinge_referenced(corpus):
+    """Per config (not per (stroke, freq) key, which groups 3 configs and can mask one):
+    CF_m* equal the raw moments shifted by (particle - hinge) x F, over m_ref; and CF_mx is
+    NOT the unshifted Mx/m_ref, so a zero offset or a dropped shift cannot pass vacuously.
+
+    Scenario: Committed corpora reconcile against their declared offset (design D8.4).
+    """
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    decks = _committed_decks(corpus)
+    assert set(df["config_name"]) == set(decks)
+    failures = []
+    for name, deck in decks.items():
+        d = deck["particle"] - deck["hinge"]
+        sub = df[df["config_name"] == name]
+        m_ref = _m_ref(sub)
+        fx, fy, fz = (sub[c].to_numpy() for c in ("Fx", "Fy", "Fz"))
+        mx, my, mz = (sub[c].to_numpy() for c in ("Mx", "My", "Mz"))
+        expected = {
+            "CF_mx": (mx + d[1] * fz - d[2] * fy) / m_ref,
+            "CF_my": (my + d[2] * fx - d[0] * fz) / m_ref,
+            "CF_mz": (mz + d[0] * fy - d[1] * fx) / m_ref,
+        }
+        for col, want in expected.items():
+            if not np.allclose(sub[col].to_numpy(), want, rtol=1e-9, atol=1e-12):
+                failures.append(f"{name}: {col} != (M + (particle - hinge) x F)/m_ref")
+        if np.allclose(sub["CF_mx"].to_numpy(), mx / m_ref, rtol=1e-9, atol=1e-12):
+            failures.append(f"{name}: CF_mx equals the unshifted Mx/m_ref")
+        # d_x = d_z = 0 makes the y-term of d x F exactly zero for finite forces, so CF_my
+        # must COMPARE EQUAL to My/m_ref on real data, not merely be close (design D8.2).
+        if (
+            d[0] == 0
+            and d[2] == 0
+            and not (sub["CF_my"].to_numpy() == my / m_ref).all()
+        ):
+            failures.append(f"{name}: CF_my != My/m_ref exactly despite d_x = d_z = 0")
+    assert not failures, f"{corpus}: {len(failures)} failure(s):\n" + "\n".join(
+        failures
+    )
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_decks_declare_the_hinge_in_the_particle_frame(corpus):
+    """hinge_y + SPAN/2 == particle_y (and x, z coincide) for every committed deck.
+
+    ``constants.SPAN`` is authored separately from the decks, so this reconciles the deck's
+    ``particle_inputs.hinge_*`` against an independent declaration, establishing that it is
+    an absolute position in the same frame as ``particle_inputs.{x,y,z}`` -- not a relative
+    offset, under which the whole shift would be wrong while every self-consistency check
+    passed. It does NOT establish that the particle origin is the mesh's mid-span point: both
+    sides use the nominal SPAN = 3.0, while the committed geometry's span is 2.95. Committed
+    corpora only; a future multi-wing deck may legitimately break it. (Design D8.5.)
+    """
+    for name, deck in _committed_decks(corpus).items():
+        particle, hinge = deck["particle"], deck["hinge"]
+        assert hinge[1] + SPAN / 2 == particle[1], name
+        assert (hinge[0], hinge[2]) == (particle[0], particle[2]), name
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_moments_put_the_ib_part_arm_on_the_wing(corpus):
+    """Empirical sign discriminator (design D8.6) -- the one check that leaves our bookkeeping.
+
+    The force-weighted spanwise arm from the hinge, ``b = M_hinge_x / F_z``, should fall
+    inside the wing, ``(0, tip_arm]``, for most settled-beat rows. Measured with the correct
+    sign: 96.8% (coarse) / 98.1% (fine); with a sign-flipped shift: 0.9% / 0.5%. The gate is
+    a calibrated fraction (>= 0.90), NOT a bound on every row: ``b`` is a mixed-sign-weighted
+    mean (f_z changes sign across the wing), so it is not bounded by the wing's extent; it
+    also omits the ``-(z_i - z_h) F_y`` term of M_x. ``F``/``M`` are the spread IB force and
+    moment only, so ``b`` is the IB-part arm, not the true centre of pressure.
+
+    ``tip_arm`` is derived from the deck and the wing's own vertex file (hinge 0.5, tip
+    2.0 + 1.475 = 3.475, so 2.975 for the committed geometry), not typed in.
+    """
+    from mosquito_cfd.force_surrogate.geometry_guard import wing_half_span
+
+    df = pd.read_parquet(Path(corpus) / "dataset.parquet")
+    settled = df[df["wingbeat"] >= 1]
+    half_span = wing_half_span(_CANONICAL_VERTEX)
+    in_band = flipped_in_band = 0
+    for name, deck in _committed_decks(corpus).items():
+        sub = settled[settled["config_name"] == name]
+        tip_arm = deck["particle"][1] + half_span - deck["hinge"][1]
+        b = sub["CF_mx"].to_numpy() * _m_ref(sub) / sub["Fz"].to_numpy()
+        in_band += int(((b > 0) & (b <= tip_arm)).sum())
+        # Calibration: the same rows with the shift's sign reversed, from the raw columns.
+        a = deck["particle"][1] - deck["hinge"][1]
+        b_flip = (sub["Mx"].to_numpy() - a * sub["Fz"].to_numpy()) / sub[
+            "Fz"
+        ].to_numpy()
+        flipped_in_band += int(((b_flip > 0) & (b_flip <= tip_arm)).sum())
+    assert flipped_in_band / len(settled) < 0.10  # the discriminator discriminates here
+    fraction = in_band / len(settled)
+    assert fraction >= 0.90, (
+        f"{corpus}: only {fraction:.1%} of settled-beat rows put the IB-part arm "
+        "M_hinge_x/F_z on the wing (expected ~97%; a sign-flipped shift gives <1%)"
+    )
+
+
+# The CFD image each corpus's solver ran under, from records the extraction did not write.
+# Fine: every per-config run_metadata_<name>.json, captured from the cluster pods. Coarse: no
+# per-config files are committed, so this reads sweep_provenance.json's
+# downstream_artifacts_regenerated_from.docker_image_digest -- an operator-authored record of
+# the #71 regeneration, cross-checked (27/27) against the runs' own run_metadata.json on the
+# NFS share when this guard was written. PR3's rewrite of that block must keep the digest.
+def _cfd_digests(corpus: str) -> set[str]:
+    import json
+
+    root = Path(corpus)
+    if corpus.endswith("prelim_sweep_fine"):
+        return {
+            json.loads(p.read_text(encoding="utf-8"))["docker_image"].split("@", 1)[1]
+            for p in root.glob("run_metadata_*.json")
+        }
+    provenance = json.loads(
+        (root / "sweep_provenance.json").read_text(encoding="utf-8")
+    )
+    return {provenance["downstream_artifacts_regenerated_from"]["docker_image_digest"]}
+
+
+@pytest.mark.parametrize("corpus", _CORPORA)
+def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpus):
+    """The committed corpus run_metadata.json records what the spec fixes, and each value is
+    reconciled against an artifact the extraction did not write:
+
+    - every fixed key of ``moment_reference``;
+    - per config, ``origin``/``hinge``/``offset`` against the committed deck's particle
+      position and hinge, and ``deck_sha256`` against the deck's own bytes;
+    - every deck anchored to its CFD run's recorded ``deck_sha256``. For the fine corpus the
+      anchor is a committed file, re-checked here. For the coarse corpus it is each run's
+      metadata on the NFS share: CI pins its path to exactly
+      ``<recorded input_dir>/<name>/run_metadata.json``, and the gate script's
+      ``--zero-offset-control`` re-verifies each deck against that file;
+    - a hash for every consumed CSV, the runs directory recorded as given (never a resolved
+      network path), and the digest of the image the CFD ran under, not whatever host
+      re-extracted it.
+
+    Scenarios: Moment reference point travels with the corpus; Re-extraction preserves the
+    CFD digest; A deck edited since its run is rejected.
+    """
+    import hashlib
+    import json
+
+    root = Path(corpus)
+    meta = json.loads((root / "run_metadata.json").read_text(encoding="utf-8"))
+    decks = _committed_decks(corpus)
+    ref, inputs = meta["moment_reference"], meta["extraction_inputs"]
+    assert {k: v for k, v in ref.items() if k != "configs"} == {
+        "point": "wing_hinge",
+        "definition": "docs/coordinate-convention.md#moments",
+        "axes": "lab",
+        "offset": "r_origin - r_hinge",
+        "applies_to": ["CF_mx", "CF_my", "CF_mz"],
+        "raw_moments_about": "particle_origin",
+    }
+    assert set(ref["configs"]) == set(decks) == set(inputs["csv_sha256"])
+    manifest = json.loads((root / "sweep_manifest.json").read_text(encoding="utf-8"))
+    input_files = {c["name"]: c["input_file"] for c in manifest["configs"]}
+    for name, deck in decks.items():
+        record = ref["configs"][name]
+        assert record["origin"] == deck["particle"].tolist(), name
+        assert record["hinge"] == deck["hinge"].tolist(), name
+        assert record["offset"] == (deck["particle"] - deck["hinge"]).tolist(), name
+        assert record["deck"] == input_files[name]
+        deck_bytes = (root / input_files[name]).read_bytes()
+        assert record["deck_sha256"] == hashlib.sha256(deck_bytes).hexdigest(), name
+        assert len(inputs["csv_sha256"][name]) == 64
+
+        anchor = record["deck_sha256_verified_against"]
+        assert anchor, f"{name}: deck not anchored to its CFD run's deck_sha256"
+        assert not anchor.startswith(("//", "\\\\")), anchor  # never a network path
+        if corpus.endswith("prelim_sweep_fine"):
+            anchor_file = root / f"run_metadata_{name}.json"
+            assert anchor == anchor_file.as_posix()
+            recorded = json.loads(anchor_file.read_text(encoding="utf-8"))[
+                "deck_sha256"
+            ]
+            assert recorded == record["deck_sha256"], name
+        else:
+            # Exactly this run's own metadata, beside the CSV that was hashed: not another
+            # corpus's runs, not a stray path that merely ends the same way.
+            assert anchor == f"{inputs['input_dir']}/{name}/run_metadata.json", anchor
+
+    assert meta["dropped_configs"] == []
+    assert not inputs["input_dir"].startswith(("//", "\\\\")), inputs["input_dir"]
+
+    (cfd_digest,) = _cfd_digests(corpus)
+    assert meta["docker_image"].split("@", 1)[1] == cfd_digest
+
+
+def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_dataset():
+    """The coarse README carries a staleness banner exactly while the committed surrogate's
+    CF_mx/CF_mz targets disagree with the committed dataset (fix-moment-reference-hinge
+    re-extracted the dataset in PR2 and retrains in PR3). Both directions are pinned: the
+    banner cannot be forgotten while stale, and the retrain cannot leave it behind.
+
+    The predicate reads holdout_predictions.parquet, and the evidence figure is chained to it:
+    this test ties metrics.json's CF_mx/CF_mz R2 to those predictions, and
+    test_committed_figure_metrics_matches_committed_inputs ties the figure's sidecar to
+    metrics.json. A surrogate retrained without regenerating the figure therefore fails CI.
+    """
+    import json
+
+    base = Path("examples/prelim_sweep")
+    holdout = pd.read_parquet(base / "surrogate" / "holdout_predictions.parquet")
+    metrics = json.loads((base / "surrogate" / "metrics.json").read_text())
+    for c in ("CF_mx", "CF_mz"):
+        assert _r2(
+            holdout[f"{c}_true"].to_numpy(float), holdout[f"{c}_pred"].to_numpy(float)
+        ) == pytest.approx(metrics["per_target"][c]["r2"], abs=1e-9)
+
+    dataset = pd.read_parquet(base / "dataset.parquet")
+    joined = holdout.merge(
+        dataset[["config_name", "time", "CF_mx", "CF_mz"]], on=["config_name", "time"]
+    )
+    assert len(joined) == len(holdout)  # every holdout row is a dataset row
+    stale = not all(
+        np.allclose(joined[f"{c}_true"], joined[c], rtol=1e-9, atol=1e-12)
+        for c in ("CF_mx", "CF_mz")
+    )
+    readme = (base / "README.md").read_text(encoding="utf-8")
+    assert ("are stale against `dataset.parquet`" in readme) == stale

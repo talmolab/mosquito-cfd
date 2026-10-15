@@ -151,3 +151,44 @@ def test_hinge_at_span_root_for_coarse_and_fine_base_decks():
     """The real regression check: both sweep base decks against the real canonical geometry."""
     assert_hinge_at_span_root(_COARSE_BASE.read_text(), _CANONICAL_VERTEX)
     assert_hinge_at_span_root(_FINE_BASE.read_text(), _CANONICAL_VERTEX)
+
+
+# Every per-config deck of the two extracted corpora. The base-deck check above covers two
+# templates (one of them the pilot's), but extraction reads each per-config deck's hinge as the
+# moment reference point (fix-moment-reference-hinge), so all 54 are numerically load-bearing.
+_CORPUS_DECKS = sorted(
+    deck
+    for corpus in ("prelim_sweep", "prelim_sweep_fine")
+    for deck in (Path("examples") / corpus / "inputs").glob("inputs.3d.*")
+)
+
+# The fine-grid pilot's per-config decks are the committed record of what the pilot actually
+# ran: the pre-fix-force-surrogate-sweep-hinge midspan pivot (hinge_y = 2.0, hinge_z = 2.5).
+# Only its base deck was corrected afterwards; its report flags the defect (see
+# test_fine_pilot_deck.py). Correcting these files would falsify that record, and no dataset is
+# extracted from the pilot, so they are pinned as the known defect rather than guarded.
+_PILOT_DECKS = sorted(
+    Path("examples/prelim_sweep_fine_pilot/inputs").glob("inputs.3d.*")
+)
+
+
+def test_per_config_deck_globs_are_not_vacuous():
+    """27 coarse + 27 fine, and 3 pilot. An empty glob would parametrize to nothing."""
+    assert len(_CORPUS_DECKS) == 54, [p.as_posix() for p in _CORPUS_DECKS]
+    assert len(_PILOT_DECKS) == 3, [p.as_posix() for p in _PILOT_DECKS]
+
+
+@pytest.mark.parametrize("deck", _CORPUS_DECKS, ids=lambda p: p.as_posix())
+def test_hinge_at_span_root_for_every_corpus_deck(deck):
+    assert_hinge_at_span_root(deck.read_text(encoding="utf-8"), _CANONICAL_VERTEX)
+
+
+@pytest.mark.parametrize("deck", _PILOT_DECKS, ids=lambda p: p.as_posix())
+def test_pilot_decks_record_the_historical_midspan_pivot(deck):
+    """If this ever fails, the pilot decks were edited: either restore the historical record or
+    move them under the corpus guard deliberately -- never let them pass silently."""
+    text = deck.read_text(encoding="utf-8")
+    assert read_deck_value(text, "particle_inputs.hinge_y") == 2.0
+    assert read_deck_value(text, "particle_inputs.hinge_z") == 2.5
+    with pytest.raises(AssertionError, match="midspan"):
+        assert_hinge_at_span_root(text, _CANONICAL_VERTEX)

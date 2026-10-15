@@ -10,7 +10,8 @@ already claims (a metadata-generation bug cannot certify its own corpus).
 The only value taken on trust from ``run_metadata_<config>.json`` is
 ``interior_dt_below_nominal``, which cannot be recomputed offline without the run's ``run.log``
 (not committed); everything else here is independently derived from the manifest and the raw
-CSVs.
+CSVs. The same file's ``deck_sha256`` is used as a *reference*, not trusted: ``build_dataset``
+checks each committed deck against it, so a deck edited after its run fails the gate.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from mosquito_cfd.force_surrogate.corpus_guards import (
     SYMMETRY_RATIO_TOLERANCE,
     settled_beat_symmetry_ratios,
 )
-from mosquito_cfd.force_surrogate.dataset import build_dataset
+from mosquito_cfd.force_surrogate.dataset import ConfigExtractionError, build_dataset
 from mosquito_cfd.force_surrogate.sidecar import load_json_clear_error
 
 
@@ -55,13 +56,28 @@ def run_acceptance_gate(
         A :class:`GateResult`. `passed` is `False` if any configuration is CFL-limited, has a
         row count disagreeing with the manifest, has non-monotonic time, fails the normalized
         symmetry check, or if no completed (non-partial) CC-F1 result is recorded when the
-        corpus is field-capture-enabled.
+        corpus is field-capture-enabled. An extraction rejection of a config's own inputs
+        (:class:`~mosquito_cfd.force_surrogate.dataset.ConfigExtractionError`) is returned as
+        a single failure, since no other check can run without the frame.
     """
     manifest_path = Path(manifest_path)
     manifest = load_json_clear_error(manifest_path, label="sweep manifest")
     failures: list[str] = []
 
-    df, dropped = build_dataset(manifest_path, csv_paths, allow_missing=True)
+    try:
+        df, dropped, _ = build_dataset(
+            manifest_path,
+            csv_paths,
+            allow_missing=True,
+            run_metadata_paths=run_metadata_paths,
+        )
+    except ConfigExtractionError as exc:
+        # The extractor rejected a config's own inputs (causes: ConfigExtractionError's
+        # docstring). Nothing downstream can be evaluated without the frame, so report it as
+        # the gate's verdict instead of converting an enumerating gate into a traceback.
+        # Malformed-file errors (plain ValueError) still propagate, as they always have.
+        # Stopping at the first such config rather than enumerating them all is #119.
+        return GateResult(passed=False, failures=(f"dataset extraction failed: {exc}",))
     for name in dropped:
         failures.append(f"{name}: no force CSV found (dropped from the corpus)")
 

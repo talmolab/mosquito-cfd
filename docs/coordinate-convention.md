@@ -97,14 +97,11 @@ delivered by `decompose_wing_force` (Tier T4 — normal peak magnitude graded, p
 **Reference point: the deck's declared pivot** (`particle_inputs.hinge_{x,y,z}`), i.e. the wing
 hinge. Derived moment coefficients `CF_mx/CF_my/CF_mz` are taken about that point.
 
-> ⚠️ **Not yet applied.** As of this commit the extractor still emits coefficients about the
-> immersed-boundary particle's own origin — `dataset.py` calls `compute_moment_coefficient` on the
-> raw solver columns, and both committed corpora satisfy `CF_mx == Mx / m_ref`, not the hinge form.
-> The parallel-axis shift described below is wired into extraction in a later increment of
-> `openspec/changes/fix-moment-reference-hinge`, and this notice is removed there.
->
-> This page having described a hinge origin the pipeline did not implement is what produced issue
-> #108 in the first place; the marker exists so the gap cannot repeat silently.
+Extraction applies this: `build_dataset` shifts the solver's moments to the deck's pivot before
+normalizing, and both committed corpora were re-extracted to match (`fix-moment-reference-hinge`,
+issue #108). CI reconciles them against their committed decks
+(`tests/test_force_surrogate_scale_invariance.py`). Until that change, this page described a
+hinge origin the pipeline did not implement, which is how #108 arose.
 
 **Frame: lab, not wing.** Unlike the forces above — which are reported in the wing body frame —
 moments are reported as **lab-frame components about the hinge origin**. Only the origin is the
