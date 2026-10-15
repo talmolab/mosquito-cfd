@@ -682,13 +682,22 @@ committed before mutating.
     `test_fixture_is_regenerable` still passes, so the defaults are byte-identical. S1, S2, S3
     and S4 each now fail all 5 `test_wrapper_maps_every_field_and_axis_on_an_asymmetric_grid`
     cases; files were restored from saved bytes.
-92. [ ] **Caller empty-box guards.**
+92. [x] **Caller empty-box guards.**
     - `sphere_cv_drag_cd` raises a clear `ValueError` when its slab selects no cells. Today that
       ends in numpy's "argmin of an empty sequence", where the pre-refactor path gave the clear
       "same cell" error.
     - `wing_lev_report` raises when the box has no interior cells. Today that is numpy's
       zero-size `.max()`, and it was already the case before the refactor for boxes under 3 cells.
     - design.md D1's "handled downstream" is updated to name both guards.
+
+    **Result** (`64bf698`).
+    - The sphere guard is one helper, `_require_slab_cells`, shared by `sphere_cv_drag_cd` and
+      `sphere_cv_steadiness_fraction`. The latter had the same empty-`argmin` failure.
+    - Red: both tests failed on numpy's argmin message. A no-op guard mutant fails both.
+
+    **Deviation:** `wing_lev` got no guard. The reviewer's premise was wrong. lev's stencil
+    already raises "a centred gradient needs at least 3 points per axis; axis 0 has 0" before any
+    `.max()`, for both an empty and a too-small box. The new test pins that existing message.
 93. [ ] **Claims and messages.**
     - The `halo` narrowing becomes "negative or not an integer type (including integral floats
       such as 2.0, 0-d arrays and bool)" in the CHANGELOG, the PR body and spec.md, and the
