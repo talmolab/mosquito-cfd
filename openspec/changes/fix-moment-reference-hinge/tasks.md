@@ -392,7 +392,7 @@ behaviour.
 Two reviewers (testing, edge cases) found no blocking issue and re-verified the data from `Z:`
 byte-for-byte. Both found independently that 32m overclaimed.
 
-32r. [ ] **Output writes: say what is true, and narrow the window.**
+32r. [x] **Output writes: say what is true, and narrow the window.**
     - Problem: 32m claimed "a failure leaves the previous outputs unchanged". That holds only while
       writing. The temporaries were moved in the order parquet, units, metadata, so a later move
       failure (on Windows, any open handle or a read-only attribute) left a new parquet beside
@@ -408,7 +408,7 @@ byte-for-byte. Both found independently that 32m overclaimed.
       unchanged, the error names what was replaced, and the remaining temporary survives. Run the
       directory-target test over all three outputs (M10). Detect leftovers by comparing directory
       snapshots, not by name (M17). Add a duplicate-path test.
-32s. [ ] **The coarse deck anchors are actually checked.**
+32s. [x] **The coarse deck anchors are actually checked.**
     - Problem: the CI guard accepted any coarse anchor ending in `/<name>/run_metadata.json`,
       including one pointing into the fine corpus, a `nowhere/` path and a UNC path. Its
       docstring claimed the gate script re-checked the anchor, which it did not.
@@ -419,7 +419,7 @@ byte-for-byte. Both found independently that 32m overclaimed.
       - Under `--zero-offset-control`, the gate script re-extracts with the recorded anchors as
         `run_metadata_paths` and reports whether each deck re-verifies against the same file.
     - Test first: a pure comparison of anchors, plus the wiring through `main()`.
-32t. [ ] **`--run-metadata-name` fails closed.**
+32t. [x] **`--run-metadata-name` fails closed.**
     - Problem: a misspelled or empty name silently left every deck "unverified" with exit code 0,
       although the flag is an explicit opt-in to verification.
     - Fix:
@@ -428,14 +428,14 @@ byte-for-byte. Both found independently that 32m overclaimed.
       - A name containing a path separator, `..`, or an absolute path is rejected.
       - Combined with `--allow-missing`, dropped configs need no anchor (M15).
     - Test first.
-32u. [ ] **The anchor-as-recorded test uses a non-canonical input directory (M09)**, so that
+32u. [x] **The anchor-as-recorded test uses a non-canonical input directory (M09)**, so that
     recording a resolved path would be caught.
-32v. [ ] **Wording:**
+32v. [x] **Wording:**
     - the `_verify_deck_sha256` docstring;
     - the README banner names the evidence figure's own provenance files too;
     - the spec's "path as given" becomes "posix form";
     - the stubbed `--zero-offset-control` `main()` test says its zero-offset line is a placeholder.
-32w. [ ] **Re-record both corpora's `run_metadata.json`** at the new commit, so the recorded commit
+32w. [x] **Re-record both corpora's `run_metadata.json`** at the new commit, so the recorded commit
     is again exactly the extractor that ran. Re-gate against `fea817a`. The parquets must stay
     byte-identical.
 32x. **Deferred to #119:**
