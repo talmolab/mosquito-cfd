@@ -668,7 +668,7 @@ committed before mutating.
     **Deviation.** The planned `(1,3)` corner case is not a narrowing: the frozen copy already
     failed on it, with a `TypeError`. It is pinned in its own test
     (`test_matrix_shaped_corner_now_fails_with_a_clear_error`), not in `NARROWED_REQUESTS`.
-91. [ ] **Asymmetric fixture variant.** `write_fixture` gains optional `shape`, `origin`, `dx`
+91. [x] **Asymmetric fixture variant.** `write_fixture` gains optional `shape`, `origin`, `dx`
     and `distinct_fields`. Their defaults keep the committed fixture byte-identical, which
     `test_fixture_is_regenerable` enforces.
     - A `tmp_path` variant uses `shape=(8,6,4)`, a dyadic non-zero origin, anisotropic `dx`, and
@@ -677,6 +677,11 @@ committed before mutating.
       coordinate.
     - Red by mutation: S1 (field permutation), S2 (`dx` reversed), S3 (per-axis metadata
       permuted) and S4 (centres use `dx[0]`) all survive today. Advances #107; still one FAB.
+
+    **Result.** Red phase: `write_fixture` rejected the new keywords. Green at `ccbd0bf`, where
+    `test_fixture_is_regenerable` still passes, so the defaults are byte-identical. S1, S2, S3
+    and S4 each now fail all 5 `test_wrapper_maps_every_field_and_axis_on_an_asymmetric_grid`
+    cases; files were restored from saved bytes.
 92. [ ] **Caller empty-box guards.**
     - `sphere_cv_drag_cd` raises a clear `ValueError` when its slab selects no cells. Today that
       ends in numpy's "argmin of an empty sequence", where the pre-refactor path gave the clear
