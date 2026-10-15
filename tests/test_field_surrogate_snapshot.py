@@ -394,17 +394,36 @@ def test_read_passes_the_requested_halo_to_the_region_helper(monkeypatch):
 def test_region_divergence_from_legacy_is_pinned(
     lo, hi, halo, legacy_expected, expected
 ):
-    # Both sides are asserted, so the divergence is recorded rather than merely tolerated: if
-    # either implementation drifts, this fails. The legacy side reads
-    # stress_integral.extract_eulerian_box, which is still the pre-refactor code in PR A. PR B
-    # makes that function delegate here, so PR B MUST re-point the legacy side at the frozen
-    # oracle (tasks.md) -- otherwise this assertion fails there, by design.
+    # Three sides, each against a recorded literal, so the divergence is asserted rather than
+    # merely tolerated: the frozen pre-refactor copy, this reader, and the wrapper. The importable
+    # extract_eulerian_box delegates here, so it is NOT the legacy side -- comparing against it
+    # would be a self-comparison (design.md D1, D10).
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
 
+    want = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    assert want["u"].shape == legacy_expected
     snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     assert (snap.x.size, snap.y.size, snap.z.size) == expected
-    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
-    assert legacy["u"].shape == legacy_expected
+    got = extract_eulerian_box(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    assert got["u"].shape == expected
+
+    # A count-correct but wrong cell must fail: every cell the wrapper returns is a contiguous
+    # sub-block of the frozen copy's, with identical coordinates and values.
+    block = []
+    for axis in ("x", "y", "z"):
+        n = got[axis].size
+        start = 0
+        if n:
+            (hits,) = np.nonzero(want[axis] == got[axis][0])
+            assert hits.size == 1, axis
+            start = int(hits[0])
+        np.testing.assert_array_equal(got[axis], want[axis][start : start + n], err_msg=axis)
+        block.append(np.arange(start, start + n))
+    for name in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
+        np.testing.assert_array_equal(got[name], want[name][np.ix_(*block)], err_msg=name)
+    for key, value in got.items():
+        if isinstance(value, np.ndarray):
+            assert value.flags.writeable, key
 
 
 def _legacy_bounds(lo, hi, halo, dle, dre, n):
