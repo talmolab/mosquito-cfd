@@ -488,7 +488,7 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       `[N-2, N-1]`. Re-run against `db866ac`'s test, it gave 0 failures. It is killed only by the
       edge-anchoring assertion added in the follow-up commit: on an axis wholly outside the domain,
       the block sits at the frozen copy's edge-facing end.
-83. [ ] **Test first: `test_wrapper_argument_narrowing_is_pinned`.** Over a NaN corner, a scalar
+83. [x] **Test first: `test_wrapper_argument_narrowing_is_pinned`.** Over a NaN corner, a scalar
     `lo`, a scalar `hi`, `halo=-1`, `halo=1.9`, and an fp32 plotfile written to `tmp_path` via
     `write_fixture(real_dtype=float32)`, assert both:
     - `extract_eulerian_box` raises `ValueError`;
@@ -499,6 +499,17 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     and commit:
     - delete `_corner`'s shape check, and the scalar cases fail;
     - wrap the wrapper's call in `np.nan_to_num(..., nan=-inf)`, and the NaN case fails.
+
+    **Result.** Committed first, then each mutant was run over the whole test file, with every file
+    restored from saved bytes and its SHA checked:
+    - delete `_corner`'s shape check: `scalar_lo` and `scalar_hi` fail, and **only** those two.
+      Nothing else in the file caught it.
+    - wrapper `nan_to_num`: `nan_corner` fails (and so do both scalar cases, incidentally);
+    - wrapper `halo = abs(int(halo))`: `negative_halo`, `fractional_halo` and `bool_halo` fail.
+
+    **Deviation:** a `bool_halo` case was added. The reader rejects `halo=True`, while the frozen
+    copy reads it as 1, so it is a seventh narrowing. Each case also matches its own guard's
+    message. Claim (i) in task 86 is widened to say "negative, fractional or boolean".
 84. [ ] **Re-point `test_region_clamping_matrix`'s comparison** from `extract_eulerian_box`, now the
     reader's own wrapper, to `_legacy()`.
     - Update the comments at 281 and 356 to name the frozen copy.
@@ -542,8 +553,8 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     `requires_plotfile` ids that ran (13 before). Write the results into the D11 results section,
     replacing the superseded block.
 86. [ ] **Claims (replacing task 59).** One source of wording. The three narrowings, verbatim:
-    - (i) A NaN or non-3-vector `lo`/`hi`, a negative or non-integral `halo`, and an fp32 on-disk
-      plotfile (previously accepted silently as upcast float64) now raise `ValueError`. **Not**
+    - (i) A NaN or non-3-vector `lo`/`hi`, a negative, fractional or boolean `halo`, and an fp32
+      on-disk plotfile (previously accepted silently as upcast float64) now raise `ValueError`. **Not**
       "duplicate `fields`": the wrapper has no `fields` parameter.
     - (ii) Outside the parity region the wrapper returns the same number of cells as legacy, or
       fewer. Where a request misses the domain on some axis, it returns only the in-domain cells
