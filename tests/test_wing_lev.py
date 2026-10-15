@@ -139,3 +139,26 @@ def test_wing_lev_medium_vs_coarse():
     for plt in (coarse_plt, medium_plt):
         shed = wing_lev_report(plt, lo=_DOWNSTREAM_LO, hi=_DOWNSTREAM_HI)
         assert np.isfinite(shed["q_pos_vol"])
+
+
+# --- review of #106: a box with no interior cells fails clearly ---------------------------------
+# No wing_lev guard is needed: lev's centred-gradient stencil already refuses such a box with a
+# clear message before any reduction runs. These pin that, including for the zero-cell box that
+# "halo is reach" now returns for a request outside the domain.
+_LEV_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "lev_boxlib_plt"
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        # Wholly outside the domain: zero cells under "halo is reach" (one edge cell before).
+        ((-5.0, -5.0, -5.0), (-3.0, -3.0, -3.0)),
+        # Inside, but under 3 cells per axis, so the [1:-1] stencil interior is empty. This
+        # already failed before the refactor, inside numpy's zero-size reduction.
+        ((2.0, 2.0, 2.0), (3.0, 3.0, 3.0)),
+    ],
+    ids=["outside_domain", "too_small_for_stencil"],
+)
+def test_box_without_interior_cells_fails_clearly(lo, hi):
+    with pytest.raises(ValueError, match="at least 3 points per axis"):
+        wing_lev_report(str(_LEV_FIXTURE), lo=lo, hi=hi)

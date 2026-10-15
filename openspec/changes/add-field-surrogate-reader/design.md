@@ -100,8 +100,12 @@ In PR A the legacy side of `DIVERGENCE_CASES` read `stress_integral.extract_eule
 still pre-refactor there. PR B re-pointed it, and the `REGION_CASES` comparison, at the frozen oracle
 (tasks 82, 84), and pins the wrapper's own narrowed behaviour against that oracle; PR B's CHANGELOG
 states the narrowing (task 86). No in-repo caller passes `halo` today, and with `halo = 0` only a
-request lying outside the domain on some axis is affected. `check_field_capture_velocity` then gets
-the empty region its dedicated error path exists for, instead of silently reading a boundary cell.
+request lying outside the domain on some axis is affected. The callers then fail clearly rather than
+silently reading a boundary cell:
+- `check_field_capture_velocity` gets the empty region its dedicated error path exists for;
+- `sphere_cv_drag_cd` and `sphere_cv_steadiness_fraction` raise "selects no cells" (a guard added
+  in task 92; before it they died inside `np.argmin`);
+- `wing_lev_report` already refuses through lev's "at least 3 points per axis" stencil check.
 
 ## D2. Three spec deltas are staleness corrections, generated mechanically
 

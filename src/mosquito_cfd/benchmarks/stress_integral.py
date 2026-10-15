@@ -252,6 +252,20 @@ def extract_eulerian_box(
     return out
 
 
+def _require_slab_cells(xc: np.ndarray, x_inlet: float, x_outlet: float) -> None:
+    """Raise a clear error when the inlet/outlet slab selects no cells.
+
+    Under the reader's "halo is reach" rule (OpenSpec change ``add-field-surrogate-reader``,
+    D1) a slab wholly outside the domain selects zero cells, where the pre-refactor adapter
+    returned one spurious edge cell. Without this check the caller fails inside ``np.argmin``.
+    """
+    if xc.size == 0:
+        raise ValueError(
+            f"the slab x in [{x_inlet}, {x_outlet}] selects no cells: it lies wholly outside "
+            f"the plotfile's domain"
+        )
+
+
 def sphere_cv_drag_cd(
     plotfile_path: str,
     *,
@@ -292,6 +306,7 @@ def sphere_cv_drag_cd(
         hi=(x_outlet, np.inf, np.inf),
     )
     xc = box["x"]
+    _require_slab_cells(xc, x_inlet, x_outlet)
     i_in = int(np.argmin(np.abs(xc - x_inlet)))
     i_out = int(np.argmin(np.abs(xc - x_outlet)))
     if i_in == i_out:
@@ -465,6 +480,7 @@ def sphere_cv_steadiness_fraction(
         plotfile_new, lo=(x_inlet, -np.inf, -np.inf), hi=(x_outlet, np.inf, np.inf)
     )
     xc = box_new["x"]
+    _require_slab_cells(xc, x_inlet, x_outlet)
     i_in = int(np.argmin(np.abs(xc - x_inlet)))
     i_out = int(np.argmin(np.abs(xc - x_outlet)))
     cell_volume = float(np.prod(box_new["dx"]))
