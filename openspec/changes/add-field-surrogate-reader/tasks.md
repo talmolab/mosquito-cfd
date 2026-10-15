@@ -145,7 +145,7 @@ tests auto-skip on the runner and are never a gate). Fixture properties are docu
 
 29. [x] **Test first** (`tests/test_field_surrogate_domino_adapter.py`): the returned dict's key set is
     **exactly** the five volume-half keys with shapes `(N,3)`, `(N,F)`, `(nx,ny,nz,3)`, `(P,1)`,
-    `(P,1)` and no leading batch dimension; the six geometry-half keys are absent by key membership,
+    `(P,1)` and no leading batch dimension; the eight geometry-half keys are absent by key membership,
     not zero-filled.
 30. [x] **Test first**: `grid[0,0,0] == (x[0], y[0], z[0])` **and** `grid[nx-1,0,0] == (x[-1], y[0],
     z[0])` — the second is what catches an `indexing="xy"` meshgrid swap, since `[0,0,0]` is invariant
@@ -157,7 +157,7 @@ tests auto-skip on the runner and are never a gate). Fixture properties are docu
     `--group train` **is** installed.
 32. [x] **Test first**: the adapter's documentation states that `volume_fields` is a target rather than
     an encoder input, that this corpus has no pressure field and carries its gradient instead, and
-    names each of the six absent keys. Precedent: `tests/test_no_false_diffused_ib_claim.py`.
+    names each of the eight absent keys. Precedent: `tests/test_no_false_diffused_ib_claim.py`.
 33. [x] Implement `to_domino_volume` with the D6 docstring.
 
 ## 9. Docs
@@ -430,7 +430,7 @@ The delegation branch now merges PR A's final head and `main`. With PR A merged,
 recorded red phase for task 82. Revised after a five-reviewer `/review-openspec` pass (the
 reconciliation is in the PR body). Order: spec text, then tests, then evidence, then claims.
 
-81. [ ] **Spec/design text first.** The spec and design still state the wrapper's equivalence
+81. [x] **Spec/design text first.** The spec and design still state the wrapper's equivalence
     unconditionally and still name "the legacy adapter" -- which after PR B *is* the reader's
     wrapper, the root of the two self-comparing tests below.
     - `spec.md` region scenarios (178, 183, 190): "the legacy adapter" -> "the frozen pre-refactor
@@ -441,7 +441,9 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       `ValueError` for a NaN corner, a non-3-vector `lo`/`hi`, a negative or non-integral `halo`,
       and an fp32 on-disk plotfile, all of which the pre-refactor implementation accepted. Add
       the scenario "The wrapper's narrowed inputs raise where the frozen copy accepted".
-    - Spec 447 "eight absent keys" -> six (matching the scenario at 424 and task 32).
+    - ~~Spec 447 "eight absent keys" -> six~~ **Deviation:** the reviewer had the direction wrong.
+      `GEOMETRY_HALF_KEYS` holds **eight** keys, so the spec's "eight" was right and the "six" in
+      tasks 29 and 32 was stale; those were corrected instead.
     - `design.md`:
       - D10 (107-110, 292-295): scope "the entire claim of D1" to the parity region.
       - D11 item 3: drop "non-zero origins", since no project plotfile has one (#107).
