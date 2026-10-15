@@ -206,11 +206,11 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     the identical `ruff format --check` with the same six paths spelled out, then
     `uv run pytest -v -m "not gpu"`. (Pre-existing, unrelated: `test_provision_dies_on_wing_vertex_hash_mismatch`
     hard-asserts `shutil.which("sha256sum")` and fails under PowerShell only.)
-43. [ ] (evidence invalidated by 5504ea9's rule change; re-run as task 85) **Real-plotfile verification (D11), before merge.** With Z: mounted, run
+43. [x] (first run invalidated by 5504ea9's rule change; re-run as task 85, results below) **Real-plotfile verification (D11), before merge.** With Z: mounted, run
     `MOSQUITO_CFD_PLOTFILE_ROOT=<root> uv run pytest -v -m "not gpu" -rs` and record in the PR **how
     many previously-skipped tests actually ran** — a mandatory check with no recorded result is
     indistinguishable from one never run.
-44. [ ] (evidence invalidated by 5504ea9's rule change; re-run as task 85) **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
+44. [x] (first run invalidated by 5504ea9's rule change; re-run as task 85, results below) **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
     coarse/medium, wing T3b-medium), compare `extract_eulerian_box` against
     `legacy_extract_eulerian_box` over the full `REGION_CASES` parity matrix (and assert the
     recorded divergence for each `DIVERGENCE_CASES` entry) plus the pinned wing near-field
@@ -225,34 +225,54 @@ delegation against real plotfiles and have nothing to check on the additive PR.
 A mandatory check with no recorded result is indistinguishable from one never run, so the outcomes
 live here rather than only in a terminal.
 
-**Task 43 -- full suite with the plotfile root mounted.** All **13** `requires_plotfile` tests pass,
-zero failures attributable to the refactor. They need **two different roots**, which is why a single
-run showed 6 failures at first:
+These results replace the first run, which used the pre-`5504ea9` region rule (an 80-comparison A/B
+over 5 plotfiles) and is therefore no longer evidence. They come from the task 85 re-run on
+2026-10-15, against branch head `60d8046`.
 
-| root | tests | result |
-|---|---|---|
-| `Z:/users/eberrigan/mosquito-cfd-benchmarks` | 7 (incl. both direct `extract_eulerian_box` real-plotfile tests) | pass |
-| `Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing` | 6 (`test_flow_video_plotfile.py` x5, `test_wing_lev_medium_vs_coarse`) | pass |
+**Task 43 -- `requires_plotfile` tests under both plotfile roots.** All **13** pass, and no
+failure is attributable to the refactor. Each test needs one specific root and fails under the
+other with `FileNotFoundError` or a missing-file `ValueError`. That is missing data, not a
+regression.
 
-`test_wing_lev_medium_vs_coarse` is the strongest single signal: the T3b LEV composition on real
-coarse+medium wing plotfiles, through `extract_eulerian_box`, reproducing its pinned numbers.
+| root | tests that ran and passed |
+|---|---|
+| `Z:/users/eberrigan/mosquito-cfd-benchmarks` | 7: `test_cv_regrade_is_traceable`, `test_adapter_single_level_exact_fp64`, `test_adapter_pads_for_face_derivatives`, `test_sphere_cv_drag_classifies_h1`, `test_sphere_cv_steadiness_gate`, `test_extract_sphere_cd_default_preserves_contract`, `test_extract_sphere_cd_cv_method_reports_field_cd` |
+| `Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing` | 6: `test_flow_video_plotfile.py` x5, `test_wing_lev_medium_vs_coarse` (the run takes ~86 min; video rendering dominates) |
 
-**SUPERSEDED: ran under the pre-5504ea9 region rule; see task 85.** **Task 44 -- bit-exact A/B against the frozen oracle.** **80 region comparisons across 5 real
-plotfiles, all bit-exact** (`assert_array_equal`, zero tolerance), comparing key set, values, dtype,
-shape, Python type and writeability:
+**Task 44 / 85 -- bit-exact A/B against the frozen oracle.** **159 of 159 expected comparisons
+pass**, and the script hard-fails unless the count equals the precomputed total. Each plotfile
+gets the following checks:
+- **16 `REGION_CASES`:** bit-exact on key set, values, dtype, shape, Python type and
+  writeability, plus the predicted cell counts.
+- **8 `DIVERGENCE_CASES`:** the recorded legacy and new counts, the contiguous sub-block, the
+  edge-facing end, and equal values.
+- **The pinned production boxes**, bit-exact:
+  - sphere: the `sphere_cv_drag_cd` x-slab, and the `(6.5,0,0)-(8,10,10)` box at `halo` 0 and 2;
+  - wing: the `test_wing_lev.py` near-field and downstream boxes.
 
-| plotfile | grid | dx |
-|---|---|---|
-| `flow_past_sphere_coarse/plt10000` | 128x64x64 | 0.15625 |
-| `flow_past_sphere_10k/plt10000`, `plt05000` | 256x128x128 | 0.078125 |
-| `t3c-fine/plt01000` | 256x128x256 | 0.03125 |
-| `t2a-newconv4/plt01000` | 64x32x64 | 0.125 |
+Case coordinates are mapped in fixture cell units. A coordinate `c >= 6` maps to
+`dre + (c-6)*dx` and anything else to `dle + c*dx`, so upper-edge cases stay on the upper edge.
+For every axis the script first asserts that `dx` is dyadic and `dle + ddims*dx == dre` exactly.
 
-This covers the multi-FAB covering grids and non-unit `dx` that CI's 6-cubed fixture cannot reach.
+| plotfile | grid | dx | `domain_left_edge` | FABs | comparisons |
+|---|---|---|---|---|---|
+| `flow_past_sphere_coarse/plt10000` | 128x64x64 | 0.15625 | 0,0,0 | 128 | 27 |
+| `flow_past_sphere_10k/plt10000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 27 |
+| `flow_past_sphere_10k/plt05000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 27 |
+| `t2a-newconv4/plt01000` | 64x32x64 | 0.125 | 0,0,0 | 4 | 26 |
+| `t3b-medium/plt01000` | 128x64x128 | 0.0625 | 0,0,0 | 32 | 26 |
+| `t3c-fine/plt01000` | 256x128x256 | 0.03125 | 0,0,0 | 256 | 26 |
+
+**The script was checked by mutation.** Re-run with task 82's corner-clamping mutant in the
+wrapper, it aborts at its first divergence case (`flow_past_sphere_coarse/below_h0`: `(1,1,1)`
+instead of `(0,0,0)`). A pass is therefore something it can withhold.
 
 **Gap that remains open.** Every plotfile in the project's data has `domain_left_edge = [0, 0, 0]`,
-so the **non-zero domain origin path is verified nowhere** -- there is no such plotfile to test
-against. Task 45's follow-up fixture exists to close this and is deliberately still open.
+so the **non-zero domain origin path is unverified on real data**: there is no such plotfile to
+test against. The reader's region arithmetic *was* checked against legacy on one synthetic offset,
+anisotropic, multi-FAB grid in review round 3 (design.md D1), but no plotfile with a non-zero origin
+has gone through the wrapper. Task 45's follow-up fixture (#107) exists to close this and is
+deliberately still open.
 
 **Process note.** The first A/B run reported "ALL BIT-EXACT" after **zero** comparisons: MSYS
 rewrote the `/z/users/...` form into a backslash path on the way into Python, every plotfile was
@@ -389,7 +409,7 @@ keep the behaviour change as a documented divergence.
     - `pytest --collect-only` on the three field-surrogate files: **100** tests.
     - Full `-m "not gpu"` suite: 1059 passed, 14 skipped, 6 deselected.
     - Ruff check and format: clean. `openspec validate --strict`: valid.
-75. [ ] (-> superseded by task 85; tick together) **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
+75. [x] (-> superseded by task 85; tick together) **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
     the earlier real-plotfile A/B ran under the old rule and is no longer evidence. Then rewrite PR
     B's CHANGELOG and PR body claims that describe that A/B:
     - "unchanged for every valid 3-tuple request" — now false outside the parity region;
@@ -526,7 +546,7 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     - After the re-point, **12 fail**.
     - The 4 that still pass (`full`, `halo3_clipped`, `upper_edge`, `outside_domain`) are equivalent
       under this mutant: clipping absorbs the shift.
-85. [ ] **Real-plotfile A/B (the D11 re-run, replacing task 75).** A read-only scratchpad script,
+85. [x] **Real-plotfile A/B (the D11 re-run, replacing task 75).** A read-only scratchpad script,
     never committed, over **6** plotfiles: sphere coarse `plt10000`; sphere 10k `plt10000` and
     `plt05000`; wing `t2a-newconv4`, `t3b-medium` and `t3c-fine` at `plt01000`.
 
