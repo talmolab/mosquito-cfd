@@ -308,6 +308,85 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 32i. Deferred to #119: the acceptance gate stops at the first `ConfigExtractionError` instead of
     enumerating; `input_file`/config-name path escaping; the posix form of `inputs.file`.
 
+## 6b. PR2 review round 2 (5-reviewer team on #118, head `29e69ce`) — addressed in PR2
+
+Round 2 found no blocking issue and no regression. Each item below is test-first where it changes
+behaviour.
+
+32j. [ ] **Staleness banner scope.**
+    - Problem: the banner said "`CF_my` and the forces are unchanged". That is true of the dataset
+      columns, but the surrogate is one shared-trunk model selected on an aggregate over all six
+      targets, so **every** metric and evidence-figure number comes from the old training run.
+      `figures/` also holds wing-phase geometry plots that the moment change does not touch.
+    - Fix: reword the banner to name `surrogate/` and the evidence figure.
+    - Test first: the banner test also ties `metrics.json`'s `CF_mx`/`CF_mz` R² to
+      `holdout_predictions.parquet`. With the existing
+      `test_committed_figure_metrics_matches_committed_inputs`, that chains dataset →
+      predictions → metrics → evidence figure, so the figure cannot go stale unseen.
+32k. [ ] **Anchor the coarse decks.**
+    - Problem: every coarse run's own `<runs>/<name>/run_metadata.json` on `Z:` records a
+      `deck_sha256` (27/27 match the committed decks). `extract_forces.py` had no way to point at
+      it, so the coarse record said "unverified" for a check that passes.
+    - Fix: add `--run-metadata-name` to `extract_forces.py`, resolved as
+      `<input-dir>/<name>/<run-metadata-name>`; the default stays the files beside the manifest.
+      `deck_sha256_verified_against` records the anchoring file's path as given (posix), not its
+      basename.
+    - Test first: the driver honours the flag; a stale anchor in the runs directory fails
+      extraction.
+32l. [ ] **Every per-config CSV/metadata defect is a named `ConfigExtractionError`.**
+    - Problem: a non-UTF-8 run-metadata file escaped as a bare `UnicodeDecodeError`. Non-numeric
+      `iStep`/`time`/`Fx..Mz` cells escaped as a bare `ValueError`/`TypeError` with no config
+      name. A boolean `X` column was silently read as 1.0.
+    - Fix: validate every required CSV column as non-boolean numeric up front, which supersedes
+      32e's origin-only conversion check.
+    - Test first: one case per column, plus the undecodable metadata.
+32m. [ ] **Outputs are all-or-nothing.**
+    - Problem: `extract_forces.py`'s comment claimed a failure leaves no new parquet beside stale
+      metadata, which held only for a provenance failure. A failed units or metadata write still
+      left a new parquet.
+    - Fix: write all three outputs to temporaries beside their targets, and move them into place
+      only after every write succeeded.
+    - Test first: a failing units write leaves a pre-existing parquet byte-unchanged and no
+      temporary behind.
+32n. [ ] **Close the mutation survivors on the round-1 guard surface:**
+    - `input_dir` recorded verbatim: test with a non-canonical path (M8/M8b); the committed guard
+      rejects a UNC-style value.
+    - The committed-provenance guard checks:
+      - each `deck_sha256` against the committed deck;
+      - each fine `deck_sha256_verified_against` file's own `deck_sha256`;
+      - `origin` against the deck's particle position and `hinge` against its hinge;
+      - `applies_to`, `raw_moments_about`, `definition` and `offset`.
+    - The gate script's CSV re-hash is tested through `main()` (N13), with missing and extra keys
+      (N11/N12).
+    - The non-spanwise refusal is tested for `d_z ≠ 0` (N9).
+    - A config absent from `run_metadata_paths`, and an empty mapping, are each tested as
+      unverified (N1/N2).
+    - The non-string-`deck_sha256` and git-stderr tests match text only the intended path
+      produces (N4/N10).
+    - The write-ordering test matches the mutable-tag message.
+32o. [ ] **Docstrings and comments current:**
+    - one canonical list of `ConfigExtractionError` causes (class docstring), which the gate
+      comment and `Raises:` reference;
+    - the verify script's docstring covers the CSV re-hash and post-merge use;
+    - the `acceptance_gate.py` module docstring mentions `deck_sha256`;
+    - drop `extract_forces.py`'s stale "once PR3's real corpus exists";
+    - describe the coarse CFD digest source accurately (an operator record for #71,
+      cross-checked against the NFS run metadata);
+    - `write_dataset`'s "not byte-reproducible" becomes "not guaranteed across pyarrow/pandas
+      versions" (it was byte-identical on rewrite under the locked environment);
+    - task 39's "Expect `dirty: true`" is stale.
+32p. [ ] Re-record both corpora's `run_metadata.json` from a clean tree: coarse with
+    `--run-metadata-name run_metadata.json`, fine with its committed per-config files. Re-run the
+    gate against `fea817a`. The parquets must stay byte-identical, so no new blobs.
+32q. Deferred to #119, with the round-1 deferrals:
+    - a metadata path that is a directory is treated differently by `build_dataset` and the gate;
+    - `deck_sha256` format validation;
+    - a UTF-8 BOM hiding a deck's first key;
+    - LFS-aware baseline reads in the verify script;
+    - cwd-independent test paths;
+    - two PR1-era wording items: `tests/fixtures/README.md` calls `(4,2,4)` the mid-span point,
+      and `docs/coordinate-convention.md` equates the IB hinge moment with the actuation torque.
+
 ---
 
 # PR 3 — retrain, regenerate the figure, refresh prose
@@ -328,8 +407,10 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
     prediction is not. Record the new `CF_mx`/`CF_mz` numbers honestly whatever they are.
 39. [ ] **Test** — the committed `surrogate/run_metadata.json` **and both corpus
     `run_metadata.json` files** have a 40-hex `git.commit`, the expected `branch`, and no `error`
-    key. CI-runnable, no GPU. (Expect `dirty: true`; the recorded `commit` will not survive
-    squash-merge as an ancestor — the `branch` string is just a frozen field and is unaffected.)
+    key. CI-runnable, no GPU. (The corpus records were re-captured clean in PR2 — `dirty: false` —
+    so expect `dirty: true` only for an artifact written in place; the recorded `commit` will not
+    survive squash-merge as an ancestor and stays resolvable via `refs/pull/<n>/head` — the
+    `branch` string is just a frozen field and is unaffected.)
 40. [ ] Regenerate `examples/prelim_sweep/figures/`. **Same commit as task 36's outputs** —
     `test_committed_figure_metrics_matches_committed_inputs` asserts float equality between the
     figure sidecar and `metrics.json`.

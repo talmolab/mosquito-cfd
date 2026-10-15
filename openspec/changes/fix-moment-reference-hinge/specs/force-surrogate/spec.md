@@ -107,6 +107,12 @@ second parser.
 - **When** the dataset is extracted
 - **Then** it raises `ValueError` naming the configuration and the absent columns, via the existing required-column check
 
+#### Scenario: A non-numeric or boolean CSV value is rejected by name
+
+- **Given** an IB-particle CSV whose `iStep`, `time`, `X`, `Y`, `Z`, `Fx..Fz` or `Mx..Mz` column holds a non-numeric value, or is read as boolean
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration and the column, instead of a bare conversion error with no context, and a boolean column is never silently read as `0.0`/`1.0`
+
 #### Scenario: A header-only CSV contributes no rows without tripping the origin guard
 
 - **Given** a configuration whose IB-particle CSV has the header but **zero** data rows
@@ -127,10 +133,11 @@ second parser.
 
 #### Scenario: A deck edited since its run is rejected
 
-- **Given** a configuration whose per-configuration run metadata (the file named for it in an explicit `run_metadata_paths` mapping — which the acceptance gate passes, so both read the same files — or else `run_metadata_<name>.json` beside the manifest) records a `deck_sha256`, and a working-tree deck whose sha256 differs
+- **Given** a configuration whose per-configuration run metadata (the file named for it in an explicit `run_metadata_paths` mapping — which the acceptance gate passes, so both read the same files, and which `extract_forces.py --run-metadata-name` builds as `<input-dir>/<name>/<run-metadata-name>` — or else `run_metadata_<name>.json` beside the manifest) records a `deck_sha256`, and a working-tree deck whose sha256 differs
 - **When** the dataset is extracted
 - **Then** it raises `ValueError` naming the configuration, the deck path and both hashes, rather than shifting about a hinge the solver never used
-- **And** where the run recorded no `deck_sha256` (no per-configuration metadata, as for the coarse corpus), extraction proceeds and records the deck as **unverified** rather than claiming a verification that did not happen
+- **And** where the run recorded no `deck_sha256` (no per-configuration metadata found), extraction proceeds and records the deck as **unverified** rather than claiming a verification that did not happen
+- **And** a per-configuration metadata file that cannot be decoded or is not a JSON object raises `ValueError` naming the configuration and the file
 
 #### Scenario: The acceptance gate reports extraction rejections instead of raising
 
@@ -398,7 +405,7 @@ extraction — a corpus's provenance names what produced its measurements.
 - **When** its dataset-build provenance is read
 - **Then** it names the wing hinge as the reference point for `CF_mx/CF_my/CF_mz`, records the applied offset `(0, 1.5, 0)`, and states that the raw `Mx/My/Mz` columns remain about the solver's own origin
 - **And** these live under two top-level keys of the corpus `run_metadata.json`, fixed here so writer and guard are not specified independently:
-  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's name, or `null`)
+  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's path as given, posix separators, or `null`)
   - `extraction_inputs`: `input_dir` (the `--input-dir` exactly as given, posix separators — **not** resolved, since resolving a mapped drive records a machine-specific network path; `csv_sha256` is the inputs' identity and the directory only a locator), `csv_name`, and `csv_sha256.<name>` — the sha256 of the exact bytes of each consumed IB-particle CSV
 - **And** the per-configuration values are the ones extraction **applied**, returned by `build_dataset` alongside the frame, not re-derived by the driver
 - **And** `dataset.units.json` is unchanged in shape — still a flat column-to-unit map over exactly the measured columns
@@ -408,6 +415,12 @@ extraction — a corpus's provenance names what produced its measurements.
 - **Given** a committed corpus whose provenance records the digest of the image its CFD ran under
 - **When** the corpus is re-extracted from the same raw outputs without re-running the CFD
 - **Then** the regenerated provenance records the **same** digest, not the digest of any image used to perform the re-extraction
+
+#### Scenario: A failed write leaves the previous outputs in place
+
+- **Given** an extraction whose dataset, units sidecar or provenance cannot be written
+- **When** `extract_forces.py` runs
+- **Then** every output is first written in full to a temporary beside its target and moved into place only after all writes succeeded, so a failure leaves the previous outputs unchanged and never pairs a new parquet with stale provenance
 
 ### Requirement: Headline moment axis is CF_my, named as a component
 
