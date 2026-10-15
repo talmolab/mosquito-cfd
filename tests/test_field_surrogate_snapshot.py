@@ -846,6 +846,43 @@ def test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle(
             np.testing.assert_array_equal(got[key], want[key], err_msg=key)
 
 
+#: Requests the pre-refactor adapter accepted and the wrapper now refuses (design.md D1; the
+#: CHANGELOG states these narrowings). Each names the message of the guard that must fire, so a
+#: different guard rejecting it for an unrelated reason does not count.
+NARROWED_REQUESTS = [
+    ("nan_corner", {"lo": (np.nan, 0.0, 0.0), "hi": (6.0,) * 3}, "NaN"),
+    ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, "3-vector"),
+    ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, "3-vector"),
+    ("negative_halo", {**FULL, "halo": -1}, "non-negative"),
+    ("fractional_halo", {**FULL, "halo": 1.9}, "integer"),
+    ("bool_halo", {**FULL, "halo": True}, "integer"),
+    ("fp32_plotfile", FULL, "not 8-byte floats"),
+]
+
+
+@pytest.mark.parametrize(
+    ("case", "kwargs", "match"),
+    NARROWED_REQUESTS,
+    ids=[c[0] for c in NARROWED_REQUESTS],
+)
+def test_wrapper_argument_narrowing_is_pinned(case, kwargs, match, tmp_path):
+    # Pinned on BOTH sides: the frozen pre-refactor copy accepts each request (the fp32 one
+    # silently, as upcast float64), and the wrapper refuses it -- so each is a recorded narrowing,
+    # not merely a claim. The reader's own validation tests call read_field_snapshot directly, so
+    # they cannot see a wrapper that sanitizes its arguments before delegating.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    path = FIXTURE
+    if case == "fp32_plotfile":
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_fp32", real_dtype="float32"
+        )
+    legacy = _legacy()(str(path), **kwargs)
+    assert sorted(legacy) == LEGACY_KEYS
+    with pytest.raises(ValueError, match=match):
+        extract_eulerian_box(str(path), **kwargs)
+
+
 def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
     # 21 tests replace this module global; an internal call site that stopped resolving it would
     # bypass them all, leaving tests green while testing nothing (design.md D3).
