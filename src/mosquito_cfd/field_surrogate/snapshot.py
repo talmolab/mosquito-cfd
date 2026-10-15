@@ -1,7 +1,7 @@
 """Plotfile -> ``FieldSnapshot`` reader: the repository's single Eulerian-box covering-grid read.
 
-``yt`` is imported lazily inside the reader, never at module scope, so importing this module (or
-``benchmarks.stress_integral``, which delegates to it) stays cheap.
+``yt`` is imported lazily inside the reader, never at module scope, so importing this module
+stays cheap for callers that never read a plotfile.
 
 Code units throughout -- values are returned exactly as the plotfile stores them, with no unit
 conversion, unwrapped from yt's ``unyt_array`` to bare FP64 numpy.
@@ -152,6 +152,36 @@ def _corner(value, name: str) -> np.ndarray:
     return arr
 
 
+def _region_bounds(
+    lo: np.ndarray,
+    hi: np.ndarray,
+    halo: int,
+    *,
+    dle: np.ndarray,
+    dre: np.ndarray,
+    ddims: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-axis cell index bounds ``[i_lo, i_hi)`` for a physical request ("halo is reach").
+
+    Pads the request by ``halo`` cells first, then keeps the part of the padded range that lies
+    inside the domain. The corners are clipped only to one reach beyond the domain, which removes
+    ``+/-inf`` and bounds the arithmetic without changing the result, except on a degenerate grid
+    whose cells are narrower than the coordinate ULP (design.md D1).
+    """
+    dx = (dre - dle) / ddims
+    margin = (halo + 1) * dx
+    lo_c = np.clip(lo, dle - margin, dre + margin)
+    hi_c = np.clip(hi, dle - margin, dre + margin)
+    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
+    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
+    # An empty or inverted padded range becomes the single cell at its start. Applied BEFORE the
+    # domain intersection, so it can never add a cell outside the padded request.
+    i_hi = np.maximum(i_hi, i_lo + 1)
+    i_lo = np.clip(i_lo, 0, ddims)
+    i_hi = np.clip(i_hi, i_lo, ddims)
+    return i_lo, i_hi
+
+
 def read_field_snapshot(
     plotfile_path: str | Path,
     *,
@@ -162,13 +192,22 @@ def read_field_snapshot(
 ) -> FieldSnapshot:
     """Read an axis-aligned region of a single-level AMReX plotfile.
 
-    Reads the full level-0 covering grid and slices the requested region in memory, padded by
-    ``halo`` cells on each side and clamped to the domain. Region semantics are identical to the
-    legacy ``benchmarks.stress_integral.extract_eulerian_box``, which delegates here.
+    Reads the full level-0 covering grid and slices the requested region in memory. The request
+    is padded by ``halo`` cells on each side, and the part of the padded request inside the
+    domain is kept ("halo is reach"): a request up to ``halo`` cells outside the domain returns
+    the in-domain cells it reaches, and one farther out returns zero cells on that axis. A
+    zero-width request inside the domain yields one cell; a point exactly on the upper domain
+    edge yields none, since cells cover the half-open ``[domain_left_edge, domain_right_edge)``.
+    The edge cases are exact when the cell spacing is exactly representable (every corpus deck);
+    on other grids float rounding at a face can move an edge point by one cell, as in legacy.
 
-    Note that the ``i_hi = min(max(i_hi, i_lo + 1), ddims)`` clamp guarantees at least one cell
-    per axis only for regions beginning **inside** the domain: a request at or beyond the upper
-    domain edge correctly yields a zero-cell region.
+    Returned arrays are read-only against accidental writes, not tamper-proof: numpy lets the
+    owner call ``setflags(write=True)``. Copy an array before modifying it.
+
+    This matches ``benchmarks.stress_integral.extract_eulerian_box`` whenever
+    ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside that, the
+    legacy adapter clamps the corners onto the domain edge *before* padding and so returns edge
+    cells however far away the request is; this reader returns fewer cells there, never more.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
@@ -193,6 +232,10 @@ def read_field_snapshot(
 
     import yt
 
+    # yt logs an INFO line on every dataset load (domain extent, field list, etc.) that would
+    # otherwise spam stdout on every snapshot read in a per-frame loop (flow_video) or a training
+    # DataLoader (F3). This only raises yt's logging threshold; genuine errors still raise
+    # exceptions regardless of log level, so no failure mode is silenced by this call.
     yt.set_log_level("error")
     ds = yt.load(str(plotfile_path))
 
@@ -241,12 +284,7 @@ def read_field_snapshot(
     ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
     dx = (dre - dle) / ddims
 
-    lo_c = np.clip(lo_v, dle, dre)
-    hi_c = np.clip(hi_v, dle, dre)
-    i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
-    i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
-    i_lo = np.maximum(i_lo, 0)
-    i_hi = np.minimum(np.maximum(i_hi, i_lo + 1), ddims)
+    i_lo, i_hi = _region_bounds(lo_v, hi_v, halo, dle=dle, dre=dre, ddims=ddims)
 
     cg = ds.covering_grid(
         level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)

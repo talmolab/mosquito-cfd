@@ -104,8 +104,8 @@ tests auto-skip on the runner and are never a gate). Fixture properties are docu
 19. [x] Create `tests/fixtures/legacy_extract_eulerian_box.py`: the current body of
     `extract_eulerian_box` copied **byte-for-byte from HEAD before any edit**, as
     `legacy_extract_eulerian_box`, with a header comment recording the source commit SHA.
-20. [x] **Test first — differential, not self-referential**: for every case in the task-11 clamping
-    matrix, assert the refactored `extract_eulerian_box` and `legacy_extract_eulerian_box` return
+20. [x] **Test first — differential, not self-referential**: for every case in the `REGION_CASES`
+    parity matrix (task 66), assert the refactored `extract_eulerian_box` and `legacy_extract_eulerian_box` return
     dicts with identical **key sets** (`sorted(a) == sorted(b)`, so `time`/`source`/`max_level` cannot
     leak in), `np.testing.assert_array_equal` on every value, and matching Python **types** — `dx` an
     `ndarray` of `dtype float64` shape `(3,)`, `current_time` a `float`. Per D10, comparing the wrapper
@@ -212,7 +212,8 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     indistinguishable from one never run.
 44. [x] **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
     coarse/medium, wing T3b-medium), compare `extract_eulerian_box` against
-    `legacy_extract_eulerian_box` over the full task-11 region matrix plus the pinned wing near-field
+    `legacy_extract_eulerian_box` over the full `REGION_CASES` parity matrix (and assert the
+    recorded divergence for each `DIVERGENCE_CASES` entry) plus the pinned wing near-field
     box and the sphere inlet/outlet planes, with `assert_array_equal` — **zero tolerance, not
     `allclose`**. This is the only check covering multi-FAB covering grids, non-unit `dx`, and
     non-zero domain origins. Scratchpad script, output pasted into the PR; not a committed test.
@@ -311,9 +312,20 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     `openspec/changes/archive/2026-07-08-grade-wing-grid-convergence-medium/design.md:119`.
 58. [x] Correct the two false comments claiming `ascontiguousarray` copies / arrays are "freshly
     allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
-59. [x] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
-    `lo`/`hi` both previously succeeded and now raise. State the narrowing.
-60. [x] Fix the test-count claim (55, not 56) and make the patch-site count say which set it counts.
+59. [ ] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
+    `lo`/`hi` both previously succeeded and now raise. State the narrowing. Also state the region
+    narrowing from section 15: once `extract_eulerian_box` delegates, a request outside the domain
+    on some axis returns only the in-domain cells its halo reaches — zero at `halo = 0` — instead of
+    edge cells (design.md D1, third correction).
+60. [x] Fix the test-count claim. Both "55" and "56" were wrong: collecting the three
+    `test_field_surrogate_*.py` files as committed gives **74** tests (parametrization, not a typo,
+    accounts for the gap: `test_region_clamping_matrix` x11, `test_documentation_states_the_cc4_...`
+    x11, `test_invalid_halo_is_rejected` x6, etc.). The PR body's "1014 passed... (baseline 958)" was
+    arithmetically self-consistent with the false "56" (958+56=1014) but not with reality
+    (958+74=1032), meaning it was computed once and never re-run against the diff actually under
+    review. Later review rounds changed the count again; the current, re-collected number is
+    recorded in section 15, and must be re-verified with a fresh `pytest --collect-only` at merge
+    time, not copied forward.
 
 ## 13. Guarding the guards (PR B)
 
@@ -321,7 +333,7 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     content-hash test pinning it. Nothing currently stops `ruff format` from rewriting the frozen
     oracle, which would silently turn the equivalence claim into a comparison against modified code.
     A hash is squash-merge-safe; a `git show 86c729e` test is not.
-62. [x] Move the writeability assertion into the parametrized differential (it covers 1 region of 11),
+62. [x] Move the writeability assertion into the parametrized differential (it covers only one region),
     and add an x-slab-only case — the shape `sphere_cv_drag_cd` actually requests in production, and
     one of the two zero-copy regimes.
 
@@ -337,3 +349,76 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     **#113** (robustness and provenance -- unhelpful path errors, inverted corners, zero-cell
     training examples, mixed mutability, and surfacing the digest-pinned `run_metadata.json`
     that already sits beside every plotfile). **#107** covers the degenerate CI fixture.
+
+## 15. Review rounds 1-2 on #105 (PR A)
+
+Round 1's clamping fix gated the one-cell floor on an "overlaps the domain" test. Round 2 showed it
+broke parity with the legacy adapter and PR B's frozen oracle, and zeroed halo cells asymmetrically.
+Replaced with the "halo is reach" rule (design.md D1, third correction), after the user chose to
+keep the behaviour change as a documented divergence.
+
+66. [x] **Test first**: split the region matrix into `REGION_CASES` (parity only; PR B's oracle
+    iterates it) and `DIVERGENCE_CASES` (asserts both the legacy and the new cell counts). Add
+    `halo = 2` points on both edges and a just-below `halo = 1` case to the parity set.
+67. [x] **Test first**: sweep the pure `_region_bounds` helper against a literal transcription of the
+    legacy formula. It must be identical where `lo <= dre and hi > dle`, and never return more cells
+    than legacy anywhere.
+68. [x] Implement "halo is reach" in `snapshot._region_bounds` (pad, floor, then intersect).
+69. [x] **Test first**: `global_params` pinned for real — bypass the manifest guard and assert
+    `KeyError` (the old `if k in config` mutant survived every prior test). Pin the invariant
+    `set(GLOBAL_PARAM_KEYS) <= _REQUIRED_CONFIG_KEYS`, and rename the end-to-end test to say the
+    manifest guard catches it.
+70. [x] **Test first**: `to_domino_volume` rejects non-finite global params (inf, not only NaN), and
+    every returned array is read-only with no caller aliasing. Replace the brittle
+    meshgrid-call-counting test with `np.shares_memory(grid, volume_mesh_centers)`, which also
+    catches a `.copy()`.
+71. [x] Correct stale claims: `snapshot.py` module and function docstrings ("identical to legacy",
+    "delegates here"), design.md D1 heading/body, the spec's region requirement and both
+    oracle-scenario titles, the "~800MB" test comment (measured: 384MB), and review-history prose in
+    `src` comments.
+72. [ ] **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
+    `stress_integral.extract_eulerian_box` to the frozen oracle, and add the wrapper-divergence
+    scenario's test. Until then that test fails on PR B by design.
+73. [x] Follow-up issues filed for non-regressions: #120 (reader peak memory and yt objects retained
+    until GC), #121 (`plotfile()` fast path, step validation, duplicate steps), #122 (reject inverted
+    `lo > hi` requests).
+74. [x] Verification, re-run rather than re-read:
+    - 17 mutants against this round's code. 16 are killed, including every survivor from round 2
+      (G1, D6, D8, and the region-logic ones). R9, `np.clip(i_hi, 0, ddims)`, is equivalent because
+      the floor always runs first, and the helper's ordered-bounds contract is now asserted anyway.
+    - `pytest --collect-only` on the three field-surrogate files: **100** tests.
+    - Full `-m "not gpu"` suite: 1059 passed, 14 skipped, 6 deselected.
+    - Ruff check and format: clean. `openspec validate --strict`: valid.
+75. [ ] **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
+    the earlier real-plotfile A/B ran under the old rule and is no longer evidence. Then rewrite PR
+    B's CHANGELOG and PR body claims that describe that A/B:
+    - "unchanged for every valid 3-tuple request" — now false outside the parity region;
+    - "an 11-case clamping matrix";
+    - "80 bit-exact region comparisons across 5 real plotfiles".
+
+    Replace them with the parity-region statement and fresh numbers.
+
+## 16. Review round 3 on #105 (PR A)
+
+Two targeted reviewers found no blocking issue. The rule held on a real wing plotfile and on a
+synthetic anisotropic, offset, multi-FAB grid. The remaining findings were tests that could not
+fail and wording that overpromised.
+
+76. [x] **Test first**: parity cases now compare coordinates and field values against legacy and
+    against the fixture's analytic field, not shapes alone. A one-cell shift of coordinates or
+    values previously survived every PR A test.
+77. [x] **Test first**: a spy asserts the requested `halo` reaches `_region_bounds` unchanged. A halo
+    silently capped at 2 previously survived both PRs, because the 6-cell fixture clips larger halos.
+78. [x] **Test first**: the sweep is vectorized and runs on three grids. Unit 6-cell; 24-cell with
+    halo up to 9; offset, non-unit, inexact 20-cell. It covers faces ±1–4 ULP, and it asserts the
+    sub-range property as well as counts.
+79. [x] **Test first**: anisotropic `cell_volume` (a `dx[0]**3` mutant survived on the isotropic
+    fixture); `to_domino_volume` returns fresh buffers on each call.
+80. [x] Wording.
+    - Immutability is scoped to accidental mutation, since owners can `setflags(write=True)`.
+    - Edge statements are scoped to exactly representable `dx`, which holds for every corpus deck
+      (verified: all 65 committed decks have origin 0, integer extents and power-of-two cells).
+    - "Symmetric at both edges" becomes "agree for `halo >= 1`".
+    - Removed the unmeasured sweep sizes, and noted the inverted-with-halo cell and the
+      degenerate-grid margin caveat.
+    - Stale "11-case" references in tasks 20, 44 and 62 are updated.

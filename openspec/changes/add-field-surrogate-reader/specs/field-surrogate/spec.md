@@ -9,13 +9,22 @@ requested fields as bare FP64 numpy arrays indexed `[ix, iy, iz]`; the cell-cent
 `x`, `y`, `z`; the per-axis spacing `dx` as a `float64` array of shape `(3,)`; the plotfile's physical
 `time` as a Python `float`; and the provenance fields `source` and `max_level`.
 
-Immutability SHALL be enforced, not merely declared: the dataclass is frozen, every array it exposes
-is non-writable (`arr.flags.writeable is False`), **and every array owns its data**
-(`arr.base is None`). Owning the data is the load-bearing half: marking a *view* non-writable leaves
-its `base` reachable and writable, so the array can be mutated through it and the guarantee is a
-facade. Note that `np.ascontiguousarray` does not copy a slice that is already C-contiguous — which
-includes the full-extent read and any single-axis slab — so it cannot be relied on to produce an
-owning array.
+The snapshot SHALL be protected against *accidental* mutation. That is, an ordinary assignment
+must raise, and no writable object may share its memory. This is enforced, not merely declared:
+- the dataclass is frozen;
+- every array it exposes is non-writable (`arr.flags.writeable is False`);
+- **every array owns its data** (`arr.base is None`).
+
+Owning the data is what makes the read-only flag meaningful. A non-writable *view* leaves its `base`
+reachable and writable, so the snapshot could be mutated through the covering-grid buffer without any
+call touching the snapshot itself. Note that `np.ascontiguousarray` does not copy a slice that is
+already C-contiguous — which includes the full-extent read and any single-axis slab — so it cannot
+be relied on to produce an owning array.
+
+This is not a guarantee against *deliberate* mutation. numpy lets the owner of a buffer call
+`arr.setflags(write=True)` and then write to it. That applies to snapshot arrays and to
+`to_domino_volume`'s outputs, where re-enabling writes on `volume_mesh_centers` would also change
+`grid`, its view. Callers that need a mutable array SHALL copy it.
 
 Owning the data also bounds retention: a small region must not keep the whole level-0 covering grid
 alive behind a view. Two reads of the same region SHALL return arrays that do not share memory; note
@@ -38,7 +47,7 @@ that this holds trivially because each read allocates a fresh buffer, so a test 
   where `np.ascontiguousarray` returns a view rather than a copy
 - **When** the returned snapshots are inspected
 - **Then** in **both** cases every exposed array reports `flags.writeable is False` **and**
-  `base is None`, so there is no reachable writable buffer behind it; assigning into any array raises;
+  `base is None`, so no other writable object shares its memory; assigning into any array raises;
   and two reads of the same region do not share memory
 
 ### Requirement: Field selection validated before any array is read
@@ -108,25 +117,44 @@ MAY be kept as a defence-in-depth assertion, but it is not the guard.
   array was read — rather than returning a snapshot whose `arrays` has fewer entries than
   `field_names` and whose point cloud carries a duplicated column
 
-### Requirement: Region semantics identical to the legacy Eulerian-box adapter
+### Requirement: Region semantics match the legacy adapter wherever the request meets the domain
 
-The region semantics SHALL be byte-identical to the existing adapter's, because the legacy wrapper's
-behavioral equivalence depends on them: `lo`/`hi` physical corners clamped to the domain; `±inf`
-accepted as "full extent" along an axis, per axis independently; an optional `halo` of extra cells on
-every side, clipped at the domain boundary; and the read performed as a full level-0 covering grid
-sliced in memory.
+The region semantics SHALL be identical to the existing adapter's whenever, on every axis,
+`lo <= domain_right_edge` and `hi > domain_left_edge`. In that region the two SHALL return the same
+cells. In both, `±inf` is accepted as "full extent" along an axis, per axis independently, an
+optional `halo` adds extra cells on every side, and the read is performed as a full level-0 covering
+grid sliced in memory.
+
+The one deliberate difference is how `halo` interacts with the domain edge ("halo is reach"). The
+request's cell range SHALL be padded by `halo` first, and only the part of the padded range inside
+the domain SHALL be kept. So a request up to `halo` cells outside the domain returns the in-domain
+cells it reaches, and one farther out returns zero cells on that axis. The legacy adapter instead
+clamps the corners onto the domain edge *before* padding. It therefore returns edge cells for a
+request arbitrarily far outside the domain — and, at `halo = 0`, a spurious cell at index 0 for a
+request wholly below it. Outside the parity region this reader SHALL return no more cells than
+legacy.
 
 `halo` SHALL be a non-negative integer. A negative `halo` silently *erodes* the region (and can
 silently yield a zero-cell result), and a fractional `halo` is truncated per-face by `int()`,
 producing an **asymmetric** pad — two extra cells on one side and one on the other — which is a wrong
 answer for any consumer that differentiates across the pad.
 
-The index arithmetic SHALL be preserved exactly as
-`i_hi = min(max(i_hi, i_lo + 1), ddims)`. Note that this yields **at least one cell per axis only for
-regions that begin inside the domain**: a request at or beyond the upper domain edge clamps `i_lo` and
-`i_hi` to `ddims` and correctly yields a **zero-cell** region. Zero-cell regions are a reachable,
-supported outcome — `check_field_capture_velocity` already has a dedicated empty-region error path —
-and SHALL NOT be silently widened to one cell.
+Cells cover the half-open `[domain_left_edge, domain_right_edge)`, and upper bounds are exclusive
+everywhere. A zero-width request inside the domain SHALL yield one cell (the cell containing it). A
+point exactly on the upper edge, and a range ending exactly on the lower edge, SHALL yield none.
+For `halo >= 1` the two edges SHALL behave the same: a point on either edge reaches exactly `halo`
+cells inward. At `halo = 0` they differ by construction of the half-open coverage: a point on the
+lower edge yields cell 0, and a point on the upper edge yields none.
+
+These edge statements are exact when the cell spacing `(domain_right_edge - domain_left_edge) /
+domain_dimensions` is exactly representable, as it is for every corpus deck: power-of-two cell counts
+on integer extents. On other grids, float rounding at a cell face can move an edge point by one cell,
+e.g. placing a point exactly on the upper edge in the last cell. The legacy adapter shares this
+behaviour, since it uses the same floor/ceil of the same quotient.
+
+Zero-cell regions are a reachable, supported outcome — `check_field_capture_velocity` already has a
+dedicated empty-region error path — and SHALL NOT be silently widened to one cell on either side of
+the domain.
 
 #### Scenario: An invalid halo is rejected
 
@@ -135,16 +163,41 @@ and SHALL NOT be silently widened to one cell.
 - **Then** it raises `ValueError` in both cases — rather than silently eroding the region, or padding
   it asymmetrically because each face truncates independently
 
-#### Scenario: Region semantics match the legacy adapter across the clamping matrix
+#### Scenario: Region semantics match the legacy adapter across the parity matrix
 
 - **Given** the committed 6³ fixture with domain `[0, 6]³` and `dx = 1`
-- **When** `read_field_snapshot` is called with each of: full `±inf` extent; a non-cell-aligned
-  interior box; an exactly cell-aligned box; `halo` values that do and do not clip at the boundary;
-  mixed `±inf` on some axes only; a zero-width interior request; a request at the upper domain edge;
-  and a request wholly outside the domain
-- **Then** each returned region matches the legacy adapter's for the same request, the interior
-  zero-width request yields one cell per axis, and the upper-edge and outside-domain requests each
-  yield a zero-cell region rather than being widened
+- **When** `read_field_snapshot` is called with each of:
+  - full `±inf` extent;
+  - a non-cell-aligned interior box and an exactly cell-aligned box;
+  - `halo` values that do and do not clip at the boundary;
+  - mixed `±inf` on some axes only;
+  - a zero-width interior request;
+  - a point on the lower edge and a point on the upper edge, each with `halo` 0 and 2;
+  - a request less than one cell below the domain with `halo` 1;
+  - an inverted request inside the domain
+- **Then** each returned region matches the legacy adapter's for the same request
+
+#### Scenario: Region semantics outside the domain are pinned against legacy
+
+- **Given** the same fixture
+- **When** `read_field_snapshot` and the legacy adapter are called with requests outside the domain
+  on some axis:
+  - wholly below the domain, with `halo` 0 and 2;
+  - below and above, each within and beyond `halo` reach;
+  - a range ending exactly on the lower edge;
+  - a `-inf` point;
+  - a request outside on one axis only
+- **Then** each result equals its separately recorded literal: the legacy adapter returns edge cells,
+  while `read_field_snapshot` returns only the in-domain cells the padded request reaches (zero when
+  beyond reach)
+
+#### Scenario: The parity region holds across a sweep
+
+- **Given** the pure region-bounds helper and a literal transcription of the legacy arithmetic
+- **When** both are evaluated over a sweep of per-axis `(lo, hi, halo)` values, including `±inf`,
+  inverted requests, and values within `1e-12` of either edge
+- **Then** they agree on every triple with `lo <= domain_right_edge` and `hi > domain_left_edge`, and
+  the helper never returns more cells than legacy on any triple
 
 ### Requirement: `yt` is imported lazily and confined to one covering-grid read path
 
@@ -244,14 +297,22 @@ velocity check be built on `extract_eulerian_box` "rather than a new plotfile re
 module-global name resolvable: 21 test sites replace that module global, and an internal call site that
 stopped resolving it would silently bypass those fakes, leaving tests green while testing nothing.
 
-#### Scenario: Output matches the pre-refactor implementation across the clamping matrix
+#### Scenario: Output matches the pre-refactor implementation across the parity matrix
 
 - **Given** a frozen byte-for-byte copy of the pre-refactor `extract_eulerian_box` implementation,
   recorded with its source commit, and the committed fixture
 - **When** both the refactored wrapper and the frozen copy are called on the same region for each case
-  in the region-semantics clamping matrix
+  in the region-semantics parity matrix
 - **Then** the two dicts have identical key sets, every array value is exactly equal, and `dx` and
   `current_time` match in Python type as well as value
+
+#### Scenario: The wrapper's documented divergence is pinned against the frozen copy
+
+- **Given** the same frozen copy and the outside-the-domain divergence cases
+- **When** both are called on each divergence case
+- **Then** the frozen copy returns the recorded legacy cell counts and the refactored wrapper returns
+  the recorded `read_field_snapshot` cell counts — so the wrapper's narrowed behaviour is asserted,
+  not merely tolerated
 
 #### Scenario: Internal call sites still resolve the patched module global
 
@@ -328,7 +389,13 @@ plain dict under DoMINO's own key names for the part this corpus can honestly su
 `volume_mesh_centers` `(N, 3)`, `volume_fields` `(N, F)`, `grid` `(nx, ny, nz, 3)`,
 `global_params_values` `(P, 1)`, and `global_params_reference` `(P, 1)`. It SHALL NOT add a batch
 dimension, because DoMINO's own datapipe adds one. Global parameters SHALL be caller-supplied, so no
-normalization policy is baked into the reader.
+normalization policy is baked into the reader. They SHALL be rejected with `ValueError` if they
+differ in length or contain a non-finite value (NaN or `±inf`), since nothing downstream checks
+them.
+
+Every returned array SHALL be read-only, matching `FieldSnapshot`'s own arrays, and none SHALL alias
+the caller's input. `grid` SHALL be a reshaped view of `volume_mesh_centers` rather than a second
+copy of the same coordinates.
 
 The adapter SHALL import neither `physicsnemo` nor `torch`, at module scope or lazily, so the package
 imports on the CPU-only CI runner and this change adds no dependency.

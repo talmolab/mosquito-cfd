@@ -29,7 +29,12 @@ GLOBAL_PARAM_KEYS: tuple[str, ...] = (
 
 
 class FieldCorpus:
-    """Address a field-capture corpus by config id and timestep."""
+    """Address a field-capture corpus by config id and timestep.
+
+    The manifest is parsed once per instance and cached; ``steps()``/``plotfile()`` still list
+    ``plt*`` directories live on every call, since which plotfiles exist can change while a run
+    is in progress. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    """
 
     def __init__(
         self,
@@ -56,13 +61,19 @@ class FieldCorpus:
             manifest_path if manifest_path.is_absolute() else self.root / manifest_path
         )
         self.runs_dir = self.root / runs_dir
+        self._configs_cache: list[dict] | None = None
 
     def _configs(self) -> list[dict]:
-        # Imported lazily: force_surrogate.dataset pulls pandas, and this module must stay cheap
-        # for callers that only want snapshots (design.md D4).
-        from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+        # The manifest is fixed at sweep creation, so it is parsed once per instance; plt*
+        # presence is NOT cached (steps() re-lists it). A failed parse is not cached. The cached
+        # list and its dicts are shared -- callers must not mutate them.
+        if self._configs_cache is None:
+            # Imported lazily: force_surrogate.dataset pulls pandas, and this module must stay
+            # cheap for callers that only want snapshots (design.md D4).
+            from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
 
-        return load_manifest_configs(self.manifest_path)
+            self._configs_cache = load_manifest_configs(self.manifest_path)
+        return self._configs_cache
 
     def config_ids(self) -> list[str]:
         """Return the config names listed in the sweep manifest, in manifest order.
@@ -125,10 +136,18 @@ class FieldCorpus:
             config_id: Config name as listed in the manifest.
 
         Returns:
-            The kinematic parameters present for this config.
+            The kinematic parameters for this config, one entry per
+            :data:`GLOBAL_PARAM_KEYS`.
+
+        Raises:
+            ValueError: If the config is not in the manifest, or (via ``_configs()``'s
+                ``load_manifest_configs``) if the manifest is missing a required key.
         """
+        # Every key is guaranteed by the manifest guard (_REQUIRED_CONFIG_KEYS). Index directly so
+        # a broken guarantee is a KeyError, never a shorter dict that misaligns positionally
+        # against global_params_reference.
         config = self._config(config_id)
-        return {k: config[k] for k in GLOBAL_PARAM_KEYS if k in config}
+        return {k: config[k] for k in GLOBAL_PARAM_KEYS}
 
     def plotfile(self, config_id: str, step: int) -> Path:
         """Return the plotfile directory for one ``(config_id, step)``.
@@ -150,7 +169,8 @@ class FieldCorpus:
                 return candidate
         raise ValueError(
             f"no plotfile for step {step} of config {config_id!r} under {run} "
-            f"(looked for plt{step:05d}); available steps: {self.steps(config_id)}"
+            f"(no 'plt<digits>' directory parses to step {step}); "
+            f"available steps: {self.steps(config_id)}"
         )
 
     def snapshot(
