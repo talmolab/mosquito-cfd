@@ -300,7 +300,7 @@ region the wrapper inherits the reader's "halo is reach" rule and returns no mor
 pre-refactor implementation; that divergence SHALL be pinned against the same frozen copy.
 
 The wrapper's accepted inputs are deliberately narrower. It SHALL raise `ValueError` for a NaN corner,
-a `lo` or `hi` that is not a 3-vector, a negative, fractional or boolean `halo`, and a plotfile whose on-disk
+a `lo` or `hi` that is not a 3-vector, a `halo` that is negative or not of an integer type (fractional, boolean, and integral floats such as `2.0` or 0-d arrays alike), and a plotfile whose on-disk
 precision is fp32 — all of which the pre-refactor implementation accepted (the last silently, as
 upcast float64).
 

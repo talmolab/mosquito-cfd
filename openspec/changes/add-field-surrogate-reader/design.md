@@ -46,8 +46,12 @@ The rule adopted instead pads first and then intersects with the domain: the req
 is widened by `halo`, the one-cell floor is applied to that padded range, and only the part inside
 `[0, ddims)` is kept. Corners are clipped to one reach (`(halo + 1)·dx`) beyond the domain, which
 removes `±inf` without changing the result. The one exception is a degenerate grid whose cells are
-narrower than the coordinate ULP, where `dre + (halo + 1)·dx` rounds back to `dre`. It is
-implemented as the pure helper `snapshot._region_bounds` so it can be swept without yt.
+narrower than the coordinate ULP, where `dre + (halo + 1)·dx` rounds back to `dre`. A
+second, equally unreachable one is a subnormal offset: with `dx > 1`, origin 0 and
+`hi = 5e-324`, `(hi - dle) / dx` underflows to 0. Legacy then forces one cell from its clamped
+corner, and this rule forces none, which is a parity-region request returning one cell fewer.
+No corpus deck (`dx < 1`) or caller can produce it (found by the #106 review's sweep). The rule
+is implemented as the pure helper `snapshot._region_bounds` so it can be swept without yt.
 
 These properties are verified by permanent tests. They sweep every pair of a value set — cell faces
 and ±1–4 ULP around them, quarter-cell points, both edges ±1e-12, far values, `±inf` — against a

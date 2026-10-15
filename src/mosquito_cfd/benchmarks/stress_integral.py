@@ -223,11 +223,13 @@ def extract_eulerian_box(
         ``current_time`` (the plotfile's physical time).
 
     Raises:
-        ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN, if ``halo`` is
-            negative or not an integer (``bool`` included), if the plotfile's on-disk precision
-            is not fp64, if it is multi-level, or if a required field is missing. The
-            pre-refactor function raised only for the last two; it accepted the others (an fp32
-            plotfile silently, as upcast float64).
+        ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN; if ``halo`` is
+            negative or not of an integer type (``bool``, integral floats such as ``2.0`` and
+            0-d arrays included); if the plotfile's on-disk precision is not fp64, or cannot be
+            determined because yt no longer exposes the private ``ds.index._dtype``; if it is
+            multi-level; or if a required field is missing. The pre-refactor function raised only
+            for the last two. It accepted the others, an fp32 plotfile silently as upcast
+            float64.
     """
     # Imported by submodule path, never via the package: field_surrogate/__init__ is deliberately
     # import-free to avoid a benchmarks -> field_surrogate -> force_surrogate -> benchmarks cycle.
