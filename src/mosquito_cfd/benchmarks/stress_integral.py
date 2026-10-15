@@ -195,22 +195,36 @@ def extract_eulerian_box(
 
     Thin legacy wrapper: the actual read lives in the single shared implementation
     :func:`mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`, which this function
-    delegates to and re-packs into the flat dict its callers expect. Signature, returned keys and
-    value types are unchanged, and this remains the entry point for **every** in-repo caller --
-    the ``force-surrogate`` spec's CC-F1 requires the field-capture velocity check to be built on
-    it, and ~21 tests replace it as a module global, so a call site that bypassed it would
-    silently neuter those fakes. See OpenSpec change ``add-field-surrogate-reader`` (D3, D10).
+    delegates to and re-packs into the flat dict its callers expect. This remains the entry point
+    for **every** in-repo caller -- the ``force-surrogate`` spec's CC-F1 requires the
+    field-capture velocity check to be built on it, and tests replace it as a module global, so a
+    call site that bypassed it would silently neuter those fakes. See OpenSpec change
+    ``add-field-surrogate-reader`` (D1, D3, D10).
+
+    Signature, returned keys, value types and array writeability match the pre-refactor function,
+    and so does the region whenever ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on
+    every axis. Elsewhere the region follows the reader's "halo is reach" rule and never holds
+    more cells than before: a request beyond ``halo`` cells of the domain now returns zero cells
+    on that axis, where the pre-refactor function returned edge cells.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt10000``).
         lo: Physical lower corner ``(x, y, z)`` (``-inf`` allowed for "full extent").
         hi: Physical upper corner ``(x, y, z)`` (``+inf`` allowed for "full extent").
-        halo: Extra cells sliced on every side beyond the requested region.
+        halo: Cells of reach added on every side of the requested region; only the part of the
+            padded region inside the domain is returned.
 
     Returns:
         Dict with FP64 arrays ``u, v, w, gradpx, gradpy, gradpz`` (indexed ``[ix, iy, iz]``),
         cell-center coordinate arrays ``x, y, z``, ``dx`` (per-axis spacing), and
         ``current_time`` (the plotfile's physical time).
+
+    Raises:
+        ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN, if ``halo`` is
+            negative or not an integer (``bool`` included), if the plotfile's on-disk precision
+            is not fp64, if it is multi-level, or if a required field is missing. The
+            pre-refactor function raised only for the last two; it accepted the others (an fp32
+            plotfile silently, as upcast float64).
     """
     # Imported by submodule path, never via the package: field_surrogate/__init__ is deliberately
     # import-free to avoid a benchmarks -> field_surrogate -> force_surrogate -> benchmarks cycle.

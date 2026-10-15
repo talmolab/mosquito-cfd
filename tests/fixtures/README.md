@@ -27,3 +27,9 @@ plotfiles** (roadmap CC-2 / CC-F4).
   the reader's absent-field error path is tested. The binary FAB is protected from CRLF
   corruption by a `tests/fixtures/lev_boxlib_plt/** -text` rule in `.gitattributes`; a **new**
   committed plotfile fixture would need its own rule.
+- `legacy_extract_eulerian_box.py` — the **frozen pre-refactor** `extract_eulerian_box`, the
+  oracle the delegating wrapper is compared against. It is pinned by content hash
+  (`test_frozen_oracle_is_unmodified`) and excluded from ruff, so **do not edit it**, not even its
+  header. That header is knowingly stale: it describes equivalence as the whole claim, whereas the
+  wrapper is equivalent only in the parity region and deliberately narrower elsewhere
+  (`add-field-surrogate-reader` design.md D1).

@@ -126,14 +126,16 @@ plotfiles. F2 adapts/extends it rather than writing a new reader; a synthetic pl
 CI already exists too (issue #33, closed — "committed synthetic AMReX plotfile fixture for CI
 coverage of the yt adapter").
 
-> **Resolved 2026-09-21 (`add-field-surrogate-reader`, F2):** the single `yt` covering-grid read
+> **Resolved (`add-field-surrogate-reader`, F2, #105/#106):** the single `yt` covering-grid read
 > now lives in `mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`, and
 > `extract_eulerian_box` is a thin delegating wrapper with an unchanged import path, signature and
 > returned keys — still the entry point for every in-repo caller. CC-F2's "rather than writing a
 > new reader" means **one read path**, not one module: the repo still has exactly one
 > Eulerian-box covering-grid read (`benchmarks/analyze_sphere.py` keeps a separate `yt.load` for
-> IB-particle access, which this CC never covered). Equivalence with the pre-refactor
-> implementation is enforced by a differential test against a frozen byte-for-byte copy of it.
+> IB-particle access, which this CC never covered). It is bit-identical to the pre-refactor
+> implementation wherever the request meets the domain on every axis, enforced by a differential
+> test against a frozen, hash-pinned copy of it; elsewhere it returns no more cells than before,
+> and that divergence is pinned against the same copy (design.md D1).
 
 ### CC-F3. Storage budget must be measured before committing to a full corpus, not assumed.
 The `6–32 TB for 20 sims` figure in `ml-surrogate-notes.md` predates the fine 256×128×256 grid and
