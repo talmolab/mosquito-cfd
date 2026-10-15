@@ -239,8 +239,11 @@ regression.
 | `Z:/users/eberrigan/mosquito-cfd-benchmarks` | 7: `test_cv_regrade_is_traceable`, `test_adapter_single_level_exact_fp64`, `test_adapter_pads_for_face_derivatives`, `test_sphere_cv_drag_classifies_h1`, `test_sphere_cv_steadiness_gate`, `test_extract_sphere_cd_default_preserves_contract`, `test_extract_sphere_cd_cv_method_reports_field_cd` |
 | `Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing` | 6: `test_flow_video_plotfile.py` x5, `test_wing_lev_medium_vs_coarse` (the run takes ~86 min; video rendering dominates) |
 
-**Task 44 / 85 -- bit-exact A/B against the frozen oracle.** **159 of 159 expected comparisons
-pass**, and the script hard-fails unless the count equals the precomputed total. Each plotfile
+**Task 44 / 85 / 94 -- bit-exact A/B against the frozen oracle.** **171 of 171 expected
+comparisons pass**, from the committed `scripts/verify_eulerian_box_ab.py` run at `c9119fa`. The
+script hard-fails unless the count equals the precomputed total. The first run of this task (85,
+scratchpad script, at `60d8046`) gave 159 of 159; the extra 12 are the cases the #106 review added,
+2 per plotfile. Each plotfile
 gets the following checks:
 - **16 `REGION_CASES`:** bit-exact on key set, values, dtype, shape, Python type and
   writeability, plus the predicted cell counts.
@@ -256,12 +259,12 @@ For every axis the script first asserts that `dx` is dyadic and `dle + ddims*dx 
 
 | plotfile | grid | dx | `domain_left_edge` | FABs | comparisons |
 |---|---|---|---|---|---|
-| `flow_past_sphere_coarse/plt10000` | 128x64x64 | 0.15625 | 0,0,0 | 128 | 27 |
-| `flow_past_sphere_10k/plt10000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 27 |
-| `flow_past_sphere_10k/plt05000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 27 |
-| `t2a-newconv4/plt01000` | 64x32x64 | 0.125 | 0,0,0 | 4 | 26 |
-| `t3b-medium/plt01000` | 128x64x128 | 0.0625 | 0,0,0 | 32 | 26 |
-| `t3c-fine/plt01000` | 256x128x256 | 0.03125 | 0,0,0 | 256 | 26 |
+| `flow_past_sphere_coarse/plt10000` | 128x64x64 | 0.15625 | 0,0,0 | 128 | 29 |
+| `flow_past_sphere_10k/plt10000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 29 |
+| `flow_past_sphere_10k/plt05000` | 256x128x128 | 0.078125 | 0,0,0 | 1024 | 29 |
+| `t2a-newconv4/plt01000` | 64x32x64 | 0.125 | 0,0,0 | 4 | 28 |
+| `t3b-medium/plt01000` | 128x64x128 | 0.0625 | 0,0,0 | 32 | 28 |
+| `t3c-fine/plt01000` | 256x128x256 | 0.03125 | 0,0,0 | 256 | 28 |
 
 **The script was checked by mutation.** Re-run with task 82's corner-clamping mutant in the
 wrapper, it aborts at its first divergence case (`flow_past_sphere_coarse/below_h0`: `(1,1,1)`
@@ -717,7 +720,7 @@ committed before mutating.
     - The `owndata` guard is an explicit `RuntimeError`, not an `assert` (which `-O` strips). A
       test hands the wrapper a view, and the no-op mutant fails that test. Without it the guard
       was unfailable.
-94. [ ] **Commit the real-plotfile A/B** as `scripts/verify_eulerian_box_ab.py`, taking the two
+94. [x] **Commit the real-plotfile A/B** as `scripts/verify_eulerian_box_ab.py`, taking the two
     roots as arguments, and re-run it at the final head. tasks.md D11 cites the script, its
     commit and the fresh total.
 95. [ ] Verification as in task 88. Push only with the user's go-ahead, then confirm CI green on
