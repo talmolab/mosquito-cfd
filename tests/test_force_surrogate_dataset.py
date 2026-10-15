@@ -1024,7 +1024,9 @@ def test_deck_is_reconciled_against_the_runs_recorded_deck_sha256(tmp_path):
 
     meta = _write_config_run_metadata(manifest, cfg["name"], good)
     _, _, provenance = build_dataset(manifest, {cfg["name"]: FIXTURE})
-    assert provenance[cfg["name"]]["deck_sha256_verified_against"] == meta.name
+    # The anchoring file's path as resolved (posix), not its bare name: with
+    # run_metadata_paths the anchor can live anywhere, and a name alone loses where.
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] == meta.as_posix()
 
     _write_config_run_metadata(manifest, cfg["name"], "0" * 64)
     with pytest.raises(ValueError, match=rf"{cfg['name']}.*deck_sha256") as excinfo:
@@ -1102,15 +1104,79 @@ def test_non_object_run_metadata_is_a_named_extraction_error(tmp_path, payload):
     assert str(meta) in str(excinfo.value)
 
 
-@pytest.mark.parametrize("column", ["X", "Y", "Z"])
-def test_non_numeric_origin_is_a_named_extraction_error(tmp_path, column):
+_NUMERIC_CSV_COLUMNS = [
+    "iStep",
+    "time",
+    "X",
+    "Y",
+    "Z",
+    "Fx",
+    "Fy",
+    "Fz",
+    "Mx",
+    "My",
+    "Mz",
+]
+
+
+@pytest.mark.parametrize("column", _NUMERIC_CSV_COLUMNS)
+def test_non_numeric_csv_value_is_a_named_extraction_error(tmp_path, column):
+    """A text cell in any column extraction reads raised a bare ValueError/TypeError with no
+    config name (and crashed the acceptance gate). Spec: A non-numeric or boolean CSV value
+    is rejected by name."""
     from mosquito_cfd.force_surrogate import ConfigExtractionError
 
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
-    csv = _csv_with(tmp_path, "text_origin.csv", **{column: "abc"})
+    values = FIXTURE_RAW[column].astype(object).copy()
+    values.iloc[2] = "abc"
+    csv = _csv_with(tmp_path, "text_cell.csv", **{column: values})
     with pytest.raises(ConfigExtractionError, match=rf"{cfg['name']}.*'{column}'"):
         build_dataset(manifest, {cfg["name"]: csv})
+
+
+@pytest.mark.parametrize("column", ["X", "Fz"])
+def test_boolean_csv_column_is_rejected_not_read_as_one(tmp_path, column):
+    """pandas parses a column of True/False as bool, and float(True) == 1.0: a boolean origin
+    would silently become 1.0 and shift every moment."""
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    csv = _csv_with(tmp_path, "bool_col.csv", **{column: True})
+    with pytest.raises(ConfigExtractionError, match=rf"{cfg['name']}.*'{column}'"):
+        build_dataset(manifest, {cfg["name"]: csv})
+
+
+def test_undecodable_run_metadata_is_a_named_extraction_error(tmp_path):
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    meta = manifest.parent / f"run_metadata_{cfg['name']}.json"
+    meta.write_bytes(b'{"deck_sha256": "caf\xe9"}')  # Latin-1 e-acute: not UTF-8
+    with pytest.raises(ConfigExtractionError, match=cfg["name"]) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert str(meta) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("mapping", ["other-config", "empty"])
+def test_a_config_absent_from_run_metadata_paths_is_unverified(tmp_path, mapping):
+    """With an explicit mapping, a config it does not name has no anchor -- even if a stale
+    run_metadata_<name>.json sits beside the manifest. The mapping replaces the convention;
+    it does not fall back to it."""
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    _write_config_run_metadata(
+        manifest, cfg["name"], "0" * 64
+    )  # stale, beside manifest
+    paths = (
+        {"some_other_config": tmp_path / "x.json"} if mapping == "other-config" else {}
+    )
+    _, _, provenance = build_dataset(
+        manifest, {cfg["name"]: FIXTURE}, run_metadata_paths=paths
+    )
+    assert provenance[cfg["name"]]["deck_sha256_verified_against"] is None
 
 
 def test_recorded_deck_sha256_matches_case_insensitively(tmp_path):
@@ -1131,7 +1197,7 @@ def test_recorded_deck_sha256_matches_case_insensitively(tmp_path):
     (manifest.parent / f"run_metadata_{cfg['name']}.json").write_text(
         json.dumps({"deck_sha256": 12345}), encoding="utf-8"
     )
-    with pytest.raises(ConfigExtractionError, match="deck_sha256"):
+    with pytest.raises(ConfigExtractionError, match="non-string deck_sha256"):
         build_dataset(manifest, {cfg["name"]: FIXTURE})
 
 

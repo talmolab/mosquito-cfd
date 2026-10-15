@@ -318,8 +318,12 @@ def test_committed_moments_put_the_ib_part_arm_on_the_wing(corpus):
     )
 
 
-# The CFD image each corpus's solver ran under, as recorded by the CFD runs themselves: the
-# coarse sweep_provenance and the fine per-config run metadata, not the extraction's own record.
+# The CFD image each corpus's solver ran under, from records the extraction did not write.
+# Fine: every per-config run_metadata_<name>.json, captured from the cluster pods. Coarse: no
+# per-config files are committed, so this reads sweep_provenance.json's
+# downstream_artifacts_regenerated_from.docker_image_digest -- an operator-authored record of
+# the #71 regeneration, cross-checked (27/27) against the runs' own run_metadata.json on the
+# NFS share when this guard was written. PR3's rewrite of that block must keep the digest.
 def _cfd_digests(corpus: str) -> set[str]:
     import json
 
@@ -337,46 +341,90 @@ def _cfd_digests(corpus: str) -> set[str]:
 
 @pytest.mark.parametrize("corpus", _CORPORA)
 def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpus):
-    """The committed corpus run_metadata.json records what the spec fixes: the per-config
-    offsets (checked against the committed decks, an independent artifact), a hash for
-    every consumed CSV, and the digest of the image the CFD RAN under, not whatever host
-    re-extracted it. The fine corpus's decks are all anchored to their runs' deck_sha256.
+    """The committed corpus run_metadata.json records what the spec fixes, and each value is
+    reconciled against an artifact the extraction did not write:
+
+    - every fixed key of ``moment_reference``;
+    - per config, ``origin``/``hinge``/``offset`` against the committed deck's particle
+      position and hinge, and ``deck_sha256`` against the deck's own bytes;
+    - every deck anchored to its CFD run's recorded ``deck_sha256``. For the fine corpus the
+      anchor is a committed file, re-checked here. For the coarse corpus it is each run's
+      metadata on the NFS share, re-checked by the gate script, not in CI;
+    - a hash for every consumed CSV, the runs directory recorded as given (never a resolved
+      network path), and the digest of the image the CFD ran under, not whatever host
+      re-extracted it.
 
     Scenarios: Moment reference point travels with the corpus; Re-extraction preserves the
-    CFD digest.
+    CFD digest; A deck edited since its run is rejected.
     """
+    import hashlib
     import json
 
-    meta = json.loads((Path(corpus) / "run_metadata.json").read_text(encoding="utf-8"))
+    root = Path(corpus)
+    meta = json.loads((root / "run_metadata.json").read_text(encoding="utf-8"))
     decks = _committed_decks(corpus)
     ref, inputs = meta["moment_reference"], meta["extraction_inputs"]
-    assert ref["point"] == "wing_hinge" and ref["axes"] == "lab"
+    assert {k: v for k, v in ref.items() if k != "configs"} == {
+        "point": "wing_hinge",
+        "definition": "docs/coordinate-convention.md#moments",
+        "axes": "lab",
+        "offset": "r_origin - r_hinge",
+        "applies_to": ["CF_mx", "CF_my", "CF_mz"],
+        "raw_moments_about": "particle_origin",
+    }
     assert set(ref["configs"]) == set(decks) == set(inputs["csv_sha256"])
+    manifest = json.loads((root / "sweep_manifest.json").read_text(encoding="utf-8"))
+    input_files = {c["name"]: c["input_file"] for c in manifest["configs"]}
     for name, deck in decks.items():
-        assert (
-            ref["configs"][name]["offset"]
-            == (deck["particle"] - deck["hinge"]).tolist()
-        )
+        record = ref["configs"][name]
+        assert record["origin"] == deck["particle"].tolist(), name
+        assert record["hinge"] == deck["hinge"].tolist(), name
+        assert record["offset"] == (deck["particle"] - deck["hinge"]).tolist(), name
+        assert record["deck"] == input_files[name]
+        deck_bytes = (root / input_files[name]).read_bytes()
+        assert record["deck_sha256"] == hashlib.sha256(deck_bytes).hexdigest(), name
         assert len(inputs["csv_sha256"][name]) == 64
+
+        anchor = record["deck_sha256_verified_against"]
+        assert anchor, f"{name}: deck not anchored to its CFD run's deck_sha256"
+        if corpus.endswith("prelim_sweep_fine"):
+            anchor_file = root / f"run_metadata_{name}.json"
+            assert anchor == anchor_file.as_posix()
+            recorded = json.loads(anchor_file.read_text(encoding="utf-8"))[
+                "deck_sha256"
+            ]
+            assert recorded == record["deck_sha256"], name
+        else:
+            assert anchor.endswith(f"/{name}/run_metadata.json"), anchor
+
     assert meta["dropped_configs"] == []
+    assert not inputs["input_dir"].startswith(("//", "\\\\")), inputs["input_dir"]
 
     (cfd_digest,) = _cfd_digests(corpus)
     assert meta["docker_image"].split("@", 1)[1] == cfd_digest
-
-    anchored = [r["deck_sha256_verified_against"] for r in ref["configs"].values()]
-    if corpus.endswith("prelim_sweep_fine"):
-        assert all(anchored), "every fine deck has its run's deck_sha256 to match"
-    else:
-        assert not any(anchored)  # coarse: no per-config metadata (known limitation)
 
 
 def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_dataset():
     """The coarse README carries a staleness banner exactly while the committed surrogate's
     CF_mx/CF_mz targets disagree with the committed dataset (fix-moment-reference-hinge
     re-extracted the dataset in PR2 and retrains in PR3). Both directions are pinned: the
-    banner cannot be forgotten while stale, and the retrain cannot leave it behind."""
+    banner cannot be forgotten while stale, and the retrain cannot leave it behind.
+
+    The predicate reads holdout_predictions.parquet, and the evidence figure is chained to it:
+    this test ties metrics.json's CF_mx/CF_mz R2 to those predictions, and
+    test_committed_figure_metrics_matches_committed_inputs ties the figure's sidecar to
+    metrics.json. A surrogate retrained without regenerating the figure therefore fails CI.
+    """
+    import json
+
     base = Path("examples/prelim_sweep")
     holdout = pd.read_parquet(base / "surrogate" / "holdout_predictions.parquet")
+    metrics = json.loads((base / "surrogate" / "metrics.json").read_text())
+    for c in ("CF_mx", "CF_mz"):
+        assert _r2(
+            holdout[f"{c}_true"].to_numpy(float), holdout[f"{c}_pred"].to_numpy(float)
+        ) == pytest.approx(metrics["per_target"][c]["r2"], abs=1e-9)
+
     dataset = pd.read_parquet(base / "dataset.parquet")
     joined = holdout.merge(
         dataset[["config_name", "time", "CF_mx", "CF_mz"]], on=["config_name", "time"]

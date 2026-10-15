@@ -9,7 +9,15 @@ the sha256 of every consumed CSV). Force-only (CC-6): the inputs are the IB-part
 each config's deck (named by the manifest's ``input_file``, read for its declared hinge); no
 plotfiles.
 
-Run from the repository root once PR3's real corpus exists, e.g.::
+Each deck is reconciled against the ``deck_sha256`` its CFD run recorded. By default that is
+``run_metadata_<name>.json`` beside the manifest (the fine corpus's committed per-config files);
+``--run-metadata-name run_metadata.json`` instead reads ``<input-dir>/<name>/run_metadata.json``,
+the file each run wrote beside its CSV.
+
+The three outputs are all-or-nothing: each is written in full to a temporary beside its target,
+and all are moved into place only after every write succeeded.
+
+Run from the repository root, e.g.::
 
     uv run python scripts/extract_forces.py \\
         --manifest examples/prelim_sweep/sweep_manifest.json \\
@@ -25,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -35,6 +44,11 @@ from mosquito_cfd.force_surrogate import (
     moment_reference_provenance,
     write_dataset,
 )
+
+
+def _temporary(target: Path) -> Path:
+    """A temporary beside ``target`` (same directory, so the final move is a rename)."""
+    return target.with_name(f".{target.name}.tmp")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -77,7 +91,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Skip configs with no IB-particle CSV (recorded in run metadata).",
     )
+    parser.add_argument(
+        "--run-metadata-name",
+        default=None,
+        help=(
+            "Reconcile each deck against <input-dir>/<name>/<this file>'s deck_sha256 (the "
+            "metadata each CFD run wrote beside its CSV). Default: run_metadata_<name>.json "
+            "beside the manifest."
+        ),
+    )
     args = parser.parse_args(argv)
+    outputs = (args.out, args.units, args.metadata)
+    directories = [p for p in outputs if p.is_dir()]
+    if directories:
+        # Rejected up front: it would otherwise fail only at the final move, after an
+        # earlier output had already replaced its predecessor.
+        raise ValueError(f"output path(s) {directories} are directories, not files")
 
     # Validated read (clear ValueError on a malformed manifest, not a bare KeyError) so the
     # CLI path benefits from the same guards as build_dataset.
@@ -87,14 +116,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         for config in configs
     }
 
+    run_metadata_paths = (
+        None
+        if args.run_metadata_name is None
+        else {
+            config["name"]: args.input_dir / config["name"] / args.run_metadata_name
+            for config in configs
+        }
+    )
     df, dropped, provenance = build_dataset(
-        args.manifest, csv_paths, allow_missing=args.allow_missing
+        args.manifest,
+        csv_paths,
+        allow_missing=args.allow_missing,
+        run_metadata_paths=run_metadata_paths,
     )
     # The moment frame and the consumed inputs come from what build_dataset applied and
     # read, not re-derived here, so the record cannot drift from the parquet. Captured
-    # BEFORE writing anything: the git state then describes the tree extraction ran from
-    # rather than one its own output already dirtied, and a provenance failure leaves no
-    # new parquet beside stale metadata.
+    # BEFORE writing anything, so the git state describes the tree extraction ran from
+    # rather than one its own output already dirtied.
     metadata = build_run_metadata(
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
@@ -104,11 +143,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             provenance, input_dir=args.input_dir, csv_name=args.csv_name
         ),
     )
-    write_dataset(df, args.out, args.units)
-    args.metadata.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.metadata, "w", encoding="utf-8", newline="") as handle:
-        json.dump(metadata, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    # All-or-nothing: write every output in full to a temporary, then move them all into
+    # place. A failure while writing leaves every previous output untouched and no new
+    # parquet beside stale provenance; temporaries are removed either way.
+    temporaries = {target: _temporary(target) for target in outputs}
+    try:
+        write_dataset(df, temporaries[args.out], temporaries[args.units])
+        args.metadata.parent.mkdir(parents=True, exist_ok=True)
+        with open(
+            temporaries[args.metadata], "w", encoding="utf-8", newline=""
+        ) as handle:
+            json.dump(metadata, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        for target, temporary in temporaries.items():
+            os.replace(temporary, target)
+    finally:
+        for temporary in temporaries.values():
+            temporary.unlink(missing_ok=True)
 
     print(
         f"Wrote {len(df)} rows to {args.out.as_posix()} (dropped={dropped or 'none'})"

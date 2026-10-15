@@ -294,13 +294,10 @@ def _git_in(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
 
 
-def test_end_to_end_compares_the_working_tree_against_the_committed_baseline(
-    tmp_path, capsys
-):
-    """In a throwaway repo: commit a particle-referenced corpus, regenerate it about the hinge
-    in the working tree, and the gate PASSES against the committed baseline. A gate that read
-    the working tree as its baseline would compare the regenerated file to itself and fail the
-    "changed" check -- this is the only test that distinguishes the two."""
+def _regenerated_throwaway_corpus(tmp_path: Path) -> tuple[Path, pd.DataFrame]:
+    """A throwaway repo whose committed corpus is particle-referenced and whose working tree
+    holds the hinge-referenced regeneration, as extract_forces.py would leave it. Returns the
+    corpus path and the committed (baseline) frame."""
     repo = tmp_path / "repo"
     corpus = repo / "corpus"
     (corpus / "inputs").mkdir(parents=True)
@@ -346,7 +343,17 @@ def test_end_to_end_compares_the_working_tree_against_the_committed_baseline(
     (corpus / "run_metadata.json").write_text(
         json.dumps(_metadata(_offsets(base))), encoding="utf-8"
     )
+    return corpus, base
 
+
+def test_end_to_end_compares_the_working_tree_against_the_committed_baseline(
+    tmp_path, capsys
+):
+    """In a throwaway repo: commit a particle-referenced corpus, regenerate it about the hinge
+    in the working tree, and the gate PASSES against the committed baseline. A gate that read
+    the working tree as its baseline would compare the regenerated file to itself and fail the
+    "changed" check -- this is the only test that distinguishes the two."""
+    corpus, _ = _regenerated_throwaway_corpus(tmp_path)
     rc = _load().main(["--corpus", str(corpus)])
     out = capsys.readouterr().out
     assert rc == 0, out
@@ -372,19 +379,24 @@ def test_cf_mz_alone_unshifted_or_wrong_fails():
     assert failed == ["algebraic control (design D11)"]
 
 
-def test_a_non_spanwise_offset_is_refused_rather_than_misjudged():
+@pytest.mark.parametrize("d", [[0.5, 1.5, 0.0], [0.0, 1.5, 0.5]], ids=["d_x", "d_z"])
+def test_a_non_spanwise_offset_is_refused_rather_than_misjudged(d):
     """The gate's unchanged-column set assumes d_x = d_z = 0 (only then is CF_my exactly
-    invariant). Any other offset must fail clearly, not report a misleading column diff."""
+    invariant). Any other offset, in either component, must fail clearly, not report a
+    misleading column diff."""
     base = _baseline()
-    d = np.array([0.5, 1.5, 0.0])
+    d = np.array(d)
     new = _corrected(base, d=d)
     failed = _failed(_load().compare_frames(base, new, {n: d for n in _offsets(base)}))
     assert failed == ["offsets are spanwise (d_x = d_z = 0)"]
 
 
 def test_git_failure_is_reported_with_its_message(tmp_path):
-    """A missing ref or path exits with git's own message, not a bare CalledProcessError."""
-    with pytest.raises(SystemExit, match="no-such-ref"):
+    """A missing ref or path exits with git's own message, not a bare CalledProcessError.
+    Matched on git's stderr wording, not the echoed ref, which the prefix also contains."""
+    with pytest.raises(
+        SystemExit, match="unknown revision|bad revision|ambiguous argument"
+    ):
         _load().main(
             [
                 "--corpus",
@@ -406,3 +418,41 @@ def test_recorded_csv_hashes_are_rechecked_against_the_raw_csvs():
     assert _failed(module.compare_csv_hashes(meta, good)) == [
         "recorded CSV hashes match the raw CSVs"
     ]
+
+
+@pytest.mark.parametrize("change", ["missing", "extra"])
+def test_csv_hash_comparison_covers_both_key_sets(change):
+    """A config the metadata lacks, or one it records but the CSVs do not have, both fail."""
+    module = _load()
+    actual = {"a": {"csv_sha256": "1" * 64}, "b": {"csv_sha256": "2" * 64}}
+    recorded = {"a": "1" * 64, "b": "2" * 64}
+    if change == "missing":
+        del recorded["b"]
+    else:
+        recorded["c"] = "3" * 64
+    meta = {"extraction_inputs": {"csv_sha256": recorded}}
+    checks = module.compare_csv_hashes(meta, actual)
+    assert _failed(checks) == ["recorded CSV hashes match the raw CSVs"]
+    assert ("b" if change == "missing" else "c") in checks[0].detail
+
+
+@pytest.mark.parametrize("tampered", [False, True], ids=["faithful", "tampered"])
+def test_zero_offset_mode_rehashes_csvs_through_main(tmp_path, capsys, tampered):
+    """--zero-offset-control must actually run the CSV re-hash, not just define it. The
+    extraction itself is stood in for (it needs the raw CSVs); everything after it is real."""
+    corpus, base = _regenerated_throwaway_corpus(tmp_path)
+    module = _load()
+    recorded = json.loads((corpus / "run_metadata.json").read_text(encoding="utf-8"))
+    hashes = dict(recorded["extraction_inputs"]["csv_sha256"])
+    if tampered:
+        hashes[next(iter(hashes))] = "f" * 64
+    provenance = {name: {"csv_sha256": h} for name, h in hashes.items()}
+    module.build_with_zero_offset = lambda *a, **k: (base, provenance)
+
+    rc = module.main(
+        ["--corpus", str(corpus), "--zero-offset-control", "--input-dir", str(tmp_path)]
+    )
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "recorded CSV hashes match" in ln)
+    assert line.startswith("FAIL" if tampered else "PASS"), out
+    assert rc == (1 if tampered else 0), out

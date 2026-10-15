@@ -161,11 +161,20 @@ def _empty_dataset() -> pd.DataFrame:
 class ConfigExtractionError(ValueError):
     """A configuration's own inputs are unusable for extraction.
 
-    Raised for no locatable deck, no finite declared hinge, a deck changed since its run, or a
-    CSV missing required columns or with a non-finite / non-constant moment origin. A
-    ``ValueError`` subclass, so callers that catch ``ValueError`` are unaffected; the
-    acceptance gate catches this narrower type to report the config as a failure while
-    letting malformed-file errors (bad JSON) propagate as before.
+    The canonical list of causes; other docs refer here rather than restating it:
+
+    - deck: no usable manifest ``input_file``, file not found, not UTF-8, missing or
+      non-finite ``particle_inputs.hinge_*``, or no longer matching the ``deck_sha256`` its
+      run recorded;
+    - per-config run metadata: not UTF-8, not a JSON object, or a non-string
+      ``deck_sha256``;
+    - IB-particle CSV: a required column missing, non-numeric or boolean, or an ``X,Y,Z``
+      moment origin that is non-finite or not exactly constant.
+
+    A ``ValueError`` subclass, so callers that catch ``ValueError`` are unaffected. The
+    acceptance gate catches this narrower type to report the config as a failure, while
+    malformed-file errors (unparseable JSON, a malformed ``iStep`` sequence) stay plain
+    ``ValueError`` and propagate as before.
     """
 
 
@@ -241,7 +250,14 @@ def _verify_deck_sha256(
     """
     if metadata_path is None or not metadata_path.is_file():
         return None
-    metadata = load_json_clear_error(metadata_path, label="run_metadata file")
+    try:
+        metadata = load_json_clear_error(metadata_path, label="run_metadata file")
+    except UnicodeDecodeError as exc:
+        # Malformed JSON stays a plain ValueError (a malformed-file error the gate
+        # propagates); bytes that are not UTF-8 at all are this config's input defect.
+        raise ConfigExtractionError(
+            f"run metadata for config {name!r} at {metadata_path} is not UTF-8: {exc}"
+        ) from exc
     if not isinstance(metadata, Mapping):
         raise ConfigExtractionError(
             f"run metadata for config {name!r} at {metadata_path} is a JSON "
@@ -261,25 +277,40 @@ def _verify_deck_sha256(
             f"recorded deck_sha256 {recorded} in {metadata_path}: the deck changed after the "
             "CFD ran, so its hinge is not the one the solver's moments belong to"
         )
-    return metadata_path.name
+    return metadata_path.as_posix()
+
+
+def _check_numeric_columns(name: str, csv_path: Path, raw: pd.DataFrame) -> None:
+    """Every column extraction reads must be numeric and not boolean.
+
+    A text cell otherwise surfaces as a bare conversion error with no config name, and a
+    column of ``True``/``False`` would be read as 1.0/0.0. A header-only CSV is exempt:
+    pandas types its empty columns as ``object``.
+    """
+    if len(raw) == 0:
+        return
+    for column in _REQUIRED_CSV_COLUMNS:
+        dtype = raw[column].dtype
+        if pd.api.types.is_bool_dtype(dtype) or not pd.api.types.is_numeric_dtype(
+            dtype
+        ):
+            raise ConfigExtractionError(
+                f"IB-particle CSV for config {name!r} at {csv_path} has a non-numeric "
+                f"column {column!r} (read as {dtype}); every value must be a number"
+            )
 
 
 def _moment_origin(name: str, csv_path: Path, raw: pd.DataFrame) -> np.ndarray | None:
     """The run's moment origin from ``X,Y,Z``.
 
-    It must be finite and exactly constant; ``None`` if the CSV has no rows.
+    It must be finite and exactly constant; ``None`` if the CSV has no rows. The columns are
+    already known to be numeric (:func:`_check_numeric_columns`).
     """
     if len(raw) == 0:
         return None
     origin = []
     for axis in ("X", "Y", "Z"):
-        try:
-            values = raw[axis].to_numpy(dtype=float)
-        except (TypeError, ValueError) as exc:
-            raise ConfigExtractionError(
-                f"IB-particle CSV for config {name!r} at {csv_path} has a non-numeric "
-                f"moment origin in column {axis!r}: {exc}"
-            ) from exc
+        values = raw[axis].to_numpy(dtype=float)
         # Explicit: pandas' max()-min() and nunique() both skip NaN, so a naive constancy
         # check would pass [4, nan, 4].
         if not np.isfinite(values).all():
@@ -321,6 +352,7 @@ def _extract_config(
             f"IB-particle CSV for config {name!r} at {csv_path} is missing required "
             f"column(s) {missing}; expected the IAMReX schema {list(_REQUIRED_CSV_COLUMNS)}"
         )
+    _check_numeric_columns(name, csv_path, raw)
     f_star = float(config["frequency_fstar"])
     stroke = float(config["stroke_amp_deg"])
 
@@ -507,11 +539,8 @@ def build_dataset(
         A :class:`DatasetBuild` ``(frame, dropped, provenance)``.
 
     Raises:
-        ConfigExtractionError: (a ``ValueError``) if a config's own inputs are unusable:
-            its deck cannot be located or decoded, lacks a finite
-            ``particle_inputs.hinge_*``, or no longer matches the ``deck_sha256`` its run
-            recorded; its run metadata is not a JSON object; or its CSV lacks a required
-            column or has a non-numeric, non-finite or non-constant ``X,Y,Z`` origin.
+        ConfigExtractionError: (a ``ValueError``) if a config's own deck, run metadata or
+            CSV is unusable; the causes are listed on :class:`ConfigExtractionError`.
         ValueError: If a config's CSV is missing and ``allow_missing`` is ``False``, or on
             a malformed manifest, run-metadata JSON or ``iStep`` sequence.
     """
@@ -620,9 +649,10 @@ def write_dataset(
 
     The units sidecar (CC-5) declares the unit of every *measured* column from the static
     :data:`_DATASET_UNITS` map via :func:`write_units_sidecar`; string/bookkeeping columns
-    are omitted. The parquet is written with the default engine (pyarrow); it is **not**
-    byte-reproducible (pyarrow embeds writer metadata), so reproducibility is asserted at the
-    schema+value level, not bytewise.
+    are omitted. The parquet is written with the default engine (pyarrow). Its bytes are
+    **not guaranteed** to be reproducible across pyarrow/pandas versions (the writer embeds
+    its own metadata), so reproducibility is asserted at the schema+value level. Under the
+    locked environment a rewrite has in practice been byte-identical.
 
     Args:
         df: The tidy dataset from :func:`build_dataset`.

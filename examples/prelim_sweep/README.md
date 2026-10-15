@@ -1,12 +1,19 @@
 # Force-surrogate kinematic sweep (`prelim_sweep`)
 
-> ⚠️ **`surrogate/` and `figures/` are stale against `dataset.parquet`.** The dataset was
-> re-extracted with hinge-referenced moment coefficients (OpenSpec change
-> `fix-moment-reference-hinge`, issue #108). The committed surrogate, its metrics and the
-> evidence figure were trained on the earlier particle-origin `CF_mx`/`CF_mz`, and every
-> `CF_mx`/`CF_mz` number quoted below describes those old targets. `CF_my` and the forces are
-> unchanged. The retrain in that change's final PR regenerates both directories and removes
-> this notice.
+> ⚠️ **`surrogate/` and the evidence figure (`figures/evidence_figure*`)
+> are stale against `dataset.parquet`.**
+>
+> The dataset was re-extracted with hinge-referenced moment coefficients (OpenSpec change
+> `fix-moment-reference-hinge`, issue #108). The committed surrogate was trained on the earlier
+> particle-origin `CF_mx`/`CF_mz`. It is one shared-trunk network, selected on an aggregate
+> over all six targets, so **every** surrogate metric and evidence-figure number quoted below
+> comes from that earlier training run, including those for `CF_x`, `CF_z` and `CF_my` and the
+> aggregate R². The `CF_my` and force *targets* are unchanged in the dataset, but their
+> metrics are re-measured only by the retrain.
+>
+> The wing-phase geometry plots in `figures/` do not depend on moments and are current. The
+> retrain in that change's final PR regenerates the surrogate and the evidence figure, and
+> removes this notice.
 
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see

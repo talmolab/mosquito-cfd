@@ -146,13 +146,16 @@ def test_driver_records_moment_reference_and_extraction_inputs(tmp_path):
     import hashlib
 
     manifest, input_dir = _make_run_tree(tmp_path, ["a", "b"])
+    # Non-canonical on purpose: resolve() would collapse the "..", so recording the path
+    # verbatim is observable (an already-canonical tmp_path made the two indistinguishable).
+    given = input_dir / ".." / input_dir.name
     out = tmp_path / "dataset.parquet"
     units = tmp_path / "dataset.units.json"
     metadata = tmp_path / "run_metadata.json"
     rc = _load_driver().main(
         [
             "--manifest", str(manifest),
-            "--input-dir", str(input_dir),
+            "--input-dir", str(given),
             "--out", str(out),
             "--units", str(units),
             "--metadata", str(metadata),
@@ -184,7 +187,8 @@ def test_driver_records_moment_reference_and_extraction_inputs(tmp_path):
 
     inputs = meta["extraction_inputs"]
     # As given, not resolved: resolving a mapped drive records a machine-specific UNC path.
-    assert inputs["input_dir"] == input_dir.as_posix()
+    assert inputs["input_dir"] == given.as_posix()
+    assert "/../" in inputs["input_dir"]
     assert inputs["csv_name"] == "IB_Particle_1.csv"
     # Hash of the bytes on disk that were consumed (write_text may have translated EOLs).
     assert inputs["csv_sha256"] == {
@@ -227,7 +231,7 @@ def test_driver_writes_nothing_when_provenance_fails(tmp_path):
     provenance failure cannot leave a new parquet next to stale metadata."""
     manifest, input_dir = _make_run_tree(tmp_path, ["a"])
     out = tmp_path / "dataset.parquet"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="sha256"):
         _load_driver().main(
             [
                 "--manifest", str(manifest),
@@ -241,3 +245,115 @@ def test_driver_writes_nothing_when_provenance_fails(tmp_path):
         )  # fmt: skip
     assert not out.exists()
     assert not (tmp_path / "u.json").exists()
+
+
+def _main_args(manifest, input_dir, tmp_path, *extra):
+    return [
+        "--manifest", str(manifest),
+        "--input-dir", str(input_dir),
+        "--out", str(tmp_path / "dataset.parquet"),
+        "--units", str(tmp_path / "dataset.units.json"),
+        "--metadata", str(tmp_path / "run_metadata.json"),
+        "--docker-digest", SENTINEL_DIGEST,
+        "--timestamp", TS,
+        *extra,
+    ]  # fmt: skip
+
+
+def _write_run_metadata(input_dir, name, deck_sha256):
+    (input_dir / name / "run_metadata.json").write_text(
+        json.dumps({"config": name, "deck_sha256": deck_sha256}), encoding="utf-8"
+    )
+
+
+def test_run_metadata_name_anchors_decks_to_each_runs_own_metadata(tmp_path):
+    """--run-metadata-name reads <input-dir>/<name>/<file>: the metadata each CFD run wrote
+    beside its CSV. The coarse corpus has no per-config metadata beside its manifest, so this
+    is the only way its decks can be checked against the runs. Task 32k."""
+    import hashlib
+
+    manifest, input_dir = _make_run_tree(tmp_path, ["a", "b"])
+    for name in ("a", "b"):
+        deck = tmp_path / "inputs" / f"inputs.3d.{name}"
+        _write_run_metadata(
+            input_dir, name, hashlib.sha256(deck.read_bytes()).hexdigest()
+        )
+
+    args = _main_args(
+        manifest, input_dir, tmp_path, "--run-metadata-name", "run_metadata.json"
+    )
+    assert _load_driver().main(args) == 0
+    meta = json.loads((tmp_path / "run_metadata.json").read_text(encoding="utf-8"))
+    for name in ("a", "b"):
+        anchor = meta["moment_reference"]["configs"][name][
+            "deck_sha256_verified_against"
+        ]
+        assert anchor == (input_dir / name / "run_metadata.json").as_posix()
+
+
+def test_run_metadata_name_rejects_a_deck_changed_since_its_run(tmp_path):
+    manifest, input_dir = _make_run_tree(tmp_path, ["a"])
+    _write_run_metadata(input_dir, "a", "0" * 64)
+    args = _main_args(
+        manifest, input_dir, tmp_path, "--run-metadata-name", "run_metadata.json"
+    )
+    with pytest.raises(ValueError, match="deck_sha256"):
+        _load_driver().main(args)
+    assert not (tmp_path / "dataset.parquet").exists()
+
+
+def test_without_run_metadata_name_the_runs_metadata_is_not_consulted(tmp_path):
+    """The default keeps the beside-the-manifest convention (the fine corpus's committed
+    per-config files), so a run-directory file is ignored unless asked for."""
+    manifest, input_dir = _make_run_tree(tmp_path, ["a"])
+    _write_run_metadata(input_dir, "a", "0" * 64)
+    assert _load_driver().main(_main_args(manifest, input_dir, tmp_path)) == 0
+    meta = json.loads((tmp_path / "run_metadata.json").read_text(encoding="utf-8"))
+    assert (
+        meta["moment_reference"]["configs"]["a"]["deck_sha256_verified_against"] is None
+    )
+
+
+@pytest.mark.parametrize("failure", ["write-raises", "target-is-directory"])
+def test_a_failed_output_write_leaves_the_previous_outputs_untouched(
+    tmp_path, monkeypatch, failure
+):
+    """All three outputs are written to temporaries first and moved into place only after
+    every write succeeded (and no target is a directory), so a failure never leaves a new
+    parquet beside stale provenance, and no temporary is left behind. Task 32m / spec: A
+    failed write leaves the previous outputs in place."""
+    driver = _load_driver()
+    manifest, input_dir = _make_run_tree(tmp_path, ["a"])
+    out = tmp_path / "dataset.parquet"
+    out.write_bytes(b"previous parquet")
+    metadata = tmp_path / "run_metadata.json"
+    metadata.write_text("previous metadata", encoding="utf-8")
+    units = tmp_path / "dataset.units.json"
+    if failure == "write-raises":
+        units.write_text("previous units", encoding="utf-8")
+
+        def broken_dump(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(driver.json, "dump", broken_dump)
+    else:
+        units.mkdir()
+
+    with pytest.raises((OSError, ValueError)):
+        driver.main(
+            [
+                "--manifest", str(manifest),
+                "--input-dir", str(input_dir),
+                "--out", str(out),
+                "--units", str(units),
+                "--metadata", str(metadata),
+                "--docker-digest", SENTINEL_DIGEST,
+                "--timestamp", TS,
+            ]
+        )  # fmt: skip
+    assert out.read_bytes() == b"previous parquet"
+    assert metadata.read_text(encoding="utf-8") == "previous metadata"
+    if failure == "write-raises":
+        assert units.read_text(encoding="utf-8") == "previous units"
+    leftovers = sorted(p.name for p in tmp_path.rglob("*") if ".tmp" in p.name)
+    assert leftovers == [], leftovers

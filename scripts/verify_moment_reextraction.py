@@ -1,7 +1,8 @@
 r"""Verification gate for re-extracting a committed corpus about the wing hinge (#108).
 
 Operator-run after ``scripts/extract_forces.py`` has regenerated a corpus's ``dataset.parquet``
-and ``run_metadata.json`` in the working tree, and BEFORE they are committed. It compares the
+and ``run_metadata.json`` in the working tree, normally before they are committed (re-verifying
+afterwards is covered at the end of this docstring). It compares the
 regenerated files against the committed baseline, which it reads with ``git show <ref>:<path>``
 into a temporary file -- never the working-tree copy, since comparing the re-extracted file to
 itself would pass every check vacuously -- and prints the baseline's commit and blob SHAs so the
@@ -16,7 +17,10 @@ Checks (OpenSpec change ``fix-moment-reference-hinge``, tasks 30 / 30a / 30b):
 - the algebraic control (design D11): ``CF_m*`` re-derived from the OLD parquet's raw columns and
   the offset from the committed deck are value-identical to the regenerated ones;
 - metadata: ``dropped_configs == []``, the CFD ``docker_image`` unchanged, the recorded
-  per-config offsets equal the deck-derived ones, and every consumed CSV hashed.
+  per-config offsets equal the deck-derived ones, and every consumed CSV has a recorded hash.
+
+With ``--zero-offset-control`` it also re-reads every raw CSV, so it can confirm that each
+recorded ``csv_sha256`` is the bytes on disk, not merely present.
 
 Row counts cannot tell the two corpora apart (both have identical per-config ``max_step`` maps),
 so the printed raw-force digests -- and the CI tripwires that pin them -- are what catch a
