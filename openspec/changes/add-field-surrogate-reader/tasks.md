@@ -698,7 +698,7 @@ committed before mutating.
     **Deviation:** `wing_lev` got no guard. The reviewer's premise was wrong. lev's stencil
     already raises "a centred gradient needs at least 3 points per axis; axis 0 has 0" before any
     `.max()`, for both an empty and a too-small box. The new test pins that existing message.
-93. [ ] **Claims and messages.**
+93. [x] **Claims and messages.**
     - The `halo` narrowing becomes "negative or not an integer type (including integral floats
       such as 2.0, 0-d arrays and bool)" in the CHANGELOG, the PR body and spec.md, and the
       "Two narrowings" count is fixed.
@@ -711,6 +711,12 @@ committed before mutating.
       - drop the "21 tests" comment;
       - `plotfile_path: str | Path` and `dict[str, Any]`;
       - assert `owndata` before `setflags(write=True)`.
+
+    **Result** (`fe106e2` code, then docs).
+    - Scalar-corner remedy: red on both scalar cases. The swapped-remedy mutant fails both.
+    - The `owndata` guard is an explicit `RuntimeError`, not an `assert` (which `-O` strips). A
+      test hands the wrapper a view, and the no-op mutant fails that test. Without it the guard
+      was unfailable.
 94. [ ] **Commit the real-plotfile A/B** as `scripts/verify_eulerian_box_ab.py`, taking the two
     roots as arguments, and re-run it at the final head. tasks.md D11 cites the script, its
     commit and the fresh total.
