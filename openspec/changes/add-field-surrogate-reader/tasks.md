@@ -206,11 +206,11 @@ delegation against real plotfiles and have nothing to check on the additive PR.
     the identical `ruff format --check` with the same six paths spelled out, then
     `uv run pytest -v -m "not gpu"`. (Pre-existing, unrelated: `test_provision_dies_on_wing_vertex_hash_mismatch`
     hard-asserts `shutil.which("sha256sum")` and fails under PowerShell only.)
-43. [x] **Real-plotfile verification (D11), before merge.** With Z: mounted, run
+43. [ ] (evidence invalidated by 5504ea9's rule change; re-run as task 85) **Real-plotfile verification (D11), before merge.** With Z: mounted, run
     `MOSQUITO_CFD_PLOTFILE_ROOT=<root> uv run pytest -v -m "not gpu" -rs` and record in the PR **how
     many previously-skipped tests actually ran** — a mandatory check with no recorded result is
     indistinguishable from one never run.
-44. [x] **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
+44. [ ] (evidence invalidated by 5504ea9's rule change; re-run as task 85) **Bit-exact A/B on real plotfiles (D11), before merge.** For ≥3 real plotfiles (sphere
     coarse/medium, wing T3b-medium), compare `extract_eulerian_box` against
     `legacy_extract_eulerian_box` over the full `REGION_CASES` parity matrix (and assert the
     recorded divergence for each `DIVERGENCE_CASES` entry) plus the pinned wing near-field
@@ -237,7 +237,7 @@ run showed 6 failures at first:
 `test_wing_lev_medium_vs_coarse` is the strongest single signal: the T3b LEV composition on real
 coarse+medium wing plotfiles, through `extract_eulerian_box`, reproducing its pinned numbers.
 
-**Task 44 -- bit-exact A/B against the frozen oracle.** **80 region comparisons across 5 real
+**SUPERSEDED: ran under the pre-5504ea9 region rule; see task 85.** **Task 44 -- bit-exact A/B against the frozen oracle.** **80 region comparisons across 5 real
 plotfiles, all bit-exact** (`assert_array_equal`, zero tolerance), comparing key set, values, dtype,
 shape, Python type and writeability:
 
@@ -312,7 +312,7 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     `openspec/changes/archive/2026-07-08-grade-wing-grid-convergence-medium/design.md:119`.
 58. [x] Correct the two false comments claiming `ascontiguousarray` copies / arrays are "freshly
     allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
-59. [ ] PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
+59. [ ] (-> superseded by task 86; tick together) PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
     `lo`/`hi` both previously succeeded and now raise. State the narrowing. Also state the region
     narrowing from section 15: once `extract_eulerian_box` delegates, a request outside the domain
     on some axis returns only the in-domain cells its halo reaches — zero at `halo = 0` — instead of
@@ -376,7 +376,7 @@ keep the behaviour change as a documented divergence.
     "delegates here"), design.md D1 heading/body, the spec's region requirement and both
     oracle-scenario titles, the "~800MB" test comment (measured: 384MB), and review-history prose in
     `src` comments.
-72. [ ] **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
+72. [ ] (-> superseded by tasks 82-84; tick together) **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
     `stress_integral.extract_eulerian_box` to the frozen oracle, and add the wrapper-divergence
     scenario's test. Until then that test fails on PR B by design.
 73. [x] Follow-up issues filed for non-regressions: #120 (reader peak memory and yt objects retained
@@ -389,7 +389,7 @@ keep the behaviour change as a documented divergence.
     - `pytest --collect-only` on the three field-surrogate files: **100** tests.
     - Full `-m "not gpu"` suite: 1059 passed, 14 skipped, 6 deselected.
     - Ruff check and format: clean. `openspec validate --strict`: valid.
-75. [ ] **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
+75. [ ] (-> superseded by task 85; tick together) **PR B**: re-run tasks 43 and 44 after merging PR A. The region rule changed in 5504ea9, so
     the earlier real-plotfile A/B ran under the old rule and is no longer evidence. Then rewrite PR
     B's CHANGELOG and PR body claims that describe that A/B:
     - "unchanged for every valid 3-tuple request" — now false outside the parity region;
@@ -423,53 +423,161 @@ fail and wording that overpromised.
       degenerate-grid margin caveat.
     - Stale "11-case" references in tasks 20, 44 and 62 are updated.
 
-## 17. PR B close-out after #105's squash merge (tasks 72, 75, 59)
+## 17. PR B close-out after #105's squash merge (supersedes 59, 72, 75)
 
 The delegation branch now merges PR A's final head and `main`. With PR A merged, exactly the 8
 `DIVERGENCE_CASES` of `test_region_divergence_from_legacy_is_pinned` fail (1093 passed): the
-recorded red phase for task 72.
+recorded red phase for task 82. Revised after a five-reviewer `/review-openspec` pass (the
+reconciliation is in the PR body). Order: spec text, then tests, then evidence, then claims.
 
-81. [ ] **Task 72a, red→green**: re-point the legacy side of
-    `test_region_divergence_from_legacy_is_pinned` at the frozen oracle via the existing `_legacy()`
-    loader, and assert the oracle's counts **and** the reader's counts. Red: the 8 recorded failures.
-82. [ ] **Task 72b, the spec scenario "The wrapper's documented divergence is pinned against the
-    frozen copy"**: a new test over `DIVERGENCE_CASES` asserting the oracle returns
-    `legacy_expected` and `extract_eulerian_box` returns `expected`. It passes on first run because the
-    delegation already exists, so its red phase is a **mutation**, and the mutation must be run:
-    restore the oracle's body into the wrapper, and confirm all 8 cases fail.
-83. [ ] **Re-point the parity test's comparison too**: `test_region_clamping_matrix` (the `REGION_CASES`
-    value/coordinate test) still compares the reader against `extract_eulerian_box`, which after PR B
-    is the reader's own wrapper. Compare against `_legacy()` instead and update its comment. Mutation:
-    shift the reader's coordinates by one cell, and confirm this test fails without relying on the
-    oracle differential.
-84. [ ] **Task 75, real-plotfile A/B**: run a read-only scratchpad script, never committed, over 7
-    plotfiles: sphere coarse `plt10000`; sphere 10k `plt10000` and `plt05000`; wing `t2a-newconv4`,
-    `t3b-medium` (which task 44 names but the earlier run omitted) and `t3c-fine`, all at `plt01000`.
-    Fixture cases are mapped into each grid in cell units: `c -> dle + c*dx` per axis, the `above_*`
-    cases `c -> dre + (c-6)*dx`, and ±inf kept. Then:
-    - every `REGION_CASES` entry is bit-exact between the wrapper and the oracle (key set, values,
-      dtype, shape, type, writeability);
-    - every `DIVERGENCE_CASES` entry reproduces **the recorded counts** (`legacy_expected` from the
-      oracle, `expected` from the wrapper), which the cell-unit mapping preserves;
-    - the pinned wing near-field and downstream boxes (`test_wing_lev.py`) and the sphere x-slab
-      planes are bit-exact.
+81. [ ] **Spec/design text first.** The spec and design still state the wrapper's equivalence
+    unconditionally and still name "the legacy adapter" -- which after PR B *is* the reader's
+    wrapper, the root of the two self-comparing tests below.
+    - `spec.md` region scenarios (178, 183, 190): "the legacy adapter" -> "the frozen pre-refactor
+      copy (`tests/fixtures/legacy_extract_eulerian_box.py`)".
+    - Delegation requirement (~290): equivalence with the pre-refactor implementation SHALL be
+      demonstrated **within the parity region**. Outside it the wrapper returns no more cells,
+      and that divergence SHALL be pinned against the same frozen copy. The wrapper SHALL raise
+      `ValueError` for a NaN corner, a non-3-vector `lo`/`hi`, a negative or non-integral `halo`,
+      and an fp32 on-disk plotfile, all of which the pre-refactor implementation accepted. Add
+      the scenario "The wrapper's narrowed inputs raise where the frozen copy accepted".
+    - Spec 447 "eight absent keys" -> six (matching the scenario at 424 and task 32).
+    - `design.md`:
+      - D10 (107-110, 292-295): scope "the entire claim of D1" to the parity region.
+      - D11 item 3: drop "non-zero origins", since no project plotfile has one (#107).
+      - D11 "no CI coverage at HEAD": say "at proposal time".
+      - 98-103: put into past tense once 82 lands.
+    - Gate: `openspec validate --strict`.
+82. [ ] **Red->green: one parametrized divergence test over `DIVERGENCE_CASES`.** It keeps the
+    name `test_region_divergence_from_legacy_is_pinned` and discharges both "outside the domain
+    is pinned" and "the wrapper's documented divergence is pinned against the frozen copy". This
+    replaces the earlier plan's duplicated 81/82. It asserts:
+    - the frozen oracle (`_legacy()`) returns `legacy_expected`;
+    - `read_field_snapshot` returns `expected`;
+    - `extract_eulerian_box` returns `expected`;
+    - every wrapper coordinate array is a contiguous sub-range of the oracle's;
+    - every field equals the oracle's array at that sub-block (`np.ix_`), so a count-correct but
+      wrong cell fails;
+    - every wrapper array is writeable.
 
-    The script hard-fails when `checked == 0`, uses the `Z:/` form, and prints a per-plotfile count.
-    Re-run task 43 with both roots. Replace the stale section-10 "D11 verification results" numbers
-    with these.
-85. [ ] **Task 59, claims**: rewrite PR B's CHANGELOG entry, the PR body, and
-    `extract_eulerian_box`'s docstring. State three narrowings:
-    - NaN corners, scalar `lo`/`hi`, a bad `halo` and duplicate `fields` now raise;
-    - outside the parity region (`lo <= dre and hi > dle` on every axis) the wrapper returns only the
-      in-domain cells within halo reach, which is zero at `halo = 0`, where legacy returned edge
-      cells;
-    - the wrapper returns fewer cells than legacy, never more.
+    Red: the 8 recorded failures, caused by the wrong legacy source rather than missing code; say
+    so in the commit message. After green, commit, then run each mutation and record the failing
+    ids:
+    - (a) the oracle body restored into the wrapper;
+    - (b) the wrapper clips `lo`/`hi` to `[dle, dre]` before delegating. Record that (b) **passes**
+      the `REGION_CASES` oracle differential: this test is the only guard outside the parity
+      region;
+    - (c) the wrapper returns cell N-2 for `above_within_reach_h2`.
 
-    Also remove the stale PR body claims: "Stacked on #105", "11 clamping cases", "80 comparisons",
-    "1029 passed", "unchanged" without that scope, and "freshly allocated and unshared"
-    (task 58 found that false). Every number must be re-measured fresh.
-86. [ ] Link #112 to #120/#121 as overlapping, noting which owns the NFS stat storm and which owns
-    covering-grid retention.
-87. [ ] Full CI-form run, `openspec validate --strict`, then `/review-pr 106`, then fixes in TDD with
-    mutation. Mutated files are restored from saved bytes, never `git checkout`, and work is
-    committed before mutating.
+    Also update the stale comment at 397-401 ("PR B MUST re-point...").
+83. [ ] **Test first: `test_wrapper_argument_narrowing_is_pinned`.** Over a NaN corner, a scalar
+    `lo`, a scalar `hi`, `halo=-1`, `halo=1.9`, and an fp32 plotfile written to `tmp_path` via
+    `write_fixture(real_dtype=float32)`, assert both:
+    - `extract_eulerian_box` raises `ValueError`;
+    - the frozen oracle does *not* raise.
+
+    Each case is then pinned as a narrowing, not merely claimed. The scalar-corner check is
+    currently untested anywhere: deleting it leaves the suite green. Red by mutation after green
+    and commit:
+    - delete `_corner`'s shape check, and the scalar cases fail;
+    - wrap the wrapper's call in `np.nan_to_num(..., nan=-inf)`, and the NaN case fails.
+84. [ ] **Re-point `test_region_clamping_matrix`'s comparison** from `extract_eulerian_box`, now the
+    reader's own wrapper, to `_legacy()`.
+    - Update the comments at 281 and 356 to name the frozen copy.
+    - Relabel `REGION_CASES` "agreement cases": `lower_edge`, `lower_edge_halo2` and
+      `just_below_halo1` lie outside the parity predicate but agree anyway.
+    - Mutation: shift the region one cell inside `_region_bounds` (`i_lo+1`, `i_hi+1`, clipped), so
+      coordinates and values move together.
+    - Run `-k test_region_clamping_matrix` before and after the re-point. Record that
+      `interior_unaligned` (among others) passes before and fails after.
+85. [ ] **Real-plotfile A/B (the D11 re-run, replacing task 75).** A read-only scratchpad script,
+    never committed, over **6** plotfiles: sphere coarse `plt10000`; sphere 10k `plt10000` and
+    `plt05000`; wing `t2a-newconv4`, `t3b-medium` and `t3c-fine` at `plt01000`.
+
+    Mapping, per coordinate:
+    - `c >= 6` -> `dre + (c-6)*dx`;
+    - any other finite `c` -> `dle + c*dx`;
+    - ±inf stays ±inf.
+
+    In both case lists, a case with any coordinate >= 6 has all of them >= 6, so faces stay
+    faces.
+
+    Before any count assertion, assert per axis that `dx` is dyadic and `dle + ddims*dx == dre`
+    exactly. A non-dyadic grid produces a false divergence.
+
+    Then assert:
+    - Every `REGION_CASES` entry is bit-exact between the wrapper and the oracle: key set, values,
+      dtype, shape, Python type, writeability.
+    - Each `REGION_CASES` entry matches its predicted counts. These are the fixture counts,
+      except `full` -> `ddims`, `mixed_inf` -> `(Nx,4,Nz)`, `x_slab_only` -> `(4,Ny,Nz)` and
+      `halo3_clipped` -> `(7,7,7)`.
+    - Every `DIVERGENCE_CASES` entry reproduces `legacy_expected`/`expected` and 82's sub-block
+      equality.
+    - The `test_wing_lev.py` near-field and downstream boxes, and the sphere x-slab planes that
+      `sphere_cv_drag_cd` requests, are bit-exact.
+
+    The script hard-fails unless the comparison count equals the precomputed expected total, not
+    merely > 0. Use the `Z:/` path form. Record each plotfile's grid, `dx`, `domain_left_edge` and
+    `ds.index.num_grids` (backing the multi-FAB claim).
+
+    Then re-run task 43 under both roots. Record the `-rs` skip list per root and the union of
+    `requires_plotfile` ids that ran (13 before). Write the results into the D11 results section,
+    replacing the superseded block.
+86. [ ] **Claims (replacing task 59).** One source of wording. The three narrowings, verbatim:
+    - (i) A NaN or non-3-vector `lo`/`hi`, a negative or non-integral `halo`, and an fp32 on-disk
+      plotfile (previously accepted silently as upcast float64) now raise `ValueError`. **Not**
+      "duplicate `fields`": the wrapper has no `fields` parameter.
+    - (ii) Outside the parity region the wrapper returns the same number of cells as legacy, or
+      fewer. Where a request misses the domain on some axis, it returns only the in-domain cells
+      within halo reach (none beyond reach). Legacy returned `halo` edge cells, or one spurious
+      cell at index 0 for a request wholly below the domain at `halo = 0`.
+    - (iii) Never more cells than legacy; for a non-inverted request, a sub-range of legacy's.
+
+    Targets:
+    - `docs/CHANGELOG.md` #106 entry: short, no counts that rot, citing #105's entry for the rule.
+      Add a bullet for the DoMINO roadmap/literature commit `2856210`.
+    - `extract_eulerian_box` docstring: halo-is-reach semantics, a `Raises:` section, and no "~21
+      tests".
+    - `snapshot.py:207-210`: "the pre-refactor `extract_eulerian_box`", and "never more", not
+      "fewer".
+    - `project.md:361-365`: drop the future tense and the "~21".
+    - `roadmap.md` CC-F2 note: scope equivalence to the parity region.
+    - `wing_lev.py:3`: "the entry point to the single read".
+    - Test comment 893-895: "one region of eleven".
+    - `tests/fixtures/README.md`: note that the oracle's header is knowingly stale, and is
+      hash-pinned so must not be edited.
+
+    PR body: rewrite in full. Remove:
+    - "Stacked on #105", "base is `add-field-surrogate-reader`", "~150 lines";
+    - "11 clamping cases", "80 comparisons", "5 real plotfiles", "1029 passed";
+    - "unchanged" without scope;
+    - "freshly allocated and unshared" (task 58);
+    - "all existing tests pass unedited". Scope that to the four task-24 files: 82 and 84 re-point
+      two PR A tests by design.
+
+    Mention `2856210`. Every number comes fresh from 85 and 88. Exit check:
+    `git grep -nE "11-case|eleven|80 (region|bit)|1029|Stacked on|freshly allocated|duplicated entry in .fields"`
+    finds nothing outside the D11 history and the archived changes.
+87. [ ] Cross-link #112, #120 and #121 with `see #N` (never a closing keyword):
+    - #112 owns the NFS stat storm, the duplicated `grid` and sub-box reads;
+    - #120 owns peak memory and covering-grid/`cg.field_data` retention, taken from #112;
+    - #121 owns the `plotfile()` fast path, step validation and duplicate steps.
+88. [ ] **Verification, from Git Bash.**
+    - Run `uv sync --frozen --group viz`; `uv run ruff check` and `uv run ruff format --check` over
+      CI's six paths; `uv run pytest -v -m "not gpu"`;
+      `openspec validate add-field-surrogate-reader --strict`; and a fresh
+      `pytest --collect-only -q` count on the three `test_field_surrogate_*.py` files. Hadolint is
+      N/A: no Dockerfile changed.
+    - **Push only after 82 is green**, and only with the user's go-ahead, so CI's first-ever run on
+      #106 is not red.
+    - Then `gh pr checks 106` must be green on the pushed head SHA. Record that SHA here; a local
+      run does not substitute.
+    - Then `/review-pr 106`. Fixes are test-first and mutation-checked; commit before mutating, and
+      restore from saved bytes, never `git checkout`.
+89. [ ] **Merge and archive (user-performed).**
+    - Squash-merge only, with a hand-written squash message. The repo default `COMMIT_MESSAGES`
+      would paste PR A's ~22 commit messages into main.
+    - Before `/cleanup-merged`, `grep -c '\[ \]' tasks.md` must be 0. `openspec list` does not
+      count `N. [ ]` tasks.
+    - Delete both `add-field-surrogate-reader` and the delegation branch by hand
+      (`delete_branch_on_merge` is false).
