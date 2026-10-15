@@ -47,13 +47,13 @@ is not confirmed to transfer (see `docs/force_surrogate/fine-grid-pilot-report.m
 
 ## Vision
 
-Extend Track B's kinematics→force map into the architecture the NVIDIA Academic Grant draft
-proposal describes (`nvidia-proposal/draft/proposal.md` in the vault — **unsubmitted**: the program
-closed before submission and we are waiting for it to reopen): a latent state, plus a dynamics model
-that rolls it forward — the piece that makes an eventual
-RL-in-the-loop (MJX-Warp) training run possible, since a latent state is what would let the surrogate carry
-flow history the wing's commanded motion alone does not determine. **Whether that history matters
-on our data is an empirical question F3 answers**, not an assumption.
+Extend Track B's kinematics→force map into the architecture the NVIDIA Academic Grant draft proposal
+describes (`nvidia-proposal/draft/proposal.md` in the vault — **unsubmitted**: the program closed
+before submission and we are waiting for it to reopen): a latent state, plus a dynamics model that
+rolls it forward — the piece that makes an eventual RL-in-the-loop (MJX-Warp) training run possible,
+since a latent state is what would let the surrogate carry flow history the wing's commanded motion
+alone does not determine. **Whether that history matters on our data is an empirical question F3
+answers**, not an assumption.
 
 ### Still the *not-yet-in-the-RL-loop* surrogate
 
@@ -125,9 +125,13 @@ an inference, not a measurement.
    phase: **on this corpus arm A carries no more information than Track B's existing model**, and the
    gate can only answer "on hover, does a kinematics baseline already reach the CFD's own noise?" It
    says nothing about history dependence after a command change. Outcomes:
-   - **Pass** (arm A's held-out error within the CFD uncertainty) → arms B and C are **not** trained
-     on the hover corpus; they are tested only on the commanded-change configs.
-   - **Fail** → arms B and C are tested on the hover corpus as well as the commanded-change configs.
+   - **Pass** (arm A's held-out error within the CFD uncertainty) → arms B and C are **not evaluated**
+     on the hover corpus; they are evaluated only on the commanded-change configs.
+   - **Fail** → arms B and C are evaluated on the hover corpus as well as the commanded-change configs.
+
+   Either way, hover snapshots remain available as **training** data (e.g. arm B's encoder): the
+   gate decides where the arms are evaluated, not what they may learn from — 3–5 switching runs alone
+   are too few to train an encoder.
 
    The uncertainty must be **measured before the gate is applied, not assumed**. It is
    component-dependent (T3c GCI_fine: CF_normal 3.7%, CF_chord 27.6%), so the gate is applied per
@@ -171,7 +175,8 @@ an inference, not a measurement.
 - **Intermediate:** AMReX plotfiles (`plt00100`, ...) per pilot/corpus config, read via a `yt`-based
   extractor into either a uniform-grid array or an unstructured point cloud (decision: F1/F2).
 - **Output:** F3's bake-off result (which arm, if any, beats a kinematics window), the winning
-  latent-dynamics model, `metrics.json`, and a Stage-2 evidence figure comparing this surrogate against Track B's MLP and against CFD on
+  latent-dynamics model, `metrics.json`, and a Stage-2 evidence figure comparing this surrogate
+  against Track B's MLP and against CFD on
   held-out configurations (mirrors Track B CC-4).
 
 ## Hardware
@@ -254,8 +259,8 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
 
 **Dependency order:** F1 → F2 (can start in parallel once the fixture exists, cluster-free) → F3
-(needs F2's reader + the fine corpus; arm A needs only Track B's labels) → F4 (only after F3's gate;
-see its re-scope note) → F5 (needs F3's winning arm + Track B's existing force labels) → F6 (needs
+(needs F2's reader + the fine corpus; arm A needs only Track B's labels) → F4 (only after F3's
+commanded-change results; see its re-scope note) → F5 (needs F3's winning arm + Track B's existing force labels) → F6 (needs
 F5's predictions). **F1 is superseded (see above); F2 onward now depend on
 `add-fine-corpus-field-capture` for corpus data instead.**
 
