@@ -424,10 +424,14 @@ def test_region_divergence_from_legacy_is_pinned(
                 assert start + n == want[axis].size, axis
             elif hi[i] <= dle:
                 assert start == 0, axis
-        np.testing.assert_array_equal(got[axis], want[axis][start : start + n], err_msg=axis)
+        np.testing.assert_array_equal(
+            got[axis], want[axis][start : start + n], err_msg=axis
+        )
         block.append(np.arange(start, start + n))
     for name in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
-        np.testing.assert_array_equal(got[name], want[name][np.ix_(*block)], err_msg=name)
+        np.testing.assert_array_equal(
+            got[name], want[name][np.ix_(*block)], err_msg=name
+        )
     for key, value in got.items():
         if isinstance(value, np.ndarray):
             assert value.flags.writeable, key
@@ -954,8 +958,8 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
 
 def test_legacy_wrapper_returns_writable_arrays_like_the_oracle():
     # Kept as a focused smoke check; writeability is asserted across the WHOLE clamping matrix
-    # inside test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle, because covering
-    # one region of eleven is thin for "the thing array equality cannot see".
+    # inside test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle, because a single
+    # region is thin for "the thing array equality cannot see".
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
 
     got = extract_eulerian_box(str(FIXTURE), **FULL)
