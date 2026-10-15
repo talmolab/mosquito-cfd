@@ -223,7 +223,7 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
 > (CFL-driven) regeneration.
 
 ### CC-F4. Cluster-free fixtures for everything downstream of raw plotfiles.
-Same convention as Track B CC-2: PR2 (field reader) and PR3 (encoder) must be tested against the
+Same convention as Track B CC-2: F2 (field reader) and F3 (bake-off arms) must be tested against the
 committed synthetic plotfile fixture, not real cluster output — no RunAI, no GPU, no real
 plotfiles in CI.
 
