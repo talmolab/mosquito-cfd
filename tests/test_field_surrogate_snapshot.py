@@ -310,6 +310,8 @@ REGION_CASES = [
     # Less than one cell below the domain, with halo 1: the pad reaches cell 0.
     ("just_below_halo1", (-0.5, -0.5, -0.5), (-0.2, -0.2, -0.2), 1, (1, 1, 1)),
     ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
+    # Inverted WITH a halo: both pad from floor(lo) and ceil(hi) and then force one cell.
+    ("inverted_halo1", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 1, (1, 1, 1)),
 ]
 
 #: DIVERGENCE cases: requests lying outside the domain on some axis (hi <= dle or lo > dre), where
@@ -323,6 +325,10 @@ DIVERGENCE_CASES = [
     ("below_within_reach_h2", (-1.5,) * 3, (-1.2,) * 3, 2, (2, 2, 2), (1, 1, 1)),
     ("above_within_reach_h2", (7.0,) * 3, (9.0,) * 3, 2, (2, 2, 2), (1, 1, 1)),
     ("above_beyond_reach_h2", (100.0,) * 3, (200.0,) * 3, 2, (2, 2, 2), (0, 0, 0)),
+    # Within reach but NOT on a cell face: the pad starts from floor(6.5) = 6, so halo 2 reaches
+    # cells 4 and 5. above_within_reach_h2 (lo = 7.0) sits on a face, where floor and ceil agree,
+    # so it cannot see reach computed from the wrong rounding.
+    ("above_within_reach_offface_h2", (6.5,) * 3, (9.0,) * 3, 2, (2, 2, 2), (2, 2, 2)),
     # A range ending exactly on the lower edge covers no cell: upper bounds are exclusive, exactly
     # as in the interior ((1.5, 2.0) yields cell 1 only). A POINT at the lower edge still yields
     # cell 0 (lower_edge, above).
@@ -855,11 +861,16 @@ def test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle(
 #: different guard rejecting it for an unrelated reason does not count.
 NARROWED_REQUESTS = [
     ("nan_corner", {"lo": (np.nan, 0.0, 0.0), "hi": (6.0,) * 3}, "NaN"),
+    ("nan_in_z", {"lo": (0.0, 0.0, np.nan), "hi": (6.0,) * 3}, "NaN"),
+    ("nan_in_hi", {"lo": (0.0,) * 3, "hi": (6.0, np.nan, 6.0)}, "NaN"),
     ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, "3-vector"),
     ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, "3-vector"),
     ("negative_halo", {**FULL, "halo": -1}, "non-negative"),
     ("fractional_halo", {**FULL, "halo": 1.9}, "integer"),
     ("bool_halo", {**FULL, "halo": True}, "integer"),
+    # Integral but not an integer TYPE: the old adapter computed the same cells; refused anyway.
+    ("integral_float_halo", {**FULL, "halo": 2.0}, "integer"),
+    ("zero_d_array_halo", {**FULL, "halo": np.array(2)}, "integer"),
     ("fp32_plotfile", FULL, "not 8-byte floats"),
 ]
 
@@ -887,6 +898,33 @@ def test_wrapper_argument_narrowing_is_pinned(case, kwargs, match, tmp_path):
         extract_eulerian_box(str(path), **kwargs)
 
 
+def test_matrix_shaped_corner_now_fails_with_a_clear_error():
+    # NOT a narrowing -- the pre-refactor adapter already failed on a (1, 3) corner, just with an
+    # opaque TypeError from deep in its slicing. Pinned separately from NARROWED_REQUESTS, whose
+    # premise is that the frozen copy accepted the request.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    kwargs = {"lo": [[0.0, 0.0, 0.0]], "hi": (6.0,) * 3}
+    with pytest.raises(TypeError):
+        _legacy()(str(FIXTURE), **kwargs)
+    with pytest.raises(ValueError, match="3-vector"):
+        extract_eulerian_box(str(FIXTURE), **kwargs)
+
+
+def test_numpy_integer_halo_is_still_accepted():
+    # Positive control for the narrowing above: a numpy integer halo is an integer and must keep
+    # working exactly as before. Without this, tightening the type check to the builtin int
+    # would be an unrecorded new narrowing.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    kwargs = {"lo": (1.0,) * 3, "hi": (3.0,) * 3, "halo": np.int64(1)}
+    got = extract_eulerian_box(str(FIXTURE), **kwargs)
+    want = _legacy()(str(FIXTURE), **kwargs)
+    assert got["u"].shape == want["u"].shape == (4, 4, 4)
+    for key in ("u", "x", "y", "z"):
+        np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+
 def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
     # 21 tests replace this module global; an internal call site that stopped resolving it would
     # bypass them all, leaving tests green while testing nothing (design.md D3).
@@ -912,12 +950,15 @@ def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
 
 def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
     # check_field_capture_velocity's six NaN/Inf tests all monkeypatch the reader away, so none
-    # of them exercise the read path. If the reader ever normalized values, its downstream guard
-    # would stop seeing what it expects.
+    # of them exercise the read path. If the reader -- or the wrapper that guard actually calls
+    # -- ever normalized values, the guard would stop seeing what it expects.
     import yt
 
+    import mosquito_cfd.benchmarks.stress_integral as si
+
     real_load = yt.load
-    poisoned = np.array([np.nan, np.inf, -np.inf, 1.5])
+    # -0.0 rides along: assert_array_equal cannot tell it from +0.0, the uint64 view can.
+    poisoned = np.array([np.nan, np.inf, -np.inf, -0.0, 1.5])
 
     class _Unyt:
         # Minimal stand-in for yt's unyt_array: the reader unwraps via .to_ndarray().
@@ -951,9 +992,16 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
     )
 
     snap = read_field_snapshot(FIXTURE, **FULL)
-    np.testing.assert_array_equal(
-        snap.arrays["u"].reshape(-1)[: poisoned.size], poisoned
-    )
+    box = si.extract_eulerian_box(str(FIXTURE), **FULL)
+    want = poisoned.view(np.uint64)
+    for name in ("u", "v", "w"):
+        for source, arrays in (("reader", snap.arrays), ("wrapper", box)):
+            got = arrays[name].reshape(-1)[: poisoned.size].view(np.uint64)
+            np.testing.assert_array_equal(got, want, err_msg=f"{source}:{name}")
+
+    # End to end: the guard the passthrough exists for still fires through the real read path.
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        si.check_field_capture_velocity(str(FIXTURE))
 
 
 def test_legacy_wrapper_returns_writable_arrays_like_the_oracle():
