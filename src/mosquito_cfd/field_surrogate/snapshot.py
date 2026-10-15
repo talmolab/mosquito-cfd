@@ -144,7 +144,13 @@ def _validate_halo(halo: int) -> int:
 def _corner(value, name: str) -> np.ndarray:
     arr = np.asarray(value, dtype=np.float64)
     if arr.shape != (3,):
-        raise ValueError(f"{name} must be a 3-vector, got shape {arr.shape}")
+        # The pre-refactor adapter broadcast a scalar, so `lo=-np.inf` meant "full extent"; name
+        # the replacement rather than leaving the caller to guess.
+        full = "(-inf,)*3" if name == "lo" else "(inf,)*3"
+        raise ValueError(
+            f"{name} must be a 3-vector (x, y, z), got shape {arr.shape}; "
+            f"for full extent pass {full}"
+        )
     if np.isnan(arr).any():
         raise ValueError(
             f"{name} contains NaN; use -inf/+inf for 'full extent' along an axis"

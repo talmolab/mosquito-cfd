@@ -29,6 +29,9 @@ holds no yt call of its own.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
 
@@ -185,12 +188,12 @@ _LEGACY_FIELD_NAMES = ("u", "v", "w", "gradpx", "gradpy", "gradpz")
 
 
 def extract_eulerian_box(
-    plotfile_path: str,
+    plotfile_path: str | Path,
     *,
     lo: tuple[float, float, float],
     hi: tuple[float, float, float],
     halo: int = 0,
-) -> dict[str, np.ndarray]:
+) -> dict[str, Any]:
     """Read velocity + pressure-gradient over an axis-aligned region of an AMReX plotfile.
 
     Thin legacy wrapper: the actual read lives in the single shared implementation
@@ -233,9 +236,7 @@ def extract_eulerian_box(
     snap = read_field_snapshot(
         plotfile_path, lo=lo, hi=hi, halo=halo, fields=_LEGACY_FIELD_NAMES
     )
-    out: dict[str, np.ndarray] = {
-        name: snap.arrays[name] for name in _LEGACY_FIELD_NAMES
-    }
+    out: dict[str, Any] = {name: snap.arrays[name] for name in _LEGACY_FIELD_NAMES}
     out["x"] = snap.x
     out["y"] = snap.y
     out["z"] = snap.z
@@ -246,7 +247,13 @@ def extract_eulerian_box(
     # discarded snapshot is its only other referent. That is a property of the callee, not of
     # this wrapper: if the reader is ever changed to return views or to memoize snapshots, this
     # line would un-freeze shared state and must be revisited.
-    for value in out.values():
+    for key, value in out.items():
+        if not value.flags.owndata:
+            # The comment above, made executable: un-freezing a view would un-freeze shared state.
+            raise RuntimeError(
+                f"read_field_snapshot returned a view for {key!r}; refusing to "
+                "make it writable"
+            )
         value.setflags(write=True)
     out["current_time"] = float(snap.time)
     return out

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import importlib.util
 import subprocess
@@ -806,6 +807,7 @@ def test_missing_private_dtype_attribute_is_a_hard_failure(monkeypatch):
 # --- PR B, tasks 20-22: the delegation guards ------------------------------------------------
 
 
+@functools.cache
 def _legacy():
     spec = importlib.util.spec_from_file_location(
         "_legacy_extract", FIXTURE.parent / "legacy_extract_eulerian_box.py"
@@ -863,8 +865,9 @@ NARROWED_REQUESTS = [
     ("nan_corner", {"lo": (np.nan, 0.0, 0.0), "hi": (6.0,) * 3}, "NaN"),
     ("nan_in_z", {"lo": (0.0, 0.0, np.nan), "hi": (6.0,) * 3}, "NaN"),
     ("nan_in_hi", {"lo": (0.0,) * 3, "hi": (6.0, np.nan, 6.0)}, "NaN"),
-    ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, "3-vector"),
-    ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, "3-vector"),
+    # The scalar message must name the remedy: legacy broadcast `lo=-np.inf` as "full extent".
+    ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, r"3-vector.*\(-inf,\)\*3"),
+    ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, r"3-vector.*\(inf,\)\*3"),
     ("negative_halo", {**FULL, "halo": -1}, "non-negative"),
     ("fractional_halo", {**FULL, "halo": 1.9}, "integer"),
     ("bool_halo", {**FULL, "halo": True}, "integer"),
@@ -875,6 +878,9 @@ NARROWED_REQUESTS = [
 ]
 
 
+# The frozen copy floors a NaN corner straight into an int64 cast, so numpy warns there; that is
+# the old behaviour being pinned, not something to surface on every run.
+@pytest.mark.filterwarnings("ignore:invalid value encountered in cast:RuntimeWarning")
 @pytest.mark.parametrize(
     ("case", "kwargs", "match"),
     NARROWED_REQUESTS,
@@ -963,6 +969,33 @@ def test_wrapper_maps_every_field_and_axis_on_an_asymmetric_grid(
         np.testing.assert_allclose(got[name], expected, rtol=1e-12, err_msg=name)
 
 
+def test_wrapper_refuses_to_unfreeze_a_view(monkeypatch):
+    # The wrapper makes its arrays writable, which is safe only because the reader copies. If the
+    # reader ever returned a view, setflags(write=True) would un-freeze shared state; the wrapper
+    # must refuse instead.
+    import types
+
+    import mosquito_cfd.field_surrogate.snapshot as snapshot_mod
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    real = read_field_snapshot(FIXTURE, **FULL)
+    shared = np.zeros((6, 6, 6))
+    view = shared[:]
+    view.setflags(write=False)
+    fake = types.SimpleNamespace(
+        arrays={**real.arrays, "u": view},
+        x=real.x,
+        y=real.y,
+        z=real.z,
+        dx=real.dx,
+        time=real.time,
+    )
+    monkeypatch.setattr(snapshot_mod, "read_field_snapshot", lambda *a, **k: fake)
+    with pytest.raises(RuntimeError, match="view"):
+        extract_eulerian_box(str(FIXTURE), **FULL)
+    assert not view.flags.writeable
+
+
 def test_matrix_shaped_corner_now_fails_with_a_clear_error():
     # NOT a narrowing -- the pre-refactor adapter already failed on a (1, 3) corner, just with an
     # opaque TypeError from deep in its slicing. Pinned separately from NARROWED_REQUESTS, whose
@@ -991,7 +1024,7 @@ def test_numpy_integer_halo_is_still_accepted():
 
 
 def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
-    # 21 tests replace this module global; an internal call site that stopped resolving it would
+    # Tests replace this module global; an internal call site that stopped resolving it would
     # bypass them all, leaving tests green while testing nothing (design.md D3).
     import mosquito_cfd.benchmarks.stress_integral as si
 
