@@ -120,14 +120,25 @@ an inference, not a measurement.
 
    This is the draft proposal's promised "DoMINO-vs-DeepONet ablation", widened by one arm and given
    an honest baseline.
-2. **Go/no-go gate after arm A.** If arm A's held-out force error is within the corpus's own CFD
-   uncertainty, the hover corpus has no hidden state to encode. That uncertainty must be **measured
-   before the gate is applied, not assumed** — it is component-dependent (T3c GCI_fine: CF_normal
-   3.7%, CF_chord 27.6%), so the gate is applied per component.
-   Arms B and C are built only after arm A reports.
-3. **Commanded-change configs.** The 27-config corpus is fixed periodic prescribed kinematics, so it
-   cannot show whether a latent is needed once commands change. A handful (~3–5) of configs with a
-   mid-run kinematics step are **designed in F3's change and submitted only after arm A** reports.
+2. **A hover-only gate after arm A — a shortcut, never a cancellation.** On the 27 hover configs the
+   kinematics are periodic, so a kinematics window is fully determined by the config parameters +
+   phase: **on this corpus arm A carries no more information than Track B's existing model**, and the
+   gate can only answer "on hover, does a kinematics baseline already reach the CFD's own noise?" It
+   says nothing about history dependence after a command change. Outcomes:
+   - **Pass** (arm A's held-out error within the CFD uncertainty) → arms B and C are **not** trained
+     on the hover corpus; they are tested only on the commanded-change configs.
+   - **Fail** → arms B and C are tested on the hover corpus as well as the commanded-change configs.
+
+   The uncertainty must be **measured before the gate is applied, not assumed**. It is
+   component-dependent (T3c GCI_fine: CF_normal 3.7%, CF_chord 27.6%), so the gate is applied per
+   component.
+3. **Commanded-change configs always run, whatever the gate says.** A *command* is the kinematics
+   the RL policy controls (stroke amplitude, frequency, pitch). Every hover config holds its command
+   fixed for the whole run, so no hover result can show whether a latent is needed once the command
+   changes. A handful (~3–5) of configs whose command switches mid-run (e.g. 2 beats at one stroke
+   amplitude, then 2 at another) are **designed in F3's change and run after arm A** — arm A sets
+   the order of work, not whether these runs happen. **How to produce them is itself open**
+   (open question #6).
 4. **No regeneration for pressure.** IAMReX stores pressure **nodally**
    (`NS_setup.cpp:376`, `Press_Type` on `TheNodeType`) and `gradp` cell-centered (`:386`); plotfiles
    carry cell-centered state, so our decks have `gradpx/y/z` and no `p`. In incompressible flow `p` is
@@ -237,8 +248,8 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 |---|---|---|---|---|
 | F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
 | F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ⬜ |
-| F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a measured-CFD-uncertainty go/no-go gate, then arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields). Also designs the ~3–5 commanded-change configs (with `avg_pressure`), submitted only after arm A. | A5000 (+ cluster for the new configs) | ⬜ |
-| F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. **Re-scope after F3:** may be unnecessary if F3's gate finds no hidden state, or narrowed to the commanded-change configs. | cluster | ⬜ |
+| F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a hover-only gate against the measured CFD uncertainty that decides whether arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields) are also tried on hover data. Also designs and runs the ~3–5 commanded-change configs (with `avg_pressure`) after arm A — always, regardless of the gate. | A5000 (+ cluster for the new configs) | ⬜ |
+| F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. **Re-scope after F3:** whether a larger field corpus is needed depends on F3's results on the commanded-change configs; F3's hover gate alone cannot decide it. | cluster | ⬜ |
 | F5 | `add-field-surrogate-dynamics` | Latent-dynamics model (zₜ, kinematicsₜ) → (zₜ₊₁, Fₜ) at production scale, architecture taken from F3's winning arm (DeepONet stays a candidate, not a commitment). Reuses Track B's force labels (`F_t`) unchanged — no force recomputation. | A5000 | ⬜ |
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
 
@@ -265,11 +276,15 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
    likely pilot-scale is enough to validate the training loop, full corpus needed for a trustworthy
    evidence figure (F6) — mirrors Track B's own coarse-grid-first, fine-grid-second sequencing.
    Confirm once F1 lands.
-4. **What is the corpus's own CFD force uncertainty?** — F3's go/no-go gate is defined against it
+4. **What is the corpus's own CFD force uncertainty?** — F3's hover gate is defined against it
    and it must be measured on this corpus, not assumed (T3c GCI_fine was CF_normal 3.7% but
    CF_chord 27.6%).
 5. **Does `Mesh_Reduced` scale from 1,699 2-D nodes to ~8.4 M 3-D cells?** — unverified; the first
    question for Harpreet Sethi once arm A has a number.
+6. **How are commanded-change runs produced?** — unverified whether IAMReX can switch prescribed
+   kinematics mid-run. One plausible route is restarting from a checkpoint with an edited deck (the
+   corpus already writes checkpoints); the switch must also be smooth enough not to inject a
+   wing-velocity discontinuity. F3's proposal settles this before any cluster submission.
 
 ## Out of scope (still deferred)
 
