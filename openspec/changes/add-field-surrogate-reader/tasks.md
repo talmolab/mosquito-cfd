@@ -638,3 +638,56 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       count `N. [ ]` tasks.
     - Delete both `add-field-surrogate-reader` and the delegation branch by hand
       (`delete_branch_on_merge` is false).
+
+## 18. `/review-pr 106` round 1 (head `c624cd0`; CI green)
+
+Five reviewers found nothing BLOCKING; the review is posted on #106. The user chose to fix all
+four groups of IMPORTANT findings in this PR. Each fix is test-first, mutation-checked, and
+committed before mutating.
+
+90. [ ] **Test gaps (narrowing and NaN).**
+    - **NaN/Inf passthrough.** `test_nan_and_inf_field_values_pass_through_bit_identically` now
+      goes through `extract_eulerian_box`, not only the reader, and checks `u`/`v`/`w`. It also
+      drives `check_field_capture_velocity`'s NaN/Inf error end to end. Red by mutation: a
+      wrapper `nan_to_num` survived the whole suite before this change.
+    - **`NARROWED_REQUESTS`.** Adds NaN in z, NaN in `hi`, `halo=2.0`, a 0-d `np.array(2)` halo
+      and a `(1,3)` corner. Red by mutation: a NaN check on x only (S5) survives today.
+    - **Positive control.** `halo=np.int64(1)` is accepted and matches the oracle (S6).
+    - **`DIVERGENCE_CASES`.** Adds an off-face above-domain request within reach
+      (`(6.5,)*3`-`(9,)*3`, halo 2, both sides 2 cells). Red by mutation: S7, the off-face reach
+      dropped one cell, survives today.
+    - **`REGION_CASES`.** Adds an inverted request with `halo = 1`.
+91. [ ] **Asymmetric fixture variant.** `write_fixture` gains optional `shape`, `origin`, `dx`
+    and `distinct_fields`. Their defaults keep the committed fixture byte-identical, which
+    `test_fixture_is_regenerable` enforces.
+    - A `tmp_path` variant uses `shape=(8,6,4)`, a dyadic non-zero origin, anisotropic `dx`, and
+      non-zero, mutually distinct `w`/`gradpx`/`gradpy`/`gradpz`.
+    - The wrapper is checked bit-exact against the oracle, and analytically, on every field and
+      coordinate.
+    - Red by mutation: S1 (field permutation), S2 (`dx` reversed), S3 (per-axis metadata
+      permuted) and S4 (centres use `dx[0]`) all survive today. Advances #107; still one FAB.
+92. [ ] **Caller empty-box guards.**
+    - `sphere_cv_drag_cd` raises a clear `ValueError` when its slab selects no cells. Today that
+      ends in numpy's "argmin of an empty sequence", where the pre-refactor path gave the clear
+      "same cell" error.
+    - `wing_lev_report` raises when the box has no interior cells. Today that is numpy's
+      zero-size `.max()`, and it was already the case before the refactor for boxes under 3 cells.
+    - design.md D1's "handled downstream" is updated to name both guards.
+93. [ ] **Claims and messages.**
+    - The `halo` narrowing becomes "negative or not an integer type (including integral floats
+      such as 2.0, 0-d arrays and bool)" in the CHANGELOG, the PR body and spec.md, and the
+      "Two narrowings" count is fixed.
+    - The `ds.index._dtype` hard failure goes into the wrapper's `Raises:` and the CHANGELOG.
+    - The scalar-corner error names the remedy, test first: `match` on "(-inf,)*3".
+    - D1 gains the subnormal-offset caveat.
+    - Cheap cleanups:
+      - `functools.cache` on `_legacy()`;
+      - `filterwarnings` for the oracle's expected `RuntimeWarning`;
+      - drop the "21 tests" comment;
+      - `plotfile_path: str | Path` and `dict[str, Any]`;
+      - assert `owndata` before `setflags(write=True)`.
+94. [ ] **Commit the real-plotfile A/B** as `scripts/verify_eulerian_box_ab.py`, taking the two
+    roots as arguments, and re-run it at the final head. tasks.md D11 cites the script, its
+    commit and the fresh total.
+95. [ ] Verification as in task 88. Push only with the user's go-ahead, then confirm CI green on
+    the pushed SHA.
