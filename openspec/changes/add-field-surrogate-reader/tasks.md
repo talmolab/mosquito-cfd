@@ -422,3 +422,54 @@ fail and wording that overpromised.
     - Removed the unmeasured sweep sizes, and noted the inverted-with-halo cell and the
       degenerate-grid margin caveat.
     - Stale "11-case" references in tasks 20, 44 and 62 are updated.
+
+## 17. PR B close-out after #105's squash merge (tasks 72, 75, 59)
+
+The delegation branch now merges PR A's final head and `main`. With PR A merged, exactly the 8
+`DIVERGENCE_CASES` of `test_region_divergence_from_legacy_is_pinned` fail (1093 passed): the
+recorded red phase for task 72.
+
+81. [ ] **Task 72a, red→green**: re-point the legacy side of
+    `test_region_divergence_from_legacy_is_pinned` at the frozen oracle via the existing `_legacy()`
+    loader, and assert the oracle's counts **and** the reader's counts. Red: the 8 recorded failures.
+82. [ ] **Task 72b, the spec scenario "The wrapper's documented divergence is pinned against the
+    frozen copy"**: a new test over `DIVERGENCE_CASES` asserting the oracle returns
+    `legacy_expected` and `extract_eulerian_box` returns `expected`. It passes on first run because the
+    delegation already exists, so its red phase is a **mutation**, and the mutation must be run:
+    restore the oracle's body into the wrapper, and confirm all 8 cases fail.
+83. [ ] **Re-point the parity test's comparison too**: `test_region_clamping_matrix` (the `REGION_CASES`
+    value/coordinate test) still compares the reader against `extract_eulerian_box`, which after PR B
+    is the reader's own wrapper. Compare against `_legacy()` instead and update its comment. Mutation:
+    shift the reader's coordinates by one cell, and confirm this test fails without relying on the
+    oracle differential.
+84. [ ] **Task 75, real-plotfile A/B**: run a read-only scratchpad script, never committed, over 7
+    plotfiles: sphere coarse `plt10000`; sphere 10k `plt10000` and `plt05000`; wing `t2a-newconv4`,
+    `t3b-medium` (which task 44 names but the earlier run omitted) and `t3c-fine`, all at `plt01000`.
+    Fixture cases are mapped into each grid in cell units: `c -> dle + c*dx` per axis, the `above_*`
+    cases `c -> dre + (c-6)*dx`, and ±inf kept. Then:
+    - every `REGION_CASES` entry is bit-exact between the wrapper and the oracle (key set, values,
+      dtype, shape, type, writeability);
+    - every `DIVERGENCE_CASES` entry reproduces **the recorded counts** (`legacy_expected` from the
+      oracle, `expected` from the wrapper), which the cell-unit mapping preserves;
+    - the pinned wing near-field and downstream boxes (`test_wing_lev.py`) and the sphere x-slab
+      planes are bit-exact.
+
+    The script hard-fails when `checked == 0`, uses the `Z:/` form, and prints a per-plotfile count.
+    Re-run task 43 with both roots. Replace the stale section-10 "D11 verification results" numbers
+    with these.
+85. [ ] **Task 59, claims**: rewrite PR B's CHANGELOG entry, the PR body, and
+    `extract_eulerian_box`'s docstring. State three narrowings:
+    - NaN corners, scalar `lo`/`hi`, a bad `halo` and duplicate `fields` now raise;
+    - outside the parity region (`lo <= dre and hi > dle` on every axis) the wrapper returns only the
+      in-domain cells within halo reach, which is zero at `halo = 0`, where legacy returned edge
+      cells;
+    - the wrapper returns fewer cells than legacy, never more.
+
+    Also remove the stale PR body claims: "Stacked on #105", "11 clamping cases", "80 comparisons",
+    "1029 passed", "unchanged" without that scope, and "freshly allocated and unshared"
+    (task 58 found that false). Every number must be re-measured fresh.
+86. [ ] Link #112 to #120/#121 as overlapping, noting which owns the NFS stat storm and which owns
+    covering-grid retention.
+87. [ ] Full CI-form run, `openspec validate --strict`, then `/review-pr 106`, then fixes in TDD with
+    mutation. Mutated files are restored from saved bytes, never `git checkout`, and work is
+    committed before mutating.
