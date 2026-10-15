@@ -645,7 +645,7 @@ Five reviewers found nothing BLOCKING; the review is posted on #106. The user ch
 four groups of IMPORTANT findings in this PR. Each fix is test-first, mutation-checked, and
 committed before mutating.
 
-90. [ ] **Test gaps (narrowing and NaN).**
+90. [x] **Test gaps (narrowing and NaN).**
     - **NaN/Inf passthrough.** `test_nan_and_inf_field_values_pass_through_bit_identically` now
       goes through `extract_eulerian_box`, not only the reader, and checks `u`/`v`/`w`. It also
       drives `check_field_capture_velocity`'s NaN/Inf error end to end. Red by mutation: a
@@ -657,6 +657,17 @@ committed before mutating.
       (`(6.5,)*3`-`(9,)*3`, halo 2, both sides 2 cells). Red by mutation: S7, the off-face reach
       dropped one cell, survives today.
     - **`REGION_CASES`.** Adds an inverted request with `halo = 1`.
+
+    **Result.** The reviewers' survivors, re-run after commit `HEAD~0` of this task. Each is killed
+    by exactly the case aimed at it, with files restored from saved bytes and SHA-checked:
+    - wrapper `nan_to_num`: killed by the NaN passthrough test;
+    - S5 (NaN check on x only): killed by `nan_in_z` and `nan_in_hi`;
+    - S6 (builtin `int` only): killed by `test_numpy_integer_halo_is_still_accepted`;
+    - S7 (off-face reach): killed by `above_within_reach_offface_h2`.
+
+    **Deviation.** The planned `(1,3)` corner case is not a narrowing: the frozen copy already
+    failed on it, with a `TypeError`. It is pinned in its own test
+    (`test_matrix_shaped_corner_now_fails_with_a_clear_error`), not in `NARROWED_REQUESTS`.
 91. [ ] **Asymmetric fixture variant.** `write_fixture` gains optional `shape`, `origin`, `dx`
     and `distinct_fields`. Their defaults keep the committed fixture byte-identical, which
     `test_fixture_is_regenerable` enforces.
