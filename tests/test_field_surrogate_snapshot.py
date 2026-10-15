@@ -408,15 +408,22 @@ def test_region_divergence_from_legacy_is_pinned(
     assert got["u"].shape == expected
 
     # A count-correct but wrong cell must fail: every cell the wrapper returns is a contiguous
-    # sub-block of the frozen copy's, with identical coordinates and values.
+    # sub-block of the frozen copy's, with identical coordinates and values, and on an axis where
+    # the request lies wholly outside the domain the halo reaches in from THAT edge -- so the
+    # block sits at the frozen copy's edge-facing end (above: cell N-1, never N-2).
+    dle, dre = CENTERS[0] - 0.5, CENTERS[-1] + 0.5
     block = []
-    for axis in ("x", "y", "z"):
+    for i, axis in enumerate(("x", "y", "z")):
         n = got[axis].size
         start = 0
         if n:
             (hits,) = np.nonzero(want[axis] == got[axis][0])
             assert hits.size == 1, axis
             start = int(hits[0])
+            if lo[i] > dre:
+                assert start + n == want[axis].size, axis
+            elif hi[i] <= dle:
+                assert start == 0, axis
         np.testing.assert_array_equal(got[axis], want[axis][start : start + n], err_msg=axis)
         block.append(np.arange(start, start + n))
     for name in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
