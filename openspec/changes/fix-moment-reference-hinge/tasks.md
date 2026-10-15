@@ -313,7 +313,7 @@ three PRs (proposal "Delivery"); PR boundaries are marked.
 Round 2 found no blocking issue and no regression. Each item below is test-first where it changes
 behaviour.
 
-32j. [ ] **Staleness banner scope.**
+32j. [x] **Staleness banner scope.**
     - Problem: the banner said "`CF_my` and the forces are unchanged". That is true of the dataset
       columns, but the surrogate is one shared-trunk model selected on an aggregate over all six
       targets, so **every** metric and evidence-figure number comes from the old training run.
@@ -323,7 +323,7 @@ behaviour.
       `holdout_predictions.parquet`. With the existing
       `test_committed_figure_metrics_matches_committed_inputs`, that chains dataset →
       predictions → metrics → evidence figure, so the figure cannot go stale unseen.
-32k. [ ] **Anchor the coarse decks.**
+32k. [x] **Anchor the coarse decks.**
     - Problem: every coarse run's own `<runs>/<name>/run_metadata.json` on `Z:` records a
       `deck_sha256` (27/27 match the committed decks). `extract_forces.py` had no way to point at
       it, so the coarse record said "unverified" for a check that passes.
@@ -333,14 +333,14 @@ behaviour.
       basename.
     - Test first: the driver honours the flag; a stale anchor in the runs directory fails
       extraction.
-32l. [ ] **Every per-config CSV/metadata defect is a named `ConfigExtractionError`.**
+32l. [x] **Every per-config CSV/metadata defect is a named `ConfigExtractionError`.**
     - Problem: a non-UTF-8 run-metadata file escaped as a bare `UnicodeDecodeError`. Non-numeric
       `iStep`/`time`/`Fx..Mz` cells escaped as a bare `ValueError`/`TypeError` with no config
       name. A boolean `X` column was silently read as 1.0.
     - Fix: validate every required CSV column as non-boolean numeric up front, which supersedes
       32e's origin-only conversion check.
     - Test first: one case per column, plus the undecodable metadata.
-32m. [ ] **Outputs are all-or-nothing.**
+32m. [x] **Outputs are all-or-nothing.**
     - Problem: `extract_forces.py`'s comment claimed a failure leaves no new parquet beside stale
       metadata, which held only for a provenance failure. A failed units or metadata write still
       left a new parquet.
@@ -348,7 +348,7 @@ behaviour.
       only after every write succeeded.
     - Test first: a failing units write leaves a pre-existing parquet byte-unchanged and no
       temporary behind.
-32n. [ ] **Close the mutation survivors on the round-1 guard surface:**
+32n. [x] **Close the mutation survivors on the round-1 guard surface:**
     - `input_dir` recorded verbatim: test with a non-canonical path (M8/M8b); the committed guard
       rejects a UNC-style value.
     - The committed-provenance guard checks:
@@ -364,7 +364,7 @@ behaviour.
     - The non-string-`deck_sha256` and git-stderr tests match text only the intended path
       produces (N4/N10).
     - The write-ordering test matches the mutable-tag message.
-32o. [ ] **Docstrings and comments current:**
+32o. [x] **Docstrings and comments current:**
     - one canonical list of `ConfigExtractionError` causes (class docstring), which the gate
       comment and `Raises:` reference;
     - the verify script's docstring covers the CSV re-hash and post-merge use;
@@ -375,7 +375,7 @@ behaviour.
     - `write_dataset`'s "not byte-reproducible" becomes "not guaranteed across pyarrow/pandas
       versions" (it was byte-identical on rewrite under the locked environment);
     - task 39's "Expect `dirty: true`" is stale.
-32p. [ ] Re-record both corpora's `run_metadata.json` from a clean tree: coarse with
+32p. [x] Re-record both corpora's `run_metadata.json` from a clean tree: coarse with
     `--run-metadata-name run_metadata.json`, fine with its committed per-config files. Re-run the
     gate against `fea817a`. The parquets must stay byte-identical, so no new blobs.
 32q. Deferred to #119, with the round-1 deferrals:
