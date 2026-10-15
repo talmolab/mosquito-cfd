@@ -510,7 +510,7 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     **Deviation:** a `bool_halo` case was added. The reader rejects `halo=True`, while the frozen
     copy reads it as 1, so it is a seventh narrowing. Each case also matches its own guard's
     message. Claim (i) in task 86 is widened to say "negative, fractional or boolean".
-84. [ ] **Re-point `test_region_clamping_matrix`'s comparison** from `extract_eulerian_box`, now the
+84. [x] **Re-point `test_region_clamping_matrix`'s comparison** from `extract_eulerian_box`, now the
     reader's own wrapper, to `_legacy()`.
     - Update the comments at 281 and 356 to name the frozen copy.
     - Relabel `REGION_CASES` "agreement cases": `lower_edge`, `lower_edge_halo2` and
@@ -519,6 +519,13 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       coordinates and values move together.
     - Run `-k test_region_clamping_matrix` before and after the re-point. Record that
       `interior_unaligned` (among others) passes before and fails after.
+
+    **Result** (mutant `i_lo, i_hi = i_lo + 1, i_hi + 1` before the clip):
+    - Before the re-point, 4 cases fail (`halo2`, `just_below_halo1`, `lower_edge_halo2`,
+      `upper_edge_halo2`) and **12 survive**, `interior_unaligned` among them.
+    - After the re-point, **12 fail**.
+    - The 4 that still pass (`full`, `halo3_clipped`, `upper_edge`, `outside_domain`) are equivalent
+      under this mutant: clipping absorbs the shift.
 85. [ ] **Real-plotfile A/B (the D11 re-run, replacing task 75).** A read-only scratchpad script,
     never committed, over **6** plotfiles: sphere coarse `plt10000`; sphere 10k `plt10000` and
     `plt05000`; wing `t2a-newconv4`, `t3b-medium` and `t3c-fine` at `plt01000`.
