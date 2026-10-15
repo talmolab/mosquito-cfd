@@ -1,10 +1,11 @@
 # Field surrogate (Stage 2) — implementation roadmap
 
-Umbrella tracking doc for the **field-based surrogate**: DoMINO encoder over CFD flow-field
-snapshots → latent **z**; latent-dynamics model (zₜ, kinematicsₜ) → (zₜ₊₁, forcesₜ), the
-DreamerV3-style world-model architecture from the 2026-04-28 lab meeting deck (`content/04-mlsurrogates.md`
-in the vault). Same conventions as `docs/force_surrogate/roadmap.md` (this doc's sibling, "Track B"):
-OpenSpec changes authored just-in-time per PR, GitHub issues drafted lazily, status checkboxes here
+Umbrella tracking doc for the **field-based surrogate**: a latent-dynamics model
+(zₜ, kinematicsₜ) → (zₜ₊₁, forcesₜ), the DreamerV3-style world-model architecture from the
+2026-04-28 lab meeting deck (`content/04-mlsurrogates.md` in the vault), whose encoder and dynamics
+architectures are decided empirically by F3's bake-off (see "F3 framing decision" below) rather than
+fixed up front. Same conventions as `docs/force_surrogate/roadmap.md` (this doc's sibling,
+"Track B"): OpenSpec changes authored just-in-time per PR, GitHub issues drafted lazily, status checkboxes here
 are the source of truth.
 
 **Relationship to Track B:** this was originally scoped as funded-only, gated on an NVIDIA H100
@@ -46,39 +47,127 @@ is not confirmed to transfer (see `docs/force_surrogate/fine-grid-pilot-report.m
 
 ## Vision
 
-Extend Track B's kinematics→force map into the architecture the funded proposal actually described:
-an encoder that compresses real CFD flow-field snapshots (not just scalar kinematics) into a latent
-state, plus a dynamics model that rolls that latent state forward — the piece that makes an eventual
-RL-in-the-loop (MJX-Warp) training run possible, since the encoder is what lets the surrogate see
-the flow, not just the wing's commanded motion.
+Extend Track B's kinematics→force map into the architecture the NVIDIA Academic Grant draft proposal
+describes (`nvidia-proposal/draft/proposal.md` in the vault — **unsubmitted**: the program closed
+before submission and we are waiting for it to reopen): a latent state, plus a dynamics model that
+rolls it forward — the piece that makes an eventual RL-in-the-loop (MJX-Warp) training run possible,
+since a latent state is what would let the surrogate carry flow history the wing's commanded motion
+alone does not determine. **Whether that history matters on our data is an empirical question F3
+answers**, not an assumption.
 
 ### Still the *not-yet-in-the-RL-loop* surrogate
 
 | | **Track B (done)** | **This roadmap (Stage 2)** | **Funded / long-term** |
 |---|---|---|---|
-| Mapping | kinematics(+phase) → force coefficients | field snapshot → z; (z,k)→(z',forces) | same, + RL-in-loop |
-| Inputs | scalar kinematic parameters | CFD field snapshots (velocity/pressure) | + multi-agent swarm scenes |
-| Model | small PhysicsNeMo MLP | DoMINO encoder + DeepONet dynamics | + MJX-Warp deployment, ablations |
+| Mapping | kinematics(+phase) → force coefficients | (z,k)→(z',forces), z from F3's winning arm | same, + RL-in-loop |
+| Inputs | scalar kinematic parameters | kinematics window; CFD field snapshots (velocity + ∇p) | + multi-agent swarm scenes |
+| Model | small PhysicsNeMo MLP | F3 bake-off: windowed MLP / `Mesh_Reduced` + `Sequence_Model` / DoMINO | + MJX-Warp deployment, ablations |
 | In RL loop | no | no (this roadmap trains the surrogate only) | yes |
 
 Framing carried over from Track B CC-4 (scientific honesty): report what this pipeline actually
-achieves at each PR, not the funded end-state. In particular, **DoMINO's fitness for rapidly moving
-geometry (insect-wing tip speeds) is an unverified claim** (`ml-surrogate-notes.md`, "Open Questions"
-#2) — F3 below is the first empirical test of it, not a foregone conclusion.
+achieves at each PR, not the hoped-for end-state.
 
-> **Framing gap, verified 2026-09-21 (`add-field-surrogate-reader`'s proposal.md, "Scoping input:
-> what DoMINO actually consumes") — reads as much stronger than "unverified" for the *encoder* role
-> specifically.** Checked directly against `NVIDIA/physicsnemo` `main`, not inferred: stock
-> `DoMINO.forward()` consumes **geometry** (coordinates, SDF grids/nodes, surface mesh) plus sampled
-> query points, and **returns** predicted flow fields — `volume_fields` is the datapipe's *training
-> target*, never an input. The submodule that produces a latent (`GeometryRep`) encodes geometry, not
-> a flow-field snapshot. **This table's own "field snapshot → z" mapping and this Vision's "encoder
-> that compresses CFD flow-field snapshots into a latent state" do not describe stock DoMINO** — it
-> is a geometry→fields regressor, not a fields→latent encoder. F3 cannot proceed on the assumption
-> that DoMINO already does what this roadmap wants; it must either scope a genuinely different
-> encoder architecture, or justify repurposing DoMINO's `GeometryRep` submodule alone (which encodes
-> geometry, not flow state, and so does not obviously give the fields→latent map either). See
-> Open question #1 below for what a 2026-09-23 literature check adds on top of this.
+## F3 framing decision (2026-10-15)
+
+### The finding: stock DoMINO is geometry → fields, not fields → latent
+
+Verified against `NVIDIA/physicsnemo` — `physicsnemo/models/domino/model.py` last changed at
+`cbb1bf1` (2026-05-04), unchanged between the 2026-09-22 check and this decision:
+
+- `DoMINO.forward()` reads geometry (`geometry_coordinates`, the `sdf_*` grids, `surface_mesh_*`),
+  sampled positions (`volume_mesh_centers`, `pos_*`) and `global_params_*`, and **returns**
+  `(volume_output, surface_output)`. No flow-field value is an input. `GeometryRep` is called as
+  `geo_rep_volume(geo_centers_vol, p_grid, sdf_grid)` — it encodes geometry.
+- The DoMINO paper (arXiv 2501.13350) abstract: *"DoMINO is a point cloud-based ML model that uses
+  local geometric information to predict flow fields on discrete points."*
+- PhysicsNeMo's transient DoMINO example (`transient_conjugate_heat_transfer_tank_fill`) is still
+  geometry → fields: static geometry from the first timestep plus global parameters, all future
+  timesteps in one forward pass, "no autoregressive rollout".
+
+So the former F3 row, "DoMINO encoder: field snapshot → latent z", describes no DoMINO
+configuration. **Provenance of the error:** the 2026-04-28 lab deck's slide 31 used DoMINO
+*correctly* — encoder input = the wing surface point cloud (IB markers) — while its slide 29 caption
+said "encoder compresses CFD snapshots → z". The June grant draft merged the two into one
+self-contradicting sentence ("a DoMINO encoder (PhysicsNeMo's geometry neural operator) that
+compresses each CFD flow state into a latent vector z"), and this roadmap inherited the flow-field
+reading. The January 2026 slide deck (`eberrigan_physics_nemo_for_rl_proposal.pdf`, byte-identical
+to `slides.pdf`) never mentions DoMINO.
+
+**Why DoMINO-as-field-predictor alone is not the answer either:** a flapping wing passes through the
+same pose twice per beat with different flow, so a pose → field map is ill-posed. Adding phase and
+the config parameters as global parameters makes it well-posed **for fixed periodic kinematics**, but
+once the commanded kinematics change mid-flight — an explicit goal after hover — the wake was built by
+the previous command and there is no parameter vector to condition on. DoMINO has no state slot.
+
+**PhysicsNeMo does ship a field → latent encoder:** `physicsnemo/models/mesh_reduced/` (last changed
+`8e81b62`, 2026-02-11) — `Mesh_Reduced` (PbGMR-GMUS, arXiv 2201.09113), whose `encode()` takes node
+field values to a latent at pivotal nodes, plus `Sequence_Model`, which rolls a latent sequence
+forward with an optional physical `context` vector. Worked example:
+`examples/cfd/vortex_shedding_mesh_reduced/`. **Unverified at our scale:** that example is 1,699
+nodes in 2D; our corpus is 256×128×256 ≈ 8.4 M cells. On our fixed Eulerian IB grid the graph is
+built once, never rebuilt, which removes the "graph rebuild each step" objection
+`ml-surrogate-notes.md` raised against graph models (that objection assumes a body-fitted mesh) —
+an inference, not a measurement.
+
+### The decision
+
+1. **F3 is a three-arm bake-off**, not an architecture commitment. One harness, the same held-out
+   configs, two metrics (force error vs. CFD; inference latency):
+   - **Arm A — first:** Track B's MLP with a **kinematics window** in place of instantaneous
+     parameters + phase. The baseline any field model must beat.
+   - **Arm B:** `Mesh_Reduced` encoder + `Sequence_Model` latent dynamics, kinematics as `context`.
+   - **Arm C:** DoMINO used as designed — wing pose + phase + config parameters → fields.
+
+   This is the draft proposal's promised "DoMINO-vs-DeepONet ablation", widened by one arm and given
+   an honest baseline.
+2. **A hover-only gate after arm A — a shortcut, never a cancellation.** On the 27 hover configs the
+   kinematics are periodic, so a kinematics window is fully determined by the config parameters +
+   phase: **on this corpus arm A carries no more information than Track B's existing model**, and the
+   gate can only answer "on hover, does a kinematics baseline already reach the CFD's own noise?" It
+   says nothing about history dependence after a command change. Outcomes:
+   - **Pass** (arm A's held-out error within the CFD uncertainty) → arms B and C are **not evaluated**
+     on the hover corpus; they are evaluated only on the commanded-change configs.
+   - **Fail** → arms B and C are evaluated on the hover corpus as well as the commanded-change configs.
+
+   Either way, hover snapshots remain available as **training** data (e.g. arm B's encoder): the
+   gate decides where the arms are evaluated, not what they may learn from — 3–5 switching runs alone
+   are too few to train an encoder.
+
+   The uncertainty must be **measured before the gate is applied, not assumed**. It is
+   component-dependent (T3c GCI_fine: CF_normal 3.7%, CF_chord 27.6%), so the gate is applied per
+   component.
+3. **Commanded-change configs always run, whatever the gate says.** A *command* is the kinematics
+   the RL policy controls (stroke amplitude, frequency, pitch). Every hover config holds its command
+   fixed for the whole run, so no hover result can show whether a latent is needed once the command
+   changes. A handful (~3–5) of configs whose command switches mid-run (e.g. 2 beats at one stroke
+   amplitude, then 2 at another) are **designed in F3's change and run after arm A** — arm A sets
+   the order of work, not whether these runs happen. **How to produce them is itself open**
+   (open question #6).
+4. **No regeneration for pressure.** IAMReX stores pressure **nodally**
+   (`NS_setup.cpp:376`, `Press_Type` on `TheNodeType`) and `gradp` cell-centered (`:386`); plotfiles
+   carry cell-centered state, so our decks have `gradpx/y/z` and no `p`. In incompressible flow `p` is
+   a function of `u` via the pressure Poisson equation and is fixed only up to a constant, so
+   velocity + ∇p is the complete prognostic state plus the gauge-invariant term worth precomputing.
+   Every **new** deck — starting with the commanded-change configs — sets
+   `amr.derive_plot_vars = avg_pressure` (`NS_setup.cpp:494`; no deck in the repo sets it today),
+   so pressure comes free whenever new CFD runs for another reason. A full-corpus regeneration just
+   for it would add ≈ +76 GB (+13%) — derived from #112's measured 67.1 MB/field, not measured.
+5. **Harpreet Sethi deck waits for arm A's result**, then asks whether `Mesh_Reduced` is the right
+   tool on a fixed Eulerian IB grid and whether it has been run at 10⁶–10⁷ nodes. This replaces the
+   long-open "DoMINO for rapid motion" question (`ml-surrogate-notes.md` Open Question #2).
+6. **The draft proposal's Stage-2 text is corrected when the program reopens**, folding in arm A's
+   result and Harpreet's feedback, so it is rewritten once.
+7. **F2's output carries forward.** `FieldSnapshot` / `PointCloud` / `FieldCorpus` serve all three
+   arms unchanged (`PointCloud.coords` / `.values` are `Mesh_Reduced`'s `position_mesh` / `x`).
+   `to_domino_volume` is kept for arm C but is **known incomplete**: `forward()` also reads six keys
+   absent from `GEOMETRY_HALF_KEYS` (`pos_volume_closest`, `pos_volume_center_of_mass`,
+   `pos_surface_center_of_mass`, `surface_mesh_neighbors`, `surface_neighbors_normals`,
+   `surface_neighbors_areas`), and its `grid` is the full volume where stock DoMINO's is a small
+   SDF bounding grid (#112). Both are arm C's to fix.
+
+> **Framing gap (verified 2026-09-21), resolved 2026-10-15:** stock DoMINO is geometry →
+> fields, not a fields → latent encoder. See "F3 framing decision" below for the finding and
+> what replaced the original F3 framing.
 
 ## Inputs and outputs
 
@@ -89,8 +178,9 @@ geometry (insect-wing tip speeds) is an unverified claim** (`ml-surrogate-notes.
   roadmap only adds the field half.
 - **Intermediate:** AMReX plotfiles (`plt00100`, ...) per pilot/corpus config, read via a `yt`-based
   extractor into either a uniform-grid array or an unstructured point cloud (decision: F1/F2).
-- **Output:** a trained DoMINO encoder + DeepONet latent-dynamics model, `metrics.json`, and a
-  Stage-2 evidence figure comparing this surrogate against Track B's MLP and against CFD on
+- **Output:** F3's bake-off result (which arm, if any, beats a kinematics window), the winning
+  latent-dynamics model, `metrics.json`, and a Stage-2 evidence figure comparing this surrogate
+  against Track B's MLP and against CFD on
   held-out configurations (mirrors Track B CC-4).
 
 ## Hardware
@@ -148,7 +238,7 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
     (preserves resolution, maps onto DoMINO's point-cloud **query-point** input more naturally, per
     `ml-surrogate-notes.md` "Moving Boundary Handling" — this is about the spatial sampling format
     DoMINO's `volume_mesh_centers` accepts, not about flow-field values being an input to DoMINO at
-    all; see the Vision section's framing-gap note for why that distinction now matters).
+    all; see "F3 framing decision" for why that distinction matters).
 
 > **Superseded 2026-08-10 (see the Sequencing note above):** `add-fine-corpus-field-capture`
 > measures storage from the full corrected 27-config run itself,
@@ -166,7 +256,7 @@ pilot measured `s/step` before projecting the full-corpus cost) and choose:
 > (CFL-driven) regeneration.
 
 ### CC-F4. Cluster-free fixtures for everything downstream of raw plotfiles.
-Same convention as Track B CC-2: F2 (field reader) and F3 (encoder) must be tested against the
+Same convention as Track B CC-2: F2 (field reader) and F3 (bake-off arms) must be tested against the
 committed synthetic plotfile fixture, not real cluster output — no RunAI, no GPU, no real
 plotfiles in CI.
 
@@ -180,14 +270,14 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 |---|---|---|---|---|
 | F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
 | F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ✅ |
-| F3 | `add-field-surrogate-encoder` | DoMINO encoder training scaffold: field snapshot → latent **z** (64–256 dim). Trained first at pilot scale (F1's small corpus) to get an early, honest read on the open "DoMINO for rapidly-moving geometry" question (Open question #1 below) before committing to the full corpus. | A5000 | ⬜ |
-| F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. | cluster | ⬜ |
-| F5 | `add-field-surrogate-dynamics` | DeepONet latent-dynamics model: (zₜ, kinematicsₜ) → (zₜ₊₁, Fₜ). Reuses Track B's force labels (`F_t`) unchanged — no force recomputation. | A5000 | ⬜ |
+| F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a hover-only gate against the measured CFD uncertainty that decides whether arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields) are also tried on hover data. Also designs and runs the ~3–5 commanded-change configs (with `avg_pressure`) after arm A — always, regardless of the gate. | A5000 (+ cluster for the new configs) | ⬜ |
+| F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. **Re-scope after F3:** whether a larger field corpus is needed depends on F3's results on the commanded-change configs; F3's hover gate alone cannot decide it. | cluster | ⬜ |
+| F5 | `add-field-surrogate-dynamics` | Latent-dynamics model (zₜ, kinematicsₜ) → (zₜ₊₁, Fₜ) at production scale, architecture taken from F3's winning arm (DeepONet stays a candidate, not a commitment). Reuses Track B's force labels (`F_t`) unchanged — no force recomputation. | A5000 | ⬜ |
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
 
 **Dependency order:** F1 → F2 (can start in parallel once the fixture exists, cluster-free) → F3
-(needs F1's pilot data + F2's reader) → F4 (only after F1's go/no-go + F3's pilot-scale training
-gives an early skill read) → F5 (needs F3's encoder + Track B's existing force labels) → F6 (needs
+(needs F2's reader + the fine corpus; arm A needs only Track B's labels) → F4 (only after F3's
+commanded-change results; see its re-scope note) → F5 (needs F3's winning arm + Track B's existing force labels) → F6 (needs
 F5's predictions). **F1 is superseded (see above); F2 onward now depend on
 `add-fine-corpus-field-capture` for corpus data instead.**
 
@@ -200,13 +290,9 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
 
 ## Open questions (prioritized)
 
-1. **DoMINO for rapid motion, and the deeper architecture-fit question underneath it** — still
-   unresolved; F3's pilot-scale training is the first real signal, not before. Two distinct layers,
-   don't conflate them:
-   - **Layer 1 (blocking, verified 2026-09-21):** stock DoMINO is geometry→fields, not fields→latent
-     — see the Vision section's framing-gap note above. F3 needs a real scoping decision here before
-     any training happens, not just a "does it work" experiment.
-   - **Layer 2 (literature checked 2026-09-23, still genuinely open):** even setting Layer 1 aside,
+1. ~~**DoMINO for rapid motion**~~ **Resolved 2026-10-15** — moot: stock DoMINO is geometry →
+   fields and cannot be the field encoder at all (see "F3 framing decision"). Replaced by #4 and #5.
+   - **Still relevant to arm C (literature checked 2026-09-23):** even used as designed,
      no published DoMINO result trains on a single geometry moving/deforming continuously through
      time — every result found (the [DoMINO paper](https://arxiv.org/abs/2501.13350), NVIDIA's own
      docs) trains on **static geometry variants** (1,000 different car shapes) at **steady-state**.
@@ -217,9 +303,8 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
      trained on IBAMR (not IAMReX) output, and explicitly does **not** generalize to unseen
      geometries/gaits/actuation patterns (only to held-out Reynolds numbers). This is a real data
      point against the "DoMINO's point-cloud architecture handles moving geometry naturally"
-     assumption in `ml-surrogate-notes.md`'s Moving Boundary Handling section — worth weighing
-     against a grid/FNO-based encoder architecture instead, not just assuming DoMINO once Layer 1 is
-     resolved.
+     assumption in `ml-surrogate-notes.md`'s Moving Boundary Handling section — the
+     evidence arm C's hover-data result should be read against.
    - **Out of scope for this roadmap, not just unresolved:** true elastic, two-way fluid-structure
      interaction (a body whose deformation is *computed from* fluid loads rather than prescribed —
      e.g. a jellyfish) is a **different problem class** from anything F1–F6 currently plan. Published
@@ -231,7 +316,7 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
      literature that does handle real elastic deformation uses **IBAMR**, a different code with
      flexible-structure support. A genuine two-way-coupled elastic body would need either a
      substantial IAMReX extension or a different solver entirely — a CFD-solver-level gap, not
-     something F3's encoder choice can work around. Not planned; noted here so it isn't silently
+     something F3's architecture choice can work around. Not planned; noted here so it isn't silently
      assumed in scope later.
 2. **Storage/subsampling policy** (CC-F3) — no answer until F1 runs; do not pre-commit a `plot_int`
    value in F2/F3 design docs before F1's measurement exists.
@@ -239,6 +324,15 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
    likely pilot-scale is enough to validate the training loop, full corpus needed for a trustworthy
    evidence figure (F6) — mirrors Track B's own coarse-grid-first, fine-grid-second sequencing.
    Confirm once F1 lands.
+4. **What is the corpus's own CFD force uncertainty?** — F3's hover gate is defined against it
+   and it must be measured on this corpus, not assumed (T3c GCI_fine was CF_normal 3.7% but
+   CF_chord 27.6%).
+5. **Does `Mesh_Reduced` scale from 1,699 2-D nodes to ~8.4 M 3-D cells?** — unverified; the first
+   question for Harpreet Sethi once arm A has a number.
+6. **How are commanded-change runs produced?** — unverified whether IAMReX can switch prescribed
+   kinematics mid-run. One plausible route is restarting from a checkpoint with an edited deck (the
+   corpus already writes checkpoints); the switch must also be smooth enough not to inject a
+   wing-velocity discontinuity. F3's proposal settles this before any cluster submission.
 
 ## Out of scope (still deferred)
 
