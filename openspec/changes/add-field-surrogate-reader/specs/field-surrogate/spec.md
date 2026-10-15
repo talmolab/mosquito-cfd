@@ -300,7 +300,7 @@ region the wrapper inherits the reader's "halo is reach" rule and returns no mor
 pre-refactor implementation; that divergence SHALL be pinned against the same frozen copy.
 
 The wrapper's accepted inputs are deliberately narrower. It SHALL raise `ValueError` for a NaN corner,
-a `lo` or `hi` that is not a 3-vector, a negative or non-integral `halo`, and a plotfile whose on-disk
+a `lo` or `hi` that is not a 3-vector, a negative, fractional or boolean `halo`, and a plotfile whose on-disk
 precision is fp32 — all of which the pre-refactor implementation accepted (the last silently, as
 upcast float64).
 
@@ -333,7 +333,7 @@ stopped resolving it would silently bypass those fakes, leaving tests green whil
 - **Given** the frozen copy, the committed fixture, and an fp32 plotfile written to a temporary
   directory
 - **When** each is called with a NaN corner, a scalar `lo`, a scalar `hi`, a negative `halo`, a
-  fractional `halo`, and (separately) on the fp32 plotfile
+  fractional `halo`, a boolean `halo`, and (separately) on the fp32 plotfile
 - **Then** the refactored wrapper raises `ValueError` in every case, and the frozen copy raises in none
   — so each narrowing is pinned on both sides rather than merely claimed
 
