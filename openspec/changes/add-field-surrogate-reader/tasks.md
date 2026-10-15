@@ -613,7 +613,8 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
 
     Mention `2856210`. Every number comes fresh from 85 and 88. Exit check:
     `git grep -nE "11-case|eleven|80 (region|bit)|1029|Stacked on|freshly allocated|duplicated entry in .fields"`
-    finds nothing outside the D11 history and the archived changes.
+    (restricted to `'*.md' '*.py'`, since CSV data and `uv.lock` hashes match `1029`) finds nothing
+    outside the D11 history and the archived changes.
 87. [ ] Cross-link #112, #120 and #121 with `see #N` (never a closing keyword):
     - #112 owns the NFS stat storm, the duplicated `grid` and sub-box reads;
     - #120 owns peak memory and covering-grid/`cg.field_data` retention, taken from #112;
