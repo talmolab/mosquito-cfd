@@ -349,7 +349,9 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
       position and hinge, and ``deck_sha256`` against the deck's own bytes;
     - every deck anchored to its CFD run's recorded ``deck_sha256``. For the fine corpus the
       anchor is a committed file, re-checked here. For the coarse corpus it is each run's
-      metadata on the NFS share, re-checked by the gate script, not in CI;
+      metadata on the NFS share: CI pins its path to exactly
+      ``<recorded input_dir>/<name>/run_metadata.json``, and the gate script's
+      ``--zero-offset-control`` re-verifies each deck against that file;
     - a hash for every consumed CSV, the runs directory recorded as given (never a resolved
       network path), and the digest of the image the CFD ran under, not whatever host
       re-extracted it.
@@ -387,6 +389,7 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
 
         anchor = record["deck_sha256_verified_against"]
         assert anchor, f"{name}: deck not anchored to its CFD run's deck_sha256"
+        assert not anchor.startswith(("//", "\\\\")), anchor  # never a network path
         if corpus.endswith("prelim_sweep_fine"):
             anchor_file = root / f"run_metadata_{name}.json"
             assert anchor == anchor_file.as_posix()
@@ -395,7 +398,9 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
             ]
             assert recorded == record["deck_sha256"], name
         else:
-            assert anchor.endswith(f"/{name}/run_metadata.json"), anchor
+            # Exactly this run's own metadata, beside the CSV that was hashed: not another
+            # corpus's runs, not a stray path that merely ends the same way.
+            assert anchor == f"{inputs['input_dir']}/{name}/run_metadata.json", anchor
 
     assert meta["dropped_configs"] == []
     assert not inputs["input_dir"].startswith(("//", "\\\\")), inputs["input_dir"]

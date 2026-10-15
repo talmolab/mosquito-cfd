@@ -11,7 +11,9 @@
 > aggregate R². The `CF_my` and force *targets* are unchanged in the dataset, but their
 > metrics are re-measured only by the retrain.
 >
-> The wing-phase geometry plots in `figures/` do not depend on moments and are current. The
+> The evidence figure's own provenance (`figures/run_metadata.json`) and its section of
+> `figures/README.md` are stale with it. The wing-phase geometry plots in `figures/`
+> (`*_wing_phases*`) do not depend on moments and are current. The
 > retrain in that change's final PR regenerates the surrogate and the evidence figure, and
 > removes this notice.
 

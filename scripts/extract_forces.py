@@ -12,10 +12,14 @@ plotfiles.
 Each deck is reconciled against the ``deck_sha256`` its CFD run recorded. By default that is
 ``run_metadata_<name>.json`` beside the manifest (the fine corpus's committed per-config files);
 ``--run-metadata-name run_metadata.json`` instead reads ``<input-dir>/<name>/run_metadata.json``,
-the file each run wrote beside its CSV.
+the file each run wrote beside its CSV. Giving the flag makes verification mandatory: every
+extracted config must be anchored, or nothing is written.
 
-The three outputs are all-or-nothing: each is written in full to a temporary beside its target,
-and all are moved into place only after every write succeeded.
+Outputs are written in full to temporaries beside their targets, and nothing is moved into place
+until every write succeeded, so a failure while writing changes nothing. Three renames cannot be
+atomic: the units sidecar and provenance are moved first and the dataset parquet **last**, so a
+failure while moving never leaves a new parquet beside stale provenance. It is reported with the
+outputs already replaced named and the temporaries not yet moved kept.
 
 Run from the repository root, e.g.::
 
@@ -49,6 +53,44 @@ from mosquito_cfd.force_surrogate import (
 def _temporary(target: Path) -> Path:
     """A temporary beside ``target`` (same directory, so the final move is a rename)."""
     return target.with_name(f".{target.name}.tmp")
+
+
+def _remove_quietly(path: Path) -> None:
+    """Best-effort cleanup that never masks the error being handled."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _check_run_metadata_name(name: str) -> None:
+    """``--run-metadata-name`` must be a bare file name inside each run directory."""
+    if (
+        name in ("", ".", "..")
+        or Path(name).name != name
+        or "/" in name
+        or "\\" in name
+    ):
+        raise ValueError(
+            f"--run-metadata-name must be a bare file name inside each run directory "
+            f"(<input-dir>/<config>/<name>), got {name!r}"
+        )
+
+
+def _check_outputs(outputs: Sequence[Path]) -> None:
+    """Reject directory targets and duplicate paths before anything is written.
+
+    Either would otherwise surface only while moving outputs into place, after an earlier
+    output had replaced its predecessor (a duplicate silently loses one output).
+    """
+    directories = [str(p) for p in outputs if p.is_dir()]
+    if directories:
+        raise ValueError(f"output path(s) {directories} are directories, not files")
+    if len({p.resolve() for p in outputs}) != len(outputs):
+        raise ValueError(
+            f"--out, --units and --metadata must not share the same path: "
+            f"{[str(p) for p in outputs]}"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -96,17 +138,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help=(
             "Reconcile each deck against <input-dir>/<name>/<this file>'s deck_sha256 (the "
-            "metadata each CFD run wrote beside its CSV). Default: run_metadata_<name>.json "
-            "beside the manifest."
+            "metadata each CFD run wrote beside its CSV), and require every extracted "
+            "config to be anchored. Default: run_metadata_<name>.json beside the manifest, "
+            "where present."
         ),
     )
     args = parser.parse_args(argv)
-    outputs = (args.out, args.units, args.metadata)
-    directories = [p for p in outputs if p.is_dir()]
-    if directories:
-        # Rejected up front: it would otherwise fail only at the final move, after an
-        # earlier output had already replaced its predecessor.
-        raise ValueError(f"output path(s) {directories} are directories, not files")
+    # Order matters: the parquet is moved into place last (see the module docstring).
+    outputs = (args.units, args.metadata, args.out)
+    _check_outputs(outputs)
+    if args.run_metadata_name is not None:
+        _check_run_metadata_name(args.run_metadata_name)
 
     # Validated read (clear ValueError on a malformed manifest, not a bare KeyError) so the
     # CLI path benefits from the same guards as build_dataset.
@@ -130,6 +172,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         allow_missing=args.allow_missing,
         run_metadata_paths=run_metadata_paths,
     )
+    if run_metadata_paths is not None:
+        # The flag is an explicit opt-in to verification, so it fails closed: a missing
+        # file, a file without deck_sha256, or a misspelled name is an error, not a silent
+        # "unverified". Configs dropped under --allow-missing consumed nothing.
+        unanchored = sorted(
+            name
+            for name, record in provenance.items()
+            if record["deck_sha256_verified_against"] is None
+        )
+        if unanchored:
+            raise ValueError(
+                f"config(s) {unanchored} are not anchored: no deck_sha256 found in "
+                f"<input-dir>/<config>/{args.run_metadata_name} (--run-metadata-name "
+                "makes verification mandatory)"
+            )
     # The moment frame and the consumed inputs come from what build_dataset applied and
     # read, not re-derived here, so the record cannot drift from the parquet. Captured
     # BEFORE writing anything, so the git state describes the tree extraction ran from
@@ -143,9 +200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             provenance, input_dir=args.input_dir, csv_name=args.csv_name
         ),
     )
-    # All-or-nothing: write every output in full to a temporary, then move them all into
-    # place. A failure while writing leaves every previous output untouched and no new
-    # parquet beside stale provenance; temporaries are removed either way.
+    # Write every output in full to a temporary first: a failure here changes nothing.
     temporaries = {target: _temporary(target) for target in outputs}
     try:
         write_dataset(df, temporaries[args.out], temporaries[args.units])
@@ -155,11 +210,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) as handle:
             json.dump(metadata, handle, indent=2, ensure_ascii=False)
             handle.write("\n")
-        for target, temporary in temporaries.items():
-            os.replace(temporary, target)
-    finally:
+    except BaseException:
         for temporary in temporaries.values():
-            temporary.unlink(missing_ok=True)
+            _remove_quietly(temporary)
+        raise
+    # Then move them into place, parquet last. Three renames cannot be atomic; a failure
+    # here is reported with what was already replaced, and the rest are kept as-is.
+    replaced: list[Path] = []
+    for target, temporary in temporaries.items():
+        try:
+            os.replace(temporary, target)
+        except OSError as exc:
+            pending = ", ".join(
+                str(t) for t in list(temporaries.values())[len(replaced) :]
+            )
+            done = ", ".join(str(p) for p in replaced) or "none"
+            raise RuntimeError(
+                f"moving outputs into place failed at {target}: {exc}. Outputs already "
+                f"replaced: {done}. The dataset parquet is moved last, so it is "
+                f"unchanged. Temporaries not yet moved (kept): {pending}"
+            ) from exc
+        replaced.append(target)
 
     print(
         f"Wrote {len(df)} rows to {args.out.as_posix()} (dropped={dropped or 'none'})"

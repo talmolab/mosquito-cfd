@@ -439,7 +439,9 @@ def test_csv_hash_comparison_covers_both_key_sets(change):
 @pytest.mark.parametrize("tampered", [False, True], ids=["faithful", "tampered"])
 def test_zero_offset_mode_rehashes_csvs_through_main(tmp_path, capsys, tampered):
     """--zero-offset-control must actually run the CSV re-hash, not just define it. The
-    extraction itself is stood in for (it needs the raw CSVs); everything after it is real."""
+    extraction itself is stood in for (it needs the raw CSVs); everything after it is real.
+    The stub returns the baseline frame, so this test's zero-offset line compares the
+    baseline with itself: a placeholder, not evidence. Only the re-hash line is under test."""
     corpus, base = _regenerated_throwaway_corpus(tmp_path)
     module = _load()
     recorded = json.loads((corpus / "run_metadata.json").read_text(encoding="utf-8"))
@@ -456,3 +458,77 @@ def test_zero_offset_mode_rehashes_csvs_through_main(tmp_path, capsys, tampered)
     line = next(ln for ln in out.splitlines() if "recorded CSV hashes match" in ln)
     assert line.startswith("FAIL" if tampered else "PASS"), out
     assert rc == (1 if tampered else 0), out
+
+
+def _meta_with_anchors(anchors):
+    return {
+        "moment_reference": {
+            "configs": {
+                n: {"deck_sha256_verified_against": a} for n, a in anchors.items()
+            }
+        }
+    }
+
+
+def test_recorded_anchors_are_re_verified_by_the_zero_offset_build():
+    """Task 32s. The recorded anchors are what the re-extraction must verify against: each
+    deck that was anchored must come back anchored to the same file."""
+    module = _load()
+    meta = _meta_with_anchors({"a": "Z:/runs/a/run_metadata.json", "b": None})
+    assert module.recorded_anchors(meta) == {"a": Path("Z:/runs/a/run_metadata.json")}
+
+    same = {
+        "a": {"deck_sha256_verified_against": "Z:/runs/a/run_metadata.json"},
+        "b": {"deck_sha256_verified_against": None},
+    }
+    assert _failed(module.compare_anchors(meta, same)) == []
+    for broken in (
+        {"a": {"deck_sha256_verified_against": None}},  # silently unverified
+        {"a": {"deck_sha256_verified_against": "elsewhere.json"}},
+    ):
+        provenance = {**same, **broken}
+        assert _failed(module.compare_anchors(meta, provenance)) == [
+            "decks re-verified against their recorded anchors"
+        ]
+
+
+@pytest.mark.parametrize("outcome", ["verified", "deck-changed"])
+def test_zero_offset_mode_re_verifies_anchors_through_main(tmp_path, capsys, outcome):
+    """main() passes the recorded anchors to the re-extraction, and a deck that no longer
+    matches its anchor is a FAIL in the report, not a traceback."""
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    corpus, base = _regenerated_throwaway_corpus(tmp_path)
+    meta_path = corpus / "run_metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    anchor = "Z:/runs/s35_f085_p30/run_metadata.json"
+    meta["moment_reference"]["configs"]["s35_f085_p30"][
+        "deck_sha256_verified_against"
+    ] = anchor
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    hashes = meta["extraction_inputs"]["csv_sha256"]
+    seen = {}
+
+    def stub(*args, run_metadata_paths=None, **kwargs):
+        seen["paths"] = run_metadata_paths
+        if outcome == "deck-changed":
+            raise ConfigExtractionError(
+                "deck for config 's35_f085_p30' ... deck_sha256"
+            )
+        provenance = {
+            n: {"csv_sha256": h, "deck_sha256_verified_against": None}
+            for n, h in hashes.items()
+        }
+        provenance["s35_f085_p30"]["deck_sha256_verified_against"] = anchor
+        return base, provenance
+
+    module = _load()
+    module.build_with_zero_offset = stub
+    rc = module.main(
+        ["--corpus", str(corpus), "--zero-offset-control", "--input-dir", str(tmp_path)]
+    )
+    out = capsys.readouterr().out
+    assert seen["paths"] == {"s35_f085_p30": Path(anchor)}
+    line = next(ln for ln in out.splitlines() if "recorded anchors" in ln)
+    assert line.startswith("PASS" if outcome == "verified" else "FAIL"), out
+    assert rc == (0 if outcome == "verified" else 1), out

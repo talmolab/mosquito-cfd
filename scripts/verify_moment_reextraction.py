@@ -20,7 +20,9 @@ Checks (OpenSpec change ``fix-moment-reference-hinge``, tasks 30 / 30a / 30b):
   per-config offsets equal the deck-derived ones, and every consumed CSV has a recorded hash.
 
 With ``--zero-offset-control`` it also re-reads every raw CSV, so it can confirm that each
-recorded ``csv_sha256`` is the bytes on disk, not merely present.
+recorded ``csv_sha256`` is the bytes on disk, not merely present. That re-extraction is given
+the recorded ``deck_sha256_verified_against`` files, so it also confirms that each deck still
+matches the anchor it was recorded against.
 
 Row counts cannot tell the two corpora apart (both have identical per-config ``max_step`` maps),
 so the printed raw-force digests -- and the CI tripwires that pin them -- are what catch a
@@ -297,26 +299,64 @@ def _shift_forced_to_zero():
 
 
 def build_with_zero_offset(
-    manifest: Path, input_dir: Path, csv_name: str
+    manifest: Path,
+    input_dir: Path,
+    csv_name: str,
+    *,
+    run_metadata_paths: Mapping[str, Path] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """The rewired extractor over the raw CSVs, with only the shift disabled.
 
     Deck resolution, the ``X,Y,Z`` read and its guards, the ``iStep`` dedup, column order and
     dtypes all run for real. Round-tripped through parquet so dtypes match a committed file.
-    Also returns the build's per-config provenance (including each CSV's sha256).
+    Also returns the build's per-config provenance (each CSV's sha256 and each deck's anchor).
+    ``run_metadata_paths`` re-verifies each deck against a given anchor file.
     """
     csv_paths = {
         c["name"]: input_dir / c["name"] / csv_name
         for c in load_manifest_configs(manifest)
     }
     with _shift_forced_to_zero():
-        frame, dropped, provenance = dataset_module.build_dataset(manifest, csv_paths)
+        frame, dropped, provenance = dataset_module.build_dataset(
+            manifest, csv_paths, run_metadata_paths=run_metadata_paths
+        )
     if dropped:
         raise ValueError(f"zero-offset control dropped configs {dropped}")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "zero_offset.parquet"
         frame.to_parquet(path, index=False)
         return pd.read_parquet(path), provenance
+
+
+def recorded_anchors(new_meta: Mapping) -> dict[str, Path]:
+    """The anchor file each config's deck was verified against, as the metadata records it."""
+    configs = (new_meta.get("moment_reference") or {}).get("configs") or {}
+    return {
+        name: Path(record["deck_sha256_verified_against"])
+        for name, record in configs.items()
+        if record.get("deck_sha256_verified_against")
+    }
+
+
+def compare_anchors(new_meta: Mapping, provenance: Mapping) -> list[Check]:
+    """Every recorded anchor must re-verify.
+
+    The re-extraction, given the same anchor files, must report each anchored deck as
+    verified against the same file.
+    """
+    expected = {n: p.as_posix() for n, p in recorded_anchors(new_meta).items()}
+    actual = {
+        name: record.get("deck_sha256_verified_against")
+        for name, record in provenance.items()
+    }
+    bad = sorted(n for n, anchor in expected.items() if actual.get(n) != anchor)
+    return [
+        Check(
+            "decks re-verified against their recorded anchors",
+            not bad,
+            f"mismatch in {bad}" if bad else f"{len(expected)} anchors re-verified",
+        )
+    ]
 
 
 def compare_csv_hashes(new_meta: Mapping, provenance: Mapping) -> list[Check]:
@@ -394,11 +434,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     checks = compare_frames(baseline, new, offsets)
     checks += compare_metadata(baseline_meta, new_meta, offsets)
     if args.zero_offset_control:
-        zero, zero_provenance = build_with_zero_offset(
-            corpus / "sweep_manifest.json", args.input_dir, args.csv_name
-        )
-        checks += compare_zero_offset(baseline, zero)
-        checks += compare_csv_hashes(new_meta, zero_provenance)
+        try:
+            zero, zero_provenance = build_with_zero_offset(
+                corpus / "sweep_manifest.json",
+                args.input_dir,
+                args.csv_name,
+                run_metadata_paths=recorded_anchors(new_meta),
+            )
+        except dataset_module.ConfigExtractionError as exc:
+            # A deck that no longer matches its recorded anchor (or any other per-config
+            # input defect) is a verdict, not a traceback.
+            checks.append(
+                Check(
+                    "decks re-verified against their recorded anchors", False, str(exc)
+                )
+            )
+        else:
+            checks += compare_zero_offset(baseline, zero)
+            checks += compare_csv_hashes(new_meta, zero_provenance)
+            checks += compare_anchors(new_meta, zero_provenance)
 
     print()
     for check in checks:

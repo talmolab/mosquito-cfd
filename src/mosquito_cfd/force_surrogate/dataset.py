@@ -245,8 +245,9 @@ def _verify_deck_sha256(
 
     The deck is a mutable working-tree file while the CSV was written by the solver; a deck
     edited without re-running the CFD would shift about a hinge the run never used. Returns
-    the anchoring metadata file's name, or ``None`` when there is no anchor (no per-config
-    run metadata, or one without ``deck_sha256`` -- the coarse corpus's known limitation).
+    the anchoring metadata file's path in posix form (not resolved), or ``None`` when there
+    is no anchor (no such file, or one without ``deck_sha256``). ``extract_forces.py
+    --run-metadata-name`` turns a ``None`` into an error.
     """
     if metadata_path is None or not metadata_path.is_file():
         return None
