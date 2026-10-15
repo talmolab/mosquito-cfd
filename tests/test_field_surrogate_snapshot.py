@@ -898,6 +898,71 @@ def test_wrapper_argument_narrowing_is_pinned(case, kwargs, match, tmp_path):
         extract_eulerian_box(str(path), **kwargs)
 
 
+#: The committed fixture is cubic, origin 0, dx 1, with w and every gradp* identically zero, so a
+#: wrapper that permuted fields or axes passed every test above (review of #106: S1-S4). This
+#: variant is written to tmp_path -- the committed fixture and the hash-pinned oracle are
+#: untouched. Dyadic origin and spacing keep every face exact (a non-dyadic origin makes yt itself
+#: refuse the full-domain covering grid).
+ASYM = {
+    "shape": (8, 6, 4),
+    "origin": (-2.0, 0.5, 1.25),
+    "dx": (0.5, 0.25, 1.0),
+    "distinct_fields": True,
+}
+ASYM_REQUESTS = [
+    ("full", (-_INF,) * 3, (_INF,) * 3, 0),
+    ("interior", (-1.1, 0.8, 2.0), (1.3, 1.6, 4.5), 0),
+    ("x_slab", (-0.6, -_INF, -_INF), (1.2, _INF, _INF), 0),
+    ("upper_corner_halo1", (1.6, 1.9, 4.5), (_INF,) * 3, 1),
+    ("lower_corner_point_halo2", (-2.0, 0.5, 1.25), (-2.0, 0.5, 1.25), 2),
+]
+
+
+@pytest.fixture(scope="module")
+def asym_plotfile(tmp_path_factory):
+    root = tmp_path_factory.mktemp("asym") / "plt_asym"
+    return _fixture_generator().write_fixture(root, **ASYM)
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:] for c in ASYM_REQUESTS],
+    ids=[c[0] for c in ASYM_REQUESTS],
+)
+def test_wrapper_maps_every_field_and_axis_on_an_asymmetric_grid(
+    asym_plotfile, lo, hi, halo
+):
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(asym_plotfile), lo=lo, hi=hi, halo=halo)
+    want = _legacy()(str(asym_plotfile), lo=lo, hi=hi, halo=halo)
+    assert sorted(got) == LEGACY_KEYS
+    for key in LEGACY_KEYS:
+        np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+    # Independently of the oracle: spacing per axis, centres on the per-axis lattice, and every
+    # field equal to its own analytic formula (literals here, not the generator's code).
+    np.testing.assert_array_equal(got["dx"], ASYM["dx"])
+    for i, axis in enumerate(("x", "y", "z")):
+        lattice = (
+            ASYM["origin"][i] + (np.arange(ASYM["shape"][i]) + 0.5) * ASYM["dx"][i]
+        )
+        assert got[axis].size > 0, axis
+        assert np.isin(got[axis], lattice).all(), axis
+        np.testing.assert_allclose(np.diff(got[axis]), ASYM["dx"][i], err_msg=axis)
+    x, y, z = np.meshgrid(got["x"], got["y"], got["z"], indexing="ij")
+    analytic = {
+        "u": -1.3 * y,
+        "v": 1.3 * x,
+        "w": 0.7 * z,
+        "gradpx": 0.11 * x + 1.0,
+        "gradpy": -0.23 * y + 2.0,
+        "gradpz": 0.37 * z + 3.0,
+    }
+    for name, expected in analytic.items():
+        np.testing.assert_allclose(got[name], expected, rtol=1e-12, err_msg=name)
+
+
 def test_matrix_shaped_corner_now_fails_with_a_clear_error():
     # NOT a narrowing -- the pre-refactor adapter already failed on a (1, 3) corner, just with an
     # opaque TypeError from deep in its slicing. Pinned separately from NARROWED_REQUESTS, whose
