@@ -450,7 +450,7 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       - D11 "no CI coverage at HEAD": say "at proposal time".
       - 98-103: put into past tense once 82 lands.
     - Gate: `openspec validate --strict`.
-82. [ ] **Red->green: one parametrized divergence test over `DIVERGENCE_CASES`.** It keeps the
+82. [x] **Red->green: one parametrized divergence test over `DIVERGENCE_CASES`.** It keeps the
     name `test_region_divergence_from_legacy_is_pinned` and discharges both "outside the domain
     is pinned" and "the wrapper's documented divergence is pinned against the frozen copy". This
     replaces the earlier plan's duplicated 81/82. It asserts:
@@ -472,6 +472,22 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     - (c) the wrapper returns cell N-2 for `above_within_reach_h2`.
 
     Also update the stale comment at 397-401 ("PR B MUST re-point...").
+
+    **Result.** Committed `db866ac`, then mutants run against the divergence test plus the
+    `REGION_CASES` oracle differential. Each file was restored from saved bytes and its SHA-256
+    checked.
+
+    | mutant | divergence test | oracle differential over `REGION_CASES` |
+    |---|---|---|
+    | (a) oracle body restored into the wrapper | 8/8 fail | 0 fail |
+    | (b) wrapper clamps corners | 8/8 fail | **0 fail** (all 16 pass) |
+    | (c) cell N-2 instead of N-1 | `above_within_reach_h2` fails | 0 fail |
+
+    - (b) confirms this test is the only guard outside the parity region.
+    - (c) **survived** the first version: it is count-correct, and N-2 lies inside the frozen copy's
+      `[N-2, N-1]`. Re-run against `db866ac`'s test, it gave 0 failures. It is killed only by the
+      edge-anchoring assertion added in the follow-up commit: on an axis wholly outside the domain,
+      the block sits at the frozen copy's edge-facing end.
 83. [ ] **Test first: `test_wrapper_argument_narrowing_is_pinned`.** Over a NaN corner, a scalar
     `lo`, a scalar `hi`, `halo=-1`, `halo=1.9`, and an fp32 plotfile written to `tmp_path` via
     `write_fixture(real_dtype=float32)`, assert both:
