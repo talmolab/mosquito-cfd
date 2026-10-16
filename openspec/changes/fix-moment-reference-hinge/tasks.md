@@ -580,7 +580,7 @@ retrain runs from a clean tree whose commit holds the code and prose that produc
     - `:233`: #20 is closed.
     Leave the CHANGELOG's #71 entries (`docs/CHANGELOG.md:49-50`) alone — append-only history.
     *Done `14153e5`. Also added rows for #58 and #71, absent from the table.*
-46. [ ] Disambiguate "corrected hinge" wherever touched: "corrected hinge geometry (#71)" for the
+46. [x] Disambiguate "corrected hinge" wherever touched: "corrected hinge geometry (#71)" for the
     deck fix (README `:341`, `:348`, `:362`), "hinge-referenced moments" / "moment reference point"
     for this change, never a bare "hinge fix".
     *`:341`/`:362` done `14153e5`; `:266`/`:348` carry retrain numbers and are reworded with task 41.*
@@ -668,36 +668,56 @@ protocol rather than measuring it.
     otherwise the change is reported as within seed variation. Prose (task 41) states only claims
     that hold across all five seeds, or quotes the range. File an issue for multi-seed evaluation in
     the trainer and evidence figure, whose caption still prints single-seed numbers.
-38a. [ ] **Pre-register the tolerance before task 36:** floor = max |Δ| over the six targets and the
-    three task-35 pairs; tolerance = 3 × floor (1e-6 if the floor is 0). Write it here first.
-36. [ ] Retrain on the corrected committed parquet with the same arguments, `--dataset
+    *Original 38a, superseded by the revised 38a above (the floor is exactly 0, so this rule's
+    1e-6 tolerance would fail any data change by construction):* floor = max |Δ| over the six targets
+    and the three task-35 pairs; tolerance = 3 × floor (1e-6 if the floor is 0).
+36. [x] Retrain on the corrected committed parquet with the same arguments, `--dataset
     examples/prelim_sweep/dataset.parquet --out-dir examples/prelim_sweep/surrogate` (seed 1234),
     after the seeds 1235-1238 scratchpad runs on the same parquet (task 38a), so those run from the
     clean tree too.
-37. [ ] `git diff --exit-code uv.lock`; `library_versions` still `torch 2.12.1+cu126` /
+    *Done `8185268` (seed 1234 from the clean tree at `d13f06e`; recorded `dirty: false` and the corrected dataset's sha256 `01c88ae9…`). Seeds 1235-1238 ran first, in the scratchpad.*
+37. [x] `git diff --exit-code uv.lock`; `library_versions` still `torch 2.12.1+cu126` /
     `physicsnemo 2.1.1`; `git diff --exit-code examples/prelim_sweep/dataset.parquet
     examples/prelim_sweep_fine/` (PR3 must not touch either corpus); `uv run --group train pytest -m
     gpu tests/test_force_surrogate_train_gpu.py` on the A5000.
-38. [ ] **Verification** — *(superseded by 38a: report the 5-seed old-vs-new comparison; no CF_my
+    *Done: `uv.lock` unchanged; torch 2.12.1+cu126 / physicsnemo 2.1.1; neither corpus touched since #118; GPU-tier tests 7/7.*
+38. [x] **Verification** — *(superseded by 38a: report the 5-seed old-vs-new comparison; no CF_my
     pass/fail)* |Δ `CF_my` config-resolved R²| (corrected vs committed) is within the
     task-38a tolerance; report pass/fail against that pre-registered number, and the multiple of the
     floor. Operator evidence, not a CI test: the target is invariant, the shared-trunk prediction is
     not. Record the new `CF_mx`/`CF_mz` (and all six) honestly whatever they are, each as a multiple
     of the floor.
+    *Done (per 38a). No target's old and new 5-seed ranges are disjoint, so none moved beyond
+    seed variation:*
+
+    | target | old 1234 | old range | new 1234 (committed) | new range |
+    |---|---|---|---|---|
+    | CF_x | −0.007 | [−1.45, 0.73] | −4.171 | [−4.72, 0.48] |
+    | CF_y | 0.811 | [0.81, 0.98] | 0.627 | [0.63, 0.99] |
+    | CF_z | 0.985 | [0.95, 1.00] | 0.980 | [0.96, 1.00] |
+    | CF_mx | 0.993 | [0.97, 1.00] | 0.957 | [0.96, 1.00] |
+    | CF_my | 0.507 | [−0.46, 0.81] | 0.069 | [−1.96, 0.93] |
+    | CF_mz | 0.713 | [−5.45, 0.86] | −8.449 | [−8.45, 0.92] |
+
+    *The design's risk ("`CF_mx` skill will likely drop sharply") is not borne out across seeds.
+    Seed 1234 is a low draw for CF_x, CF_y and CF_mz; committed anyway as pre-registered. Multi-seed
+    evaluation in the trainer/figure is #125.*
 
 > **Human checkpoint before committing binaries.** Push exactly one surrogate/figure version:
 > blobs pushed to a PR head are permanent on GitHub even after a squash-merge. Review fixes that do
 > not change the model go in commits with no binaries.
 
-40. [ ] Commit the four `surrogate/*` outputs (red by design: the figure sidecar no longer equals
+40. [x] Commit the four `surrogate/*` outputs (red by design: the figure sidecar no longer equals
     `metrics.json`). Then regenerate the evidence figure from that clean tree, so
     `figures/run_metadata.json` records `dirty: false` and that commit. Commit
     `figures/{evidence_figure.png,evidence_figure_metrics.json,run_metadata.json}` **together with**
     tasks 41c, 41 and 45, which makes the head green. Do not regenerate the wing-phase PNGs (they do
     not depend on `CF_m*`; re-rendering adds blobs for nothing).
-41c. [ ] Remove the README staleness banner (`examples/prelim_sweep/README.md:3-17`); the banner test
+    *Done: surrogate `8185268`, figure + README + CHANGELOG `0140425` (figure recorded `8185268`, `dirty: false`). Head green: 1316 passed. Mutation on the surrogate/figure halves of 39: 9/9 killed.*
+41c. [x] Remove the README staleness banner (`examples/prelim_sweep/README.md:3-17`); the banner test
     then requires its absence.
-41. [ ] Refresh every README number derived from `surrogate/` or `evidence_figure_metrics.json`,
+    *Done `0140425`; the banner test now passes in its inverse direction.*
+41. [x] Refresh every README number derived from `surrogate/` or `evidence_figure_metrics.json`,
     found by grep rather than a fixed line list, and mark each **changes** or **invariant** in the PR
     body:
     - changes: aggregate R² / "~99.9%" (`:262-263`, `:334`), the config-mean range (`:266`), the
@@ -706,23 +726,26 @@ protocol rather than measuring it.
       headline the retrain may overturn), the timing numbers (`:371-375`, incl. the latency);
     - invariant (target-only or timing-independent): `:349` ≈0.005% (`within_config_variance_fraction`
       reads true targets only, `train.py:557-558`), the `:361-362` overshoot factors, `:372` N=12,535.
-45. [ ] Extend the existing #118 BREAKING `### Changed` entry (`docs/CHANGELOG.md:29-33`) rather than
+    *Done `0140425`. Also added the 5-seed range table and rewrote the two seed-1234 artifacts (the CF_x "tell", now "negative for 4 of 5 seeds"; the CF_mx-beats-CF_my ranking). The latency (~440×) is flagged as a single timing sample (~380-470× across identical reruns). Mutation on 41b: 8/8 killed.*
+45. [x] Extend the existing #118 BREAKING `### Changed` entry (`docs/CHANGELOG.md:29-33`) rather than
     adding a second: replace "still reflect the old targets until the retrain" with the outcome (new
     `CF_mx`/`CF_mz` config-resolved R², `CF_my` against the noise floor), suffixed with this PR's
     number.
+    *Done `0140425`. Replace `(#108)` with the PR number once opened.*
 
 ## 9. Close-out
 
-48. [ ] `uv run ruff check` / `ruff format --check` over the CI paths (`ci.yml:24,27`): `src/ tests/
+48. [x] `uv run ruff check` / `ruff format --check` over the CI paths (`ci.yml:24,27`): `src/ tests/
     scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`.
-49. [ ] `uv run pytest -m "not gpu"` green, with the task-0/0b list reconciled — including the banner
+49. [x] `uv run pytest -m "not gpu"` green, with the task-0/0b list reconciled — including the banner
     test passing with the banner **removed** (the inverse direction proves the retrain consumed the
     corrected parquet).
-50. [ ] Both parquets expose exactly `DATASET_COLUMNS` with committed dtypes; both sidecars
+    *1316 passed, 14 skipped, 0 failed (`--group viz`, as CI).*
+50. [x] Both parquets expose exactly `DATASET_COLUMNS` with committed dtypes; both sidecars
     round-trip through `read_units_sidecar`.
-51. [ ] `openspec validate fix-moment-reference-hinge --strict`
+51. [x] `openspec validate fix-moment-reference-hinge --strict`
 52. [ ] `/pre-merge-check`, including the 5-reviewer `/review-pr`. Before `/cleanup-merged`, check
-    `grep -c '\[ \]' tasks.md` is 0 (`openspec list` does not see `N. [ ]` tasks).
+    `grep -c '\[ \]' tasks.md` is 0 (`openspec list` does not count numbered-list checkboxes).
 53. [x] *(PR2: 24.2 MiB of new parquet blobs, stated in #118 and on #102.)* State the ~26 MiB binary growth in the PR body for issue #102's evidence.
 53a. [ ] State PR3's own share (~1.9 MiB: holdout parquet ~1.5 MiB, PNG ~0.27 MiB, `.pt` ~41 KiB) in
     the PR body and comment it on #102.
