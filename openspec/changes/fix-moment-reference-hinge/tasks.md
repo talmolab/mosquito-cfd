@@ -738,41 +738,50 @@ protocol rather than measuring it.
 No blocking finding. All recomputable numbers, hashes and recorded commits checked out. Fixes, each
 test-first where it changes behaviour:
 
-54. [ ] **CHANGELOG contradicts itself.** Fold #118's "still reflect the old targets until the
+54. [x] **CHANGELOG contradicts itself.** Fold #118's "still reflect the old targets until the
     retrain" sub-bullet into the retrain outcome (task 45 said *replace*; it was appended). Move the
     "`(#108)` → PR number" action into 53a so the unchecked-box gate catches it.
-55. [ ] **Commit the seed record.** `examples/prelim_sweep/surrogate/seed_variation.json` (text, no
+    *Done `4037502`.*
+55. [x] **Commit the seed record.** `examples/prelim_sweep/surrogate/seed_variation.json` (text, no
     binaries): per-seed `config_mean_r2` for seeds 1234-1238 on both datasets, with each run's
     recorded commit, dataset sha256, epochs, host and library versions. **Test first:** its
     corrected seed-1234 entry equals the committed `metrics.json`, its pre-#108 seed-1234 entry
     equals `fea817a`'s `metrics.json`, and the README's 5-seed table equals its min/max.
-56. [ ] **Rewrite the README-R² guard (41b).** Mutation found it fails open (Unicode minus, a space
+    *Done `2a70d62` (test seen red with the record absent, then the record restored from saved bytes). Mutation: 14/14 killed.*
+56. [x] **Rewrite the README-R² guard (41b).** Mutation found it fails open (Unicode minus, a space
     after ≈, an "R² ≈" form, `=`) and it forced ungrammatical prose. **Test first:** expected
     `CF_c ≈v` strings are built from `metrics.json` for all six targets and must each appear; the
     README is normalised (`−`→`-`, whitespace around `≈`); any other current-form quote fails unless
     allow-listed as historical. Read the parallelism and throughput figures from the sidecar too.
-57. [ ] **README claims match n=5.** "no shift detected under a conservative rule", not "did not
+    *Done `39a5e66`. Mutation: 13/13 killed, including the four forms that survived the old guard.*
+57. [x] **README claims match n=5.** "no shift detected under a conservative rule", not "did not
     move"; CF_x/CF_y/CF_z/CF_my targets are identical in both datasets, so any change in their skill
     comes from joint training; CF_y is moderately seed-robust; the caption's "tell" is the most
     negative target (this seed: off-panel CF_mz) while CF_x is negative for 4 of 5 seeds; reconcile
     "not bitwise" (`:274`) with the observed bitwise reruns and `metrics.json` `bitwise: cpu_only`.
-58. [ ] **Relax the branch pin** in `test_regenerated_records_carry_a_clean_git_commit`: keep the
+    *Done `39a5e66`.*
+58. [x] **Relax the branch pin** in `test_regenerated_records_carry_a_clean_git_commit`: keep the
     contract (40-hex commit, `dirty is False`, no `error`) and require a non-empty branch other than
     `main`/`HEAD`, so #110/#114/#125 need not edit it. Anchor the module's paths at
     `Path(__file__)` (it failed 7/7 from another cwd) and fix its docstring (banner reference).
-59. [ ] **Hash the dataset at load.** `run_training` hashes the parquet when it reads it and
+    *Done `2a70d62`; 9/9 pass from the repo root and from `C:\`. Branch mutants: 5/5 killed.*
+59. [x] **Hash the dataset at load.** `run_training` hashes the parquet when it reads it and
     `build_training_metadata` refuses a record whose `inputs.hash` differs (dataset changed during
     training); a directory gets "not a regular file". **Test first** (CPU).
-60. [ ] **Caption names its seed (user decision).** `build_caption` adds "single seed <n>; 5-seed
+    *Done `6ea982b`. Mutation: 4/4 killed (one survivor fixed by tightening the missing-file match). GPU tier re-run 7/7.*
+60. [x] **Caption names its seed (user decision).** `build_caption` adds "single seed <n>; 5-seed
     ranges in README" from `metrics.json` `reproducibility.seeds.global`; spec scenario added.
     **Test first.** Regenerate the figure from the clean tree after the code commit; push one PNG.
-61. [ ] **Operator recipe where #110 will find it.** README "Regenerating" block and the
+    *Done: code + spec `630980d` (mutation 4/4), figure regenerated from that clean tree `54004c6` (recorded `630980d`, `dirty: false`; sidecar unchanged).*
+61. [x] **Operator recipe where #110 will find it.** README "Regenerating" block and the
     `train_surrogate.py` docstring: `--frozen --group train` on every `uv run`, the ext4
     `UV_PROJECT_ENVIRONMENT`, no `GIT_DIR` export, `CUBLAS_WORKSPACE_CONFIG` unset; placeholder
     timestamp.
-62. [ ] **Small fixes:** `sweep_provenance.json` `retrain.host` → the workstation, not "WSL2" (the
+    *Done `39a5e66`.*
+62. [x] **Small fixes:** `sweep_provenance.json` `retrain.host` → the workstation, not "WSL2" (the
     figure was rendered on Windows); roadmap "in order"; label the toy `310.0` latency fixture;
     rewrap lines over 100 characters introduced here.
+    *Done `4037502`. Markdown paragraphs over 100 characters were left: they render identically.*
     **Deferred:** POSIX `inputs.file` (changing shared `capture_run_metadata` ripples into tests
     outside this change); a CPU `run_training` passthrough test (needs torch; covered by the GPU
     test and 39a).
