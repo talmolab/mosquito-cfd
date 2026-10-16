@@ -194,7 +194,9 @@ it between configs to watch progress or diagnose a failure.
 PR4's extractor (`scripts/extract_forces.py`, library `mosquito_cfd.force_surrogate.dataset`)
 turns each config's IB-particle force CSV into a tidy table — **one row per (config, timestep)** —
 of kinematics + phase + normalized force/moment coefficients + raw forces/moments, joined to this
-sweep's `reynolds` and train/holdout `split`. Forces come from the IB-particle CSV **only**
+sweep's `reynolds` and train/holdout `split`. The raw `Mx/My/Mz` and the derived `CF_m*` differ in
+**moment reference point** (solver particle origin vs the deck's declared hinge); see
+[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments). Forces come from the IB-particle CSV **only**
 (`amr.plot_int = -1`, CC-6); no plotfiles.
 
 | File | Status | Contents |
@@ -338,7 +340,7 @@ disclosure:
   **negative** (worse than predicting the per-config mean), even though its pointwise scatter looks
   visually perfect — the near-zero config-to-config skill is entirely masked by the shared waveform.
   (Before the `fix-force-surrogate-sweep-hinge` corpus regeneration, it was the **off-panel** `CF_y`
-  that carried this tell, with `CF_x` at ≈0.94; the corrected hinge geometry flipped which axis shows
+  that carried this tell, with `CF_x` at ≈0.94; the corrected hinge geometry (#71) flipped which axis shows
   it — see `figures/README.md` and the `evidence_figure.py::build_caption` fix for why the caption
   computes this from `metrics.json` rather than assuming one corpus's ranking holds for all others.)
 - **Headline moment = the M_y component, not "pitch moment".** The three plotted axes (`CF_x`, `CF_z`,
@@ -359,7 +361,7 @@ disclosure:
   **stroke-plane-normal** while CFD CF_z is the **lab-z** force), computed through the single-source
   `compute_force_reference` helper (CC-3). **It is deliberately *not* drawn on the scatter.** At this
   coarse grid it overshoots the CFD lift ~**1.3×** (RMS, in `evidence_figure_metrics.json` as
-  `quasi_steady_reference.overshoot_factor` — down from ~2.3× pre-fix; the corrected hinge changes the
+  `quasi_steady_reference.overshoot_factor` — down from ~2.3× before the corrected hinge geometry (#71), which changed the
   CFD forces the model is compared against) — the **model's tip-velocity overprediction** under the
   van Veen convention (lift integrates over the span where inboard sections move slower, while the
   uncalibrated QS model scales on a single tip-like velocity and over-weights it); the CFD `ib_force`

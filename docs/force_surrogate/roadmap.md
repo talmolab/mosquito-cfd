@@ -16,8 +16,8 @@ The status checkboxes here are the source of truth for what is done, in flight, 
 
 A small **kinematics(+phase) → aerodynamic-force-coefficient** surrogate, trained on a bounded
 local CFD corpus, yielding **one figure**: predicted-vs-CFD force coefficients (CF_x, CF_z, CF_m)
-on **held-out kinematic configurations**, with a **Sane–Dickinson quasi-steady baseline overlay**
-and an annotated **>1,000× inference-vs-CFD speedup** + validation RMSE. The figure proves the
+on **held-out kinematic configurations**, with an uncalibrated **Sane–Dickinson quasi-steady
+reference** (reported as an overshoot factor, not plotted — see PR6) and an annotated **>1,000× inference-vs-CFD speedup** + validation RMSE. The figure proves the
 data→surrogate→inference pipeline runs end-to-end on local hardware and that the NVIDIA
 PhysicsNeMo stack is usable.
 
@@ -99,8 +99,9 @@ F_ref ≈ 624.79; the change is a normalization convention, not a force-magnitud
 
 ### CC-4. Scientific honesty.
 Evaluate on **held-out configurations**, not just held-out timesteps within a run (so we measure
-the kinematics→force map, not within-run interpolation). The figure overlays the **Sane–Dickinson
-quasi-steady baseline** so it shows the surrogate ≥ the analytic model. The caption frames it as
+the kinematics→force map, not within-run interpolation). The **Sane–Dickinson quasi-steady model**
+is reported as a computed reference (overshoot factor), not overlaid: at the coarse grid an overlay
+re-displays the uncalibrated model's analytic loops rather than surrogate skill (PR6). The caption frames it as
 *pipeline readiness on coarse-grid forces*, **not** validated aerodynamics (coarse 64×32×64).
 *(The earlier "IAMReX diffused-IB force underestimate, ~2.4×" caveat was retired by
 `standardize-force-normalization`: that ~2.4× was a normalization-convention mismatch on the wing,
@@ -187,15 +188,20 @@ one GitHub issue. Issues + OpenSpec changes authored just-in-time.
 | 3 | `add-force-surrogate-sweep-runner` | RunAI A40 batch runner looping the sweep through the pinned `:fp64` container; per-config output dir; `run_metadata` + `run.log` per run; injected-executor mocked test path; operator `--csv-name`/`--docker-digest`. [PR #9](https://github.com/talmolab/mosquito-cfd/pull/9) | cluster | ✅ |
 | 3b | `add-force-surrogate-argo-sweep` | Cluster-side **Argo Workflows** make the corpus production robust: one A40 pod per config (main process = `mpirun`, no `runai exec` stream to drop, no orphaned GPU), `retryStrategy`, manifest-derived fan-out, `check_completion` gate. Reuses the PR3 library via a new tested `run_one_config` entrypoint baked into `:fp64`. Supersedes PR3's laptop driver as the production path (run_sweep.py = local/dev fallback) after it lost 26/27 configs to exec-stream/orphan cascade. [PR #16](https://github.com/talmolab/mosquito-cfd/pull/16) | cluster | ✅ |
 | 4 | `add-force-surrogate-dataset` | `scripts/extract_forces.py`: IB-particle CSV → coefficients (PR1 helper) → tidy `dataset.parquet` + `units.json`; tested against fixtures. **Data + provenance committed once PR3's corpus landed (the PR #16 Argo corpus)**; PR4 committed the tested extractor/driver + the `dataset.units.json` contract (no fixture-derived data — scientific honesty, change `design.md` D10). [PR #7](https://github.com/talmolab/mosquito-cfd/pull/7) | local | ✅ |
-| 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-only** (PyTorch fallback dropped, change `design.md` D1; PhysicsNeMo de-risked first on the A5000 and stood up — no fallback needed); held-out-**config** split (CC-4); seeded; `metrics.json` (+ phase-honest `config_resolved`, D13); wandb. Held-out-config aggregate R²≈0.999 (config-mean R² across the 6 targets: -0.01 [`CF_x`, no
-config-to-config skill] to 0.99 [`CF_mx`] as of the `fix-force-surrogate-sweep-hinge` corpus
-regeneration — see `examples/prelim_sweep/README.md`'s honest-reading section; the earlier
-pre-fix corpus had these numbers ≈0.75–0.94 with `CF_y` as the negative axis instead of `CF_x`);
-torch pinned to the cu126 index (D11). [PR #23](https://github.com/talmolab/mosquito-cfd/pull/23) | A5000 | ✅ |
-| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (~468× latency floor
-as of the `fix-force-surrogate-sweep-hinge` corpus regeneration; was ~310×). **Sane–Dickinson quasi-steady kept as a computed *reference* (overshoot factor), NOT a scatter overlay** — at the coarse grid the overlay re-displays the uncalibrated model's analytic loops, not surrogate skill (CC-4 deviation). [PR #25](https://github.com/talmolab/mosquito-cfd/pull/25) | local | ✅ |
+| 5 | `add-force-surrogate-train` | kinematics(+phase)→force regressor; **PhysicsNeMo-only** (PyTorch fallback dropped, change `design.md` D1; PhysicsNeMo de-risked first on the A5000 and stood up — no fallback needed); held-out-**config** split (CC-4); seeded; `metrics.json` (+ phase-honest `config_resolved`, D13); wandb. Held-out-config skill lives in `examples/prelim_sweep/surrogate/metrics.json`
+(`config_resolved`) and is interpreted in `examples/prelim_sweep/README.md`'s honest-reading
+section; it is not restated here, because it has changed with every corpus regeneration; torch pinned to the cu126 index (D11). [PR #23](https://github.com/talmolab/mosquito-cfd/pull/23) | A5000 | ✅ |
+| 6 | `add-force-surrogate-evidence-figure` | Predicted-vs-CFD scatter (CF_x/CF_z/CF_m), config→color legend, ≥200 dpi; honest compact caption + README (CC-4); >1,000× batched-throughput speedup (per-evaluation latency floor reported alongside; both read from
+`examples/prelim_sweep/figures/evidence_figure_metrics.json`). **Sane–Dickinson quasi-steady kept as a computed *reference* (overshoot factor), NOT a scatter overlay** — at the coarse grid the overlay re-displays the uncalibrated model's analytic loops, not surrogate skill (CC-4 deviation). [PR #25](https://github.com/talmolab/mosquito-cfd/pull/25) | local | ✅ |
+| 7 | `add-fine-grid-training-pilot` | 3-config fine 256³ pilot: cost/stability go/no-go for a fine corpus (see below). [PR #58](https://github.com/talmolab/mosquito-cfd/pull/58) | cluster | ✅ |
+| 8 | `add-fine-grid-corpus-full` | Scaffolding for the full 27-config fine-grid corpus (`examples/prelim_sweep_fine/`); does not submit the run. [PR #61](https://github.com/talmolab/mosquito-cfd/pull/61) | local | ✅ |
+| 9 | `fix-force-surrogate-sweep-hinge` | Corrected the decks' wing-hinge geometry (midspan pivot → root) and regenerated the coarse corpus and its surrogate/figure. [PR #71](https://github.com/talmolab/mosquito-cfd/pull/71) | cluster | ✅ |
+| 10 | `add-fine-corpus-field-capture` | Field capture for the fine corpus + the CC-F1 velocity check. [PR #85](https://github.com/talmolab/mosquito-cfd/pull/85), [PR #86](https://github.com/talmolab/mosquito-cfd/pull/86) | local | ✅ |
+| 11 | `add-fine-corpus-run-verification` | CFL sizing (`ns.cfl = 0.6`; `ns.fixed_dt` is a ceiling), run-observed metadata, corpus guards + acceptance gate ([PR #97](https://github.com/talmolab/mosquito-cfd/pull/97)); the full 27-config fine run and its `dataset.parquet` ([PR #100](https://github.com/talmolab/mosquito-cfd/pull/100)). | cluster | ✅ |
+| 12 | `fix-moment-reference-hinge` | Moment coefficients re-referenced from the IB particle's origin to the deck's declared hinge (#108): shift helper + canonical docs ([PR #117](https://github.com/talmolab/mosquito-cfd/pull/117)); extraction wiring + both corpora re-extracted ([PR #118](https://github.com/talmolab/mosquito-cfd/pull/118)); coarse surrogate retrained + evidence figure regenerated (its third PR, which closes #108). | local / A5000 | 🟡 |
+| 13 | *(not yet proposed)* | Train the surrogate on the fine corpus and build its evidence figure ([#110](https://github.com/talmolab/mosquito-cfd/issues/110)); blocked until row 12 merges. | A5000 | ⬜ |
 
-**Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6. PR3.5 (Argo) supersedes PR3's
+**Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6 (rows 7-13 followed, in order). PR3.5 (Argo) supersedes PR3's
 transport and is what actually produces the corpus. PR4 can be built and fully tested against
 fixtures **before** the real corpus exists (CC-2), so PR3.5 (cluster) and PR4 (local) can proceed in
 parallel once PR1+PR2 land. PR5 needs PR4's dataset + PR3.5's corpus; PR6 needs PR5's predictions +
@@ -221,16 +227,17 @@ the standard `dt=5e-4` with **no CFL fallback needed and no preemption**. Measur
 that motivated the pilot. See `docs/force_surrogate/fine-grid-pilot-report.md` for the full
 per-config breakdown and the follow-on-change caveats (untested pitch levels, quota headroom).
 **Geometry caveat (`fix-force-surrogate-sweep-hinge`, 2026-08-10):** the pilot ran under a
-midspan-pivot hinge defect with roughly half the corrected root hinge's rotation arm -- this
-`dt=5e-4` result is not confirmed to transfer to the corrected geometry and must be re-confirmed
-before the corrected-geometry regeneration; see that report's own geometry note.
+midspan-pivot hinge defect with roughly half the corrected root hinge's rotation arm, so its
+`dt=5e-4` result did not transfer to the corrected geometry. **Superseded:** the full 27-config
+fine corpus has since run to completion on the corrected geometry at `ns.cfl = 0.6` (row 11, #100);
+`ns.fixed_dt` is only a ceiling there — see `examples/prelim_sweep_fine/README.md`.
 
 ### Post-corpus follow-up issues (tracked, non-gating)
 
 Spawned by the `/review-pr` of the dataset commit ([PR #18](https://github.com/talmolab/mosquito-cfd/pull/18)) once the real corpus landed. Tech-debt / consistency only — **does not gate** PR5/PR6 or submission.
 
 - **[#19](https://github.com/talmolab/mosquito-cfd/issues/19)** — reconcile the now-**verified** `IB_Particle_1.csv` contract across the live spec + source comments (`spec.md`, `runner.py`, `run_one_config.py`, the Argo template still say "assumed / not yet verified"; PR #18 verified it against the A40 corpus). The `--csv-name` override stays as a defensive escape hatch.
-- **[#20](https://github.com/talmolab/mosquito-cfd/issues/20)** — add a cluster-free guard test pinning the committed `dataset.parquet` (schema == `DATASET_COLUMNS`, rowcount == Σ per-config `max_step`, no NaN, `phase∈[0,1)`, split/holdout match the manifest) against silent drift, since it's built from the gitignored `runs/` corpus and can't be regenerated offline (CC-2).
+- **[#20](https://github.com/talmolab/mosquito-cfd/issues/20)** *(closed, #100)* — add a cluster-free guard test pinning the committed `dataset.parquet` (schema == `DATASET_COLUMNS`, rowcount == Σ per-config `max_step`, no NaN, `phase∈[0,1)`, split/holdout match the manifest) against silent drift, since it's built from the gitignored `runs/` corpus and can't be regenerated offline (CC-2).
 
 ---
 
@@ -238,7 +245,7 @@ Spawned by the `/review-pr` of the dataset commit ([PR #18](https://github.com/t
 
 - **Reproducibility:** `run_metadata` + pinned digest + explicit seeds; rerun → identical (CC-1).
 - **Scientific accuracy:** coefficient math regression-tested vs RESULTS (CC-3); held-out-**config**
-  evaluation + Sane–Dickinson baseline (CC-4); sweep numbers sourced (above).
+  evaluation + Sane–Dickinson reference (CC-4); sweep numbers sourced (above).
 - **Testability:** TDD, tests cite their OpenSpec spec scenario, cluster-free fixtures (CC-2),
   coverage reported.
 - **Traceability:** one OpenSpec change + one GitHub issue per PR; roadmap checkbox updated on merge.

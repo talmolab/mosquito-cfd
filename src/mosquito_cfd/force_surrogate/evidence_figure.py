@@ -14,8 +14,8 @@ Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my hea
 named as a lab-frame component), D2 (translational Sane-Dickinson via the CC-3
 ``compute_force_reference`` helper; reference-only, not overlaid), D3 (honest caption, split
 compact-caption vs README), D4 (batched-throughput >1,000x speedup, disclosed as batch-size
-driven; latency floor is read from ``metrics.json`` each run, not a fixed number — ~470x as of
-the ``fix-force-surrogate-sweep-hinge`` corpus regeneration, ~310x before it).
+driven; the latency floor is read from ``metrics.json`` each run, never a fixed number — it has
+already changed with every corpus regeneration).
 """
 
 from __future__ import annotations
@@ -52,12 +52,11 @@ from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 
 # The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y
 # component", not "pitch moment" (moments are lab-frame; the wing-frame conversion is not
-# currently tracked). D1 originally picked CF_my because it was the
-# only moment with genuine config-resolved signal in the pre-hinge-fix corpus; that empirical
-# ranking is corpus-dependent (fix-force-surrogate-sweep-hinge found the corrected geometry
-# gives CF_mx a higher config-resolved R2 than CF_my) and is NOT re-derived here — the panel
-# set stays fixed, and build_caption() discloses the actual off-panel numbers instead of
-# assuming which axis (if any) is signal-free.
+# currently tracked). D1 originally picked CF_my because it was the only moment with
+# config-resolved signal in the first corpus; which moment carries the most is corpus-dependent
+# and has already inverted more than once, so it is NOT re-derived here — the panel set stays
+# fixed, and build_caption() discloses the actual off-panel numbers instead of assuming which
+# axis (if any) is signal-free.
 PANEL_COEFFICIENTS: tuple[str, str, str] = ("CF_x", "CF_z", "CF_my")
 MOMENT_PANEL = "CF_my"
 LIFT_PANEL = "CF_z"
@@ -290,12 +289,11 @@ def build_caption(
     A positive headline (per-axis config-resolved R2/RMSE + the batched >1,000x speedup), a
     terse "Caveats:" line, a terse quasi-steady-reference line, and a README pointer.
     Which target is flagged as the negative-R2 "tell" that the aggregate overstates skill, if
-    any, is read from **all six** targets at call time (fix-force-surrogate-sweep-hinge) —
-    earlier corpora always had the off-panel CF_y as the tell, but the corrected-hinge corpus
-    has it on-panel instead (CF_x). Scanning only the off-panel three would miss that case
-    entirely and silently fall back to a "nothing to report" message while an on-panel axis
-    sits negative three words earlier in the same caption's headline — checked deliberately,
-    not assumed to be off-panel. If more than one target is negative, the **most negative**
+    any, is read from **all six** targets at call time: which target is negative is
+    corpus-dependent, and it can be an on-panel axis. Scanning only the off-panel three would
+    miss that case entirely and silently fall back to a "nothing to report" message while an
+    on-panel axis sits negative three words earlier in the same caption's headline — checked
+    deliberately, not assumed to be off-panel. If more than one target is negative, the **most negative**
     (worst) one is named, not just the first in axis order — a mild on-panel dip must not bury
     a severe off-panel failure.
 
