@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -785,7 +786,38 @@ def test_readme_carries_full_disclosures():
     assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
-    assert "~468" in readme or "468×" in readme or "468x" in low  # latency floor
+    # the latency floor, read from the committed sidecar so the prose moves with the artifact
+    figures = REPO / "examples" / "prelim_sweep" / "figures"
+    sidecar = json.loads((figures / "evidence_figure_metrics.json").read_text())
+    latency = round(sidecar["speedup"]["latency_speedup"])
+    assert f"~{latency}×" in readme, (
+        f"README must state the latency floor as ~{latency}×"
+    )
+
+
+# `CF_<c> ≈<r2>` and "`CF_<c>`'s [config-resolved R²] (≈<r2>)" are the README's forms for a
+# *current* config-resolved R²; historical values are phrased otherwise ("with `CF_x` at ≈0.94").
+_README_R2 = re.compile(
+    r"`?(CF_(?:mx|my|mz|x|y|z))`?(?:'s(?: config-resolved R²)? \()? ?≈(-?\d+\.(\d+))"
+)
+
+
+def test_readme_config_resolved_r2_matches_committed_metrics():
+    """Every config-resolved R² the README quotes equals metrics.json at its stated precision,
+    and all three moments are quoted (scenario: the CF_mx/CF_mz exclusion is stated **with**
+    their config-resolved R²) -- so a retrain cannot leave the old ranking in the prose."""
+    readme = (REPO / "examples" / "prelim_sweep" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    resolved = json.loads(COMMITTED_METRICS.read_text())["config_resolved"]
+    quoted = _README_R2.findall(readme)
+    for c, value, decimals in quoted:
+        actual = resolved[c]["config_mean_r2"]
+        assert abs(actual - float(value)) <= 0.5 * 10 ** -len(decimals) + 1e-12, (
+            f"README quotes {c} ≈{value}; metrics.json config_mean_r2 is {actual:.4f}"
+        )
+    missing = {"CF_mx", "CF_mz", "CF_my"} - {c for c, _, _ in quoted}
+    assert not missing, f"README quotes no config-resolved R² for {sorted(missing)}"
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------
