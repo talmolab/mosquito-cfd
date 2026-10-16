@@ -797,8 +797,9 @@ test-first where it changes behaviour:
 50. [x] Both parquets expose exactly `DATASET_COLUMNS` with committed dtypes; both sidecars
     round-trip through `read_units_sidecar`.
 51. [x] `openspec validate fix-moment-reference-hinge --strict`
-52. [ ] `/pre-merge-check`, including the 5-reviewer `/review-pr`. Before `/cleanup-merged`, check
+52. [x] `/pre-merge-check`, including the 5-reviewer `/review-pr`. Before `/cleanup-merged`, check
     `grep -c '\[ \]' tasks.md` is 0 (`openspec list` does not count numbered-list checkboxes).
+    *Done: 5-reviewer `/review-pr` in branch mode (no blocking; important findings fixed as tasks 54-62); PR #126 CI green on `881780d` (Lint, Test, Dockerfile Lint); no Copilot or reviewer comments at the time of writing.*
 53. [x] *(PR2: 24.2 MiB of new parquet blobs, stated in #118 and on #102.)* State the ~26 MiB binary growth in the PR body for issue #102's evidence.
 53a. [x] Replace the CHANGELOG's `(#108)` with this PR's number and add `pull_request` to
     `sweep_provenance.json` `retrain`. State PR3's own share (~1.9 MiB: holdout parquet ~1.5 MiB, PNG ~0.27 MiB, `.pt` ~41 KiB) in
