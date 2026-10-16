@@ -8,10 +8,10 @@ committed artifacts (``metrics.json``, ``holdout_predictions.parquet``, the mode
 
 Run on the A5000 (WSL2) with the optional ``train`` group installed::
 
-    uv sync --group train
-    uv run python scripts/train_surrogate.py \\
+    uv sync --frozen --group train
+    uv run --frozen --group train python scripts/train_surrogate.py \\
         --dataset examples/prelim_sweep/dataset.parquet \\
-        --out-dir examples/prelim_sweep \\
+        --out-dir examples/prelim_sweep/surrogate \\
         --docker-digest "$(python -c 'import json;print(json.load(open(\"examples/prelim_sweep/run_metadata.json\"))[\"docker_image\"])')" \\
         --timestamp 2026-06-18T00:00:00Z \\
         --device cuda --wandb online

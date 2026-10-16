@@ -163,6 +163,28 @@ def test_full_round_trip_writes_four_artifacts(tmp_path):
         assert {"config_mean_r2", "within_config_variance_fraction"} == set(block)
 
 
+def test_run_training_records_the_dataset_it_consumed(tmp_path):
+    """Scenario: Training metadata names the dataset -- run_training passes its own dataset
+    through, so the committed run_metadata.json carries the parquet's sha256."""
+    import hashlib
+    import json
+
+    dataset = _toy_parquet(tmp_path / "dataset.parquet")
+    result = run_training(
+        dataset,
+        tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp="2026-06-18T00:00:00Z",
+        seed=1,
+        epochs=2,
+        n_val_configs=2,
+        device="cuda",
+        wandb_mode="disabled",
+    )
+    meta = json.loads(Path(result["metadata_path"]).read_text(encoding="utf-8"))
+    assert meta["inputs"]["hash"] == hashlib.sha256(Path(dataset).read_bytes()).hexdigest()
+
+
 def test_provenance_records_library_versions():
     """Scenario: Resolved library versions recorded on the training host (torch tier)."""
     meta = build_training_metadata(

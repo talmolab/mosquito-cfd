@@ -675,6 +675,7 @@ def build_training_metadata(
     timestamp: str,
     seeds: dict[str, int],
     feature_names: list[str],
+    dataset_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Capture training-run provenance (CC-1): pinned digest, timestamp, seeds, lib versions.
 
@@ -689,18 +690,30 @@ def build_training_metadata(
         timestamp: Caller-supplied ISO-8601 timestamp.
         seeds: The run seeds.
         feature_names: The input feature list.
+        dataset_path: The dataset parquet the run consumed, recorded as ``inputs.file`` /
+            ``inputs.hash`` (sha256) so a committed surrogate names the corpus it came from.
 
     Returns:
-        The provenance dict with ``seeds``, ``features``, and ``library_versions`` at top level.
+        The provenance dict with ``seeds``, ``features``, and ``library_versions`` at top level,
+        and ``inputs`` when ``dataset_path`` is given.
+
+    Raises:
+        FileNotFoundError: If ``dataset_path`` is given but is not a file (the base capture
+            would otherwise silently record no ``inputs``).
     """
     from mosquito_cfd.force_surrogate.sidecar import capture_surrogate_run_metadata
 
+    if dataset_path is not None:
+        dataset_path = Path(dataset_path)
+        if not dataset_path.is_file():
+            raise FileNotFoundError(f"training dataset not found: {dataset_path}")
     library_versions = {
         "torch": _library_version("torch"),
         "physicsnemo": _library_version("nvidia-physicsnemo"),
     }
     return capture_surrogate_run_metadata(
         docker_image_digest=docker_image_digest,
+        inputs_file=dataset_path,
         timestamp=timestamp,
         extra={
             "seeds": dict(seeds),
@@ -960,6 +973,7 @@ def run_training(
         timestamp=timestamp,
         seeds={"global": seed},
         feature_names=list(feature_names),
+        dataset_path=dataset_path,
     )
 
     metrics_path = out_dir / "metrics.json"
