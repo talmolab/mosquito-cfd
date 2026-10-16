@@ -1039,14 +1039,21 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
     assert "cluster_workflows" not in record, (
         "ambiguous: say whether the workflows produced the CFD or the derived artifacts"
     )
-    assert record["cfd_cluster_workflows"], "must name the CFD run's cluster workflow(s)"
+    assert record["cfd_cluster_workflows"], (
+        "must name the CFD run's cluster workflow(s)"
+    )
     assert record["docker_image_digest"].startswith("sha256:")  # the CFD run's image
 
-    stages = {"re_extraction": ["dataset.parquet"], "retrain": ["surrogate/", "figures/"]}
+    stages = {
+        "re_extraction": ["dataset.parquet"],
+        "retrain": ["surrogate/", "figures/"],
+    }
     for stage, expected in stages.items():
         step = record[stage]
         assert step["change"] == "fix-moment-reference-hinge", stage
-        assert step["cluster_workflows"] == [], f"{stage} ran locally, not on the cluster"
+        assert step["cluster_workflows"] == [], (
+            f"{stage} ran locally, not on the cluster"
+        )
         for prefix in expected:
             assert any(a.startswith(prefix) for a in step["affected"]), (stage, prefix)
     assert "affected" not in record, "affected is recorded per stage, not twice"

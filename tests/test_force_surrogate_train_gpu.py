@@ -182,7 +182,9 @@ def test_run_training_records_the_dataset_it_consumed(tmp_path):
         wandb_mode="disabled",
     )
     meta = json.loads(Path(result["metadata_path"]).read_text(encoding="utf-8"))
-    assert meta["inputs"]["hash"] == hashlib.sha256(Path(dataset).read_bytes()).hexdigest()
+    assert (
+        meta["inputs"]["hash"] == hashlib.sha256(Path(dataset).read_bytes()).hexdigest()
+    )
 
 
 def test_provenance_records_library_versions():
