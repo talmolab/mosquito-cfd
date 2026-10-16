@@ -608,3 +608,22 @@ def test_fixture_is_regenerable(tmp_path):
     fresh = extract_eulerian_box(str(regenerated), lo=_FULL[0], hi=_FULL[1])
     for key in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
         np.testing.assert_array_equal(committed[key], fresh[key])
+
+
+# --- review of #106: zero-cell slabs fail clearly, not inside np.argmin --------------------------
+# Under "halo is reach" (add-field-surrogate-reader design.md D1) a slab wholly outside the domain
+# selects zero cells. The pre-refactor adapter returned one spurious edge cell, so these callers
+# failed with their own clear "same cell" error; without a guard they now die in np.argmin with
+# "attempt to get argmin of an empty sequence".
+
+
+def test_sphere_cv_drag_cd_rejects_a_slab_outside_the_domain():
+    with pytest.raises(ValueError, match="selects no cells"):
+        sphere_cv_drag_cd(str(_LEV_FIXTURE), x_inlet=-5.0, x_outlet=-3.0)
+
+
+def test_sphere_cv_steadiness_fraction_rejects_a_slab_outside_the_domain():
+    with pytest.raises(ValueError, match="selects no cells"):
+        sphere_cv_steadiness_fraction(
+            str(_LEV_FIXTURE), str(_LEV_FIXTURE), x_inlet=-5.0, x_outlet=-3.0, dt=0.1
+        )

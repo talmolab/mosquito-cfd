@@ -125,6 +125,11 @@ cells. In both, `±inf` is accepted as "full extent" along an axis, per axis ind
 optional `halo` adds extra cells on every side, and the read is performed as a full level-0 covering
 grid sliced in memory.
 
+"The legacy adapter" here means the **pre-refactor** `extract_eulerian_box`, frozen in
+`tests/fixtures/legacy_extract_eulerian_box.py`. Once the delegation below lands, the importable
+`extract_eulerian_box` is a wrapper over this reader, so a comparison against it is a
+self-comparison; every legacy comparison SHALL use the frozen copy.
+
 The one deliberate difference is how `halo` interacts with the domain edge ("halo is reach"). The
 request's cell range SHALL be padded by `halo` first, and only the part of the padded range inside
 the domain SHALL be kept. So a request up to `halo` cells outside the domain returns the in-domain
@@ -175,19 +180,19 @@ the domain.
   - a point on the lower edge and a point on the upper edge, each with `halo` 0 and 2;
   - a request less than one cell below the domain with `halo` 1;
   - an inverted request inside the domain
-- **Then** each returned region matches the legacy adapter's for the same request
+- **Then** each returned region matches the frozen pre-refactor copy's for the same request
 
 #### Scenario: Region semantics outside the domain are pinned against legacy
 
 - **Given** the same fixture
-- **When** `read_field_snapshot` and the legacy adapter are called with requests outside the domain
+- **When** `read_field_snapshot` and the frozen pre-refactor copy are called with requests outside the domain
   on some axis:
   - wholly below the domain, with `halo` 0 and 2;
   - below and above, each within and beyond `halo` reach;
   - a range ending exactly on the lower edge;
   - a `-inf` point;
   - a request outside on one axis only
-- **Then** each result equals its separately recorded literal: the legacy adapter returns edge cells,
+- **Then** each result equals its separately recorded literal: the frozen copy returns edge cells,
   while `read_field_snapshot` returns only the in-domain cells the padded request reaches (zero when
   beyond reach)
 
@@ -287,9 +292,17 @@ call signature, and returned key set (`u`, `v`, `w`, `gradpx`, `gradpy`, `gradpz
 `source`, or `max_level` leaking in — and the value **types** SHALL be preserved, including `dx` as a
 `float64` array of shape `(3,)` and `current_time` as a Python `float`.
 
-Equivalence SHALL be demonstrated against the **pre-refactor implementation**, not against the new
+Within the parity region (on every axis `lo <= domain_right_edge` and `hi > domain_left_edge`),
+equivalence SHALL be demonstrated against the **pre-refactor implementation**, not against the new
 reader. A test comparing the refactored wrapper to a re-pack of `read_field_snapshot` is tautological
-once the wrapper is that re-pack, and proves nothing about behavioral continuity.
+once the wrapper is that re-pack, and proves nothing about behavioral continuity. Outside the parity
+region the wrapper inherits the reader's "halo is reach" rule and returns no more cells than the
+pre-refactor implementation; that divergence SHALL be pinned against the same frozen copy.
+
+The wrapper's accepted inputs are deliberately narrower. It SHALL raise `ValueError` for a NaN corner,
+a `lo` or `hi` that is not a 3-vector, a `halo` that is negative or not of an integer type (fractional, boolean, and integral floats such as `2.0` or 0-d arrays alike), and a plotfile whose on-disk
+precision is fp32 — all of which the pre-refactor implementation accepted (the last silently, as
+upcast float64).
 
 Every in-repo caller SHALL continue to call `extract_eulerian_box` rather than `read_field_snapshot`
 directly. This preserves the `force-surrogate` capability's CC-F1 requirement that the field-capture
@@ -299,8 +312,8 @@ stopped resolving it would silently bypass those fakes, leaving tests green whil
 
 #### Scenario: Output matches the pre-refactor implementation across the parity matrix
 
-- **Given** a frozen byte-for-byte copy of the pre-refactor `extract_eulerian_box` implementation,
-  recorded with its source commit, and the committed fixture
+- **Given** a frozen, content-hash-pinned copy of the pre-refactor `extract_eulerian_box`
+  implementation, recorded with its source commit, and the committed fixture
 - **When** both the refactored wrapper and the frozen copy are called on the same region for each case
   in the region-semantics parity matrix
 - **Then** the two dicts have identical key sets, every array value is exactly equal, and `dx` and
@@ -311,8 +324,18 @@ stopped resolving it would silently bypass those fakes, leaving tests green whil
 - **Given** the same frozen copy and the outside-the-domain divergence cases
 - **When** both are called on each divergence case
 - **Then** the frozen copy returns the recorded legacy cell counts and the refactored wrapper returns
-  the recorded `read_field_snapshot` cell counts — so the wrapper's narrowed behaviour is asserted,
-  not merely tolerated
+  the recorded `read_field_snapshot` cell counts, and every cell the wrapper returns is one the frozen
+  copy returns with the identical value — so the wrapper's narrowed behaviour is asserted, not merely
+  tolerated
+
+#### Scenario: The wrapper's narrowed inputs raise where the frozen copy accepted
+
+- **Given** the frozen copy, the committed fixture, and an fp32 plotfile written to a temporary
+  directory
+- **When** each is called with a NaN corner, a scalar `lo`, a scalar `hi`, a negative `halo`, a
+  fractional `halo`, a boolean `halo`, and (separately) on the fp32 plotfile
+- **Then** the refactored wrapper raises `ValueError` in every case, and the frozen copy raises in none
+  — so each narrowing is pinned on both sides rather than merely claimed
 
 #### Scenario: Internal call sites still resolve the patched module global
 

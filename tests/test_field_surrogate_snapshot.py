@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import functools
+import hashlib
 import importlib.util
 import subprocess
 import sys
@@ -277,8 +279,10 @@ def test_fp32_field_is_refused_not_upcast(monkeypatch):
 
 _INF = np.inf
 
-#: PARITY cases: requests where read_field_snapshot and the legacy extract_eulerian_box must agree.
-#: (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
+#: AGREEMENT cases: requests where read_field_snapshot and the frozen pre-refactor
+#: extract_eulerian_box (tests/fixtures/legacy_extract_eulerian_box.py) agree -- the parity region
+#: of design.md D1, plus three edge points outside it that agree anyway (lower_edge,
+#: lower_edge_halo2, just_below_halo1). (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
 #: reference arithmetic, not recomputed with the same formula the reader uses -- that would be
 #: tautological. PR B's differential test against the frozen oracle iterates THIS matrix, so every
 #: entry here must be one where the two implementations agree; divergences go in
@@ -292,6 +296,9 @@ REGION_CASES = [
     # halo=3 on a 2-cell box clips to 6, NOT 8: "halo adds exactly 2h cells" holds only unclipped.
     ("halo3_clipped", (2.2, 2.2, 2.2), (3.4, 3.4, 3.4), 3, (6, 6, 6)),
     ("mixed_inf", (-_INF, 1.5, -_INF), (_INF, 4.5, _INF), 0, (6, 4, 6)),
+    # x-slab only: what sphere_cv_drag_cd and sphere_cv_steadiness_fraction actually request,
+    # and one of the two shapes where a contiguous slice would be returned as a view.
+    ("x_slab_only", (1.5, -_INF, -_INF), (4.5, _INF, _INF), 0, (4, 6, 6)),
     ("zero_width_interior", (2.0, 2.0, 2.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
     # A point at the upper edge is outside the half-open cell coverage [0, 6): zero cells, and
     # NOT widened to one (design.md D1).
@@ -304,6 +311,8 @@ REGION_CASES = [
     # Less than one cell below the domain, with halo 1: the pad reaches cell 0.
     ("just_below_halo1", (-0.5, -0.5, -0.5), (-0.2, -0.2, -0.2), 1, (1, 1, 1)),
     ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
+    # Inverted WITH a halo: both pad from floor(lo) and ceil(hi) and then force one cell.
+    ("inverted_halo1", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 1, (1, 1, 1)),
 ]
 
 #: DIVERGENCE cases: requests lying outside the domain on some axis (hi <= dle or lo > dre), where
@@ -317,6 +326,10 @@ DIVERGENCE_CASES = [
     ("below_within_reach_h2", (-1.5,) * 3, (-1.2,) * 3, 2, (2, 2, 2), (1, 1, 1)),
     ("above_within_reach_h2", (7.0,) * 3, (9.0,) * 3, 2, (2, 2, 2), (1, 1, 1)),
     ("above_beyond_reach_h2", (100.0,) * 3, (200.0,) * 3, 2, (2, 2, 2), (0, 0, 0)),
+    # Within reach but NOT on a cell face: the pad starts from floor(6.5) = 6, so halo 2 reaches
+    # cells 4 and 5. above_within_reach_h2 (lo = 7.0) sits on a face, where floor and ceil agree,
+    # so it cannot see reach computed from the wrong rounding.
+    ("above_within_reach_offface_h2", (6.5,) * 3, (9.0,) * 3, 2, (2, 2, 2), (2, 2, 2)),
     # A range ending exactly on the lower edge covers no cell: upper bounds are exclusive, exactly
     # as in the interior ((1.5, 2.0) yields cell 1 only). A POINT at the lower edge still yields
     # cell 0 (lower_edge, above).
@@ -339,8 +352,6 @@ DIVERGENCE_CASES = [
     ids=[c[0] for c in REGION_CASES],
 )
 def test_region_clamping_matrix(lo, hi, halo, expected):
-    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
-
     snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     for name, arr in snap.arrays.items():
         assert arr.shape == expected, name
@@ -348,9 +359,9 @@ def test_region_clamping_matrix(lo, hi, halo, expected):
 
     # Shapes alone let a region shifted by one cell pass. Values must also match the fixture's
     # analytic solid-body rotation at the RETURNED coordinates (catches values sliced off the
-    # coordinates), and coordinates and values must match the legacy adapter (catches a shift of
-    # both together). In PR A that adapter is still the legacy code; after PR B's delegation the
-    # frozen oracle carries this comparison.
+    # coordinates), and coordinates and values must match the frozen pre-refactor copy (catches a
+    # shift of both together). Not the importable extract_eulerian_box: that delegates here, so
+    # comparing against it would be a self-comparison.
     shape = snap.arrays["u"].shape
     np.testing.assert_allclose(
         snap.arrays["u"], np.broadcast_to(-OMEGA * snap.y[None, :, None], shape)
@@ -358,7 +369,7 @@ def test_region_clamping_matrix(lo, hi, halo, expected):
     np.testing.assert_allclose(
         snap.arrays["v"], np.broadcast_to(OMEGA * snap.x[:, None, None], shape)
     )
-    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
+    legacy = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
     for axis in ("x", "y", "z"):
         np.testing.assert_array_equal(getattr(snap, axis), legacy[axis], err_msg=axis)
     for name in snap.field_names:
@@ -390,17 +401,47 @@ def test_read_passes_the_requested_halo_to_the_region_helper(monkeypatch):
 def test_region_divergence_from_legacy_is_pinned(
     lo, hi, halo, legacy_expected, expected
 ):
-    # Both sides are asserted, so the divergence is recorded rather than merely tolerated: if
-    # either implementation drifts, this fails. The legacy side reads
-    # stress_integral.extract_eulerian_box, which is still the pre-refactor code in PR A. PR B
-    # makes that function delegate here, so PR B MUST re-point the legacy side at the frozen
-    # oracle (tasks.md) -- otherwise this assertion fails there, by design.
+    # Three sides, each against a recorded literal, so the divergence is asserted rather than
+    # merely tolerated: the frozen pre-refactor copy, this reader, and the wrapper. The importable
+    # extract_eulerian_box delegates here, so it is NOT the legacy side -- comparing against it
+    # would be a self-comparison (design.md D1, D10).
     from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
 
+    want = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    assert want["u"].shape == legacy_expected
     snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     assert (snap.x.size, snap.y.size, snap.z.size) == expected
-    legacy = extract_eulerian_box(FIXTURE, lo=lo, hi=hi, halo=halo)
-    assert legacy["u"].shape == legacy_expected
+    got = extract_eulerian_box(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    assert got["u"].shape == expected
+
+    # A count-correct but wrong cell must fail: every cell the wrapper returns is a contiguous
+    # sub-block of the frozen copy's, with identical coordinates and values, and on an axis where
+    # the request lies wholly outside the domain the halo reaches in from THAT edge -- so the
+    # block sits at the frozen copy's edge-facing end (above: cell N-1, never N-2).
+    dle, dre = CENTERS[0] - 0.5, CENTERS[-1] + 0.5
+    block = []
+    for i, axis in enumerate(("x", "y", "z")):
+        n = got[axis].size
+        start = 0
+        if n:
+            (hits,) = np.nonzero(want[axis] == got[axis][0])
+            assert hits.size == 1, axis
+            start = int(hits[0])
+            if lo[i] > dre:
+                assert start + n == want[axis].size, axis
+            elif hi[i] <= dle:
+                assert start == 0, axis
+        np.testing.assert_array_equal(
+            got[axis], want[axis][start : start + n], err_msg=axis
+        )
+        block.append(np.arange(start, start + n))
+    for name in ("u", "v", "w", "gradpx", "gradpy", "gradpz"):
+        np.testing.assert_array_equal(
+            got[name], want[name][np.ix_(*block)], err_msg=name
+        )
+    for key, value in got.items():
+        if isinstance(value, np.ndarray):
+            assert value.flags.writeable, key
 
 
 def _legacy_bounds(lo, hi, halo, dle, dre, n):
@@ -761,3 +802,348 @@ def test_missing_private_dtype_attribute_is_a_hard_failure(monkeypatch):
     )
     with pytest.raises(ValueError, match="on-disk precision"):
         read_field_snapshot(FIXTURE, **FULL)
+
+
+# --- PR B, tasks 20-22: the delegation guards ------------------------------------------------
+
+
+@functools.cache
+def _legacy():
+    spec = importlib.util.spec_from_file_location(
+        "_legacy_extract", FIXTURE.parent / "legacy_extract_eulerian_box.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.legacy_extract_eulerian_box
+
+
+LEGACY_KEYS = sorted(
+    ["u", "v", "w", "gradpx", "gradpy", "gradpz", "x", "y", "z", "dx", "current_time"]
+)
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "_expected"),
+    [c[1:] for c in REGION_CASES],
+    ids=[c[0] for c in REGION_CASES],
+)
+def test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle(
+    lo, hi, halo, _expected
+):
+    # Differential, NOT self-referential: the oracle is a byte-for-byte copy of the pre-refactor
+    # implementation. Comparing the wrapper to a re-pack of read_field_snapshot would be
+    # tautological once the wrapper IS that re-pack (design.md D10).
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+    want = _legacy()(str(FIXTURE), lo=lo, hi=hi, halo=halo)
+
+    # Exact key set, so no snapshot-only field (time/source/max_level) can leak in.
+    assert sorted(got) == LEGACY_KEYS
+    assert sorted(got) == sorted(want)
+
+    for key in LEGACY_KEYS:
+        if key == "current_time":
+            # Type erosion to np.float64 would pass assert_array_equal while changing the
+            # published contract.
+            assert type(got[key]) is type(want[key]) is float
+            assert got[key] == want[key]
+        else:
+            assert isinstance(got[key], np.ndarray), key
+            assert got[key].dtype == want[key].dtype == np.float64, key
+            assert got[key].shape == want[key].shape, key
+            # Writeability is part of the contract and invisible to value equality; assert it
+            # for every region, not just the full-extent one.
+            assert got[key].flags.writeable == want[key].flags.writeable is True, key
+            np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+
+#: Requests the pre-refactor adapter accepted and the wrapper now refuses (design.md D1; the
+#: CHANGELOG states these narrowings). Each names the message of the guard that must fire, so a
+#: different guard rejecting it for an unrelated reason does not count.
+NARROWED_REQUESTS = [
+    ("nan_corner", {"lo": (np.nan, 0.0, 0.0), "hi": (6.0,) * 3}, "NaN"),
+    ("nan_in_z", {"lo": (0.0, 0.0, np.nan), "hi": (6.0,) * 3}, "NaN"),
+    ("nan_in_hi", {"lo": (0.0,) * 3, "hi": (6.0, np.nan, 6.0)}, "NaN"),
+    # The scalar message must name the remedy: legacy broadcast `lo=-np.inf` as "full extent".
+    ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, r"3-vector.*\(-inf,\)\*3"),
+    ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, r"3-vector.*\(inf,\)\*3"),
+    ("negative_halo", {**FULL, "halo": -1}, "non-negative"),
+    ("fractional_halo", {**FULL, "halo": 1.9}, "integer"),
+    ("bool_halo", {**FULL, "halo": True}, "integer"),
+    # Integral but not an integer TYPE: the old adapter computed the same cells; refused anyway.
+    ("integral_float_halo", {**FULL, "halo": 2.0}, "integer"),
+    ("zero_d_array_halo", {**FULL, "halo": np.array(2)}, "integer"),
+    ("fp32_plotfile", FULL, "not 8-byte floats"),
+]
+
+
+# The frozen copy floors a NaN corner straight into an int64 cast, so numpy warns there; that is
+# the old behaviour being pinned, not something to surface on every run.
+@pytest.mark.filterwarnings("ignore:invalid value encountered in cast:RuntimeWarning")
+@pytest.mark.parametrize(
+    ("case", "kwargs", "match"),
+    NARROWED_REQUESTS,
+    ids=[c[0] for c in NARROWED_REQUESTS],
+)
+def test_wrapper_argument_narrowing_is_pinned(case, kwargs, match, tmp_path):
+    # Pinned on BOTH sides: the frozen pre-refactor copy accepts each request (the fp32 one
+    # silently, as upcast float64), and the wrapper refuses it -- so each is a recorded narrowing,
+    # not merely a claim. The reader's own validation tests call read_field_snapshot directly, so
+    # they cannot see a wrapper that sanitizes its arguments before delegating.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    path = FIXTURE
+    if case == "fp32_plotfile":
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_fp32", real_dtype="float32"
+        )
+    legacy = _legacy()(str(path), **kwargs)
+    assert sorted(legacy) == LEGACY_KEYS
+    with pytest.raises(ValueError, match=match):
+        extract_eulerian_box(str(path), **kwargs)
+
+
+#: The committed fixture is cubic, origin 0, dx 1, with w and every gradp* identically zero, so a
+#: wrapper that permuted fields or axes passed every test above (review of #106: S1-S4). This
+#: variant is written to tmp_path -- the committed fixture and the hash-pinned oracle are
+#: untouched. Dyadic origin and spacing keep every face exact (a non-dyadic origin makes yt itself
+#: refuse the full-domain covering grid).
+ASYM = {
+    "shape": (8, 6, 4),
+    "origin": (-2.0, 0.5, 1.25),
+    "dx": (0.5, 0.25, 1.0),
+    "distinct_fields": True,
+}
+ASYM_REQUESTS = [
+    ("full", (-_INF,) * 3, (_INF,) * 3, 0),
+    ("interior", (-1.1, 0.8, 2.0), (1.3, 1.6, 4.5), 0),
+    ("x_slab", (-0.6, -_INF, -_INF), (1.2, _INF, _INF), 0),
+    ("upper_corner_halo1", (1.6, 1.9, 4.5), (_INF,) * 3, 1),
+    ("lower_corner_point_halo2", (-2.0, 0.5, 1.25), (-2.0, 0.5, 1.25), 2),
+]
+
+
+@pytest.fixture(scope="module")
+def asym_plotfile(tmp_path_factory):
+    root = tmp_path_factory.mktemp("asym") / "plt_asym"
+    return _fixture_generator().write_fixture(root, **ASYM)
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:] for c in ASYM_REQUESTS],
+    ids=[c[0] for c in ASYM_REQUESTS],
+)
+def test_wrapper_maps_every_field_and_axis_on_an_asymmetric_grid(
+    asym_plotfile, lo, hi, halo
+):
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(asym_plotfile), lo=lo, hi=hi, halo=halo)
+    want = _legacy()(str(asym_plotfile), lo=lo, hi=hi, halo=halo)
+    assert sorted(got) == LEGACY_KEYS
+    for key in LEGACY_KEYS:
+        np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+    # Independently of the oracle: spacing per axis, centres on the per-axis lattice, and every
+    # field equal to its own analytic formula (literals here, not the generator's code).
+    np.testing.assert_array_equal(got["dx"], ASYM["dx"])
+    for i, axis in enumerate(("x", "y", "z")):
+        lattice = (
+            ASYM["origin"][i] + (np.arange(ASYM["shape"][i]) + 0.5) * ASYM["dx"][i]
+        )
+        assert got[axis].size > 0, axis
+        assert np.isin(got[axis], lattice).all(), axis
+        np.testing.assert_allclose(np.diff(got[axis]), ASYM["dx"][i], err_msg=axis)
+    x, y, z = np.meshgrid(got["x"], got["y"], got["z"], indexing="ij")
+    analytic = {
+        "u": -1.3 * y,
+        "v": 1.3 * x,
+        "w": 0.7 * z,
+        "gradpx": 0.11 * x + 1.0,
+        "gradpy": -0.23 * y + 2.0,
+        "gradpz": 0.37 * z + 3.0,
+    }
+    for name, expected in analytic.items():
+        np.testing.assert_allclose(got[name], expected, rtol=1e-12, err_msg=name)
+
+
+def test_wrapper_refuses_to_unfreeze_a_view(monkeypatch):
+    # The wrapper makes its arrays writable, which is safe only because the reader copies. If the
+    # reader ever returned a view, setflags(write=True) would un-freeze shared state; the wrapper
+    # must refuse instead.
+    import types
+
+    import mosquito_cfd.field_surrogate.snapshot as snapshot_mod
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    real = read_field_snapshot(FIXTURE, **FULL)
+    shared = np.zeros((6, 6, 6))
+    view = shared[:]
+    view.setflags(write=False)
+    fake = types.SimpleNamespace(
+        arrays={**real.arrays, "u": view},
+        x=real.x,
+        y=real.y,
+        z=real.z,
+        dx=real.dx,
+        time=real.time,
+    )
+    monkeypatch.setattr(snapshot_mod, "read_field_snapshot", lambda *a, **k: fake)
+    with pytest.raises(RuntimeError, match="view"):
+        extract_eulerian_box(str(FIXTURE), **FULL)
+    assert not view.flags.writeable
+
+
+def test_matrix_shaped_corner_now_fails_with_a_clear_error():
+    # NOT a narrowing -- the pre-refactor adapter already failed on a (1, 3) corner, just with an
+    # opaque TypeError from deep in its slicing. Pinned separately from NARROWED_REQUESTS, whose
+    # premise is that the frozen copy accepted the request.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    kwargs = {"lo": [[0.0, 0.0, 0.0]], "hi": (6.0,) * 3}
+    with pytest.raises(TypeError):
+        _legacy()(str(FIXTURE), **kwargs)
+    with pytest.raises(ValueError, match="3-vector"):
+        extract_eulerian_box(str(FIXTURE), **kwargs)
+
+
+def test_numpy_integer_halo_is_still_accepted():
+    # Positive control for the narrowing above: a numpy integer halo is an integer and must keep
+    # working exactly as before. Without this, tightening the type check to the builtin int
+    # would be an unrecorded new narrowing.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    kwargs = {"lo": (1.0,) * 3, "hi": (3.0,) * 3, "halo": np.int64(1)}
+    got = extract_eulerian_box(str(FIXTURE), **kwargs)
+    want = _legacy()(str(FIXTURE), **kwargs)
+    assert got["u"].shape == want["u"].shape == (4, 4, 4)
+    for key in ("u", "x", "y", "z"):
+        np.testing.assert_array_equal(got[key], want[key], err_msg=key)
+
+
+def test_internal_call_sites_still_resolve_the_module_global(monkeypatch):
+    # Tests replace this module global; an internal call site that stopped resolving it would
+    # bypass them all, leaving tests green while testing nothing (design.md D3).
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    class _Sentinel(Exception):
+        pass
+
+    def _boom(*args, **kwargs):
+        raise _Sentinel()
+
+    monkeypatch.setattr(si, "extract_eulerian_box", _boom)
+
+    with pytest.raises(_Sentinel):
+        si.sphere_cv_drag_cd(str(FIXTURE), x_inlet=1.0, x_outlet=4.0)
+    with pytest.raises(_Sentinel):
+        si.check_field_capture_velocity(str(FIXTURE))
+    with pytest.raises(_Sentinel):
+        si.sphere_cv_steadiness_fraction(
+            str(FIXTURE), str(FIXTURE), x_inlet=1.0, x_outlet=4.0, dt=0.1
+        )
+
+
+def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
+    # check_field_capture_velocity's six NaN/Inf tests all monkeypatch the reader away, so none
+    # of them exercise the read path. If the reader -- or the wrapper that guard actually calls
+    # -- ever normalized values, the guard would stop seeing what it expects.
+    import yt
+
+    import mosquito_cfd.benchmarks.stress_integral as si
+
+    real_load = yt.load
+    # -0.0 rides along: assert_array_equal cannot tell it from +0.0, the uint64 view can.
+    poisoned = np.array([np.nan, np.inf, -np.inf, -0.0, 1.5])
+
+    class _Unyt:
+        # Minimal stand-in for yt's unyt_array: the reader unwraps via .to_ndarray().
+        def __init__(self, array):
+            self._array = array
+
+        def to_ndarray(self):
+            return self._array
+
+    class _PoisonGrid:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getitem__(self, key):
+            value = self._inner[key].to_ndarray().copy()
+            value.reshape(-1)[: poisoned.size] = poisoned
+            return _Unyt(value)
+
+    class _PoisonDataset:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def covering_grid(self, *args, **kwargs):
+            return _PoisonGrid(self._inner.covering_grid(*args, **kwargs))
+
+    monkeypatch.setattr(
+        yt, "load", lambda p, *a, **k: _PoisonDataset(real_load(str(p)))
+    )
+
+    snap = read_field_snapshot(FIXTURE, **FULL)
+    box = si.extract_eulerian_box(str(FIXTURE), **FULL)
+    want = poisoned.view(np.uint64)
+    for name in ("u", "v", "w"):
+        for source, arrays in (("reader", snap.arrays), ("wrapper", box)):
+            got = arrays[name].reshape(-1)[: poisoned.size].view(np.uint64)
+            np.testing.assert_array_equal(got, want, err_msg=f"{source}:{name}")
+
+    # End to end: the guard the passthrough exists for still fires through the real read path.
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        si.check_field_capture_velocity(str(FIXTURE))
+
+
+def test_legacy_wrapper_returns_writable_arrays_like_the_oracle():
+    # Kept as a focused smoke check; writeability is asserted across the WHOLE clamping matrix
+    # inside test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle, because a single
+    # region is thin for "the thing array equality cannot see".
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    got = extract_eulerian_box(str(FIXTURE), **FULL)
+    got["u"][0, 0, 0] = 1234.5  # must not raise
+
+
+def test_amr_refusal_propagates_through_the_legacy_wrapper(monkeypatch):
+    # The PR B half of the AMR guard: pre-delegation the wrapper raised its own message, so this
+    # assertion only becomes meaningful once extract_eulerian_box delegates.
+    from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+
+    log = _patch_yt(monkeypatch, max_level=1)
+    with pytest.raises(ValueError, match="CC-F3"):
+        extract_eulerian_box(str(FIXTURE), **FULL)
+    assert log == []
+
+
+# --- PR B review corrections -----------------------------------------------------------------
+
+#: SHA-256 of the frozen oracle's RAW BYTES. An earlier version normalized newlines on the
+#: premise that `* text=auto` gives this file CRLF in a Windows checkout. That was wrong:
+#: `.gitattributes` pins `*.py text eol=lf`, so it is LF in every working tree regardless of
+#: `core.autocrlf` (verified with `git check-attr`). Hashing raw bytes is both correct and
+#: stricter -- it also catches a CRLF conversion, which would mean the eol=lf rule had been
+#: dropped, exactly when you would want to know.
+_ORACLE_SHA256 = "3e26a665006a46b0d3e1ca1ea458072d8ec8e1ee69bfbead571cf8c664099c93"
+
+
+def test_frozen_oracle_is_unmodified():
+    # The oracle's entire value is that it is a byte-for-byte copy of the pre-refactor
+    # implementation. Nothing else stops `ruff format`, `ruff check --fix`, or a ruff version
+    # bump from rewriting it -- and if that happened, the differential above would silently
+    # become a comparison against post-hoc-modified code with no test failing. A content hash
+    # is squash-merge-safe; a `git show <sha>` check is not (this repo squash-merges).
+    path = FIXTURE.parent / "legacy_extract_eulerian_box.py"
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert actual == _ORACLE_SHA256, (
+        "the frozen oracle changed. It must NOT be edited, reformatted or linted -- it is a "
+        "copy of the pre-refactor implementation taken at 86c729e. If the change was "
+        "deliberate, the delegation's equivalence claim no longer means what it says."
+    )

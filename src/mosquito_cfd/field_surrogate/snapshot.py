@@ -144,7 +144,13 @@ def _validate_halo(halo: int) -> int:
 def _corner(value, name: str) -> np.ndarray:
     arr = np.asarray(value, dtype=np.float64)
     if arr.shape != (3,):
-        raise ValueError(f"{name} must be a 3-vector, got shape {arr.shape}")
+        # The pre-refactor adapter broadcast a scalar, so `lo=-np.inf` meant "full extent"; name
+        # the replacement rather than leaving the caller to guess.
+        full = "(-inf,)*3" if name == "lo" else "(inf,)*3"
+        raise ValueError(
+            f"{name} must be a 3-vector (x, y, z), got shape {arr.shape}; "
+            f"for full extent pass {full}"
+        )
     if np.isnan(arr).any():
         raise ValueError(
             f"{name} contains NaN; use -inf/+inf for 'full extent' along an axis"
@@ -204,10 +210,12 @@ def read_field_snapshot(
     Returned arrays are read-only against accidental writes, not tamper-proof: numpy lets the
     owner call ``setflags(write=True)``. Copy an array before modifying it.
 
-    This matches ``benchmarks.stress_integral.extract_eulerian_box`` whenever
-    ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside that, the
-    legacy adapter clamps the corners onto the domain edge *before* padding and so returns edge
-    cells however far away the request is; this reader returns fewer cells there, never more.
+    This matches the pre-refactor ``benchmarks.stress_integral.extract_eulerian_box`` (frozen
+    in ``tests/fixtures/legacy_extract_eulerian_box.py``; the current one delegates here)
+    whenever ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside
+    that, the pre-refactor adapter clamps the corners onto the domain edge *before* padding and
+    so returns edge cells however far away the request is; this reader never returns more cells
+    there, and for a non-inverted request returns a sub-range of the pre-refactor cells.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).

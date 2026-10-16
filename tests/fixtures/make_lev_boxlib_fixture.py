@@ -49,19 +49,30 @@ _REAL_DESCRIPTOR_FP32 = "(8, (32 8 23 0 1 9 0 127)),(4, (4 3 2 1))"
 _REAL_DESCRIPTOR_BE64 = "(8, (64 11 52 0 1 12 0 1023)),(8, (1 2 3 4 5 6 7 8))"
 
 
-def _fields(names: tuple[str, ...] = FIELDS) -> list[np.ndarray]:
-    xs = (np.arange(N) + 0.5) * DX
-    x, y, _ = np.meshgrid(xs, xs, xs, indexing="ij")
+def _fields(
+    names: tuple[str, ...] = FIELDS,
+    shape: tuple[int, int, int] = (N, N, N),
+    origin: tuple[float, float, float] = (0, 0, 0),
+    dx: tuple[float, float, float] = (DX, DX, DX),
+    distinct_fields: bool = False,
+) -> list[np.ndarray]:
+    axes = [origin[i] + (np.arange(shape[i]) + 0.5) * dx[i] for i in range(3)]
+    x, y, z = np.meshgrid(*axes, indexing="ij")
     zero = np.zeros_like(x)
+    if distinct_fields:
+        # Non-zero and mutually distinct, so a permuted field or axis cannot hide behind zeros.
+        w, gpx, gpy, gpz = 0.7 * z, 0.11 * x + 1.0, -0.23 * y + 2.0, 0.37 * z + 3.0
+    else:
+        w = gpx = gpy = gpz = zero
     all_fields = [
         -OMEGA * y,  # x_velocity
         OMEGA * x,  # y_velocity
-        zero,  # z_velocity
+        w,  # z_velocity
         np.ones_like(x),  # density
         zero,  # tracer
-        zero,  # gradpx
-        zero,  # gradpy
-        zero,  # gradpz
+        gpx,  # gradpx
+        gpy,  # gradpy
+        gpz,  # gradpz
     ]
     by_name = dict(zip(FIELDS, all_fields))
     return [by_name[n] for n in names]
@@ -71,6 +82,10 @@ def write_fixture(
     root: Path = FIXTURE_DIR,
     fields: tuple[str, ...] = FIELDS,
     real_dtype: str = "float64",
+    shape: tuple[int, int, int] = (N, N, N),
+    origin: tuple[float, float, float] = (0, 0, 0),
+    dx: tuple[float, float, float] = (DX, DX, DX),
+    distinct_fields: bool = False,
 ) -> Path:
     """Write the fixture plotfile under ``root`` and return the path.
 
@@ -82,6 +97,12 @@ def write_fixture(
     ``<f4`` and the RealDescriptor declares 4-byte reals. This is the only honest way to
     exercise the fp32-build guard -- stubbing a float32 array into the reader tests the
     branch, not the property, because yt returns float64 arrays from a real fp32 plotfile.
+
+    ``shape``/``origin``/``dx`` (per axis) and ``distinct_fields`` build a still single-FAB
+    variant with an anisotropic, offset grid and non-zero ``w``/``gradp*``, for tests that must
+    tell axes and fields apart. Use dyadic origins and spacings: yt refuses a full-domain
+    covering grid whose right edge rounds outside the domain. The defaults reproduce the
+    committed fixture byte-for-byte (``test_fixture_is_regenerable``).
     """
     root = Path(root)  # accept a str root too
     fields = tuple(fields)
@@ -96,8 +117,9 @@ def write_fixture(
     }[real_dtype]
     lev = root / "Level_0"
     lev.mkdir(parents=True, exist_ok=True)
-    arrays = _fields(fields)
-    box = f"((0,0,0) ({N - 1},{N - 1},{N - 1}) (0,0,0))"
+    arrays = _fields(fields, shape, origin, dx, distinct_fields)
+    nx, ny, nz = shape
+    box = f"((0,0,0) ({nx - 1},{ny - 1},{nz - 1}) (0,0,0))"
 
     # Cell_D: ASCII FAB header, then little-endian float64, component-major, x-fastest (Fortran order).
     # AMReX writes native little-endian doubles (verified by decoding a real plotfile FAB), even though
@@ -140,7 +162,7 @@ def write_fixture(
         cell_h, newline="\n"
     )  # explicit LF: byte-identical on Windows + CI
 
-    hi = N * DX
+    his = [origin[i] + shape[i] * dx[i] for i in range(3)]
     header = "\n".join(
         [
             "NavierStokes-V1.1",
@@ -149,19 +171,19 @@ def write_fixture(
             "3",  # spacedim
             f"{TIME}",  # time
             "0",  # finest_level
-            "0 0 0 ",  # prob_lo
-            f"{hi} {hi} {hi} ",  # prob_hi
+            "".join(f"{v} " for v in origin),  # prob_lo
+            "".join(f"{v} " for v in his),  # prob_hi
             "",  # ref_factors (empty for max_level=0 -> yt defaults)
             f"{box} ",  # level-0 domain (index space)
             "0 ",  # level steps (one per level)
-            f"{DX} {DX} {DX} ",  # cell size
+            "".join(f"{v} " for v in dx),  # cell size
             "0",  # coord sys (cartesian)
             "0",  # boundary width
             f"0 1 {TIME}",  # level 0: lev ngrids time
             "0",  # level step
-            f"0 {hi}",  # grid 0 RealBox: x lo/hi
-            f"0 {hi}",  # y lo/hi
-            f"0 {hi}",  # z lo/hi
+            f"{origin[0]} {his[0]}",  # grid 0 RealBox: x lo/hi
+            f"{origin[1]} {his[1]}",  # y lo/hi
+            f"{origin[2]} {his[2]}",  # z lo/hi
             "Level_0/Cell",
             "",
         ]

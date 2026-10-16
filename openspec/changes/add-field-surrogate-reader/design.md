@@ -46,8 +46,12 @@ The rule adopted instead pads first and then intersects with the domain: the req
 is widened by `halo`, the one-cell floor is applied to that padded range, and only the part inside
 `[0, ddims)` is kept. Corners are clipped to one reach (`(halo + 1)·dx`) beyond the domain, which
 removes `±inf` without changing the result. The one exception is a degenerate grid whose cells are
-narrower than the coordinate ULP, where `dre + (halo + 1)·dx` rounds back to `dre`. It is
-implemented as the pure helper `snapshot._region_bounds` so it can be swept without yt.
+narrower than the coordinate ULP, where `dre + (halo + 1)·dx` rounds back to `dre`. A
+second, equally unreachable one is a subnormal offset: with `dx > 1`, origin 0 and
+`hi = 5e-324`, `(hi - dle) / dx` underflows to 0. Legacy then forces one cell from its clamped
+corner, and this rule forces none, which is a parity-region request returning one cell fewer.
+No corpus deck (`dx < 1`) or caller can produce it (found by the #106 review's sweep). The rule
+is implemented as the pure helper `snapshot._region_bounds` so it can be swept without yt.
 
 These properties are verified by permanent tests. They sweep every pair of a value set — cell faces
 and ±1–4 ULP around them, quarter-cell points, both edges ±1e-12, far values, `±inf` — against a
@@ -92,15 +96,20 @@ Inverted requests (`lo > hi`) keep legacy's behaviour exactly. That means the si
 **Consequence for PR B.** Its frozen oracle is legacy and must not change. The test matrix is
 therefore split:
 
-- `REGION_CASES` holds parity cases only; PR B's oracle test iterates it unchanged.
+- `REGION_CASES` holds agreement cases only (the parity region plus three edge points that agree
+  anyway); PR B's oracle test iterates it unchanged.
 - `DIVERGENCE_CASES` asserts both the legacy value and this reader's value.
 
-In PR A the legacy side of `DIVERGENCE_CASES` reads `stress_integral.extract_eulerian_box`, which is
-still pre-refactor there. PR B must re-point it at the frozen oracle, or that test fails there by
-design. Once PR B lands, `extract_eulerian_box`'s own behaviour narrows accordingly, and PR B's
-CHANGELOG must say so (task 59). No in-repo caller passes `halo` today, and with `halo = 0` only a
-request lying outside the domain on some axis is affected. `check_field_capture_velocity` then gets
-the empty region its dedicated error path exists for, instead of silently reading a boundary cell.
+In PR A the legacy side of `DIVERGENCE_CASES` read `stress_integral.extract_eulerian_box`, which was
+still pre-refactor there. PR B re-pointed it, and the `REGION_CASES` comparison, at the frozen oracle
+(tasks 82, 84), and pins the wrapper's own narrowed behaviour against that oracle; PR B's CHANGELOG
+states the narrowing (task 86). No in-repo caller passes `halo` today, and with `halo = 0` only a
+request lying outside the domain on some axis is affected. The callers then fail clearly rather than
+silently reading a boundary cell:
+- `check_field_capture_velocity` gets the empty region its dedicated error path exists for;
+- `sphere_cv_drag_cd` and `sphere_cv_steadiness_fraction` raise "selects no cells" (a guard added
+  in task 92; before it they died inside `np.argmin`);
+- `wing_lev_report` already refuses through lev's "at least 3 points per axis" stencil check.
 
 ## D2. Three spec deltas are staleness corrections, generated mechanically
 
@@ -290,7 +299,8 @@ new single-package inconsistency. Both are added.
 Review caught that comparing the refactored `extract_eulerian_box` to a re-pack of
 `read_field_snapshot` is **tautological**: after the refactor the wrapper *is* that re-pack, so the
 test compares an implementation to itself and proves nothing about behavioral continuity — which is
-the entire claim of D1.
+D1's claim within the parity region. Outside it, the divergence cases are pinned against the same
+oracle (task 82), so continuity is claimed only where D1 claims it.
 
 Equivalence is therefore demonstrated against a **frozen oracle**: the pre-refactor implementation
 copied byte-for-byte into `tests/fixtures/legacy_extract_eulerian_box.py` with its source commit
@@ -310,8 +320,8 @@ CI cannot prove the refactor safe. The only unmarked yt read in the suite uses a
 unit-spacing origin-aligned fixture; everything exercising halo arithmetic, sub-box clipping,
 multi-FAB covering grids, non-unit `dx`, or a non-zero domain origin is `requires_plotfile` and
 auto-skips on the runner. Additionally, three `raise` paths that this change moves wholesale — the
-`max_level` guard, the missing-fields guard, and the fp32 guard — have **no** CI coverage at HEAD
-(confirmed by grep: no test references their messages, and the one that does is `requires_plotfile`).
+`max_level` guard, the missing-fields guard, and the fp32 guard — had **no** CI coverage at
+proposal time (confirmed by grep: no test references their messages, and the one that does is `requires_plotfile`).
 
 Mitigation, all before merge:
 
@@ -321,8 +331,8 @@ Mitigation, all before merge:
    **ran** (`-rs`), per the project's own principle that a mandatory check with no recorded result is
    indistinguishable from one never run.
 3. Bit-exact A/B against the frozen oracle on real plotfiles across the full region matrix —
-   zero tolerance, not `allclose`. This is the only check covering multi-FAB grids, non-unit `dx`, and
-   non-zero origins.
+   zero tolerance, not `allclose`. This is the only check covering multi-FAB grids and non-unit `dx`. No
+   project plotfile has a non-zero origin, so that path stays unverified here (#107).
 4. File a follow-up issue for a second committed fixture with anisotropic `dx`, a non-zero origin, and
    more than one FAB — the structural fix for "CI's only plotfile is degenerate", out of scope here.
 

@@ -359,10 +359,9 @@ Three conventions that are load-bearing rather than stylistic:
   `benchmarks -> field_surrogate -> force_surrogate -> benchmarks` cycle. Import submodules
   directly.
 - **`benchmarks.stress_integral.extract_eulerian_box` stays the entry point for every in-repo
-  caller** and is not to be bypassed (the `force-surrogate` spec's CC-F1 requires it, and ~21
-  tests replace it as a module global). It delegates to `read_field_snapshot` once the
-  delegation PR (`design.md` D12's "PR B") lands; this package's own PR is purely additive and
-  does not touch `stress_integral.py`.
+  caller** and is not to be bypassed (the `force-surrogate` spec's CC-F1 requires it, and tests
+  replace it as a module global). It is a thin wrapper over `read_field_snapshot`, so it inherits
+  the reader's region rule and argument validation (`add-field-surrogate-reader` design.md D1).
 - **Multi-level plotfiles are refused**, naming the still-open CC-F3 AMR decision. Reading
   level 0 alone would silently return coarse data and discard the refined patches.
 
