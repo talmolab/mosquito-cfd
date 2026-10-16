@@ -260,7 +260,9 @@ def test_compute_speedup_latency_floor_not_over_1000():
     expected = (CFD_SECONDS_PER_WINGBEAT / 2000) / (0.232 / 1000.0)
     np.testing.assert_allclose(sp["latency_speedup"], expected, rtol=1e-9)
     assert sp["latency_speedup"] < 1000
-    assert abs(sp["latency_speedup"] - 310.0) < 5  # ~310x
+    assert (
+        abs(sp["latency_speedup"] - 310.0) < 5
+    )  # toy fixture's 0.232 ms, not a corpus number
 
 
 def test_rows_per_wingbeat_is_actual_parquet_counts(tmp_path):

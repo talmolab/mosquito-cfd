@@ -73,8 +73,9 @@ class MomentCoefficients:
 
     Only the *origin* is the hinge: the axes remain the lab axes as written by IAMReX,
     so these are **not** van Veen wing frame moments (that would additionally require
-    rotating by ``R(t)^T``, a conversion that is deferred and not currently tracked). The raw ``Mx/My/Mz`` columns carried
-    alongside these coefficients are about the solver's own particle origin.
+    rotating by ``R(t)^T``, a conversion that is deferred and not currently tracked).
+    The raw ``Mx/My/Mz`` columns carried alongside these coefficients are about the
+    solver's own particle origin.
 
     A future body-in-the-loop model would want the insect's centre of mass instead;
     that alternative is deliberately deferred, not overlooked.

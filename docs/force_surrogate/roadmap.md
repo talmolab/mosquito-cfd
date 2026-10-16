@@ -201,7 +201,7 @@ section; it is not restated here, because it has changed with every corpus regen
 | 12 | `fix-moment-reference-hinge` | Moment coefficients re-referenced from the IB particle's origin to the deck's declared hinge (#108): shift helper + canonical docs ([PR #117](https://github.com/talmolab/mosquito-cfd/pull/117)); extraction wiring + both corpora re-extracted ([PR #118](https://github.com/talmolab/mosquito-cfd/pull/118)); coarse surrogate retrained + evidence figure regenerated (its third PR, which closes #108). | local / A5000 | 🟡 |
 | 13 | *(not yet proposed)* | Train the surrogate on the fine corpus and build its evidence figure ([#110](https://github.com/talmolab/mosquito-cfd/issues/110)); blocked until row 12 merges. | A5000 | ⬜ |
 
-**Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6 (rows 7-13 followed, in order). PR3.5 (Argo) supersedes PR3's
+**Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6 (rows 7-13 followed). PR3.5 (Argo) supersedes PR3's
 transport and is what actually produces the corpus. PR4 can be built and fully tested against
 fixtures **before** the real corpus exists (CC-2), so PR3.5 (cluster) and PR4 (local) can proceed in
 parallel once PR1+PR2 land. PR5 needs PR4's dataset + PR3.5's corpus; PR6 needs PR5's predictions +
