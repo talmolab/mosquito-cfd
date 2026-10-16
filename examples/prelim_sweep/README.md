@@ -350,9 +350,9 @@ disclosure:
   sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz` stay **omitted** from the
   plotted axes), but the caption discloses the actual current `CF_mx`/`CF_mz` numbers rather than
   claiming they carry "no between-config signal." CF_my is named the **M_y component** rather than
-  "pitch moment" because the repo's axis convention differs from the biomechanics standard
-  (**issue #1**); the fix is a solver-level refactor + full cluster re-run, deliberately out of scope
-  here (CC-6).
+  "pitch moment" because moments are **lab-frame** components about the hinge, not wing-frame
+  (biomechanical) moments — see [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments).
+  The wing-frame conversion (`R(t)ᵀM`) is deferred and not currently tracked.
 - **The Sane–Dickinson quasi-steady model is a reference, not a plotted baseline.** It is an
   **uncalibrated, zero-parameter** translational quasi-steady model (Sane & Dickinson 2002;
   hovering-scoped; **symmetric-rotation** AoA; rotational + added-mass terms **omitted**; lift defined

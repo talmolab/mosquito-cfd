@@ -464,11 +464,13 @@ def test_config_color_legend_present():
     plt.close(fig)
 
 
-def test_build_figure_caption_references_issue_1():
-    """Scenario: Moment panel ... figure caption references the issue-#1 axis-convention caveat."""
+def test_build_figure_caption_states_the_lab_frame_moment_caveat():
+    """Scenario: Moment panel ... the caption states the moment is a lab-frame component and
+    that the wing-frame conversion is not currently tracked (issue #1 is closed)."""
     fig = build_figure(_toy_predictions(), _toy_metrics())
     alltext = " ".join(t.get_text() for t in fig.texts).lower()
-    assert "issue #1" in alltext or "#1" in alltext
+    assert "lab-frame m_y component" in alltext
+    assert "not currently tracked" in alltext
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -777,7 +779,10 @@ def test_readme_carries_full_disclosures():
     )
     low = readme.lower()
     # the full disclosure set the compact caption only points to
-    assert "issue #1" in low
+    assert "**lab-frame** components about the hinge" in low  # the axis caveat
+    assert (
+        "not currently tracked" in low
+    )  # ...and that the wing-frame conversion is deferred
     assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
     assert "symmetric-rotation" in low
     assert "stroke-plane-normal" in low and "lab-z" in low  # projection caveat

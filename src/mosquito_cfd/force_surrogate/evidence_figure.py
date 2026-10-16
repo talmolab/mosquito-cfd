@@ -11,7 +11,7 @@ analytic loops rather than surrogate skill (CC-4 deviation). No solver, cluster,
 (CC-6); the metrics the trainer already computed are *read*, never re-derived.
 
 Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my headline,
-named as a component — issue #1), D2 (translational Sane-Dickinson via the CC-3
+named as a lab-frame component), D2 (translational Sane-Dickinson via the CC-3
 ``compute_force_reference`` helper; reference-only, not overlaid), D3 (honest caption, split
 compact-caption vs README), D4 (batched-throughput >1,000x speedup, disclosed as batch-size
 driven; latency floor is read from ``metrics.json`` each run, not a fixed number — ~470x as of
@@ -51,7 +51,8 @@ from mosquito_cfd.force_surrogate.sidecar import (  # noqa: E402
 from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 
 # The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y
-# component", not "pitch moment" (issue #1). D1 originally picked CF_my because it was the
+# component", not "pitch moment" (moments are lab-frame; the wing-frame conversion is not
+# currently tracked). D1 originally picked CF_my because it was the
 # only moment with genuine config-resolved signal in the pre-hinge-fix corpus; that empirical
 # ranking is corpus-dependent (fix-force-surrogate-sweep-hinge found the corrected geometry
 # gives CF_mx a higher config-resolved R2 than CF_my) and is NOT re-derived here — the panel
@@ -347,7 +348,8 @@ def build_caption(
         f"Caveats: aggregate pointwise R²~{agg:.3f} is waveform-dominated and overstates "
         f"skill ({tell}). Coarse 64x32x64 grid: "
         f"pipeline readiness, not validated "
-        f"aerodynamics. Moment is the M_y component (axis convention, issue #1); "
+        f"aerodynamics. Moment is the lab-frame M_y component (wing-frame conversion not "
+        f"currently tracked); "
         f"CF_mx/CF_mz omitted from panels (config-resolved R²: {off_panel_disclosure})."
     )
     reference = (
