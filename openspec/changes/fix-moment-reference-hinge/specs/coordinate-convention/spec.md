@@ -16,7 +16,8 @@ The section SHALL state:
 
 - that repository moments are **lab-frame components taken about the wing hinge**;
 - that the axes are **not** rotated into the wing frame, so these are not van Veen wing-frame
-  moments — that would additionally require rotating by `R(t)ᵀ` (GitHub issue #1);
+  moments — that would additionally require rotating by `R(t)ᵀ`, a conversion that is deferred and
+  not currently tracked (issue #1, which once covered it, is closed);
 - that raw solver-written moment columns are about the solver's own particle origin, while derived
   moment **coefficients** are about the hinge;
 - the centre-of-mass alternative appropriate to a future body-in-the-loop model, recorded as a

@@ -251,9 +251,13 @@ set, so nondeterministic cuBLAS reductions are downgraded to warnings. `metrics.
 `reproducibility.bitwise == "cpu_only"` accordingly.
 
 So "`CF_my`'s config-resolved R² is unchanged within training noise" is unfalsifiable until the
-noise is measured. Before the corrected retrain, retrain once on the **uncorrected** committed
-parquet at the same seed and host, and record the deltas against the committed metrics. That is
-the empirical noise floor; the tolerance is stated as a multiple of it.
+noise is measured. Before the corrected retrain, retrain **twice** on the **uncorrected** committed
+parquet at the same seed and host. The run-vs-run delta is the empirical noise floor; each run's
+delta against the committed metrics is advisory only, since the committed record names neither its
+dataset nor its commit. The tolerance is stated as a multiple of the floor and **fixed before** the
+corrected retrain runs, so it cannot be chosen after seeing the result. (One rerun was the original
+plan; the PR3 review raised it to two, because a single sample against near-zero denominators such
+as CF_x's −0.007 is a weak floor.)
 
 Record **all six** targets' deltas, not just `CF_my`. The headline finding of this change is what
 happens to `CF_mx` (0.993 → ?), and a noise floor for the one target that cannot move is the least
