@@ -1,8 +1,8 @@
 {
-  "run_id": "c94a1d5d-bc04-486b-aa2b-d58687580165",
-  "timestamp": "2026-10-16T21:42:10Z",
+  "run_id": "3b71e059-0f45-4a1f-83d3-1d6c82edfb46",
+  "timestamp": "2026-10-16T22:13:38Z",
   "git": {
-    "commit": "81852683bdbb6bbd3b26ef83d52499f29de29c7f",
+    "commit": "630980d9ab134f18106c70c859cbd202ca3ff341",
     "branch": "fix-moment-reference-hinge-pr3",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
