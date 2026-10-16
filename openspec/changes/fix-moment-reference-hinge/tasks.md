@@ -800,6 +800,7 @@ test-first where it changes behaviour:
 52. [ ] `/pre-merge-check`, including the 5-reviewer `/review-pr`. Before `/cleanup-merged`, check
     `grep -c '\[ \]' tasks.md` is 0 (`openspec list` does not count numbered-list checkboxes).
 53. [x] *(PR2: 24.2 MiB of new parquet blobs, stated in #118 and on #102.)* State the ~26 MiB binary growth in the PR body for issue #102's evidence.
-53a. [ ] Replace the CHANGELOG's `(#108)` with this PR's number and add `pull_request` to
+53a. [x] Replace the CHANGELOG's `(#108)` with this PR's number and add `pull_request` to
     `sweep_provenance.json` `retrain`. State PR3's own share (~1.9 MiB: holdout parquet ~1.5 MiB, PNG ~0.27 MiB, `.pt` ~41 KiB) in
     the PR body and comment it on #102.
+    *Done: PR #126; CHANGELOG `(#118, #126)`, `sweep_provenance.json` `retrain.pull_request: 126` (test-pinned, mutation 3/3), roadmap row 12 links #126. PR3's share: ~1.9 MB of binaries (holdout parquet 1.57 MB, `.pt` 41 KB, two PNG versions 286 + 291 KB), ~3.5 MB of new blobs in all; commented on #102.*

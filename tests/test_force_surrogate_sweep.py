@@ -1048,9 +1048,11 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
         "re_extraction": ["dataset.parquet"],
         "retrain": ["surrogate/", "figures/"],
     }
+    prs = {"re_extraction": 118, "retrain": 126}  # PR2 and PR3 of the change
     for stage, expected in stages.items():
         step = record[stage]
         assert step["change"] == "fix-moment-reference-hinge", stage
+        assert step["pull_request"] == prs[stage], stage
         assert step["cluster_workflows"] == [], (
             f"{stage} ran locally, not on the cluster"
         )

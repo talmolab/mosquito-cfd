@@ -7,7 +7,7 @@
   "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
   "downstream_artifacts_regenerated_from": {
-    "reason": "fix-moment-reference-hinge (#108) re-referenced the moment coefficients CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge. It re-extracted dataset.parquet from the existing CFD output (PR2, #118) and retrained surrogate/* and regenerated the evidence figure locally (the change's third PR). No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
+    "reason": "fix-moment-reference-hinge (#108) re-referenced the moment coefficients CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge. It re-extracted dataset.parquet from the existing CFD output (PR2, #118) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126). No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
     "cfd_cluster_workflows": [
       "force-surrogate-sweep-9454x",
       "force-surrogate-sweep-8nbjt"
@@ -24,6 +24,7 @@
     },
     "retrain": {
       "change": "fix-moment-reference-hinge",
+      "pull_request": 126,
       "host": "local A5000 workstation talmo-lab-02 (training under WSL2; figure rendered natively)",
       "cluster_workflows": [],
       "affected": [
