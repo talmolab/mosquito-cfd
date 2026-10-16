@@ -611,11 +611,15 @@ handles the Windows worktree gitdir, #78). Leave `CUBLAS_WORKSPACE_CONFIG` unset
 baseline ran without it, and setting it would shrink the measured floor to ~0 by changing the
 protocol rather than measuring it.
 
-35a. [ ] **Pre-flight.** Inside WSL, `get_git_info()` prints a 40-hex commit, branch
+35a. [x] **Pre-flight.** Inside WSL, `get_git_info()` prints a 40-hex commit, branch
     `fix-moment-reference-hinge-pr3`, `dirty: False` (a CRLF/filemode false-dirty would show here).
     Host, GPU and driver match the committed `surrogate/run_metadata.json` (`talmo-lab-02`, RTX
     A5000, driver 552.86); halt if not.
-35. [ ] **Noise-floor control (design D9).** Write `git cat-file blob
+    *Done (2026-10-16): all match; `get_git_info()` in WSL gave `54127f6`, `-pr3`, `dirty: false`
+    with no `GIT_DIR` export; torch 2.12.1+cu126 (CUDA available), physicsnemo 2.1.1, pandas 3.0.0,
+    `uv.lock` unchanged. GPU-tier tests 7/7 in 21 s; removing `run_training`'s dataset passthrough
+    fails the new GPU test (`KeyError: 'inputs'`). A run takes ~20 s, not the hours budgeted.*
+35. [x] **Noise-floor control (design D9).** Write `git cat-file blob
     fea817a:examples/prelim_sweep/dataset.parquet` to the scratchpad (bash, not PowerShell
     redirection) and check `git hash-object` is `55b74a8f…`. Train on it **twice**, seed 1234, 2000
     epochs, `--device cuda`, `--wandb disabled`, `--docker-digest` taken from the coarse corpus
@@ -624,15 +628,58 @@ protocol rather than measuring it.
     vs committed). The run-vs-run delta is the floor proper; the run-vs-committed deltas are
     advisory, because the committed record carries no dataset hash and no commit. Record the table
     here and in the PR body as text; commit nothing from these runs.
+
+    **Result: the retrain is bitwise-deterministic on this host.** Both reruns reproduce the
+    committed surrogate exactly — `holdout_predictions.parquet` sha256 `de4f8793…` and
+    `surrogate.pt` `71b77c50…` identical to the committed files; all six `config_mean_r2` deltas
+    are 0. Only `metrics.json`'s `inference` block differs (wall-clock timing: latency 0.152 / 0.191
+    ms vs committed 0.154, so the README's latency floor is a single timing sample that moves
+    ~380-470× between identical runs). Design D9's premise (cuBLAS nondeterminism makes a retrain
+    non-reproducible) does not hold here, so the floor is exactly 0. Under the rule as written,
+    task 38a's tolerance would be 1e-6 and any data change would "fail" it by construction.
+
+35d. [x] **Seed-variation control (added with the user, 2026-10-16, before any corrected run).**
+    The reference that 35 was meant to supply is how much config-resolved R² moves under an
+    irrelevant perturbation. Same pre-#108 parquet, same code, seeds 1235-1238 (scratchpad only):
+
+    | target | 1234 (committed) | 1235 | 1236 | 1237 | 1238 | range |
+    |---|---|---|---|---|---|---|
+    | CF_x | −0.007 | 0.092 | −1.453 | 0.433 | 0.727 | 2.18 |
+    | CF_y | 0.811 | 0.949 | 0.930 | 0.981 | 0.948 | 0.17 |
+    | CF_z | 0.985 | 0.994 | 0.996 | 0.995 | 0.950 | 0.05 |
+    | CF_mx | 0.993 | 0.994 | 0.999 | 0.972 | 0.972 | 0.03 |
+    | CF_my | 0.507 | −0.458 | 0.193 | 0.688 | 0.807 | 1.27 |
+    | CF_mz | 0.713 | −5.455 | −0.813 | −0.174 | 0.860 | 6.32 |
+
+    **Config-resolved R² is strongly seed-dependent** for CF_x, CF_my and CF_mz: each is a
+    cycle-mean R² over only the 6 holdout configs, and the shared-trunk model's between-config
+    error moves with initialisation. Only CF_mx, CF_z and CF_y are seed-robust. Consequences:
+    - several committed claims are seed-1234 artifacts: CF_x's negative R² (the caption's "tell";
+      positive for 3 of the 4 other seeds) and "CF_mx ≈0.99 clearly beats CF_my ≈0.51" (CF_my
+      reaches 0.81 at seed 1238);
+    - the CF_my check is **vacuous** at this sample size: a 3× seed-spread tolerance (2.9 for
+      CF_my, 18.5 over all six) cannot fail for a quantity bounded above by 1.
+38a. [x] **Pre-registered before task 36 (revised with the user):** there is no pass/fail on
+    `CF_my`. The comparison is **5-seed old vs 5-seed new** for all six targets: the corrected
+    parquet is trained at seeds 1234-1238 too (1234 into `examples/prelim_sweep/surrogate/`, the
+    committed artifact, protocol unchanged; 1235-1238 in the scratchpad, never committed). Report
+    each target's old and new seed range, and where the committed seed-1234 corrected value falls in
+    them. A target is said to have **moved** only if its old and new ranges do not overlap;
+    otherwise the change is reported as within seed variation. Prose (task 41) states only claims
+    that hold across all five seeds, or quotes the range. File an issue for multi-seed evaluation in
+    the trainer and evidence figure, whose caption still prints single-seed numbers.
 38a. [ ] **Pre-register the tolerance before task 36:** floor = max |Δ| over the six targets and the
     three task-35 pairs; tolerance = 3 × floor (1e-6 if the floor is 0). Write it here first.
 36. [ ] Retrain on the corrected committed parquet with the same arguments, `--dataset
-    examples/prelim_sweep/dataset.parquet --out-dir examples/prelim_sweep/surrogate`.
+    examples/prelim_sweep/dataset.parquet --out-dir examples/prelim_sweep/surrogate` (seed 1234),
+    after the seeds 1235-1238 scratchpad runs on the same parquet (task 38a), so those run from the
+    clean tree too.
 37. [ ] `git diff --exit-code uv.lock`; `library_versions` still `torch 2.12.1+cu126` /
     `physicsnemo 2.1.1`; `git diff --exit-code examples/prelim_sweep/dataset.parquet
     examples/prelim_sweep_fine/` (PR3 must not touch either corpus); `uv run --group train pytest -m
     gpu tests/test_force_surrogate_train_gpu.py` on the A5000.
-38. [ ] **Verification** — |Δ `CF_my` config-resolved R²| (corrected vs committed) is within the
+38. [ ] **Verification** — *(superseded by 38a: report the 5-seed old-vs-new comparison; no CF_my
+    pass/fail)* |Δ `CF_my` config-resolved R²| (corrected vs committed) is within the
     task-38a tolerance; report pass/fail against that pre-registered number, and the multiple of the
     floor. Operator evidence, not a CI test: the target is invariant, the shared-trunk prediction is
     not. Record the new `CF_mx`/`CF_mz` (and all six) honestly whatever they are, each as a multiple

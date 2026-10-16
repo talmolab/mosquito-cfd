@@ -259,6 +259,14 @@ corrected retrain runs, so it cannot be chosen after seeing the result. (One rer
 plan; the PR3 review raised it to two, because a single sample against near-zero denominators such
 as CF_x's −0.007 is a weak floor.)
 
+**Measured (PR3, 2026-10-16): the premise does not hold on the training host.** Two reruns at seed
+1234 reproduce the committed `holdout_predictions.parquet` and `surrogate.pt` bitwise; only the
+wall-clock `inference` timing differs. The floor is therefore exactly zero and cannot scale a
+tolerance. The perturbation that does matter is the **seed**: across seeds 1234-1238 on identical
+data, config-resolved R² spans 2.18 (CF_x), 1.27 (CF_my) and 6.32 (CF_mz), against 0.03 for CF_mx.
+PR3 therefore compares 5-seed ranges, old vs new, rather than one run against a floor (tasks 35d,
+38a). A `CF_my` invariance check is not meaningful at six holdout configurations.
+
 Record **all six** targets' deltas, not just `CF_my`. The headline finding of this change is what
 happens to `CF_mx` (0.993 → ?), and a noise floor for the one target that cannot move is the least
 useful of the six. The same run produces all six for free.
