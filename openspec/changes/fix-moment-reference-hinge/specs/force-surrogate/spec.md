@@ -18,7 +18,7 @@ extraction mechanism and SHALL cross-reference rather than restate the definitio
 
 These are **lab-frame moment components taken about the hinge**. The shift relocates the
 **origin** only; it does not rotate the axes. A body-frame (wing-frame) moment would additionally
-require rotating by `R(t)ᵀ`, which is out of scope (GitHub issue #1). Documentation SHALL NOT
+require rotating by `R(t)ᵀ`, which is deferred and not currently tracked. Documentation SHALL NOT
 claim the moments are in van Veen's wing frame.
 
 The raw `Mx/My/Mz` columns SHALL retain the solver's as-written values about its own origin,
@@ -179,6 +179,31 @@ unit-testable independently of extraction.
 - **When** `shift_moment_reference` is called
 - **Then** it raises `ValueError` naming the problem, rather than broadcasting a wrongly-shaped displacement or silently producing all-NaN moments
 - **And** the check is on the **shape**, not merely the element count, so a `(3,1)` array is rejected rather than reshaped
+
+### Requirement: Committed surrogate artifacts are tied to the dataset they were trained on
+
+Training SHALL record, in the surrogate's `run_metadata.json`, the path and sha256 of the dataset
+parquet it consumed (`inputs.file` / `inputs.hash`, via the existing `capture_run_metadata`
+`inputs_file` channel), so that which corpus produced a committed `surrogate.pt` is auditable rather
+than inferred.
+
+A CI-runnable check SHALL reconcile the committed coarse surrogate against the committed coarse
+dataset **unconditionally**: every `<target>_true` column of `holdout_predictions.parquet`, for all
+six targets, equals the corresponding `dataset.parquet` column on `(config_name, time)`, and the
+recorded `inputs.hash` equals the sha256 of the committed `dataset.parquet`. Unlike a staleness
+banner, this check has no state in which a mismatch is acceptable.
+
+#### Scenario: Training metadata names the dataset
+
+- **Given** a training run over a dataset parquet
+- **When** `build_training_metadata` assembles the run's provenance
+- **Then** the record's `inputs.file` names that parquet and `inputs.hash` is its sha256
+
+#### Scenario: A surrogate trained on a different dataset fails CI
+
+- **Given** a committed `holdout_predictions.parquet` whose `<target>_true` values for any of the six targets differ from the committed `dataset.parquet`, or a recorded `inputs.hash` that is not the committed parquet's sha256
+- **When** the committed-artifact tests run
+- **Then** they fail, naming the target or the hash mismatch
 
 ## MODIFIED Requirements
 
@@ -430,10 +455,10 @@ extraction — a corpus's provenance names what produced its measurements.
 
 The evidence figure SHALL designate **CF_my** as the single headline moment coefficient and SHALL
 label its panel as an **"aerodynamic moment (M_y component)"** — it SHALL NOT label the panel
-"pitch moment". The figure caption SHALL note that the repository's axis convention differs from the
-biomechanics standard (GitHub issue #1) and therefore the panel reports the moment *component* rather
-than a biomechanical pitch interpretation; the figure SHALL NOT apply an unverified
-sim→biomechanics axis relabeling.
+"pitch moment". The figure caption SHALL note that the moments are **lab-frame** components about the
+hinge, not wing-frame (biomechanical) moments — that conversion is deferred and not currently
+tracked — and therefore the panel reports the moment *component* rather than a biomechanical pitch
+interpretation; the figure SHALL NOT apply an unverified sim→biomechanics axis relabeling.
 
 The panel set SHALL be **fixed a priori** rather than re-derived per corpus, so the figure cannot
 cherry-pick whichever moment axis scores best. The requirement SHALL NOT assert which moment
@@ -445,7 +470,7 @@ config-resolved R² at call time, so a reader can see the ranking rather than be
 
 - **Given** the evidence figure
 - **When** the moment panel is rendered
-- **Then** the panel uses the `CF_my` coefficient, its title/label contains "M_y" and the word "moment" but NOT the string "pitch moment", and the figure caption text references the issue-#1 axis-convention caveat
+- **Then** the panel uses the `CF_my` coefficient, its title/label contains "M_y" and the word "moment" but NOT the string "pitch moment", and the figure caption text states that the moment is a lab-frame component and that the wing-frame conversion is not currently tracked
 
 #### Scenario: The off-panel moments are disclosed, not ranked in the spec
 
@@ -479,12 +504,13 @@ caption SHALL be **compact** — a positive headline (the three panels' config-r
 speedup), a single terse "Caveats:" line, a single terse "Quasi-steady reference (not plotted):" line,
 and a pointer to `examples/prelim_sweep/README.md` — and the **full** disclosure set SHALL ALSO live in that README
 (task 10.2) and in `evidence_figure_metrics.json`, so honesty is preserved and test-enforced without
-overloading the PNG. The positive config-resolved results (CF_x, CF_my) SHALL read as dominant; the
-off-panel CF_y −3.61 SHALL be subordinate (an honesty flag, not a co-headline). Within that compact
+overloading the PNG. The on-panel targets' positive config-resolved results SHALL read as dominant;
+a negative config-resolved R² SHALL be subordinate (an honesty flag, not a co-headline). Within that compact
 caption, the figure SHALL report the **configuration-resolved** R² (read from
 `metrics.json config_resolved.<coefficient>.config_mean_r2`) for the three figure axes and state that the
 pointwise aggregate R²≈0.98 is dominated by the shared within-beat phase waveform and **overstates**
-the kinematics→force skill (naming CF_y's negative config-resolved R² as the concrete tell), that the
+the kinematics→force skill (naming the most negative config-resolved R² among the six targets as
+the concrete tell, or stating that none is negative), that the
 result is **pipeline readiness on coarse-grid forces** (64×32×64),
 **not** validated aerodynamics, and that the two off-axis moments **CF_mx/CF_mz are excluded from the
 panels, with their actual config-resolved R² read from `metrics.json` and stated** — the exclusion is
@@ -500,12 +526,16 @@ sequential coarse-grid A40 CFD timestep rate** — not a per-evaluation speedup.
 per-evaluation **latency** speedup (~310×, which is **not** >1,000×) SHALL be reported alongside as
 the like-for-like floor, and SHALL NOT be conflated with the throughput claim or computed by dividing
 a per-wingbeat cost by a per-row latency. All caption/annotation numbers SHALL be read from the
-committed artifacts, never hard-coded.
+committed artifacts, never hard-coded. Because config-resolved R² at six holdout configurations is
+strongly seed-dependent, the caption SHALL name the seed its config-resolved R² come from
+(`metrics.json` `reproducibility.seeds.global`) and point to the README for the seed spread, or
+state that no seed is recorded; it SHALL NOT present one draw as the corpus's skill.
 
-> Note: the result numbers embedded above (CF_y −3.61, R²≈0.98, ~310×, N=12,535) are stale against
-> the current committed artifacts and are tracked separately in issue #115. They are reproduced here
-> verbatim because this change modifies only the `CF_mx`/`CF_mz` exclusion clause; refreshing them is
-> deliberately out of scope.
+> Note: the result numbers still embedded above (R²≈0.98, ~310×) are stale against the committed
+> artifacts and are tracked separately in issue #115; refreshing them is deliberately out of scope.
+> This change rewrites only the `CF_mx`/`CF_mz` exclusion clause and the two clauses that named
+> specific targets as dominant (CF_x, CF_my) and as the negative-R² tell (CF_y −3.61), which now
+> describe the rule the code implements rather than a ranking that has already changed.
 
 #### Scenario: Caption reports config-resolved skill and flags the inflated aggregate
 
@@ -535,7 +565,14 @@ committed artifacts, never hard-coded.
 
 - **Given** the generated figure and the updated `examples/prelim_sweep/README.md`
 - **When** both are inspected
-- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion **with their config-resolved R²**, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the lab-frame axis caveat, with the wing-frame conversion stated as not currently tracked, the CF_mx/CF_mz exclusion **with their config-resolved R²**, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+
+#### Scenario: The caption names the seed its config-resolved R² come from
+
+- **Given** a `metrics.json` whose `reproducibility.seeds.global` is a seed `n`
+- **When** the caption is built
+- **Then** the config-resolved R² headline is labelled "single seed `n`; 5-seed ranges in README"
+- **And** with no recorded seed it is labelled "seed not recorded", never a default seed
 
 ### Requirement: Re-normalization preserves surrogate skill (scale-invariance)
 

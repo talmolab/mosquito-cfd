@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -259,7 +260,9 @@ def test_compute_speedup_latency_floor_not_over_1000():
     expected = (CFD_SECONDS_PER_WINGBEAT / 2000) / (0.232 / 1000.0)
     np.testing.assert_allclose(sp["latency_speedup"], expected, rtol=1e-9)
     assert sp["latency_speedup"] < 1000
-    assert abs(sp["latency_speedup"] - 310.0) < 5  # ~310x
+    assert (
+        abs(sp["latency_speedup"] - 310.0) < 5
+    )  # toy fixture's 0.232 ms, not a corpus number
 
 
 def test_rows_per_wingbeat_is_actual_parquet_counts(tmp_path):
@@ -463,11 +466,37 @@ def test_config_color_legend_present():
     plt.close(fig)
 
 
-def test_build_figure_caption_references_issue_1():
-    """Scenario: Moment panel ... figure caption references the issue-#1 axis-convention caveat."""
+def _caption_text(metrics: dict) -> str:
+    import matplotlib.pyplot as plt
+
+    fig = build_figure(_toy_predictions(), metrics)
+    text = " ".join(t.get_text() for t in fig.texts)
+    plt.close(fig)
+    return text
+
+
+def test_build_figure_caption_names_its_single_seed():
+    """Scenario: the caption names the seed its config-resolved R² come from and points to the
+    README's seed spread, so the PNG quoted on its own cannot pass a single draw off as the
+    corpus's skill (config-resolved R² is strongly seed-dependent at six holdout configs)."""
+    metrics = _toy_metrics()
+    metrics["reproducibility"] = {"seeds": {"global": 4321}}
+    text = _caption_text(metrics)
+    assert "Config-resolved R² (single seed 4321; 5-seed ranges in README):" in text
+
+
+def test_build_figure_caption_says_when_the_seed_is_not_recorded():
+    """A metrics.json without a recorded seed is captioned as such, not as some default seed."""
+    assert "Config-resolved R² (seed not recorded):" in _caption_text(_toy_metrics())
+
+
+def test_build_figure_caption_states_the_lab_frame_moment_caveat():
+    """Scenario: Moment panel ... the caption states the moment is a lab-frame component and
+    that the wing-frame conversion is not currently tracked (issue #1 is closed)."""
     fig = build_figure(_toy_predictions(), _toy_metrics())
     alltext = " ".join(t.get_text() for t in fig.texts).lower()
-    assert "issue #1" in alltext or "#1" in alltext
+    assert "lab-frame m_y component" in alltext
+    assert "not currently tracked" in alltext
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -776,7 +805,10 @@ def test_readme_carries_full_disclosures():
     )
     low = readme.lower()
     # the full disclosure set the compact caption only points to
-    assert "issue #1" in low
+    assert "**lab-frame** components about the hinge" in low  # the axis caveat
+    assert (
+        "not currently tracked" in low
+    )  # ...and that the wing-frame conversion is deferred
     assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
     assert "symmetric-rotation" in low
     assert "stroke-plane-normal" in low and "lab-z" in low  # projection caveat
@@ -785,7 +817,76 @@ def test_readme_carries_full_disclosures():
     assert "2.4" not in readme  # the false ~2.4x diffused-IB claim is retired
     assert "batch size" in low or "batch_size" in low  # speedup decomposition
     assert "sequential" in low  # CFD rate is sequential
-    assert "~468" in readme or "468×" in readme or "468x" in low  # latency floor
+    # the latency floor, read from the committed sidecar so the prose moves with the artifact
+    figures = REPO / "examples" / "prelim_sweep" / "figures"
+    sidecar = json.loads((figures / "evidence_figure_metrics.json").read_text())
+    latency = round(sidecar["speedup"]["latency_speedup"])
+    assert f"~{latency}×" in readme, (
+        f"README must state the latency floor as ~{latency}×"
+    )
+
+
+def _normalized_readme() -> str:
+    text = (REPO / "examples" / "prelim_sweep" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    text = text.replace("−", "-")  # README house style writes negatives with U+2212
+    return re.sub(r"([≈=])\s+", r"\1", text)
+
+
+# Any CF name followed, within one line and before any other CF name, by "≈<num>" or "=<num>".
+# Broad on purpose: a stale value in a slightly different form (``CF_z R² ≈0.51``,
+# ``CF_my = 0.51``, a Unicode minus) is caught rather than skipped. Percentages are excluded.
+_R2_NEAR_TARGET = re.compile(
+    r"\b(CF_(?:mx|my|mz|x|y|z))\b`?((?:(?!CF_)[^≈=\n|]){0,60})[≈=](-?\d+\.(\d+))(?![\d%])"
+)
+# Historical values the README quotes on purpose (an earlier corpus), not current results.
+_HISTORICAL_R2 = {("CF_x", "0.94")}
+# The figure's three panels plus the two off-panel moments must each be quoted.
+_QUOTED_TARGETS = ("CF_x", "CF_z", "CF_my", "CF_mx", "CF_mz")
+
+
+def test_readme_config_resolved_r2_matches_committed_metrics():
+    """Every config-resolved R² the README quotes equals metrics.json at its stated precision,
+    and the panel and off-panel moment targets are each quoted in the canonical ``CF_c ≈v`` form
+    (scenario: the CF_mx/CF_mz exclusion is stated **with** their config-resolved R²) -- so a
+    retrain cannot leave an old number or an old ranking in the prose."""
+    readme = _normalized_readme()
+    resolved = json.loads(COMMITTED_METRICS.read_text())["config_resolved"]
+    for m in _R2_NEAR_TARGET.finditer(readme):
+        c, _, value, decimals = m.groups()
+        if (c, value) in _HISTORICAL_R2:
+            continue
+        actual = resolved[c]["config_mean_r2"]
+        assert abs(actual - float(value)) <= 0.5 * 10 ** -len(decimals) + 1e-12, (
+            f"README quotes {m.group(0)!r}; metrics.json {c} config_mean_r2 is {actual:.4f}"
+        )
+    for c in _QUOTED_TARGETS:
+        canonical = f"{c} ≈{resolved[c]['config_mean_r2']:.2f}"
+        assert canonical in readme.replace("`", ""), f"README must quote {canonical!r}"
+
+
+def test_readme_throughput_figures_match_the_committed_sidecar():
+    """The README's batched-throughput and parallelism figures are the sidecar's, like the
+    latency floor -- each is a single wall-clock timing sample that moves on every retrain."""
+    readme = (REPO / "examples" / "prelim_sweep" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    sidecar = json.loads(
+        (
+            REPO
+            / "examples"
+            / "prelim_sweep"
+            / "figures"
+            / "evidence_figure_metrics.json"
+        ).read_text()
+    )["speedup"]
+    throughput = sidecar["throughput_speedup"]
+    assert 1e6 <= throughput < 1e7, (
+        "update the README's ×10⁶ wording for this magnitude"
+    )
+    assert f"≈{throughput / 1e6:.1f}×10⁶×" in readme
+    assert f"~{round(sidecar['parallelism_factor'], -1):,.0f}×" in readme
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------

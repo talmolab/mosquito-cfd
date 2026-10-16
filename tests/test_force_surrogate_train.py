@@ -546,6 +546,68 @@ def test_provenance_cpu_tier_digest_timestamp_seeds(tmp_path):
     assert meta["library_versions"]["physicsnemo"] is None
 
 
+def test_provenance_records_the_training_dataset(tmp_path):
+    """Scenario: Training metadata names the dataset (file + sha256), so which corpus produced
+    a committed surrogate.pt is auditable rather than inferred."""
+    import hashlib
+
+    dataset = tmp_path / "dataset.parquet"
+    dataset.write_bytes(b"not really a parquet, only hashed")
+    meta = build_training_metadata(
+        docker_image_digest=DIGEST,
+        timestamp=TIMESTAMP,
+        seeds={"global": 1234},
+        feature_names=list(FEATURE_COLUMNS),
+        dataset_path=dataset,
+    )
+    assert meta["inputs"]["file"] == str(dataset)
+    assert meta["inputs"]["hash"] == hashlib.sha256(dataset.read_bytes()).hexdigest()
+
+
+def test_provenance_rejects_a_missing_training_dataset(tmp_path):
+    """A named dataset that does not exist fails loudly instead of silently recording none."""
+    with pytest.raises(FileNotFoundError, match=r"not found: .*nowhere\.parquet"):
+        build_training_metadata(
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            seeds={"global": 1},
+            feature_names=list(FEATURE_COLUMNS),
+            dataset_path=tmp_path / "nowhere.parquet",
+        )
+
+
+def test_provenance_rejects_a_dataset_that_changed_after_it_was_loaded(tmp_path):
+    """The hash taken when the dataset was read must still describe the file recorded at
+    capture time; otherwise the record would name bytes the model never trained on."""
+    import hashlib
+
+    dataset = tmp_path / "dataset.parquet"
+    dataset.write_bytes(b"the bytes training read")
+    loaded = hashlib.sha256(dataset.read_bytes()).hexdigest()
+    dataset.write_bytes(b"rewritten during the 2000-epoch run")
+    with pytest.raises(RuntimeError, match="changed after it was loaded"):
+        build_training_metadata(
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            seeds={"global": 1},
+            feature_names=list(FEATURE_COLUMNS),
+            dataset_path=dataset,
+            dataset_sha256=loaded,
+        )
+
+
+def test_provenance_rejects_a_directory_as_the_training_dataset(tmp_path):
+    """A directory is named as such, not reported as a missing file."""
+    with pytest.raises(FileNotFoundError, match="not a regular file"):
+        build_training_metadata(
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            seeds={"global": 1},
+            feature_names=list(FEATURE_COLUMNS),
+            dataset_path=tmp_path,
+        )
+
+
 def test_provenance_rejects_mutable_tag():
     """Scenario: Mutable image tag rejected."""
     with pytest.raises(ValueError):

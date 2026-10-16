@@ -7,9 +7,35 @@
   "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
   "downstream_artifacts_regenerated_from": {
-    "reason": "fix-force-surrogate-sweep-hinge corrected this corpus's base deck's wing hinge and regenerated dataset.parquet/surrogate/*/figures/* end-to-end against the corrected geometry, superseding the earlier cluster run against the pre-fix, buggy midspan-pivot decks.",
-    "cluster_workflows": ["force-surrogate-sweep-9454x", "force-surrogate-sweep-8nbjt"],
+    "reason": "fix-moment-reference-hinge (#108) re-referenced the moment coefficients CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge. It re-extracted dataset.parquet from the existing CFD output (PR2, #118) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126). No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
+    "cfd_cluster_workflows": [
+      "force-surrogate-sweep-9454x",
+      "force-surrogate-sweep-8nbjt"
+    ],
     "docker_image_digest": "sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
-    "affected": ["dataset.parquet", "surrogate/holdout_predictions.parquet", "surrogate/metrics.json", "surrogate/surrogate.pt", "surrogate/run_metadata.json", "figures/evidence_figure.png", "figures/evidence_figure_metrics.json", "figures/run_metadata.json"]
+    "re_extraction": {
+      "change": "fix-moment-reference-hinge",
+      "pull_request": 118,
+      "cluster_workflows": [],
+      "affected": [
+        "dataset.parquet",
+        "run_metadata.json"
+      ]
+    },
+    "retrain": {
+      "change": "fix-moment-reference-hinge",
+      "pull_request": 126,
+      "host": "local A5000 workstation talmo-lab-02 (training under WSL2; figure rendered natively)",
+      "cluster_workflows": [],
+      "affected": [
+        "surrogate/holdout_predictions.parquet",
+        "surrogate/metrics.json",
+        "surrogate/surrogate.pt",
+        "surrogate/run_metadata.json",
+        "figures/evidence_figure.png",
+        "figures/evidence_figure_metrics.json",
+        "figures/run_metadata.json"
+      ]
+    }
   }
 }

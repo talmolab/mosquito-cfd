@@ -1,0 +1,188 @@
+{
+  "description": "Seed-variation control for fix-moment-reference-hinge (#108) PR3, tasks 35d/38a: the coarse surrogate trained at seeds 1234-1238 on the pre-#108 parquet (particle-origin CF_mx/CF_mz, blob 55b74a8f at fea817a) and on the committed hinge-referenced parquet. Only the corrected seed-1234 run is committed (surrogate/); the others ran in a scratch directory and were discarded. Pre-#108 seed 1234 is a rerun that reproduced the old committed surrogate bitwise.",
+  "command": "uv run --frozen --group train python scripts/train_surrogate.py --dataset <parquet> --out-dir <dir> --docker-digest <coarse corpus docker_image> --timestamp <utc> --seed <seed> --epochs 2000 --device cuda --wandb disabled",
+  "host": {
+    "hostname": "talmo-lab-02",
+    "gpus": [
+      {
+        "model": "NVIDIA RTX A5000",
+        "memory_mb": 24564,
+        "driver_version": "552.86"
+      }
+    ]
+  },
+  "library_versions": {
+    "torch": "2.12.1+cu126",
+    "physicsnemo": "2.1.1"
+  },
+  "targets": [
+    "CF_x",
+    "CF_y",
+    "CF_z",
+    "CF_mx",
+    "CF_my",
+    "CF_mz"
+  ],
+  "datasets": {
+    "pre_108": {
+      "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+      "runs": [
+        {
+          "seed": 1234,
+          "config_mean_r2": {
+            "CF_x": -0.007351308987083582,
+            "CF_y": 0.8111669898236229,
+            "CF_z": 0.9846215703774113,
+            "CF_mx": 0.9927224575241884,
+            "CF_my": 0.5072716591191084,
+            "CF_mz": 0.7130932729256128
+          },
+          "git_commit": "54127f6bdfce82e740f99b93cbd388038f4405e4",
+          "git_dirty": false,
+          "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+          "epochs": 2000
+        },
+        {
+          "seed": 1235,
+          "config_mean_r2": {
+            "CF_x": 0.09198446709051533,
+            "CF_y": 0.9491274532959035,
+            "CF_z": 0.9938098452166344,
+            "CF_mx": 0.9941225238855464,
+            "CF_my": -0.45789610480061804,
+            "CF_mz": -5.454469099444597
+          },
+          "git_commit": "54127f6bdfce82e740f99b93cbd388038f4405e4",
+          "git_dirty": false,
+          "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+          "epochs": 2000
+        },
+        {
+          "seed": 1236,
+          "config_mean_r2": {
+            "CF_x": -1.453391411501043,
+            "CF_y": 0.9302425597810208,
+            "CF_z": 0.9963894478973135,
+            "CF_mx": 0.999166810845919,
+            "CF_my": 0.19289306631222258,
+            "CF_mz": -0.8126262839621452
+          },
+          "git_commit": "54127f6bdfce82e740f99b93cbd388038f4405e4",
+          "git_dirty": false,
+          "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+          "epochs": 2000
+        },
+        {
+          "seed": 1237,
+          "config_mean_r2": {
+            "CF_x": 0.43301484187524086,
+            "CF_y": 0.9805575684109314,
+            "CF_z": 0.9945310294108859,
+            "CF_mx": 0.9720360333106323,
+            "CF_my": 0.6879664924735587,
+            "CF_mz": -0.17433882946010115
+          },
+          "git_commit": "54127f6bdfce82e740f99b93cbd388038f4405e4",
+          "git_dirty": false,
+          "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+          "epochs": 2000
+        },
+        {
+          "seed": 1238,
+          "config_mean_r2": {
+            "CF_x": 0.7269349573251689,
+            "CF_y": 0.948216132243674,
+            "CF_z": 0.9498645714273649,
+            "CF_mx": 0.9722345489124329,
+            "CF_my": 0.8067293031273571,
+            "CF_mz": 0.8601581017825942
+          },
+          "git_commit": "54127f6bdfce82e740f99b93cbd388038f4405e4",
+          "git_dirty": false,
+          "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
+          "epochs": 2000
+        }
+      ]
+    },
+    "hinge_referenced": {
+      "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+      "runs": [
+        {
+          "seed": 1234,
+          "config_mean_r2": {
+            "CF_x": -4.170654886470504,
+            "CF_y": 0.6274629617614755,
+            "CF_z": 0.9804241548443937,
+            "CF_mx": 0.9572700418179554,
+            "CF_my": 0.06886227097199471,
+            "CF_mz": -8.449467520273945
+          },
+          "git_commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+          "git_dirty": false,
+          "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+          "epochs": 2000
+        },
+        {
+          "seed": 1235,
+          "config_mean_r2": {
+            "CF_x": -3.948252755352117,
+            "CF_y": 0.9730907063428416,
+            "CF_z": 0.9960467569866144,
+            "CF_mx": 0.9903548537586913,
+            "CF_my": -1.959828983518407,
+            "CF_mz": -4.2443019974556835
+          },
+          "git_commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+          "git_dirty": false,
+          "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+          "epochs": 2000
+        },
+        {
+          "seed": 1236,
+          "config_mean_r2": {
+            "CF_x": -4.721901283432822,
+            "CF_y": 0.9568834265202074,
+            "CF_z": 0.9949518285469355,
+            "CF_mx": 0.9978298038532433,
+            "CF_my": 0.7645232842592801,
+            "CF_mz": 0.9223041639805472
+          },
+          "git_commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+          "git_dirty": false,
+          "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+          "epochs": 2000
+        },
+        {
+          "seed": 1237,
+          "config_mean_r2": {
+            "CF_x": -0.6209651378659979,
+            "CF_y": 0.9850028808296825,
+            "CF_z": 0.9991326051941685,
+            "CF_mx": 0.9958948497098379,
+            "CF_my": 0.3635347255703002,
+            "CF_mz": -1.41378245692735
+          },
+          "git_commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+          "git_dirty": false,
+          "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+          "epochs": 2000
+        },
+        {
+          "seed": 1238,
+          "config_mean_r2": {
+            "CF_x": 0.4779862195660888,
+            "CF_y": 0.9654207549177701,
+            "CF_z": 0.9607170833649282,
+            "CF_mx": 0.9887866703115731,
+            "CF_my": 0.9254124541776213,
+            "CF_mz": 0.8184682202023069
+          },
+          "git_commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+          "git_dirty": false,
+          "dataset_sha256": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+          "epochs": 2000
+        }
+      ]
+    }
+  }
+}
