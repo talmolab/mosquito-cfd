@@ -472,7 +472,7 @@ a review against what #118 actually merged. Decisions taken with the user:
 Tasks are listed in **execution order**; the original numbers are kept so earlier cross-references
 still resolve, which is why 33/34 sit after 39.
 
-0b. [ ] **Task-0 blast radius, PR3 additions** (each edit below is authorised by a decision above or
+0b. [x] **Task-0 blast radius, PR3 additions** (each edit below is authorised by a decision above or
     by 32h; any other test needing an edit still halts the change):
     - `tests/test_force_surrogate_evidence_figure.py:470` (caption must reference issue #1) and
       `:779` (README must contain "issue #1") — re-pinned to the lab-frame / "not currently tracked"
@@ -495,31 +495,35 @@ Training records `git.commit`/`dirty` at capture time (`train.py:957`, before ou
 `git diff HEAD` ignores untracked files). Everything in this section is committed first so the
 retrain runs from a clean tree whose commit holds the code and prose that produced it.
 
-34. [ ] **Test first** — rewrite `tests/test_force_surrogate_sweep.py::test_coarse_corpus_provenance_flags_downstream_regeneration_source`
+34. [x] **Test first** — rewrite `tests/test_force_surrogate_sweep.py::test_coarse_corpus_provenance_flags_downstream_regeneration_source`
     (`:1015`, docstring `:1016-1021`) so the record must name the change that produced the
     committed artifacts: `reason` names `fix-moment-reference-hinge` and #108; the CFD's own
     provenance (the two cluster workflow IDs and `docker_image_digest`) sits under a key that says it
     is the CFD run, separate from a record of the PR2 re-extraction and the PR3 local retrain; no
     record claims a cluster workflow produced the re-extraction or the retrain. Replaces the
     `cluster_workflows` truthiness assertion (`:1033`). Red until task 33.
-33. [ ] Rewrite the **coarse** `examples/prelim_sweep/sweep_provenance.json`
+    *Done `c853570` (red by design until 33). Kept `docker_image_digest` at its path; the old `cluster_workflows` became `cfd_cluster_workflows`, with `re_extraction`/`retrain` records each carrying `cluster_workflows: []`. Mutation: 15/15 killed.*
+33. [x] Rewrite the **coarse** `examples/prelim_sweep/sweep_provenance.json`
     `downstream_artifacts_regenerated_from` to satisfy task 34. **Keep `docker_image_digest`'s value
     and its read path** — `_cfd_digests` (`test_force_surrogate_scale_invariance.py:339`) reads it as
     the coarse CFD digest; if the key moves, move the reader in the same commit. The **fine** corpus
     gets **no** record: it has no such block, is not retrained here, and its moment provenance lives
     in its `run_metadata.json` `moment_reference`.
-35b. [ ] **Test first** — CPU unit test: `build_training_metadata(..., dataset_path=p)` records
+    *Done `7cfab3b`. `dataset.units.json` is not listed as re-extracted: PR2 left it byte-unchanged (`git diff --stat fea817a 5ffed81`).*
+35b. [x] **Test first** — CPU unit test: `build_training_metadata(..., dataset_path=p)` records
     `inputs.file` naming `p` and `inputs.hash == sha256(p)`; and `run_training` passes its
     dataset through (assert on the `run_metadata.json` a tiny CPU `run_training` writes). The
     parameter is **optional**, so the three existing callers
     (`test_force_surrogate_train.py:534, :552`, `test_force_surrogate_train_gpu.py:168`) stay
     unedited; task 39a is what makes its absence from the committed artifact fail CI.
-35c. [ ] Implement: `build_training_metadata` takes the dataset path and passes it as
+    *Done `6a48074` (CPU tests + a GPU-tier `run_training` passthrough test). Mutation: 5/5 killed on the CPU tests; the `run_training` passthrough is torch-tier, covered by the GPU test and by 39a on CI.*
+35c. [x] Implement: `build_training_metadata` takes the dataset path and passes it as
     `inputs_file` to `capture_surrogate_run_metadata`; `run_training` supplies it. Fix
     `scripts/train_surrogate.py:13-14`, whose docstring says `--out-dir examples/prelim_sweep` —
     that would overwrite the corpus `run_metadata.json` (PR2's moment-reference provenance); the
     correct directory is `examples/prelim_sweep/surrogate`.
-39. [ ] **Test first** (red today: `surrogate/run_metadata.json` holds only `git.error`) — CI-runnable,
+    *Done `6a48074`. A named-but-missing dataset raises `FileNotFoundError` (the base capture would silently record no `inputs`).*
+39. [x] **Test first** (red today: `surrogate/run_metadata.json` holds only `git.error`) — CI-runnable,
     no GPU:
     - `surrogate/run_metadata.json` and `figures/run_metadata.json` each have a 40-hex
       `git.commit`, `branch == "fix-moment-reference-hinge-pr3"`, `dirty is False`, and no `error`
@@ -531,19 +535,23 @@ retrain runs from a clean tree whose commit holds the code and prose that produc
       `surrogate/metrics.json` (written at `evidence_figure.py:618`, never asserted today).
     - The recorded commits do not survive the squash-merge as ancestors; they resolve via
       `refs/pull/<n>/head`.
-39a. [ ] **Test first** (red today for `CF_mx`/`CF_mz`) — unconditional: every `<target>_true` in
+    *Test written `03dee7a`, in the new `tests/test_committed_surrogate_provenance.py` (no existing test edited). Red today for the surrogate (`git.error`) and figure (`dirty`, stale branch) records, green for both corpus records and the figure hashes. Mutation on the green parts: 13/13 killed. Re-run mutation on the surrogate/figure parts after task 40.*
+39a. [x] **Test first** (red today for `CF_mx`/`CF_mz`) — unconditional: every `<target>_true` in
     `examples/prelim_sweep/surrogate/holdout_predictions.parquet`, for all six targets, equals
     `dataset.parquet` on `(config_name, time)`; and `surrogate/run_metadata.json` `inputs.hash`
     equals sha256 of the committed `dataset.parquet`. Unlike the banner test, no state passes with
     a mismatch, and it covers `CF_x/CF_y/CF_z/CF_my`, which the banner test does not.
-42. [ ] **Test first** — replace the `~468` literal (`test_force_surrogate_evidence_figure.py:788`)
+    *Test written `03dee7a`; red today (`CF_mx: 12535 holdout rows differ`). Positive control: with the pre-#108 parquet (`fea817a`, blob `55b74a8f`) swapped in, it passes — it discriminates exactly the target change.*
+42. [x] **Test first** — replace the `~468` literal (`test_force_surrogate_evidence_figure.py:788`)
     with a check that the README states `~{round(latency_speedup)}×` read from the committed
     `evidence_figure_metrics.json`. Green against today's artifacts. Any new prose must also pass
     `"2.4" not in readme` (`:785`): numbers such as "32.4%" or "≈2.45" trip it.
-41b. [ ] **Test first** — the `CF_mx`, `CF_mz` and `CF_my` config-resolved R² quoted in the README's
+    *Done `ab2e271`. Mutation: 4/4 killed.*
+41b. [x] **Test first** — the `CF_mx`, `CF_mz` and `CF_my` config-resolved R² quoted in the README's
     honest-reading passage match `metrics.json` `config_resolved.<c>.config_mean_r2` at the stated
     precision. Green against today's artifacts; it forces task 41 to move the numbers with the data.
-46a. [ ] Reword the issue-#1 pointers to "deferred, not currently tracked", and re-pin
+    *Test written `ab2e271`; red today only because the README never quotes `CF_mz`'s R², which the spec scenario requires. Mutation-test after task 41.*
+46a. [x] Reword the issue-#1 pointers to "deferred, not currently tracked", and re-pin
     `test_force_surrogate_evidence_figure.py:470` and `:779` to assert "lab-frame" plus "not
     currently tracked":
     - `docs/coordinate-convention.md:108-110` and the heading at `:168` ("Consequence for any future
@@ -554,11 +562,13 @@ retrain runs from a clean tree whose commit holds the code and prose that produc
     - `examples/prelim_sweep/README.md:353-355`, which is also wrong on the facts: it calls the fix
       "a solver-level refactor + full cluster re-run", which T2a (#38) already did. The real reason
       the panel reports the `M_y` component is that moments are lab-frame about the hinge.
-44. [ ] `evidence_figure.py`: keep the invariants, drop the per-corpus specifics so the next corpus
+    *Done `7dcd74e`. Left alone, as history of what #1 did deliver (T2a): `docs/coordinate-convention.md:8,:68`, `benchmarks/flapping_wing.py:16`, `examples/flapping_wing/RESULTS.md`, `docs/aerodynamics_validation/roadmap.md`. Mutation: 6/6 killed.*
+44. [x] `evidence_figure.py`: keep the invariants, drop the per-corpus specifics so the next corpus
     change need not edit them — `:16-18` (~470× / ~310×, already disagreeing with the README's
     468×), `:53-59`, and the example at `:292-293` (which target is the "tell"), which the retrain
     may falsify.
-43. [ ] `docs/force_surrogate/roadmap.md`, stale since 2026-08-24:
+    *Done `14153e5`.*
+43. [x] `docs/force_surrogate/roadmap.md`, stale since 2026-08-24:
     - rows 5-6 (`:190-196`): drop inline numbers (incl. row 6's ~468×/~310×); point at
       `surrogate/metrics.json` `config_resolved`, `figures/evidence_figure_metrics.json`, and the
       README's honest-reading section;
@@ -569,19 +579,24 @@ retrain runs from a clean tree whose commit holds the code and prose that produc
       completed at `ns.cfl = 0.6` (#100);
     - `:233`: #20 is closed.
     Leave the CHANGELOG's #71 entries (`docs/CHANGELOG.md:49-50`) alone — append-only history.
+    *Done `14153e5`. Also added rows for #58 and #71, absent from the table.*
 46. [ ] Disambiguate "corrected hinge" wherever touched: "corrected hinge geometry (#71)" for the
     deck fix (README `:341`, `:348`, `:362`), "hinge-referenced moments" / "moment reference point"
     for this change, never a bare "hinge fix".
-41a. [ ] Add the raw-vs-derived reference-point clause beside the schema note (README `~:196`) as a
+    *`:341`/`:362` done `14153e5`; `:266`/`:348` carry retrain numbers and are reworded with task 41.*
+41a. [x] Add the raw-vs-derived reference-point clause beside the schema note (README `~:196`) as a
     **cross-reference** to `docs/coordinate-convention.md#moments`, not a restatement.
-47. [ ] Record that these need no change: `examples/prelim_sweep_fine/README.md` (no moment, R² or
+    *Done `14153e5`.*
+47. [x] Record that these need no change: `examples/prelim_sweep_fine/README.md` (no moment, R² or
     latency content), `examples/prelim_sweep/figures/README.md` (no numbers),
     `scripts/make_config_mean_collapse_diagnostic.py` / `openspec/project.md:410-421` (fixture
     outputs).
-47a. [ ] File a follow-up issue: `examples/flapping_wing/generate_validation_figures.py:121` reads
+    *Recorded; no change to any of them.*
+47a. [x] File a follow-up issue: `examples/flapping_wing/generate_validation_figures.py:121` reads
     the coarse `holdout_predictions.parquet`, and its committed `V3_scale_invariance.png` /
     `validation_figures_summary.json` are already stale (CF_x r² 0.9932 vs 0.99926) and become more
     so. Out of scope here; reference the issue in the PR body.
+    *Filed as #124.*
 
 ## 8. Noise floor, then retrain — OPERATOR-RUN (WSL2 + local A5000)
 
