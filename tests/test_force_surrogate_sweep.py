@@ -1013,12 +1013,16 @@ def test_committed_sweep_matches_regeneration(tmp_path):
 
 
 def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
-    """The committed sweep_provenance.json records which cluster workflows regenerated
-    dataset.parquet/surrogate/*/figures/* against the corrected hinge -- a completed-state
-    record, not a "still pending" flag (that flag was accurate only mid-fix, before the
-    go/no-go landed and the cluster re-run + retrain actually completed; it must be replaced,
-    not left stale, once those artifacts are genuinely refreshed -- a reader trusting a
-    "pending" flag against already-regenerated artifacts would wrongly distrust good data).
+    """The committed sweep_provenance.json records the change that actually produced the
+    committed dataset.parquet/surrogate/*/figures/* -- a completed-state record, not a "still
+    pending" flag (a reader trusting a "pending" flag against already-regenerated artifacts
+    would wrongly distrust good data).
+
+    That change is fix-moment-reference-hinge (#108), which re-extracted the dataset (PR2) and
+    retrained the surrogate (PR3) locally, without re-running the CFD. The record keeps the CFD
+    run's own provenance (the corrected-hinge-geometry #71 cluster workflows and their image
+    digest) under a key that says so, and states that neither the re-extraction nor the retrain
+    ran on the cluster, so the old workflow IDs cannot be read as having produced them.
     """
     provenance = json.loads(
         (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
@@ -1030,14 +1034,22 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
     assert record, (
         "sweep_provenance.json is missing 'downstream_artifacts_regenerated_from'"
     )
-    assert record["cluster_workflows"], (
-        "must name the cluster workflow(s) that produced this"
+    assert "fix-moment-reference-hinge" in record["reason"]
+    assert "#108" in record["reason"]
+    assert "cluster_workflows" not in record, (
+        "ambiguous: say whether the workflows produced the CFD or the derived artifacts"
     )
-    assert record["docker_image_digest"].startswith("sha256:")
-    affected = record["affected"]
-    assert "dataset.parquet" in affected
-    assert any("surrogate/" in a for a in affected)
-    assert any("figures/" in a for a in affected)
+    assert record["cfd_cluster_workflows"], "must name the CFD run's cluster workflow(s)"
+    assert record["docker_image_digest"].startswith("sha256:")  # the CFD run's image
+
+    stages = {"re_extraction": ["dataset.parquet"], "retrain": ["surrogate/", "figures/"]}
+    for stage, expected in stages.items():
+        step = record[stage]
+        assert step["change"] == "fix-moment-reference-hinge", stage
+        assert step["cluster_workflows"] == [], f"{stage} ran locally, not on the cluster"
+        for prefix in expected:
+            assert any(a.startswith(prefix) for a in step["affected"]), (stage, prefix)
+    assert "affected" not in record, "affected is recorded per stage, not twice"
 
 
 def test_committed_manifest_shape():
