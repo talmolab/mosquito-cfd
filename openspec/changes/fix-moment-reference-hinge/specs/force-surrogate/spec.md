@@ -526,7 +526,10 @@ sequential coarse-grid A40 CFD timestep rate** — not a per-evaluation speedup.
 per-evaluation **latency** speedup (~310×, which is **not** >1,000×) SHALL be reported alongside as
 the like-for-like floor, and SHALL NOT be conflated with the throughput claim or computed by dividing
 a per-wingbeat cost by a per-row latency. All caption/annotation numbers SHALL be read from the
-committed artifacts, never hard-coded.
+committed artifacts, never hard-coded. Because config-resolved R² at six holdout configurations is
+strongly seed-dependent, the caption SHALL name the seed its config-resolved R² come from
+(`metrics.json` `reproducibility.seeds.global`) and point to the README for the seed spread, or
+state that no seed is recorded; it SHALL NOT present one draw as the corpus's skill.
 
 > Note: the result numbers still embedded above (R²≈0.98, ~310×) are stale against the committed
 > artifacts and are tracked separately in issue #115; refreshing them is deliberately out of scope.
@@ -563,6 +566,13 @@ committed artifacts, never hard-coded.
 - **Given** the generated figure and the updated `examples/prelim_sweep/README.md`
 - **When** both are inspected
 - **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the lab-frame axis caveat, with the wing-frame conversion stated as not currently tracked, the CF_mx/CF_mz exclusion **with their config-resolved R²**, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+
+#### Scenario: The caption names the seed its config-resolved R² come from
+
+- **Given** a `metrics.json` whose `reproducibility.seeds.global` is a seed `n`
+- **When** the caption is built
+- **Then** the config-resolved R² headline is labelled "single seed `n`; 5-seed ranges in README"
+- **And** with no recorded seed it is labelled "seed not recorded", never a default seed
 
 ### Requirement: Re-normalization preserves surrogate skill (scale-invariance)
 

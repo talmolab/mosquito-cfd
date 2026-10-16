@@ -464,6 +464,30 @@ def test_config_color_legend_present():
     plt.close(fig)
 
 
+def _caption_text(metrics: dict) -> str:
+    import matplotlib.pyplot as plt
+
+    fig = build_figure(_toy_predictions(), metrics)
+    text = " ".join(t.get_text() for t in fig.texts)
+    plt.close(fig)
+    return text
+
+
+def test_build_figure_caption_names_its_single_seed():
+    """Scenario: the caption names the seed its config-resolved R² come from and points to the
+    README's seed spread, so the PNG quoted on its own cannot pass a single draw off as the
+    corpus's skill (config-resolved R² is strongly seed-dependent at six holdout configs)."""
+    metrics = _toy_metrics()
+    metrics["reproducibility"] = {"seeds": {"global": 4321}}
+    text = _caption_text(metrics)
+    assert "Config-resolved R² (single seed 4321; 5-seed ranges in README):" in text
+
+
+def test_build_figure_caption_says_when_the_seed_is_not_recorded():
+    """A metrics.json without a recorded seed is captioned as such, not as some default seed."""
+    assert "Config-resolved R² (seed not recorded):" in _caption_text(_toy_metrics())
+
+
 def test_build_figure_caption_states_the_lab_frame_moment_caveat():
     """Scenario: Moment panel ... the caption states the moment is a lab-frame component and
     that the wing-frame conversion is not currently tracked (issue #1 is closed)."""
