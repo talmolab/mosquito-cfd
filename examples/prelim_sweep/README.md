@@ -1,22 +1,5 @@
 # Force-surrogate kinematic sweep (`prelim_sweep`)
 
-> ⚠️ **`surrogate/` and the evidence figure (`figures/evidence_figure*`)
-> are stale against `dataset.parquet`.**
->
-> The dataset was re-extracted with hinge-referenced moment coefficients (OpenSpec change
-> `fix-moment-reference-hinge`, issue #108). The committed surrogate was trained on the earlier
-> particle-origin `CF_mx`/`CF_mz`. It is one shared-trunk network, selected on an aggregate
-> over all six targets, so **every** surrogate metric and evidence-figure number quoted below
-> comes from that earlier training run, including those for `CF_x`, `CF_z` and `CF_my` and the
-> aggregate R². The `CF_my` and force *targets* are unchanged in the dataset, but their
-> metrics are re-measured only by the retrain.
->
-> The evidence figure's own provenance (`figures/run_metadata.json`) and its section of
-> `figures/README.md` are stale with it. The wing-phase geometry plots in `figures/`
-> (`*_wing_phases*`) do not depend on moments and are current. The
-> retrain in that change's final PR regenerates the surrogate and the evidence figure, and
-> removes this notice.
-
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see
 [`docs/force_surrogate/roadmap.md`](../../docs/force_surrogate/roadmap.md), row #2). These decks are
@@ -265,7 +248,8 @@ re-listed here to avoid drift.
 > R² (~0.999) is **~99.9% the within-beat force waveform** — a smooth periodic shape shared by every
 > config — so it overstates the kinematics→force-*map* skill. `metrics.json` also reports, per
 > target, `config_resolved.config_mean_r2` (R² on the per-config **cycle-mean** — the phase-removed
-> config-to-config skill; -0.01 to 0.99 across the 6 targets in the current, corrected-hinge corpus)
+> config-to-config skill; strongly seed-dependent for some targets at six holdout configurations —
+see the honest-reading section)
 > and `within_config_variance_fraction` (how waveform-driven the aggregate is). The PR6 figure
 > caption uses the honest config-resolved number, not the aggregate.
 
@@ -333,12 +317,29 @@ disclosure:
   figure proves the data→surrogate→inference pipeline runs end-to-end on local hardware and that the
   PhysicsNeMo stack is usable — it is **not** a validated-aerodynamics claim. This is the deliberately
   reduced "easy" surrogate (roadmap Vision / §9), not the funded DoMINO/latent-dynamics surrogate.
-- **Use the config-resolved skill, not the aggregate.** The pointwise aggregate R²≈0.999 is ~99.9% the
-  shared within-beat **phase waveform** and overstates the kinematics→force-*map* skill; the figure
-  reports the per-axis **config-resolved** R² (CF_x ≈-0.01, CF_z ≈0.98, CF_my ≈0.51). The concrete
-  tell that the aggregate is inflated is now directly **on-panel**: `CF_x`'s own config-resolved R² is
-  **negative** (worse than predicting the per-config mean), even though its pointwise scatter looks
-  visually perfect — the near-zero config-to-config skill is entirely masked by the shared waveform.
+- **Use the config-resolved skill, not the aggregate — and read it across seeds.** The pointwise
+  aggregate R²≈0.999 is ~99.9% the shared within-beat **phase waveform** and overstates the
+  kinematics→force-*map* skill; the figure reports the per-axis **config-resolved** R² of the
+  committed seed-1234 model (CF_x ≈-4.17, CF_z ≈0.98, CF_my ≈0.07). Those are **single-seed**
+  numbers, and with only six holdout configurations they are strongly seed-dependent. Retraining the
+  same data with the same code at seeds 1234–1238 (scratch runs, not committed) gives:
+
+  | target | config-resolved R², 5 seeds | before #108 (particle-origin moments), 5 seeds |
+  |---|---|---|
+  | `CF_x` | −4.72 to 0.48 | −1.45 to 0.73 |
+  | `CF_y` | 0.63 to 0.99 | 0.81 to 0.98 |
+  | `CF_z` | 0.96 to 1.00 | 0.95 to 1.00 |
+  | `CF_mx` | 0.96 to 1.00 | 0.97 to 1.00 |
+  | `CF_my` | −1.96 to 0.93 | −0.46 to 0.81 |
+  | `CF_mz` | −8.45 to 0.92 | −5.45 to 0.86 |
+
+  Only `CF_mx`, `CF_y` and `CF_z` are robust to the seed; the committed seed-1234 model is a low
+  draw for `CF_x`, `CF_y` and `CF_mz`. The training is bitwise-deterministic at a fixed seed on the
+  A5000, so the spread is initialisation, not GPU noise. The per-seed numbers are recorded in the
+  `fix-moment-reference-hinge` change (tasks 35d/38a). The concrete tell that the aggregate is
+  inflated is **on-panel**: `CF_x`'s config-resolved R² is **negative** (worse than predicting the
+  per-config mean) for four of the five seeds, even though its pointwise scatter looks visually
+  perfect — the config-to-config error is masked by the shared waveform.
   (Before the `fix-force-surrogate-sweep-hinge` corpus regeneration, it was the **off-panel** `CF_y`
   that carried this tell, with `CF_x` at ≈0.94; the corrected hinge geometry (#71) flipped which axis shows
   it — see `figures/README.md` and the `evidence_figure.py::build_caption` fix for why the caption
@@ -347,9 +348,11 @@ disclosure:
   `CF_my`) are **fixed by design** (`PANEL_COEFFICIENTS`, D1), not re-derived per corpus. In the
   pre-fix corpus, `CF_my` happened to be the only moment with genuine config-to-config signal
   (≈56% between-config variance, the highest config-resolved R² among the three moments) — that
-  empirical ranking has since flipped: with the corrected hinge, `CF_mx`'s config-resolved R² (≈0.99)
-  now clearly beats `CF_my`'s (≈0.51), and `CF_my`'s between-config variance fraction has fallen to a
-  sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz` stay **omitted** from the
+  empirical ranking has since changed: since the corrected hinge geometry (#71), and still with
+  hinge-referenced moments (#108), `CF_mx` is the one moment whose config-resolved R² is robust
+  across seeds (0.96 to 1.00; the committed model's `CF_mx`'s (≈0.96)), while `CF_my` ranges −1.96
+  to 0.93 (the committed model's `CF_my`'s (≈0.07)) and `CF_mz` −8.45 to 0.92 (the committed model's
+  `CF_mz`'s (≈-8.45)); `CF_my`'s between-config variance fraction is a sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz` stay **omitted** from the
   plotted axes), but the caption discloses the actual current `CF_mx`/`CF_mz` numbers rather than
   claiming they carry "no between-config signal." CF_my is named the **M_y component** rather than
   "pitch moment" because moments are **lab-frame** components about the hinge, not wing-frame
@@ -371,10 +374,11 @@ disclosure:
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
   (≈3.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
-  rate) equals `latency_speedup × parallelism_factor` (~8,050× this run — measured independently from,
+  rate) equals `latency_speedup × parallelism_factor` (~8,550× this run — measured independently from,
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
-  **per-evaluation latency speedup is ~468×** and is reported as the like-for-like floor. Both
+  **per-evaluation latency speedup is ~440×** and is reported as the like-for-like floor. It is a
+  single wall-clock timing sample: bitwise-identical reruns measured ~380–470×. Both
   factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.
 
 ### Regenerating

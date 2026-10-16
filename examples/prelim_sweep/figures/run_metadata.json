@@ -1,11 +1,10 @@
 {
-  "run_id": "9b6d1560-ca18-4362-939f-151be5e0a592",
-  "timestamp": "2026-08-21T20:55:53Z",
+  "run_id": "c94a1d5d-bc04-486b-aa2b-d58687580165",
+  "timestamp": "2026-10-16T21:42:10Z",
   "git": {
-    "commit": "bbec1692b3463c3186f29ffc76866ea48750d162",
-    "branch": "fix-hinge-corpus-regen",
-    "dirty": true,
-    "diff_hash": "4fc80509f608",
+    "commit": "81852683bdbb6bbd3b26ef83d52499f29de29c7f",
+    "branch": "fix-moment-reference-hinge-pr3",
+    "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
@@ -22,9 +21,9 @@
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
   "inputs": {
     "file": "examples\\prelim_sweep\\surrogate\\holdout_predictions.parquet",
-    "hash": "de4f8793ec84c178c7316d44207545781315f4455aa2ef7341097730ac4c5d05"
+    "hash": "2762a45e3dc26cc63a776cf4c01004d188039b9bbcc36a84091af5c22d7e0a60"
   },
-  "metrics_json_sha256": "6cbfb012a530f463028bee8f605504e509a16f6e98713d3b57603df2269f3e04",
+  "metrics_json_sha256": "d8b8819a409016a83a98bbae18afc43a676c770b7bf6fcc3021bddfe5cc5ac4c",
   "seeds": {
     "global": 1234
   }
