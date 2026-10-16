@@ -6,15 +6,22 @@ force-coefficient regressor on the local RTX A5000 (``--device cuda``) and write
 committed artifacts (``metrics.json``, ``holdout_predictions.parquet``, the model checkpoint, and
 ``run_metadata.json``) into ``--out-dir``.
 
-Run on the A5000 (WSL2) with the optional ``train`` group installed::
+Run on the A5000 (WSL2) with the optional ``train`` group installed, from the repository root and
+from a clean, committed tree (``run_metadata.json`` records the commit and ``dirty``)::
 
+    export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/mosquito-cfd-train"  # ext4, not the Windows .venv
     uv sync --frozen --group train
     uv run --frozen --group train python scripts/train_surrogate.py \\
         --dataset examples/prelim_sweep/dataset.parquet \\
         --out-dir examples/prelim_sweep/surrogate \\
         --docker-digest "$(python -c 'import json;print(json.load(open(\"examples/prelim_sweep/run_metadata.json\"))[\"docker_image\"])')" \\
-        --timestamp 2026-06-18T00:00:00Z \\
+        --timestamp <iso-8601-utc> \\
         --device cuda --wandb online
+
+Pass ``--group train`` on every ``uv run`` (a bare ``uv run`` can sync torch away), do not export
+``GIT_DIR``/``GIT_WORK_TREE`` (the git capture resolves a Windows worktree from WSL itself, #78),
+and leave ``CUBLAS_WORKSPACE_CONFIG`` unset, as the committed runs did. See
+``examples/prelim_sweep/README.md`` for the full recipe.
 """
 
 from __future__ import annotations
