@@ -301,7 +301,9 @@ carrying the **eight components the real wing plotfiles write** (`x/y/z_velocity
 `extract_eulerian_box` reads the six it requires; and a CI test SHALL read it through the yt Eulerian-box
 adapter `extract_eulerian_box` so the yt-read path is covered **cluster-free**. `extract_eulerian_box` reads
 an AMReX plotfile via `yt.load` + `covering_grid(level=0)` + `('boxlib', <name>)` field-tuple access + FP64
-unwrap + `max_level == 0` assertion; prior to this change that actual yt read was exercised **only** by
+unwrap + `max_level == 0` assertion — those calls live in the single shared implementation
+`mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`, which `extract_eulerian_box` delegates to
+while preserving its signature and returned keys unchanged; prior to this change that actual yt read was exercised **only** by
 `requires_plotfile`-marked tests that auto-skip in CI (the real plotfiles live on the cluster Z: drive), so a
 regression in the yt-reading layer would not be caught by CI. The fixture SHALL be authored by a committed
 deterministic generator (explicit `<f8` byte order; FAB file `Cell_D_00000`) and protected by a

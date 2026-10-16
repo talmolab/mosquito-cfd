@@ -65,7 +65,9 @@ Every artifact-producing function in `visualization/` and `force_surrogate/compa
 need them, not at module import time, **in every `visualization/` module that uses one of
 them** — `wing_render.py` (`scipy.spatial.ConvexHull`), `flow_video.py`
 (`scipy`/`skimage`/`imageio_ffmpeg`), and `kinematics_video.py` (`imageio_ffmpeg`) — following the
-existing `stress_integral.extract_eulerian_box` lazy-`yt`-import convention.
+existing lazy-`yt`-import convention, which is implemented in
+`mosquito_cfd.field_surrogate.snapshot.read_field_snapshot` and preserved through its
+`stress_integral.extract_eulerian_box` wrapper.
 
 #### Scenario: every visualization module is importable without the `viz` dependency group installed
 

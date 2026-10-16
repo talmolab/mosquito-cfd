@@ -335,7 +335,7 @@ corrected spec text, and verified by re-running the reviewer's surviving mutatio
     `openspec/changes/archive/2026-07-08-grade-wing-grid-convergence-medium/design.md:119`.
 58. [x] Correct the two false comments claiming `ascontiguousarray` copies / arrays are "freshly
     allocated and unshared" (`snapshot.py`, and `stress_integral.py` in PR B).
-59. [ ] (-> superseded by task 86; tick together) PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
+59. [x] (-> superseded by task 86; tick together) PR body + CHANGELOG (PR B): "behaviour unchanged" is falsified — a NaN corner and a scalar
     `lo`/`hi` both previously succeeded and now raise. State the narrowing. Also state the region
     narrowing from section 15: once `extract_eulerian_box` delegates, a request outside the domain
     on some axis returns only the in-domain cells its halo reaches — zero at `halo = 0` — instead of
@@ -399,7 +399,7 @@ keep the behaviour change as a documented divergence.
     "delegates here"), design.md D1 heading/body, the spec's region requirement and both
     oracle-scenario titles, the "~800MB" test comment (measured: 384MB), and review-history prose in
     `src` comments.
-72. [ ] (-> superseded by tasks 82-84; tick together) **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
+72. [x] (-> superseded by tasks 82-84; tick together) **PR B**: re-point the legacy side of `test_region_divergence_from_legacy_is_pinned` from
     `stress_integral.extract_eulerian_box` to the frozen oracle, and add the wrapper-divergence
     scenario's test. Until then that test fails on PR B by design.
 73. [x] Follow-up issues filed for non-regressions: #120 (reader peak memory and yt objects retained
@@ -582,7 +582,7 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     Then re-run task 43 under both roots. Record the `-rs` skip list per root and the union of
     `requires_plotfile` ids that ran (13 before). Write the results into the D11 results section,
     replacing the superseded block.
-86. [ ] **Claims (replacing task 59).** One source of wording. The three narrowings, verbatim:
+86. [x] **Claims (replacing task 59).** One source of wording. The three narrowings, verbatim:
     - (i) A NaN or non-3-vector `lo`/`hi`, a negative, fractional or boolean `halo`, and an fp32
       on-disk plotfile (previously accepted silently as upcast float64) now raise `ValueError`. **Not**
       "duplicate `fields`": the wrapper has no `fields` parameter.
@@ -618,11 +618,11 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
     `git grep -nE "11-case|eleven|80 (region|bit)|1029|Stacked on|freshly allocated|duplicated entry in .fields"`
     (restricted to `'*.md' '*.py'`, since CSV data and `uv.lock` hashes match `1029`) finds nothing
     outside the D11 history and the archived changes.
-87. [ ] Cross-link #112, #120 and #121 with `see #N` (never a closing keyword):
+87. [x] Cross-link #112, #120 and #121 with `see #N` (never a closing keyword):
     - #112 owns the NFS stat storm, the duplicated `grid` and sub-box reads;
     - #120 owns peak memory and covering-grid/`cg.field_data` retention, taken from #112;
     - #121 owns the `plotfile()` fast path, step validation and duplicate steps.
-88. [ ] **Verification, from Git Bash.**
+88. [x] **Verification, from Git Bash.**
     - Run `uv sync --frozen --group viz`; `uv run ruff check` and `uv run ruff format --check` over
       CI's six paths; `uv run pytest -v -m "not gpu"`;
       `openspec validate add-field-surrogate-reader --strict`; and a fresh
@@ -634,11 +634,11 @@ reconciliation is in the PR body). Order: spec text, then tests, then evidence, 
       run does not substitute.
     - Then `/review-pr 106`. Fixes are test-first and mutation-checked; commit before mutating, and
       restore from saved bytes, never `git checkout`.
-89. [ ] **Merge and archive (user-performed).**
+89. [x] **Merge and archive (user-performed).**
     - Squash-merge only, with a hand-written squash message. The repo default `COMMIT_MESSAGES`
       would paste PR A's ~22 commit messages into main.
     - Before `/cleanup-merged`, `grep -c '\[ \]' tasks.md` must be 0. `openspec list` does not
-      count `N. [ ]` tasks.
+      count numbered checkbox tasks.
     - Delete both `add-field-surrogate-reader` and the delegation branch by hand
       (`delete_branch_on_merge` is false).
 
@@ -723,5 +723,21 @@ committed before mutating.
 94. [x] **Commit the real-plotfile A/B** as `scripts/verify_eulerian_box_ab.py`, taking the two
     roots as arguments, and re-run it at the final head. tasks.md D11 cites the script, its
     commit and the fresh total.
-95. [ ] Verification as in task 88. Push only with the user's go-ahead, then confirm CI green on
+95. [x] Verification as in task 88. Push only with the user's go-ahead, then confirm CI green on
     the pushed SHA.
+
+## Close-out record
+
+- **Task 86/87.** The PR body was rewritten at `c624cd0`, then updated again at `f92bd26`.
+  #112, #120 and #121 are cross-linked with `see #N`. #104 was closed by hand as fixed by #105.
+  Review notes were posted on #120 (the +1F transient peak) and on #107 (yt refuses a non-dyadic
+  origin).
+- **Task 88/95.** #106's first-ever CI run was green on `c624cd0`. After review round 1 and the
+  merge of #118, CI was green on `f92bd26` (Lint, Test, Dockerfile Lint), and GitHub reported
+  `MERGEABLE`/`CLEAN`. `/review-pr 106` round 1 was posted as a comment, and every IMPORTANT
+  finding was fixed in tasks 90-94.
+- **Task 89.** #106 was squash-merged on 2026-10-16 as `2018e1a`. The default commit-message body
+  was used, so it repeats PR A's pre-squash commit messages; this is harmless and main was left
+  unrewritten. Both `add-field-surrogate-reader` and `add-field-surrogate-reader-delegation` are
+  deleted, locally and on origin. Before deleting, the delegation tip's tree was checked to be
+  identical to `main`, and the PR A tip to differ only in later PR B edits.

@@ -79,7 +79,10 @@ The yt plotfile→velocity-field extraction and the actual "LEV present at mediu
 call — deferred to T3b in T3a — SHALL now be delivered by **reusing** the existing yt Eulerian-box adapter
 `mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box` (which reads the level-0 covering grid into
 FP64 `u, v, w` arrays indexed `[ix, iy, iz]` plus per-axis `dx`), composed with the LEV pure functions
-(no new plotfile reader, no re-derivation). A thin composition `wing_lev_report(plotfile_path, *, lo, hi)`
+(no *second* plotfile reader, no re-derivation — `extract_eulerian_box` remains the LEV wiring's entry
+point and delegates to the single shared implementation in
+`mosquito_cfd.field_surrogate.snapshot.read_field_snapshot`). A thin composition
+`wing_lev_report(plotfile_path, *, lo, hi)`
 SHALL extract the field over a **required, pinned wing near-field sub-box** (`lo/hi`; a domain-wide
 reduction is forbidden — dominated by far-field noise and the grid-tied IB marker shell), evaluate the LEV
 functions over the box **interior** (`[1:-1,…]`; boundary planes are one-sided lower-order), and report a
