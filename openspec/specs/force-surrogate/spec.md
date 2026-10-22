@@ -463,6 +463,16 @@ copy; `q_ref = ½·ρ·u_ref²` at the radius of gyration). It SHALL be a pure f
 geometric inputs (no hardcoded amplitude/frequency, no I/O), SHALL reproduce the validated reference
 value, and SHALL NOT be re-derived inline by any other module.
 
+The module SHALL name the **reference point** its moments are taken about — the wing hinge — by
+cross-referencing the canonical definition in `docs/coordinate-convention.md` rather than
+restating its justification or citation. It SHALL NOT describe the reference point as "the body
+center", and SHALL NOT claim the moments are in van Veen's wing frame: they are lab-frame
+components about the hinge origin.
+
+Reference-frame changes SHALL be applied to the raw moments **before** normalization; the
+coefficient helpers normalize a moment that is already in the intended frame. (This constrains
+the pipeline order, not the module a shift helper lives in.)
+
 #### Scenario: Moment reference at the validated point
 
 - **Given** `f_star = 1.0`, `phi_amp_deg = 70.0`, `r_gyr = R_GYRATION` (≈ 1.6985), `span = 3.0`, `chord = 1.0`, `rho = 1.0`
@@ -501,19 +511,31 @@ value, and SHALL NOT be re-derived inline by any other module.
 - **When** `compute_moment_coefficient` is called
 - **Then** an empty input yields empty outputs without error, and a NaN moment propagates to a NaN coefficient (no exception)
 
+#### Scenario: Reference point is named, not implied
+
+- **Given** the `MomentCoefficients` documentation
+- **When** it is read
+- **Then** it names the wing hinge as the reference point, points at `docs/coordinate-convention.md` for the definition, and does not describe the moments as "about the body center"
+- **And** it states that the axes remain lab axes, so a reader cannot conclude the moments are van Veen wing-frame moments
+
 ### Requirement: Tidy force-coefficient dataset extraction
 
 The force-surrogate module SHALL build a tidy dataset that maps each sweep configuration's
 kinematics (plus per-timestep phase) to normalized force and moment coefficients, reading forces
 **only** from the IB-particle CSV. It SHALL read the CSV **name-based** against the documented 29-column
 schema (never positional), join each configuration's kinematics, `reynolds`, and train/holdout
-`split` from `sweep_manifest.json`, compute the **per-configuration** `F_ref`/`M_ref` via the
+`split` from `sweep_manifest.json`, resolve each configuration's **deck** from the manifest's
+`input_file` entry in order to read its hinge, compute the **per-configuration** `F_ref`/`M_ref` via the
 single-source normalization helpers (with `f_star = frequency_fstar`, `phi_amp_deg = stroke_amp_deg`,
 and the geometry's `r_gyr`/`span`/`chord`), and emit **one row per (configuration × timestep)**. Raw
 force/moment columns SHALL be carried through unchanged; only the derived coefficient columns reflect
-the convention. The build SHALL return both the dataframe and the list of any configurations dropped
-under `allow_missing`, so the caller can record the drop in run metadata (the dataframe alone provides
-no channel for the dropped names).
+the convention — including the hinge moment reference point. The build SHALL return the
+dataframe, the list of any configurations dropped
+under `allow_missing`, and a per-configuration record of the moment origin, hinge and offset it
+applied and the deck and CSV it consumed — `(frame, dropped, provenance)` — so the caller can record
+the drop and the frame in run metadata (the dataframe alone provides no channel for either).
+
+**BREAKING**: `build_dataset` returns three elements where it returned two.
 
 **BREAKING**: because `ns.init_iter = N` causes the solver to write `1 + N` rows at `iStep = 0` — the
 first with all-zero forces and the remainder being initial-pressure iterations — the extractor SHALL
@@ -568,7 +590,8 @@ masking at the dataset layer.
 
 - **Given** the committed `synthetic_ib_particle.csv` mapped to a **synthetic single-config manifest** at the validated point (`stroke_amp_deg = 70.0`, `frequency_fstar = 1.0`, `pitch_amp_deg = 45.0`) — chosen because no committed-corpus config is at φ=70°, and so the per-config `f_ref` is the regression-locked `≈ 200.27`
 - **When** `build_dataset` is called
-- **Then** each `CF_x` equals `Fx / compute_force_reference(f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO).f_ref` and each `CF_mx` equals `Mx / compute_moment_reference(...).m_ref` (and likewise for y/z) — **ratio** equality, not round literals (the validated `f_ref ≈ 200.27` is not round, so `CF_x = 50/200.27 ≈ 0.250`, etc.), confirming the extractor reuses the helpers rather than re-deriving a reference inline (CC-3)
+- **Then** each `CF_x` equals `Fx / compute_force_reference(f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO).f_ref` and each `CF_mx` equals `(Mx + (r_origin − r_hinge) × F)_x / compute_moment_reference(...).m_ref` (and likewise for y/z) — **ratio** equality, not round literals (the validated `f_ref ≈ 200.27` is not round, so `CF_x = 50/200.27 ≈ 0.250`, etc.), confirming the extractor reuses the helpers rather than re-deriving a reference inline (CC-3)
+- **And** for a fixture whose deck hinge coincides with the particle origin the shift is zero and the moment ratio reduces to `Mx / m_ref`, so the pre-existing round-number relationship is preserved for the degenerate case
 - **And** a separate config whose reference is the round `f_ref = m_ref = 100` (e.g. via the helper unit tests) is where the fixture's round forces/moments give exact-decimal coefficients — the dataset path asserts the **ratio**, the helper path asserts the **exact decimals**
 
 #### Scenario: Phase and wingbeat tag every timestep, no rows dropped
@@ -612,7 +635,7 @@ masking at the dataset layer.
 
 - **Given** the same missing-CSV configuration
 - **When** `build_dataset` is called with `allow_missing=True`
-- **Then** it skips that configuration with a logged warning, emits the rows for the present configurations, and **returns the dropped configuration name(s) as the second element of its `(dataframe, dropped)` return** so the truncation can be recorded in run metadata (no silent caps)
+- **Then** it skips that configuration with a logged warning, emits the rows for the present configurations, and **returns the dropped configuration name(s) as the second element of its `(frame, dropped, provenance)` return** so the truncation can be recorded in run metadata (no silent caps)
 
 ### Requirement: Dataset units sidecar
 
@@ -640,6 +663,15 @@ requiring a pinned container **digest** (the dataset is downstream of the contai
 **caller-supplied** timestamp, and SHALL record any configurations dropped under `allow_missing` so a
 truncated corpus is auditable.
 
+The provenance SHALL additionally record the **moment reference point** and the per-configuration
+origin-to-hinge offset applied, so the frame travels with the corpus and the correction is
+re-derivable from the committed parquet alone. This is provenance, not a unit declaration, and
+SHALL NOT be added to `dataset.units.json`, whose closed vocabulary admits only unit strings.
+
+For a re-extraction that does **not** re-run the CFD, the recorded digest SHALL remain the digest of
+the image that produced the underlying CFD data, not that of whatever host performed the
+extraction — a corpus's provenance names what produced its measurements.
+
 #### Scenario: Provenance records digest and caller timestamp
 
 - **Given** a container image digest containing `sha256:` and a caller-supplied ISO-8601 timestamp
@@ -658,17 +690,48 @@ truncated corpus is auditable.
 - **When** the dataset-build provenance is captured
 - **Then** it raises `ValueError` (inherited from `capture_surrogate_run_metadata`) rather than recording provenance without a pinned image
 
+#### Scenario: Moment reference point travels with the corpus
+
+- **Given** a corpus extracted from decks whose hinge is 1.5 span-units inboard of the particle origin
+- **When** its dataset-build provenance is read
+- **Then** it names the wing hinge as the reference point for `CF_mx/CF_my/CF_mz`, records the applied offset `(0, 1.5, 0)`, and states that the raw `Mx/My/Mz` columns remain about the solver's own origin
+- **And** these live under two top-level keys of the corpus `run_metadata.json`, fixed here so writer and guard are not specified independently:
+  - `moment_reference`: `point` (`"wing_hinge"`), `definition` (`"docs/coordinate-convention.md#moments"`), `axes` (`"lab"`), `offset` (`"r_origin - r_hinge"`), `applies_to` (`["CF_mx", "CF_my", "CF_mz"]`), `raw_moments_about` (`"particle_origin"`), and `configs.<name>` with `origin`, `hinge`, `offset` (3-lists), `deck` (the manifest `input_file`), `deck_sha256`, and `deck_sha256_verified_against` (the anchoring metadata file's path, in posix form and not resolved, or `null`)
+  - `extraction_inputs`: `input_dir` (the `--input-dir` exactly as given, posix separators — **not** resolved, since resolving a mapped drive records a machine-specific network path; `csv_sha256` is the inputs' identity and the directory only a locator), `csv_name`, and `csv_sha256.<name>` — the sha256 of the exact bytes of each consumed IB-particle CSV
+- **And** the per-configuration values are the ones extraction **applied**, returned by `build_dataset` alongside the frame, not re-derived by the driver
+- **And** `dataset.units.json` is unchanged in shape — still a flat column-to-unit map over exactly the measured columns
+
+#### Scenario: Re-extraction preserves the CFD digest
+
+- **Given** a committed corpus whose provenance records the digest of the image its CFD ran under
+- **When** the corpus is re-extracted from the same raw outputs without re-running the CFD
+- **Then** the regenerated provenance records the **same** digest, not the digest of any image used to perform the re-extraction
+
+#### Scenario: A failed write leaves the previous outputs in place
+
+- **Given** an extraction whose dataset, units sidecar or provenance cannot be written
+- **When** `extract_forces.py` runs
+- **Then** every output is first written in full to a temporary beside its target, and nothing is moved into place until all writes succeeded, so a failure **while writing** leaves every previous output unchanged
+- **And** the dataset parquet is moved into place **last**, after its units sidecar and provenance, because three renames cannot be atomic
+- **And** a failure **while moving** raises an error naming the outputs already replaced, and keeps the temporaries not yet moved, rather than silently leaving a new parquet beside stale provenance
+- **And** duplicate output paths and directory targets are rejected before anything is written
+
 ### Requirement: Force-only dataset scope guard
 
 The dataset extractor SHALL derive all forces and moments from the IB-particle CSV alone and SHALL
 NOT read AMReX plotfiles or velocity/pressure fields (CC-6). The force-only path keeps the dataset
 build cluster-free and sidesteps the velocity-field-in-plotfiles issue entirely.
 
-#### Scenario: Extraction consumes only the CSV and manifest
+The per-configuration **deck** named by the manifest's `input_file` entry is an additional
+permitted input, read solely for its declared moment reference point (`particle_inputs.hinge_*`
+and `particle_inputs.{x,y,z}`). Decks are committed text files, so this preserves the cluster-free
+property; it does not relax the plotfile/field prohibition.
+
+#### Scenario: Extraction consumes only the CSV, manifest and decks
 
 - **Given** the dataset-build inputs
 - **When** `build_dataset` is called
-- **Then** it requires only the IB-particle CSV(s) and `sweep_manifest.json` — it neither accepts nor requires a plotfile/field path — and runs with no cluster, GPU, or AMReX plotfile present
+- **Then** it requires only the IB-particle CSV(s), `sweep_manifest.json`, and the per-configuration decks that manifest's `input_file` entries name — it neither accepts nor requires a plotfile/field path — and runs with no cluster, GPU, or AMReX plotfile present
 
 ### Requirement: Per-configuration cluster run command construction
 
@@ -1450,23 +1513,29 @@ rather than re-deriving them.
 
 The evidence figure SHALL designate **CF_my** as the single headline moment coefficient and SHALL
 label its panel as an **"aerodynamic moment (M_y component)"** — it SHALL NOT label the panel
-"pitch moment". The figure caption SHALL note that the repository's axis convention differs from the
-biomechanics standard (GitHub issue #1) and therefore the panel reports the moment *component* rather
-than a biomechanical pitch interpretation. The pick is justified by CF_my being the only moment with
-genuine configuration-to-configuration signal (design D1); the figure SHALL NOT apply an unverified
-sim→biomechanics axis relabeling.
+"pitch moment". The figure caption SHALL note that the moments are **lab-frame** components about the
+hinge, not wing-frame (biomechanical) moments — that conversion is deferred and not currently
+tracked — and therefore the panel reports the moment *component* rather than a biomechanical pitch
+interpretation; the figure SHALL NOT apply an unverified sim→biomechanics axis relabeling.
+
+The panel set SHALL be **fixed a priori** rather than re-derived per corpus, so the figure cannot
+cherry-pick whichever moment axis scores best. The requirement SHALL NOT assert which moment
+carries the most between-configuration signal: that ranking is corpus-dependent and has already
+inverted more than once. Instead the caption SHALL disclose the actual off-panel `CF_mx`/`CF_mz`
+config-resolved R² at call time, so a reader can see the ranking rather than be told it.
 
 #### Scenario: Moment panel is CF_my labeled as a component, not "pitch moment"
 
 - **Given** the evidence figure
 - **When** the moment panel is rendered
-- **Then** the panel uses the `CF_my` coefficient, its title/label contains "M_y" and the word "moment" but NOT the string "pitch moment", and the figure caption text references the issue-#1 axis-convention caveat
+- **Then** the panel uses the `CF_my` coefficient, its title/label contains "M_y" and the word "moment" but NOT the string "pitch moment", and the figure caption text states that the moment is a lab-frame component and that the wing-frame conversion is not currently tracked
 
-#### Scenario: The off-axis (waveform-dominated) moments are not the headline
+#### Scenario: The off-panel moments are disclosed, not ranked in the spec
 
-- **Given** the metrics.json config-resolved block (CF_mx and CF_mz are ~99.9% within-configuration waveform)
+- **Given** the metrics.json config-resolved block, whatever this corpus's moment ranking happens to be
 - **When** the figure is built
-- **Then** the headline moment coefficient is `CF_my`, and **no** axis plots a `CF_mx_*` or `CF_mz_*` column at all — so the headline panel shows a moment with genuine between-configuration variation and the waveform-dominated moments are excluded entirely
+- **Then** the headline moment coefficient is `CF_my`, and **no** axis plots a `CF_mx_*` or `CF_mz_*` column at all
+- **And** the caption states the off-panel `CF_mx` and `CF_mz` config-resolved R² values read from `metrics.json`, so a corpus in which an off-panel moment outscores the headline is visible to the reader rather than hidden by the frozen panel set
 
 ### Requirement: Sane–Dickinson quasi-steady reference (computed, not overlaid)
 
@@ -1535,16 +1604,19 @@ caption SHALL be **compact** — a positive headline (the three panels' config-r
 speedup), a single terse "Caveats:" line, a single terse "Quasi-steady reference (not plotted):" line,
 and a pointer to `examples/prelim_sweep/README.md` — and the **full** disclosure set SHALL ALSO live in that README
 (task 10.2) and in `evidence_figure_metrics.json`, so honesty is preserved and test-enforced without
-overloading the PNG. The positive config-resolved results (CF_x, CF_my) SHALL read as dominant; the
-off-panel CF_y −3.61 SHALL be subordinate (an honesty flag, not a co-headline). Within that compact
+overloading the PNG. The on-panel targets' positive config-resolved results SHALL read as dominant;
+a negative config-resolved R² SHALL be subordinate (an honesty flag, not a co-headline). Within that compact
 caption, the figure SHALL report the **configuration-resolved** R² (read from
 `metrics.json config_resolved.<coefficient>.config_mean_r2`) for the three figure axes and state that the
 pointwise aggregate R²≈0.98 is dominated by the shared within-beat phase waveform and **overstates**
-the kinematics→force skill (naming CF_y's negative config-resolved R² as the concrete tell), that the
+the kinematics→force skill (naming the most negative config-resolved R² among the six targets as
+the concrete tell, or stating that none is negative), that the
 result is **pipeline readiness on coarse-grid forces** (64×32×64),
-**not** validated aerodynamics, and that the two off-axis moments **CF_mx/CF_mz are excluded because
-they are ≈99.9% the shared within-beat waveform** (no between-config signal) — the exclusion is stated
-with its reason, not silent. The figure SHALL annotate the inference-vs-CFD speedup as a **batched
+**not** validated aerodynamics, and that the two off-axis moments **CF_mx/CF_mz are excluded from the
+panels, with their actual config-resolved R² read from `metrics.json` and stated** — the exclusion is
+stated with its numbers, not silent, and SHALL NOT assert a fixed reason such as a particular
+within-beat waveform fraction, because that ranking is corpus-dependent and has already inverted
+more than once. The figure SHALL annotate the inference-vs-CFD speedup as a **batched
 GPU-throughput** speedup — `inference.throughput_rows_per_s` ÷ the coarse-grid A40 CFD throughput
 (per-config converged-beat rows ÷ the coarse per-wingbeat wall-clock) — which is the >1,000× claim.
 Because this factor equals `latency_speedup × batch_size` (the surrogate is a pointwise map that
@@ -1554,13 +1626,22 @@ sequential coarse-grid A40 CFD timestep rate** — not a per-evaluation speedup.
 per-evaluation **latency** speedup (~310×, which is **not** >1,000×) SHALL be reported alongside as
 the like-for-like floor, and SHALL NOT be conflated with the throughput claim or computed by dividing
 a per-wingbeat cost by a per-row latency. All caption/annotation numbers SHALL be read from the
-committed artifacts, never hard-coded.
+committed artifacts, never hard-coded. Because config-resolved R² at six holdout configurations is
+strongly seed-dependent, the caption SHALL name the seed its config-resolved R² come from
+(`metrics.json` `reproducibility.seeds.global`) and point to the README for the seed spread, or
+state that no seed is recorded; it SHALL NOT present one draw as the corpus's skill.
+
+> Note: the result numbers still embedded above (R²≈0.98, ~310×) are stale against the committed
+> artifacts and are tracked separately in issue #115; refreshing them is deliberately out of scope.
+> This change rewrites only the `CF_mx`/`CF_mz` exclusion clause and the two clauses that named
+> specific targets as dominant (CF_x, CF_my) and as the negative-R² tell (CF_y −3.61), which now
+> describe the rule the code implements rather than a ranking that has already changed.
 
 #### Scenario: Caption reports config-resolved skill and flags the inflated aggregate
 
 - **Given** a metrics.json with `config_resolved.<c>.config_mean_r2` (CF_x 0.94, CF_z 0.83, CF_my 0.99, CF_y −3.61) and an aggregate R²≈0.98
 - **When** the caption is built
-- **Then** it contains the per-axis config-resolved R² for CF_x/CF_z/CF_my (each read from `config_resolved.<c>.config_mean_r2`), explicitly states the aggregate overstates skill because it is dominated by the shared phase waveform, names the negative CF_y config-resolved R², states that CF_mx/CF_mz are excluded because they are ≈99.9% the shared waveform, and frames the figure as coarse-grid pipeline readiness rather than validated aerodynamics — with every number read from metrics.json
+- **Then** it contains the per-axis config-resolved R² for CF_x/CF_z/CF_my (each read from `config_resolved.<c>.config_mean_r2`), explicitly states the aggregate overstates skill because it is dominated by the shared phase waveform, names the negative CF_y config-resolved R², states that CF_mx/CF_mz are excluded from the panels **and gives their config-resolved R² as read from metrics.json**, and frames the figure as coarse-grid pipeline readiness rather than validated aerodynamics — with every number read from metrics.json
 
 #### Scenario: A NaN-sentinel (null) config-resolved R² renders without crashing
 
@@ -1584,7 +1665,14 @@ committed artifacts, never hard-coded.
 
 - **Given** the generated figure and the updated `examples/prelim_sweep/README.md`
 - **When** both are inspected
-- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the issue-#1 axis caveat, the CF_mx/CF_mz exclusion reason, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+- **Then** the on-figure caption leads with the positive headline (per-axis config-resolved R²/RMSE + the >1,000× batched speedup), carries a single terse "Caveats:" line and a single terse quasi-steady-reference line, and points to the README; **and** the README contains the full disclosure set (the lab-frame axis caveat, with the wing-frame conversion stated as not currently tracked, the CF_mx/CF_mz exclusion **with their config-resolved R²**, the quasi-steady reference's omitted-terms / symmetric-rotation / stroke-plane-normal-vs-lab-z / uncalibrated nature and why it is not overlaid, the coarse-grid / not-validated framing, and the speedup batch-size + sequential-CFD decomposition) — so the full honesty content is present and test-enforced off the PNG
+
+#### Scenario: The caption names the seed its config-resolved R² come from
+
+- **Given** a `metrics.json` whose `reproducibility.seeds.global` is a seed `n`
+- **When** the caption is built
+- **Then** the config-resolved R² headline is labelled "single seed `n`; 5-seed ranges in README"
+- **And** with no recorded seed it is labelled "seed not recorded", never a default seed
 
 ### Requirement: Committed evidence-figure artifacts with provenance
 
@@ -1661,17 +1749,25 @@ plotfiles/velocity/pressure fields, build a DoMINO/latent-dynamics encoder, or i
 
 ### Requirement: Re-normalization preserves surrogate skill (scale-invariance)
 
-Re-deriving force/moment coefficients under a different per-configuration convention SHALL rescale
-the CFD targets and the surrogate predictions by the **same** constant, leaving the held-out **R²**
-and the predicted-vs-CFD relationship invariant. The frozen corpus's raw force/moment columns and
-IB-particle CSVs SHALL NOT be regenerated for a re-normalization convention change; only derived
-coefficients change, and no surrogate retraining SHALL be required for that case. This
-frozen-corpus guarantee has exactly **one** documented exception: `fix-force-surrogate-sweep-hinge`
-regenerated the raw corpus once to correct a wing-hinge geometry defect present in every
-configuration since the corpus was first generated (the hinge was frozen from a pre-refactor deck
-against a geometry file that had since moved to a new axis convention). That regeneration is not a
-precedent for routine re-runs — any future raw-corpus regeneration requires its own equally
-explicit, equally documented exception.
+Re-deriving force/moment coefficients under a different per-configuration normalization-scale convention SHALL rescale the CFD targets and the surrogate predictions by the **same** constant,
+leaving the held-out **R²** and the predicted-vs-CFD relationship invariant. The frozen corpus's raw
+force/moment columns and IB-particle CSVs SHALL NOT be regenerated for a re-normalization convention
+change; only derived coefficients change, and no surrogate retraining SHALL be required for that case.
+
+This invariance is a property of **scale** conventions specifically. A change of moment **reference
+point** is not a scale change: the parallel-axis shift `M_hinge = M_origin + (r_origin − r_hinge) × F`
+is affine and row-dependent, so the corrected column is **not** the old one times a constant, the
+held-out R² is **not** preserved, and retraining **is** required. Such a change SHALL be treated as a
+documented exception on the same footing as a geometry-defect fix.
+
+This frozen-corpus guarantee has exactly **two** documented exceptions.
+`fix-force-surrogate-sweep-hinge` regenerated the raw corpus once to correct a wing-hinge geometry
+defect present in every configuration since the corpus was first generated (the hinge was frozen from
+a pre-refactor deck against a geometry file that had since moved to a new axis convention).
+`fix-moment-reference-hinge` re-derived the moment coefficients about the wing hinge, leaving the raw
+columns untouched but requiring a retrain. Neither is a
+precedent for routine re-runs — any future raw-corpus regeneration, or any further reference-point
+change, requires its own equally explicit, equally documented exception.
 
 #### Scenario: R² is invariant under re-normalization
 
@@ -1697,6 +1793,14 @@ explicit, equally documented exception.
 - **Given** the corpus's raw force columns were generated from a deck with an incorrect wing-hinge placement (a geometric defect, not a normalization-convention choice)
 - **When** the corpus is regenerated to fix that defect
 - **Then** the regeneration is accompanied by an OpenSpec change (`fix-force-surrogate-sweep-hinge`) that names the defect, and this requirement's "SHALL NOT be regenerated" clause is understood to apply to normalization-convention changes, not to this documented correctness exception
+
+#### Scenario: A reference-point change is not scale-invariant and does require a retrain
+
+- **Given** the moment reference point moves from the particle origin to the wing hinge, so `CF_mx`/`CF_mz` are re-derived via a parallel-axis shift while the raw `Mx/My/Mz` columns stay frozen
+- **When** the corrected corpus is compared with the committed one
+- **Then** the new `CF_mx` column is **not** the old one times any constant (`CF_mx_new / CF_mx_old` is not constant across rows), so the R²-invariance argument does not apply and the committed `metrics.json` SHALL NOT be reused
+- **And** the surrogate is retrained, because the model is a single shared-trunk multi-output network whose remaining targets' predictions also move
+- **And** the raw `Fx..Mz` columns remain exactly equal to the committed corpus, so the frozen-raw-corpus guarantee itself is not breached
 
 ### Requirement: Fine-grid pilot base deck is deck-invariant except grid resolution
 
@@ -2645,4 +2749,207 @@ it.
 - **When** the guard tests run
 - **Then** they execute and pass against the committed corpora, and the guard module imports no
   cluster, Argo or subprocess surface
+
+### Requirement: Moment coefficients are referenced to the wing hinge
+
+Extracted moment coefficients `CF_mx/CF_my/CF_mz` SHALL be taken about the **wing hinge**, not
+about the immersed-boundary particle's own origin as written by IAMReX. Dataset extraction SHALL
+apply the parallel-axis shift `M_hinge = M_origin + (r_origin − r_hinge) × F` before
+normalization.
+
+**BREAKING**: a corpus extracted before this change therefore carries different `CF_mx` and
+`CF_mz` values; `CF_my` is unchanged wherever the origin-to-hinge offset is purely spanwise.
+
+The reference point is defined canonically in `docs/coordinate-convention.md`
+([Coordinate Convention](../coordinate-convention/spec.md)); this capability owns only the
+extraction mechanism and SHALL cross-reference rather than restate the definition.
+
+These are **lab-frame moment components taken about the hinge**. The shift relocates the
+**origin** only; it does not rotate the axes. A body-frame (wing-frame) moment would additionally
+require rotating by `R(t)ᵀ`, which is deferred and not currently tracked. Documentation SHALL NOT
+claim the moments are in van Veen's wing frame.
+
+The raw `Mx/My/Mz` columns SHALL retain the solver's as-written values about its own origin,
+preserving the audit trail back to CFD output; only the derived `CF_m*` coefficients are
+referenced to the hinge. The applied offset SHALL be recorded in the corpus's dataset-build
+provenance so the correction is re-derivable from the committed parquet alone.
+
+#### Scenario: Parallel-axis shift is applied at extraction
+
+- **Given** a run whose CSV `X,Y,Z` columns are a constant `(4, 2, 4)` and whose deck declares `hinge = (4, 0.5, 4)`
+- **When** the dataset is extracted
+- **Then** the emitted `CF_mx/CF_my/CF_mz` correspond to moments about `(4, 0.5, 4)`, equal to the raw moments shifted by `(0, 1.5, 0) × F`, divided by `m_ref`
+- **And** the emitted raw `Mx/My/Mz` columns are bitwise equal to the CSV's values
+
+#### Scenario: A spanwise shift leaves the M_y component invariant
+
+- **Given** a run whose origin-to-hinge offset is purely along the span axis `y`, with all-finite `Fx/Fy/Fz`
+- **When** the parallel-axis shift is applied
+- **Then** the resulting `CF_my` **compares equal** (`==`, accepting `-0.0 == 0.0`) to the unshifted `CF_my` for every row, because the y-term of `(0, a, 0) × F` is identically zero
+- **And** `CF_mx` and `CF_mz` equal `(Mx + a·Fz)/m_ref` and `(Mz − a·Fx)/m_ref` exactly — this clause, **not** the `M_y` invariance, is what pins the cross-product **order**, since a reversed `F × d` would also leave the y-component zero
+- **And** the y-term arises from evaluating the full three-component cross product, not from special-casing the `y` component
+
+#### Scenario: A non-finite Fx or Fz breaks the M_y invariance
+
+- **Given** a purely spanwise offset `(0, a, 0)` and a row whose `Fx` or `Fz` is NaN or infinite
+- **When** the shift is applied
+- **Then** that row's `CF_my` is NaN, because the zero-valued coefficient multiplies a non-finite force (`0.0 · NaN = NaN`), and the shift SHALL NOT special-case the term to preserve invariance
+- **And** the invariance is conditional on `Fx` and `Fz` specifically, **not** on the forces generally: only those two enter `cross_y = d_z·F_x − d_x·F_z`, so a non-finite `F_y` leaves `CF_my` exactly invariant while contaminating `CF_mx` and `CF_mz`
+- **And** no single non-finite force component contaminates all three outputs — each contaminates exactly two
+
+#### Scenario: Committed corpora reconcile against their declared offset
+
+- **Given** a committed `dataset.parquet` and, for each configuration, the origin-to-hinge offset `(0, a, 0)` derived from that configuration's **committed deck** (`particle_inputs.{x,y,z}` − `particle_inputs.hinge_{x,y,z}`) — **not** read back from the dataset-build provenance the same extraction wrote, which would make the check blind to a sign flip (an extractor computing `hinge − origin` records the negated offset and reconciles against it)
+- **When** the derived coefficients are recomputed, **per configuration**, from the parquet's own raw `Fx..Mz` columns
+- **Then** `CF_mx == (Mx + a·Fz)/m_ref` and `CF_mz == (Mz − a·Fx)/m_ref` to `rtol=1e-9`, and `CF_my == My/m_ref`
+- **And** `CF_mx` is **not** `allclose` to `Mx/m_ref`, so the check cannot be vacuously satisfied by a zero offset and a re-extraction that dropped the shift fails loudly
+
+#### Scenario: Committed moments put the IB-part arm on the wing
+
+- **Given** a committed `dataset.parquet` restricted to settled beats (`wingbeat ≥ 1`), and each configuration's hinge and tip taken from its deck and the wing's vertex file
+- **When** the force-weighted spanwise arm `b = M_hinge_x / F_z` is computed per row
+- **Then** at least 90% of rows fall in `(0, tip − hinge]` (measured ~97% with the correct shift and under 1% with a sign-flipped one)
+- **And** the check is a **calibrated fraction**, not a bound on every row: `b` is a mixed-sign-weighted mean and omits the `−(z_i − z_h)·F_y` term, and `F`/`M` are the spread IB force and moment only, so `b` is the IB-part arm rather than the true centre of pressure
+
+### Requirement: The moment origin offset is derived per configuration and validated
+
+The origin-to-hinge offset SHALL be **derived per configuration** — `r_origin` from the run's own
+`X,Y,Z` CSV columns (IAMReX writes `kernel.location` there, which is the origin its moments are
+taken about) and `r_hinge` from the configuration's deck (`particle_inputs.hinge_{x,y,z}`) — and
+SHALL NOT be hardcoded, so a deck whose particle origin and hinge differ from the committed
+corpora is handled correctly rather than silently mis-shifted.
+
+`X`, `Y` and `Z` SHALL become required IB-particle CSV columns. The deck SHALL be located via the
+configuration's existing manifest `input_file` entry, resolved relative to the manifest's own
+directory; the hinge SHALL be read with the existing ParmParse-aware deck reader rather than a
+second parser.
+
+#### Scenario: Offset is derived, not hardcoded
+
+- **Given** a configuration whose particle origin and hinge differ by an offset other than `(0, 1.5, 0)` — for example a deck with `hinge_z` displaced as well
+- **When** the dataset is extracted
+- **Then** the shift applied is that configuration's own `r_origin − r_hinge`, not the value that happens to hold for the committed corpora
+
+#### Scenario: The offset is derived independently for each configuration
+
+- **Given** a two-configuration manifest whose decks declare **different** hinges, mapped to identical CSVs
+- **When** the dataset is extracted
+- **Then** the two configurations emit correspondingly different `CF_mx`, proving the offset is derived per configuration rather than derived once and reused
+
+#### Scenario: A moving moment origin is rejected rather than shifted
+
+- **Given** a run whose `X,Y,Z` columns are **not** constant across timesteps under exact equality (the immersed-boundary particle moved, so a single constant offset cannot describe the run)
+- **When** the dataset is extracted
+- **Then** extraction raises `ValueError` naming the configuration, rather than applying a constant shift that would be silently wrong for every row
+- **And** any variation is rejected, however small — the guard is exact equality, not a tolerance
+
+#### Scenario: A NaN moment origin is rejected
+
+- **Given** a run whose `X,Y,Z` columns are NaN
+- **When** the dataset is extracted
+- **Then** extraction raises `ValueError` naming the configuration, rather than deriving a NaN offset that would silently NaN every moment coefficient
+
+#### Scenario: A CSV lacking the origin columns is rejected
+
+- **Given** an IB-particle CSV with no `X`, `Y` or `Z` column
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration and the absent columns, via the existing required-column check
+
+#### Scenario: A non-numeric or boolean CSV value is rejected by name
+
+- **Given** an IB-particle CSV whose `iStep`, `time`, `X`, `Y`, `Z`, `Fx..Fz` or `Mx..Mz` column holds a non-numeric value, or is read as boolean
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration and the column, instead of a bare conversion error with no context, and a boolean column is never silently read as `0.0`/`1.0`
+
+#### Scenario: A header-only CSV contributes no rows without tripping the origin guard
+
+- **Given** a configuration whose IB-particle CSV has the header but **zero** data rows
+- **When** the dataset is extracted
+- **Then** that configuration contributes zero rows without the constant-origin guard raising on the empty array
+
+#### Scenario: A deck without a declared hinge is rejected
+
+- **Given** a deck that declares no `particle_inputs.hinge_{x,y,z}`, or a non-finite hinge value
+- **When** the dataset is extracted
+- **Then** extraction raises `ValueError` naming **both** the configuration and the deck path, rather than falling back to the particle origin, which would silently reinstate mid-span moments
+
+#### Scenario: A configuration with no locatable deck is rejected
+
+- **Given** a manifest configuration with no `input_file` entry, or whose declared deck path does not exist on disk
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration and the resolved path — never a bare `TypeError` from a missing argument, and never a silent emission of particle-origin moments
+
+#### Scenario: A deck edited since its run is rejected
+
+- **Given** a configuration whose per-configuration run metadata (the file named for it in an explicit `run_metadata_paths` mapping — which the acceptance gate passes, so both read the same files, and which `extract_forces.py --run-metadata-name` builds as `<input-dir>/<name>/<run-metadata-name>` — or else `run_metadata_<name>.json` beside the manifest) records a `deck_sha256`, and a working-tree deck whose sha256 differs
+- **When** the dataset is extracted
+- **Then** it raises `ValueError` naming the configuration, the deck path and both hashes, rather than shifting about a hinge the solver never used
+- **And** where the run recorded no `deck_sha256` (no per-configuration metadata found), extraction proceeds and records the deck as **unverified** rather than claiming a verification that did not happen
+- **And** a per-configuration metadata file that cannot be decoded or is not a JSON object raises `ValueError` naming the configuration and the file
+- **And** with `extract_forces.py --run-metadata-name` given, verification is mandatory: every extracted configuration must be anchored, or extraction fails before writing anything, and a name that is not a bare file name (it contains a path separator or `..`, or is absolute) is rejected
+
+#### Scenario: The acceptance gate reports extraction rejections instead of raising
+
+- **Given** a corpus with a configuration that extraction rejects for a missing deck, absent `X,Y,Z` columns, or a moving moment origin
+- **When** `run_acceptance_gate` is run on it
+- **Then** it returns `GateResult(passed=False, failures)` whose failure names the configuration, rather than raising a traceback out of an enumerating gate
+- **And** a malformed-file error (e.g. unparseable JSON) still raises, as before
+
+### Requirement: Parallel-axis shift helper
+
+The force-surrogate module SHALL expose a pure `shift_moment_reference` helper that applies a
+parallel-axis shift to moment components given the corresponding forces and a displacement. It
+SHALL be a pure array function (no I/O, no hardcoded geometry), so the reference-frame change is
+unit-testable independently of extraction.
+
+#### Scenario: Known-answer parallel-axis shift
+
+- **Given** hand-computed moments `M`, forces `F` and a displacement `d` with a known analytic result
+- **When** `shift_moment_reference` is called
+- **Then** it returns `M + d × F` exactly, pinning both the cross-product order and the sign convention
+
+#### Scenario: Degenerate shift inputs
+
+- **Given** an empty moment/force array, mismatched `M`/`F` shapes, or a zero displacement
+- **When** `shift_moment_reference` is called
+- **Then** an empty input yields empty outputs without error; mismatched shapes raise `ValueError`; and a zero displacement leaves all-finite inputs comparing equal (`==`, accepting `-0.0 == 0.0`)
+- **And** the shape check SHALL reject a mismatch **within** the moment triple or **within** the force triple, not merely between the two groups — an intra-group mismatch is the broadcasting hazard that would pair a force with the wrong moment row
+
+#### Scenario: Non-finite moments propagate unmasked
+
+- **Given** a moment component that is NaN or infinite, with finite forces and a finite offset
+- **When** `shift_moment_reference` is called
+- **Then** that component's output is non-finite — the helper SHALL NOT mask, zero or `nan_to_num` its inputs, so a corrupt upstream value stays visible rather than being silently repaired
+
+#### Scenario: A malformed offset is rejected
+
+- **Given** an `offset` that is not exactly three components — including a `(3,1)` or `(1,3)` array, a two- or four-element sequence, or a scalar — or one containing NaN or infinity
+- **When** `shift_moment_reference` is called
+- **Then** it raises `ValueError` naming the problem, rather than broadcasting a wrongly-shaped displacement or silently producing all-NaN moments
+- **And** the check is on the **shape**, not merely the element count, so a `(3,1)` array is rejected rather than reshaped
+
+### Requirement: Committed surrogate artifacts are tied to the dataset they were trained on
+
+Training SHALL record, in the surrogate's `run_metadata.json`, the path and sha256 of the dataset
+parquet it consumed (`inputs.file` / `inputs.hash`, via the existing `capture_run_metadata`
+`inputs_file` channel), so that which corpus produced a committed `surrogate.pt` is auditable rather
+than inferred.
+
+A CI-runnable check SHALL reconcile the committed coarse surrogate against the committed coarse
+dataset **unconditionally**: every `<target>_true` column of `holdout_predictions.parquet`, for all
+six targets, equals the corresponding `dataset.parquet` column on `(config_name, time)`, and the
+recorded `inputs.hash` equals the sha256 of the committed `dataset.parquet`. Unlike a staleness
+banner, this check has no state in which a mismatch is acceptable.
+
+#### Scenario: Training metadata names the dataset
+
+- **Given** a training run over a dataset parquet
+- **When** `build_training_metadata` assembles the run's provenance
+- **Then** the record's `inputs.file` names that parquet and `inputs.hash` is its sha256
+
+#### Scenario: A surrogate trained on a different dataset fails CI
+
+- **Given** a committed `holdout_predictions.parquet` whose `<target>_true` values for any of the six targets differ from the committed `dataset.parquet`, or a recorded `inputs.hash` that is not the committed parquet's sha256
+- **When** the committed-artifact tests run
+- **Then** they fail, naming the target or the hash mismatch
 
