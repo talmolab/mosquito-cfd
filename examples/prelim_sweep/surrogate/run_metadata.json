@@ -1,8 +1,11 @@
 {
-  "run_id": "80a99f62-69f2-48d0-98de-57dd83e8fdcf",
-  "timestamp": "2026-08-21T19:28:38Z",
+  "run_id": "7c1a3da5-15a1-4666-ba77-3c48bfd9b8a4",
+  "timestamp": "2026-10-16T21:31:08Z",
   "git": {
-    "error": "git not available or not a repository"
+    "commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
+    "branch": "fix-moment-reference-hinge-pr3",
+    "dirty": false,
+    "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
   "hardware": {
     "hostname": "talmo-lab-02",
@@ -16,6 +19,10 @@
     "gpu_count": 1
   },
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+  "inputs": {
+    "file": "examples/prelim_sweep/dataset.parquet",
+    "hash": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa"
+  },
   "seeds": {
     "global": 1234
   },

@@ -23,6 +23,8 @@ Decisions D1-D8 are documented in the OpenSpec change ``add-force-surrogate-trai
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
 from dataclasses import dataclass
@@ -675,6 +677,8 @@ def build_training_metadata(
     timestamp: str,
     seeds: dict[str, int],
     feature_names: list[str],
+    dataset_path: Path | str | None = None,
+    dataset_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Capture training-run provenance (CC-1): pinned digest, timestamp, seeds, lib versions.
 
@@ -689,18 +693,35 @@ def build_training_metadata(
         timestamp: Caller-supplied ISO-8601 timestamp.
         seeds: The run seeds.
         feature_names: The input feature list.
+        dataset_path: The dataset parquet the run consumed, recorded as ``inputs.file`` /
+            ``inputs.hash`` (sha256) so a committed surrogate names the corpus it came from.
+        dataset_sha256: The sha256 taken when the dataset was read. When given, the recorded
+            ``inputs.hash`` must equal it, so a file rewritten during training is refused
+            rather than recorded as the bytes the model trained on.
 
     Returns:
-        The provenance dict with ``seeds``, ``features``, and ``library_versions`` at top level.
+        The provenance dict with ``seeds``, ``features``, and ``library_versions`` at top level,
+        and ``inputs`` when ``dataset_path`` is given.
+
+    Raises:
+        FileNotFoundError: If ``dataset_path`` is given but is not a regular file (the base
+            capture would otherwise silently record no ``inputs``).
+        RuntimeError: If the dataset's sha256 no longer equals ``dataset_sha256``.
     """
     from mosquito_cfd.force_surrogate.sidecar import capture_surrogate_run_metadata
 
+    if dataset_path is not None:
+        dataset_path = Path(dataset_path)
+        if not dataset_path.is_file():
+            kind = "not a regular file" if dataset_path.exists() else "not found"
+            raise FileNotFoundError(f"training dataset {kind}: {dataset_path}")
     library_versions = {
         "torch": _library_version("torch"),
         "physicsnemo": _library_version("nvidia-physicsnemo"),
     }
-    return capture_surrogate_run_metadata(
+    metadata = capture_surrogate_run_metadata(
         docker_image_digest=docker_image_digest,
+        inputs_file=dataset_path,
         timestamp=timestamp,
         extra={
             "seeds": dict(seeds),
@@ -708,6 +729,13 @@ def build_training_metadata(
             "library_versions": library_versions,
         },
     )
+    recorded = metadata.get("inputs", {}).get("hash")
+    if dataset_sha256 is not None and recorded != dataset_sha256:
+        raise RuntimeError(
+            f"training dataset {dataset_path} changed after it was loaded: sha256 "
+            f"{dataset_sha256} at load, {recorded} at capture"
+        )
+    return metadata
 
 
 def log_to_wandb(
@@ -865,7 +893,10 @@ def run_training(
     # (a pure regex guard; the same digest is re-validated by build_training_metadata, CC-1).
     validate_image_digest(docker_image_digest)
 
-    df = pd.read_parquet(dataset_path)
+    # Hash the exact bytes that are parsed, so the provenance names what was trained on.
+    dataset_bytes = dataset_path.read_bytes()
+    dataset_sha256 = hashlib.sha256(dataset_bytes).hexdigest()
+    df = pd.read_parquet(io.BytesIO(dataset_bytes))
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"dataset is missing required column(s) {missing}")
@@ -960,6 +991,8 @@ def run_training(
         timestamp=timestamp,
         seeds={"global": seed},
         feature_names=list(feature_names),
+        dataset_path=dataset_path,
+        dataset_sha256=dataset_sha256,
     )
 
     metrics_path = out_dir / "metrics.json"

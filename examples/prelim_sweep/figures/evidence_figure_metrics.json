@@ -1,13 +1,13 @@
 {
   "surrogate_rmse": {
-    "CF_x": 0.04790776612079565,
-    "CF_z": 0.022475411868404696,
-    "CF_my": 0.020914465555456226
+    "CF_x": 0.04146470971409648,
+    "CF_z": 0.021698391994378757,
+    "CF_my": 0.022527819932718695
   },
   "config_mean_r2": {
-    "CF_x": -0.007351308987083582,
-    "CF_z": 0.9846215703774113,
-    "CF_my": 0.5072716591191084
+    "CF_x": -4.170654886470504,
+    "CF_z": 0.9804241548443937,
+    "CF_my": 0.06886227097199471
   },
   "quasi_steady_reference": {
     "baseline_rmse_cf_z": 1.7784708701047294,
@@ -15,15 +15,15 @@
     "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to the coarse-grid CFD lift, so not a quantitative baseline here"
   },
   "speedup": {
-    "throughput_speedup": 3764296.442343422,
-    "latency_speedup": 467.5754601654373,
+    "throughput_speedup": 3762821.190324869,
+    "latency_speedup": 440.33033214585583,
     "batch_size": 12535,
-    "parallelism_factor": 8050.67152371842,
+    "parallelism_factor": 8545.450802781546,
     "cfd_rows_per_s": 13.88888888888889,
     "cfd_seconds_per_wingbeat": 144.0,
     "rows_per_wingbeat": 2000,
-    "surrogate_throughput_rows_per_s": 52281895.03254753,
-    "surrogate_latency_ms": 0.15398584000649862,
+    "surrogate_throughput_rows_per_s": 52261405.421178736,
+    "surrogate_latency_ms": 0.16351360499996304,
     "cfd_rate_is_sequential": true
   },
   "rows_per_wingbeat_per_config": {

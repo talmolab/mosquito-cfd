@@ -122,8 +122,9 @@ that number will not survive the correction. Training first would commit a `surr
   `force_surrogate/acceptance_gate.py` (calls `build_dataset`), `scripts/extract_forces.py`
   (calls `build_dataset`), `force_surrogate/evidence_figure.py` (comments asserting a superseded
   per-corpus moment ranking)
-- **Affected artifacts**: both `dataset.parquet`; both corpus `run_metadata.json`; both
-  `sweep_provenance.json` regeneration records; `examples/prelim_sweep/surrogate/*`;
+- **Affected artifacts**: both `dataset.parquet`; both corpus `run_metadata.json`; the coarse
+  `sweep_provenance.json` `downstream_artifacts_regenerated_from` record (the fine corpus has none;
+  its moment provenance lives in its `run_metadata.json` `moment_reference`); `examples/prelim_sweep/surrogate/*`;
   `examples/prelim_sweep/figures/*` — approximately **26 MiB** of regenerated binaries
 - **Affected docs**: `docs/coordinate-convention.md` (new `## Moments` section),
   `examples/prelim_sweep/README.md` (moment-ranking passage at `:327-338`, the config-mean range at

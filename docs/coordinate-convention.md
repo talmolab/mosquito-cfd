@@ -106,8 +106,8 @@ hinge origin the pipeline did not implement, which is how #108 arose.
 **Frame: lab, not wing.** Unlike the forces above — which are reported in the wing body frame —
 moments are reported as **lab-frame components about the hinge origin**. Only the origin is the
 hinge; the axes are not rotated. A wing-frame (body-frame) moment would additionally require
-rotating by `R(t)ᵀ`, which this repository deliberately does not do (see issue #1 on the axis
-convention). Do not read `CF_my` as a biomechanical pitching moment.
+rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked (issue #1, which
+delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical pitching moment.
 
 > **The axis table above is the rest-pose-aligned frame.** Lab and wing axes coincide only at
 > `φ = α = θ = 0`; under a stroke rotation the wing's instantaneous axes leave the lab axes. So this
@@ -165,7 +165,8 @@ Our geometry carries a gap van Veen's does not — where his root and hinge coin
 apart. See **Precision note** below for the numbers; it is why this page says "the deck's declared
 pivot" rather than "the wing root".
 
-**Consequence for the issue-#1 body-frame work — conditional on the inference above.** *If* his two
+**Consequence for any future wing-frame moment conversion (deferred, not currently tracked) —
+conditional on the inference above.** *If* his two
 frames share an origin, converting a lab-frame moment into van Veen's wing frame is a **pure
 rotation** by `R(t)ᵀ`, with no parallel-axis shift on top. Should the identification turn out to be
 wrong, that conversion additionally needs a translation, and omitting it would reintroduce exactly
