@@ -16,6 +16,7 @@ from a clean, committed tree (``run_metadata.json`` records the commit and ``dir
         --out-dir examples/prelim_sweep/surrogate \\
         --docker-digest "$(python -c 'import json;print(json.load(open(\"examples/prelim_sweep/run_metadata.json\"))[\"docker_image\"])')" \\
         --timestamp <iso-8601-utc> \\
+        --seed 1234 --sweep-seeds 1235 1236 1237 1238 \\
         --device cuda --wandb online
 
 Pass ``--group train`` on every ``uv run`` (a bare ``uv run`` can sync torch away), do not export
@@ -31,6 +32,9 @@ import argparse
 # Importing the library does NOT import torch (run_training lazy-imports it); the driver stays
 # importable on a CPU-only host so its arg-wiring is unit-testable without the train group.
 from mosquito_cfd.force_surrogate import train
+
+# The committed recipe's sweep: primary 1234 plus these four (metrics.json seed_sweep).
+DEFAULT_SWEEP_SEEDS = (1235, 1236, 1237, 1238)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,7 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--timestamp", required=True, help="Caller-supplied ISO-8601 timestamp."
     )
-    p.add_argument("--seed", type=int, default=train.DEFAULT_SEED, help="Run seed.")
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=train.DEFAULT_SEED,
+        help="Primary seed (the committed model).",
+    )
+    p.add_argument(
+        "--sweep-seeds",
+        type=int,
+        nargs="*",
+        default=list(DEFAULT_SWEEP_SEEDS),
+        help="Further seeds trained for metrics only (default 1235-1238; none if empty).",
+    )
     p.add_argument("--epochs", type=int, default=2000, help="Training epochs.")
     p.add_argument(
         "--n-val-configs",
@@ -75,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
         seed=args.seed,
+        sweep_seeds=args.sweep_seeds,
         epochs=args.epochs,
         n_val_configs=args.n_val_configs,
         device=args.device,

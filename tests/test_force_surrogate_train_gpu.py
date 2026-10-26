@@ -161,6 +161,11 @@ def test_full_round_trip_writes_four_artifacts(tmp_path):
     assert set(cr) == set(TARGET_COLUMNS)
     for block in cr.values():
         assert {"config_mean_r2", "within_config_variance_fraction"} == set(block)
+    # the phase-only baseline skill and the (here single-seed) sweep are emitted end-to-end
+    skill = result["metrics"]["phase_baseline_skill"]
+    assert skill["phase_baseline"]["reference_split"] == "train"
+    assert set(skill["per_target"]) == set(TARGET_COLUMNS)
+    assert result["metrics"]["seed_sweep"]["seeds"] == [1]
 
 
 def test_run_training_records_the_dataset_it_consumed(tmp_path):
@@ -197,3 +202,94 @@ def test_provenance_records_library_versions():
     )
     assert meta["library_versions"]["torch"] is not None
     assert meta["library_versions"]["physicsnemo"] is not None
+
+
+# --- Seed sweep (change replace-config-r2-with-baseline-skill, design D4) ----------------
+
+DEVICES = ["cpu", "cuda"]
+
+
+def _train(dataset, out, *, device, seed=1, sweep_seeds=()):
+    return run_training(
+        dataset,
+        out,
+        docker_image_digest=DIGEST,
+        timestamp="2026-10-26T00:00:00Z",
+        seed=seed,
+        sweep_seeds=sweep_seeds,
+        epochs=30,
+        n_val_configs=2,
+        device=device,
+        wandb_mode="disabled",
+    )
+
+
+def _state_dict(path):
+    import torch
+
+    return torch.load(path, map_location="cpu", weights_only=False)["state_dict"]
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_sweep_seeds_do_not_change_the_primary_outputs(tmp_path, device):
+    """Scenario: Sweep seeds do not change the primary seed's outputs (torch tier)."""
+    import json
+
+    dataset = _toy_parquet(tmp_path / "dataset.parquet")
+    alone = _train(dataset, tmp_path / "alone", device=device)
+    swept = _train(dataset, tmp_path / "swept", device=device, sweep_seeds=(2, 3))
+
+    pd.testing.assert_frame_equal(
+        pd.read_parquet(alone["predictions_path"]),
+        pd.read_parquet(swept["predictions_path"]),
+        check_exact=True,
+    )
+    a_sd = _state_dict(alone["checkpoint_path"])
+    s_sd = _state_dict(swept["checkpoint_path"])
+    assert a_sd.keys() == s_sd.keys()
+    for key in a_sd:
+        assert a_sd[key].equal(s_sd[key]), key
+
+    def load(result):
+        return json.loads(Path(result["metrics_path"]).read_text(encoding="utf-8"))
+
+    m_alone, m_swept = load(alone), load(swept)
+    assert m_swept["seed_sweep"]["runs"][0] == m_alone["seed_sweep"]["runs"][0]
+    for block in (m_alone, m_swept):
+        del block["inference"], block["seed_sweep"]
+    assert m_alone == m_swept
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_a_sweep_seed_in_process_equals_the_same_seed_alone(tmp_path, device):
+    """Scenario: A sweep seed in-process equals the same seed run alone (torch tier)."""
+    dataset = _toy_parquet(tmp_path / "dataset.parquet")
+    alone = _train(dataset, tmp_path / "alone", device=device, seed=3)
+    swept = _train(dataset, tmp_path / "swept", device=device, seed=1, sweep_seeds=(3,))
+    import json
+
+    def runs(result):
+        # Compare the written metrics.json: the NaN sentinels are null there (nan != nan).
+        metrics = json.loads(Path(result["metrics_path"]).read_text(encoding="utf-8"))
+        return metrics["seed_sweep"]["runs"]
+
+    alone_run = runs(alone)[0]
+    swept_run = runs(swept)[1]
+    assert alone_run["seed"] == swept_run["seed"] == 3
+    assert swept_run == alone_run
+
+
+def test_sweep_is_recorded_in_metrics_and_run_metadata(tmp_path):
+    """run_metadata seeds and the seed_sweep / phase_baseline_skill blocks record the sweep."""
+    import json
+
+    dataset = _toy_parquet(tmp_path / "dataset.parquet")
+    result = _train(dataset, tmp_path / "out", device="cuda", sweep_seeds=(4, 2))
+    meta = json.loads(Path(result["metadata_path"]).read_text(encoding="utf-8"))
+    assert meta["seeds"] == {"global": 1, "sweep": [4, 2]}
+    sweep = result["metrics"]["seed_sweep"]
+    assert sweep["primary_seed"] == 1 and sweep["seeds"] == [1, 4, 2]
+    assert result["metrics"]["reproducibility"]["seeds"] == {"global": 1}
+    assert set(result["metrics"]["phase_baseline_skill"]["per_target"]) == set(
+        TARGET_COLUMNS
+    )
