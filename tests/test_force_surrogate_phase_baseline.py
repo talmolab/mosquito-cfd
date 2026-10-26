@@ -4,13 +4,19 @@ Torch-free: these run on the CPU-only CI runner. Each test cites the ``force-sur
 scenario it verifies ("Phase-only baseline skill in metrics.json").
 """
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from mosquito_cfd.force_surrogate.train import (
     CONVERGED_MIN_WINGBEAT,
+    TARGET_COLUMNS,
+    build_metrics,
     build_phase_only_baseline,
+    compute_baseline_skill,
+    write_json,
 )
 
 
@@ -167,3 +173,121 @@ def test_baseline_is_bitwise_reproducible():
     second, d2 = build_phase_only_baseline(df, q, ["CF_x"])
     assert np.array_equal(first, second)
     assert d1 == d2
+
+
+# --- Scenario: skill known answers, sentinel and degenerate input -----------------------
+
+_T = np.array([[1.0], [-2.0], [3.0], [0.5]])
+_B = np.array(
+    [[0.0], [-1.0], [2.0], [1.5]]
+)  # baseline residuals: 1, -1, 1, -1 -> SSE 4
+
+
+def test_skill_known_answers():
+    """Perfect -> 1; equal to the phase-only baseline -> 0; twice its SSE -> -1 (unclipped)."""
+    assert compute_baseline_skill(_T, _T, _B, ["CF_x"])["CF_x"]["skill"] == 1.0
+    assert compute_baseline_skill(_T, _B, _B, ["CF_x"])["CF_x"]["skill"] == 0.0
+    twice = _T + np.sqrt(2.0) * (_B - _T)  # SSE 8
+    skill = compute_baseline_skill(_T, twice, _B, ["CF_x"])["CF_x"]["skill"]
+    assert skill == pytest.approx(-1.0, abs=1e-12)
+
+
+def test_phase_baseline_rmse_and_r2_known_answers():
+    """phase_baseline_rmse = sqrt(4/4) = 1; phase_baseline_r2 = 1 - 4/SS_tot."""
+    out = compute_baseline_skill(_T, _T, _B, ["CF_x"])["CF_x"]
+    ss_tot = float(np.sum((_T - _T.mean()) ** 2))
+    assert out["phase_baseline_rmse"] == pytest.approx(1.0, abs=1e-12)
+    assert out["phase_baseline_r2"] == pytest.approx(1.0 - 4.0 / ss_tot, abs=1e-12)
+    assert set(out) == {"skill", "phase_baseline_rmse", "phase_baseline_r2"}
+
+
+def test_skill_is_null_when_the_phase_only_baseline_is_exact(tmp_path):
+    """Baseline == truth -> skill NaN, serialized as JSON null (no 0/0)."""
+    out = compute_baseline_skill(_T, _B, _T, ["CF_x"])
+    assert np.isnan(out["CF_x"]["skill"])
+    path = tmp_path / "s.json"
+    write_json(path, out)
+    assert json.loads(path.read_text(encoding="utf-8"))["CF_x"]["skill"] is None
+
+
+def test_skill_sentinel_is_scale_relative():
+    """A small-magnitude target keeps an honest skill; the floor is relative to sum(t**2)."""
+    t = 1.0e-6 * np.array([[1.0], [-2.0], [3.0]])
+    b = t + 1.0e-8  # SSE_b 3e-16, far above 1e-12 * sum(t**2) = 1.4e-23
+    p = t + 0.5e-8  # SSE 0.75e-16 -> skill 0.75
+    out = compute_baseline_skill(t, p, b, ["CF_x"])
+    assert out["CF_x"]["skill"] == pytest.approx(0.75, abs=1e-9)
+    # ...and the sentinel fires once the phase-only baseline error falls below that floor.
+    assert np.isnan(
+        compute_baseline_skill(t, p, t + 1.0e-20, ["CF_x"])["CF_x"]["skill"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("t", "p", "b", "names", "match"),
+    [
+        (np.zeros((0, 1)), np.zeros((0, 1)), np.zeros((0, 1)), ["CF_x"], "zero-row"),
+        (_T, _T[:3], _B, ["CF_x"], "must share shape"),
+        (_T, _T, _B[:3], ["CF_x"], "must share shape"),
+        (_T, _T, _B, ["CF_x", "CF_z"], "target_names"),
+    ],
+    ids=["zero-rows", "pred-shape", "baseline-shape", "names-count"],
+)
+def test_skill_rejects_degenerate_input(t, p, b, names, match):
+    """Zero rows or mismatched shapes raise ValueError (parity with compute_metrics)."""
+    with pytest.raises(ValueError, match=match):
+        compute_baseline_skill(t, p, b, names)
+
+
+# --- build_metrics writes the phase_baseline_skill block -------------------------------
+
+
+def _metrics_inputs():
+    rng = np.random.default_rng(3)
+    n = 8
+    holdout = pd.DataFrame({"config_name": ["h0"] * 4 + ["h1"] * 4})
+    y_true = rng.standard_normal((n, len(TARGET_COLUMNS)))
+    y_pred = y_true + 0.01 * rng.standard_normal(y_true.shape)
+    y_base = y_true + 0.1 * rng.standard_normal(y_true.shape)
+    return holdout, y_true, y_pred, y_base
+
+
+def _build(holdout, y_true, y_pred, **kwargs):
+    return build_metrics(
+        y_true,
+        y_pred,
+        holdout,
+        inference={"latency_ms": 0.5, "throughput_rows_per_s": 2.0e6, "basis": "x"},
+        reproducibility={"seeds": {"global": 1234}},
+        **kwargs,
+    )
+
+
+def test_build_metrics_writes_the_phase_baseline_skill_block():
+    """The block carries the definition and per-target skill for all six targets."""
+    holdout, y_true, y_pred, y_base = _metrics_inputs()
+    definition = {
+        "kind": "phase_only_periodic_interpolation",
+        "reference_configs": ["t"],
+    }
+    metrics = _build(holdout, y_true, y_pred, phase_baseline=(y_base, definition))
+    block = metrics["phase_baseline_skill"]
+    assert block["phase_baseline"] == definition
+    assert block["per_target"] == compute_baseline_skill(
+        y_true, y_pred, y_base, list(TARGET_COLUMNS)
+    )
+    assert set(block["per_target"]) == set(TARGET_COLUMNS)
+
+
+def test_build_metrics_without_a_phase_baseline_omits_the_block():
+    """phase_baseline=None (the default) leaves metrics.json unchanged."""
+    holdout, y_true, y_pred, _ = _metrics_inputs()
+    metrics = _build(holdout, y_true, y_pred)
+    assert set(metrics) == {
+        "per_target",
+        "aggregate",
+        "per_config",
+        "config_resolved",
+        "inference",
+        "reproducibility",
+    }

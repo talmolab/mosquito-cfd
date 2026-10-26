@@ -649,6 +649,64 @@ def build_phase_only_baseline(
     return total / len(configs), definition
 
 
+def compute_baseline_skill(
+    y_true: NDArray[np.floating],
+    y_pred: NDArray[np.floating],
+    y_baseline: NDArray[np.floating],
+    target_names: list[str],
+) -> dict[str, dict[str, float]]:
+    """Skill over the phase-only baseline, ``1 - SSE(surrogate)/SSE(baseline)`` (design D1).
+
+    Pooled over rows per target, on the same rows as the pointwise ``per_target`` metrics, so it
+    is the MSE ratio. Not clipped: a negative skill means worse than the phase-only baseline.
+    When the baseline's SSE is at most ``_VARIANCE_EPS * sum(t**2)`` (it already matches the
+    target), skill is the NaN sentinel, serialized ``null``.
+
+    Args:
+        y_true: ``(n, n_targets)`` true coefficients (physical units).
+        y_pred: ``(n, n_targets)`` surrogate predictions, aligned with ``y_true``.
+        y_baseline: ``(n, n_targets)`` phase-only baseline predictions, aligned with ``y_true``.
+        target_names: The ``n_targets`` column names.
+
+    Returns:
+        ``{name: {"skill", "phase_baseline_rmse", "phase_baseline_r2"}}``.
+
+    Raises:
+        ValueError: On zero rows, mismatched shapes, or a ``target_names`` length mismatch.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    y_baseline = np.asarray(y_baseline, dtype=float)
+    if y_pred.shape != y_true.shape or y_baseline.shape != y_true.shape:
+        raise ValueError(
+            "y_true, y_pred and y_baseline must share shape; got "
+            f"{y_true.shape}, {y_pred.shape}, {y_baseline.shape}"
+        )
+    if y_true.shape[1] != len(target_names):
+        raise ValueError(
+            f"target_names has {len(target_names)} names but arrays have "
+            f"{y_true.shape[1]} columns"
+        )
+    if y_true.shape[0] == 0:
+        raise ValueError("cannot compute skill on a zero-row array")
+    out: dict[str, dict[str, float]] = {}
+    for i, name in enumerate(target_names):
+        t = y_true[:, i]
+        sse = float(np.sum((t - y_pred[:, i]) ** 2))
+        sse_baseline = float(np.sum((t - y_baseline[:, i]) ** 2))
+        skill = (
+            float("nan")
+            if sse_baseline <= _VARIANCE_EPS * float(np.sum(t**2))
+            else 1.0 - sse / sse_baseline
+        )
+        out[name] = {
+            "skill": skill,
+            "phase_baseline_rmse": float(np.sqrt(sse_baseline / t.shape[0])),
+            "phase_baseline_r2": _r2(t, y_baseline[:, i]),
+        }
+    return out
+
+
 def _json_safe(obj: Any) -> Any:
     """Recursively replace non-finite floats with ``None`` (NaN R² sentinel -> JSON null)."""
     if isinstance(obj, dict):
@@ -703,6 +761,7 @@ def build_metrics(
     target_names: list[str] | None = None,
     inference: dict[str, Any],
     reproducibility: dict[str, Any],
+    phase_baseline: tuple[NDArray[np.floating], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the ``metrics.json`` payload (per-target / aggregate / per-config / + blocks).
 
@@ -713,10 +772,12 @@ def build_metrics(
         target_names: Target column names (defaults to :data:`TARGET_COLUMNS`).
         inference: The inference-timing block (``latency_ms``/``throughput_rows_per_s``/basis).
         reproducibility: The reproducibility block (seeds, features, ``bitwise`` scope).
+        phase_baseline: ``(predictions, definition)`` from :func:`build_phase_only_baseline`,
+            aligned with ``y_true``. When given, a ``phase_baseline_skill`` block is added.
 
     Returns:
         ``{"per_target", "aggregate", "per_config", "config_resolved", "inference",
-        "reproducibility"}``.
+        "reproducibility"}``, plus ``"phase_baseline_skill"`` when ``phase_baseline`` is given.
     """
     names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
     y_true = np.asarray(y_true, dtype=float)
@@ -729,7 +790,7 @@ def build_metrics(
         per_config[str(cfg)] = compute_metrics(y_true[mask], y_pred[mask], names)
     # Phase-honest config-resolved skill, reported alongside the waveform-dominated aggregate (D13).
     config_resolved = compute_config_resolved(y_true, y_pred, config_names, names)
-    return {
+    metrics: dict[str, Any] = {
         "per_target": overall["per_target"],
         "aggregate": overall["aggregate"],
         "per_config": per_config,
@@ -737,6 +798,13 @@ def build_metrics(
         "inference": dict(inference),
         "reproducibility": dict(reproducibility),
     }
+    if phase_baseline is not None:
+        y_baseline, definition = phase_baseline
+        metrics["phase_baseline_skill"] = {
+            "phase_baseline": dict(definition),
+            "per_target": compute_baseline_skill(y_true, y_pred, y_baseline, names),
+        }
+    return metrics
 
 
 def _library_version(distribution: str) -> str | None:
