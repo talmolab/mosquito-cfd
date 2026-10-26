@@ -1083,11 +1083,11 @@ class _SeedFit:
 
     split: SplitAssignment
     model: Any
-    feature_std: Standardizer | None
-    target_std: Standardizer | None
+    feature_std: Standardizer
+    target_std: Standardizer
     feature_names: list[str]
     history: list[float]
-    x_test: NDArray[np.floating] | None
+    x_test: NDArray[np.floating]
     y_pred: NDArray[np.floating]
     val_aggregate: dict[str, Any]
 
@@ -1233,6 +1233,8 @@ def run_training(
     # Seeds first: nothing is read or created for an invalid sweep (design D4).
     sweep = [int(s) for s in sweep_seeds]
     all_seeds = [int(seed), *sweep]
+    if any(s < 0 for s in all_seeds):
+        raise ValueError(f"seeds must be non-negative (numpy RNG); got {all_seeds}")
     if len(set(all_seeds)) != len(all_seeds):
         raise ValueError(
             f"duplicate seed in primary {seed} + sweep {sweep}: each seed must be distinct"
@@ -1277,19 +1279,21 @@ def run_training(
         "lr": lr,
         "device": device,
     }
-    # The primary (committed) seed first, timed right after it is trained (design D4).
-    primary = _fit_one_seed(df, seed=seed, **fit_kwargs)
-    split = primary.split
-    test_mask = np.isin(df["config_name"].to_numpy(), split.test_configs)
+    # The holdout rows and the phase-only baseline depend on the dataset, not the seed (D2),
+    # so a malformed baseline reference fails here, before any seed trains.
+    test_configs = sorted(df.loc[df["split"] == "holdout", "config_name"].unique())
+    test_mask = np.isin(df["config_name"].to_numpy(), test_configs)
     holdout_df = df[test_mask].reset_index(drop=True)
     y_true = df[TARGET_COLUMNS].to_numpy(dtype=float)[test_mask]
-    y_pred = primary.y_pred
-    inference = _measure_inference(primary.model, primary.x_test, device=device)
-
-    # One phase-only baseline for every seed: it depends on the dataset, not the seed (D2).
     phase_baseline = build_phase_only_baseline(
         df, holdout_df["phase"].to_numpy(dtype=float), list(TARGET_COLUMNS)
     )
+
+    # The primary (committed) seed first, timed right after it is trained (design D4).
+    primary = _fit_one_seed(df, seed=seed, **fit_kwargs)
+    split = primary.split
+    y_pred = primary.y_pred
+    inference = _measure_inference(primary.model, primary.x_test, device=device)
     runs = [
         build_seed_run(
             seed, split.val_configs, y_true, y_pred, holdout_df, phase_baseline[0]

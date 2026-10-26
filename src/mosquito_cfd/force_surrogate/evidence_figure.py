@@ -48,7 +48,10 @@ from mosquito_cfd.force_surrogate.normalization import (  # noqa: E402
 from mosquito_cfd.force_surrogate.sidecar import (  # noqa: E402
     capture_surrogate_run_metadata,
 )
-from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
+from mosquito_cfd.force_surrogate.train import (  # noqa: E402
+    TARGET_COLUMNS,
+    write_json,
+)
 
 # The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y
 # component", not "pitch moment" (moments are lab-frame; the wing-frame conversion is not
@@ -60,8 +63,9 @@ from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 PANEL_COEFFICIENTS: tuple[str, str, str] = ("CF_x", "CF_z", "CF_my")
 MOMENT_PANEL = "CF_my"
 LIFT_PANEL = "CF_z"
-# All six targets: the caption's skill floor and the sidecar cover every one (issue #116).
-TARGETS: tuple[str, ...] = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
+# All six targets (the trainer's own list): the caption's skill floor and the sidecar cover
+# every one (issue #116).
+TARGETS: tuple[str, ...] = tuple(TARGET_COLUMNS)
 # The one phrase used wherever a sweep has a single seed (never an implied spread).
 _SINGLE_SEED = "single seed, no range"
 
@@ -218,9 +222,33 @@ def _skill_entry(metrics: dict[str, Any], coef: str) -> dict[str, Any]:
     return _require(per_target, coef, f"phase_baseline_skill entry for {coef}")
 
 
+def _pointwise_r2(metrics: dict[str, Any], coef: str) -> float | None:
+    """Read ``per_target.<coef>.r2`` (``None`` is the NaN sentinel; a missing key raises)."""
+    return _require(_per_target(metrics, coef), "r2", f"per_target.{coef}.r2")
+
+
+def _phase_baseline_r2(metrics: dict[str, Any], coef: str) -> float | None:
+    """Read ``phase_baseline_skill.per_target.<coef>.phase_baseline_r2`` (missing raises)."""
+    return _require(
+        _skill_entry(metrics, coef),
+        "phase_baseline_r2",
+        f"phase_baseline_skill.per_target.{coef}.phase_baseline_r2",
+    )
+
+
 def _seed_sweep(metrics: dict[str, Any]) -> dict[str, Any]:
-    """Read the ``seed_sweep`` block; a metrics.json without one is rejected (no default seed)."""
-    return _require(metrics, "seed_sweep", "seed-sweep block")
+    """Read the ``seed_sweep`` block; a metrics.json without one is rejected (no default seed).
+
+    The plotted seed must be listed first: the provenance records ``seeds[1:]`` as the sweep.
+    """
+    sweep = _require(metrics, "seed_sweep", "seed-sweep block")
+    primary = _require(sweep, "primary_seed", "seed_sweep.primary_seed")
+    seeds = _require(sweep, "seeds", "seed_sweep.seeds")
+    if not seeds or seeds[0] != primary:
+        raise ValueError(
+            f"seed_sweep.seeds {seeds} must list the primary seed first ({primary})"
+        )
+    return sweep
 
 
 def _skill_range(metrics: dict[str, Any], coef: str) -> dict[str, Any] | None:
@@ -243,6 +271,8 @@ def format_metric(value: float | None) -> str:
     """
     if _is_null(value):
         return "n/a"
+    if value == 0:  # including -0.0, which is not below anything
+        return "0.000"
     text = f"{value:.3f}"
     if text == "1.000":
         return ">0.999"
@@ -282,9 +312,7 @@ def panel_annotation(metrics: dict[str, Any], coef: str) -> str:
     Raises:
         KeyError: If a required metrics key for ``coef`` is missing.
     """
-    r2 = format_metric(
-        _require(_per_target(metrics, coef), "r2", f"per_target.{coef}.r2")
-    )
+    r2 = format_metric(_pointwise_r2(metrics, coef))
     rmse = _per_target_rmse(metrics, coef)
     return f"skill {_skill_with_range(metrics, coef)}\nR² {r2} · RMSE {rmse:.3f}"
 
@@ -412,8 +440,7 @@ def build_caption(
     k = _seed_count(metrics)
     seeds_note = _SINGLE_SEED if k == 1 else f"ranges over {k} seeds"
     phase_r2 = "/".join(
-        format_metric(_skill_entry(metrics, c).get("phase_baseline_r2"))
-        for c in PANEL_COEFFICIENTS
+        format_metric(_phase_baseline_r2(metrics, c)) for c in PANEL_COEFFICIENTS
     )
     off_panel = "; ".join(
         f"{c} {_skill_with_range(metrics, c)}" for c in ("CF_mx", "CF_mz")
@@ -706,9 +733,9 @@ def generate_evidence_figure(
         "primary_seed": _require(sweep, "primary_seed", "seed_sweep.primary_seed"),
         "n_seeds": len(seeds),
         "skill": {c: _skill_record(metrics, c) for c in TARGETS},
-        "pointwise_r2": {c: _per_target(metrics, c).get("r2") for c in TARGETS},
+        "pointwise_r2": {c: _pointwise_r2(metrics, c) for c in TARGETS},
         "phase_baseline_pointwise_r2": {
-            c: _skill_entry(metrics, c).get("phase_baseline_r2") for c in TARGETS
+            c: _phase_baseline_r2(metrics, c) for c in TARGETS
         },
         "skill_floor": {
             "value": floor["value"],

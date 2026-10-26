@@ -325,6 +325,7 @@ def test_panel_annotation_null_renders_na():
         (-0.0004, "−4.0e-04"),
         (0.0004, "4.0e-04"),
         (0.0, "0.000"),
+        (-0.0, "0.000"),
         (-7.5, "−7.500"),
         (None, "n/a"),
         (float("nan"), "n/a"),
@@ -1237,3 +1238,43 @@ def test_committed_figure_metrics_matches_committed_inputs():
     qs = fig_metrics["quasi_steady_reference"]
     assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (van Veen: < 1)
     assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
+
+
+def test_seed_sweep_must_list_the_primary_seed_first(tmp_path):
+    """The provenance sweep is seeds[1:], so a metrics.json not listing the primary first is
+    rejected rather than recorded with a wrong sweep."""
+    metrics = _toy_metrics(seeds=(1235, 1234, 1236))
+    metrics["seed_sweep"]["primary_seed"] = 1234
+    with pytest.raises(ValueError, match="primary seed first"):
+        _caption(metrics)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("phase_baseline_skill", "per_target", "CF_mx", "phase_baseline_r2"),
+        ("per_target", "CF_mz", "r2"),
+    ],
+    ids=["phase-baseline-r2", "pointwise-r2"],
+)
+def test_missing_r2_key_raises_before_any_artifact(tmp_path, path):
+    """A missing R² key raises a KeyError naming it, never a silent n/a or null."""
+    m = _toy_metrics()
+    node = m
+    for key in path[:-1]:
+        node = node[key]
+    del node[path[-1]]
+    pred = tmp_path / "p.parquet"
+    _toy_predictions().to_parquet(pred)
+    metrics_path = tmp_path / "m.json"
+    metrics_path.write_text(json.dumps(m))
+    out = tmp_path / "figs"
+    with pytest.raises(KeyError, match=path[-1]):
+        generate_evidence_figure(
+            predictions_path=pred,
+            metrics_path=metrics_path,
+            out_dir=out,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+        )
+    assert not out.exists()

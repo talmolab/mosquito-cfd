@@ -33,8 +33,8 @@ import argparse
 # importable on a CPU-only host so its arg-wiring is unit-testable without the train group.
 from mosquito_cfd.force_surrogate import train
 
-# The committed recipe's sweep: primary 1234 plus these four (metrics.json seed_sweep).
-DEFAULT_SWEEP_SEEDS = (1235, 1236, 1237, 1238)
+# Default sweep size: the seeds after --seed (for the committed 1234, that is 1235-1238).
+DEFAULT_SWEEP_SIZE = 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,8 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--sweep-seeds",
         type=int,
         nargs="*",
-        default=list(DEFAULT_SWEEP_SEEDS),
-        help="Further seeds trained for metrics only (default 1235-1238; none if empty).",
+        default=None,
+        help=(
+            "Further seeds trained for metrics only (default: the four seeds after --seed, "
+            "1235-1238 for 1234; none if given without values)."
+        ),
     )
     p.add_argument("--epochs", type=int, default=2000, help="Training epochs.")
     p.add_argument(
@@ -82,6 +85,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def resolve_sweep_seeds(args: argparse.Namespace) -> list[int]:
+    """The sweep seeds: as given, or by default the ``DEFAULT_SWEEP_SIZE`` seeds after --seed.
+
+    Relative to ``--seed`` so that re-training any recorded seed as the primary never collides
+    with a fixed default sweep.
+    """
+    if args.sweep_seeds is None:
+        return [args.seed + i for i in range(1, DEFAULT_SWEEP_SIZE + 1)]
+    return list(args.sweep_seeds)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the training pipeline; returns a process exit code."""
     args = build_parser().parse_args(argv)
@@ -91,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
         seed=args.seed,
-        sweep_seeds=args.sweep_seeds,
+        sweep_seeds=resolve_sweep_seeds(args),
         epochs=args.epochs,
         n_val_configs=args.n_val_configs,
         device=args.device,

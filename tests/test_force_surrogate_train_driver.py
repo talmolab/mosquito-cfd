@@ -58,13 +58,18 @@ def test_parser_wires_all_flags():
     required = ["--dataset", "d", "--out-dir", "o", "--docker-digest", "x"]
     defaults = driver.build_parser().parse_args([*required, "--timestamp", "t"])
     assert defaults.wandb == "disabled"
-    # the committed recipe: primary 1234 plus four sweep seeds; an empty flag means none
+    # the committed recipe: primary 1234 plus the four seeds after it; empty means none
     assert defaults.seed == 1234
-    assert defaults.sweep_seeds == [1235, 1236, 1237, 1238]
+    assert driver.resolve_sweep_seeds(defaults) == [1235, 1236, 1237, 1238]
+    # the default follows --seed, so re-training a recorded sweep seed never collides
+    moved = driver.build_parser().parse_args(
+        [*required, "--timestamp", "t", "--seed", "1236"]
+    )
+    assert driver.resolve_sweep_seeds(moved) == [1237, 1238, 1239, 1240]
     none = driver.build_parser().parse_args(
         [*required, "--timestamp", "t", "--sweep-seeds"]
     )
-    assert none.sweep_seeds == []
+    assert driver.resolve_sweep_seeds(none) == []
 
 
 def test_main_delegates_without_importing_torch(monkeypatch):

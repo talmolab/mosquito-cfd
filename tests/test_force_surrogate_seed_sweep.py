@@ -112,12 +112,19 @@ def test_seed_run_statistics_equal_the_top_level_metrics():
 
 
 @pytest.mark.parametrize(
-    "sweep", [(1234,), (1235, 1235), (1235, 1236, 1235)], ids=["primary", "pair", "gap"]
+    ("sweep", "match"),
+    [
+        ((1234,), "duplicate seed"),
+        ((1235, 1235), "duplicate seed"),
+        ((1235, 1236, 1235), "duplicate seed"),
+        ((1235, -1), "non-negative"),
+    ],
+    ids=["primary", "pair", "gap", "negative"],
 )
-def test_duplicate_seeds_raise_before_reading_or_writing(tmp_path, sweep):
-    """A sweep seed equal to the primary or repeated raises before the dataset is touched."""
+def test_invalid_seeds_raise_before_reading_or_writing(tmp_path, sweep, match):
+    """A duplicate or negative seed raises before the dataset is touched."""
     out_dir = tmp_path / "out"
-    with pytest.raises(ValueError, match="duplicate seed"):
+    with pytest.raises(ValueError, match=match):
         run_training(
             tmp_path / "does_not_exist.parquet",
             out_dir,
@@ -178,11 +185,11 @@ def _install_recorder(monkeypatch, *, fail_on):
         return train._SeedFit(
             split=split,
             model=None,
-            feature_std=None,
-            target_std=None,
+            feature_std=train.Standardizer(),
+            target_std=train.Standardizer(),
             feature_names=list(FEATURE_COLUMNS),
             history=[],
-            x_test=None,
+            x_test=np.zeros((n_test, len(FEATURE_COLUMNS))),
             y_pred=np.zeros((n_test, len(TARGET_COLUMNS))),
             val_aggregate={},
         )
@@ -222,6 +229,9 @@ def test_primary_seed_is_trained_and_timed_before_any_sweep_seed(tmp_path, monke
 
 def test_a_failing_sweep_seed_writes_nothing(tmp_path, monkeypatch):
     """A seed failing after the primary propagates and leaves none of the four artifacts."""
+    # Unload torch for this test only (it may already be loaded on a GPU host, e.g. by
+    # conftest's CUDA probe), so the assertion below proves run_training did not import it.
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
     _install_recorder(monkeypatch, fail_on=1236)
     out_dir = tmp_path / "out"
     with pytest.raises(RuntimeError, match="seed 1236 failed"):
@@ -284,3 +294,25 @@ def test_converged_filter_is_what_the_recorder_sees(tmp_path, monkeypatch):
             n_val_configs=2,
         )
     assert seen == [1]
+
+
+def test_a_malformed_phase_only_baseline_fails_before_any_seed_trains(
+    tmp_path, monkeypatch
+):
+    """The baseline only reads the dataset, so a malformed one raises before training."""
+    calls = _install_recorder(monkeypatch, fail_on=None)
+    path = _toy_parquet(tmp_path / "ds.parquet")
+    df = pd.read_parquet(path)
+    # Duplicate a phase inside one train config's converged beat.
+    beat = df.index[(df["config_name"] == "t0") & (df["wingbeat"] == 1)]
+    df.loc[beat[1], "phase"] = df.loc[beat[0], "phase"]
+    df.to_parquet(path, index=False)
+    with pytest.raises(ValueError, match="duplicate phase"):
+        run_training(
+            path,
+            tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            n_val_configs=2,
+        )
+    assert calls == []
