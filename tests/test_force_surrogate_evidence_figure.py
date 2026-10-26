@@ -140,13 +140,24 @@ def test_fixture_matches_committed_pr5_schema():
     toy = _toy_predictions()
     assert set(toy.columns) == set(committed.columns)
     assert "split" not in toy.columns and "split" not in committed.columns
-    metrics = json.loads(COMMITTED_METRICS.read_text())
-    # the nested key paths the figure reads must exist in the committed artifact
-    for c in PANEL_COEFFICIENTS:
-        assert "config_mean_r2" in metrics["config_resolved"][c]
-        assert "rmse" in metrics["per_target"][c]
-    assert "latency_ms" in metrics["inference"]
-    assert "throughput_rows_per_s" in metrics["inference"]
+
+
+@pytest.mark.xfail(strict=True, reason="#127: regenerated in C6/C7")
+def test_fixture_matches_committed_metrics_schema():
+    """Scenario: the key paths the figure reads exist in the committed metrics.json and in the
+    toy fixture alike (schema drift guard)."""
+    committed = json.loads(COMMITTED_METRICS.read_text())
+    for metrics in (committed, _toy_metrics()):
+        sweep = metrics["seed_sweep"]
+        assert {"primary_seed", "seeds", "range"} <= set(sweep)
+        for c in TARGETS:
+            skill = metrics["phase_baseline_skill"]["per_target"][c]
+            assert {"skill", "phase_baseline_r2"} <= set(skill)
+            assert {"r2", "rmse"} <= set(metrics["per_target"][c])
+            rng = sweep["range"][c]["skill"]
+            assert rng is None or {"min", "max"} <= set(rng)
+        assert "latency_ms" in metrics["inference"]
+        assert "throughput_rows_per_s" in metrics["inference"]
 
 
 # --- parse_config_name --------------------------------------------------------------------
@@ -1185,17 +1196,37 @@ def test_readme_throughput_figures_match_the_committed_sidecar():
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------
 
 
+@pytest.mark.xfail(strict=True, reason="#127: regenerated in C6/C7")
 def test_committed_figure_metrics_matches_committed_inputs():
     """The committed evidence_figure_metrics.json numbers match the committed metrics.json."""
     fig_dir = REPO / "examples" / "prelim_sweep" / "figures"
-    fig_metrics = json.loads((fig_dir / "evidence_figure_metrics.json").read_text())
+    raw = (fig_dir / "evidence_figure_metrics.json").read_text(encoding="utf-8")
+    fig_metrics = json.loads(raw)
     metrics = json.loads(COMMITTED_METRICS.read_text())
     for c in PANEL_COEFFICIENTS:
         assert fig_metrics["surrogate_rmse"][c] == metrics["per_target"][c]["rmse"]
+    sweep = metrics["seed_sweep"]
+    assert fig_metrics["primary_seed"] == sweep["primary_seed"]
+    assert fig_metrics["n_seeds"] == len(sweep["seeds"])
+    for c in TARGETS:
+        skill = metrics["phase_baseline_skill"]["per_target"][c]
+        rng = sweep["range"][c]["skill"] or {"min": None, "max": None}
+        assert fig_metrics["skill"][c] == {
+            "committed": skill["skill"],
+            "min": rng["min"],
+            "max": rng["max"],
+        }
+        assert fig_metrics["pointwise_r2"][c] == metrics["per_target"][c]["r2"]
         assert (
-            fig_metrics["config_mean_r2"][c]
-            == metrics["config_resolved"][c]["config_mean_r2"]
+            fig_metrics["phase_baseline_pointwise_r2"][c] == skill["phase_baseline_r2"]
         )
+    minima = [
+        sweep["range"][c]["skill"]["min"]
+        for c in TARGETS
+        if sweep["range"][c]["skill"] is not None
+    ]
+    assert fig_metrics["skill_floor"]["value"] == min(minima)
+    assert "config_mean_r2" not in raw
     sp = fig_metrics["speedup"]
     assert sp["throughput_speedup"] > 1000
     assert sp["latency_speedup"] < 1000
