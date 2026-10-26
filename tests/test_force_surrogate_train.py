@@ -426,7 +426,7 @@ def test_pure_helpers_import_without_torch():
         "import numpy as np, pandas as pd\n"
         "from mosquito_cfd.force_surrogate.train import ("
         " build_features, filter_converged_beat, make_config_splits, Standardizer,"
-        " compute_metrics, FEATURE_COLUMNS, TARGET_COLUMNS)\n"
+        " compute_metrics, FEATURE_COLUMNS, TARGET_COLUMNS, build_phase_only_baseline)\n"
         "df = pd.DataFrame({'config_name':['a','a','b','b','c','c'],"
         " 'split':['train','train','train','train','holdout','holdout'],"
         " 'wingbeat':[0,1,0,1,0,1],'phase':[0.1,0.2,0.3,0.4,0.5,0.6],"
@@ -434,6 +434,9 @@ def test_pure_helpers_import_without_torch():
         "x,_ = build_features(df); filter_converged_beat(df)\n"
         "Standardizer().fit(x).transform(x)\n"
         "compute_metrics(np.zeros((2,1)), np.zeros((2,1)), ['CF_x'])\n"
+        "ref = pd.DataFrame({'config_name':['a','a'],'split':['train']*2,'wingbeat':[1,1],"
+        " 'phase':[0.0,0.5],'CF_x':[1.0,2.0]})\n"
+        "build_phase_only_baseline(ref, np.array([0.25]), ['CF_x'])\n"
         "assert 'torch' not in sys.modules or sys.modules['torch'] is None\n"
         "print('OK')\n"
     )

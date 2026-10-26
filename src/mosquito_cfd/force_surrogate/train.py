@@ -571,6 +571,84 @@ def compute_config_resolved(
     return out
 
 
+def _check_phase(phase: NDArray[np.floating], what: str) -> None:
+    """Raise unless every phase is finite and in ``[0, 1)``."""
+    if not np.all(np.isfinite(phase)) or np.any((phase < 0.0) | (phase >= 1.0)):
+        raise ValueError(f"{what} phase must be finite and in [0, 1)")
+
+
+def build_phase_only_baseline(
+    df: pd.DataFrame,
+    query_phase: NDArray[np.floating],
+    target_names: list[str] | None = None,
+) -> tuple[NDArray[np.floating], dict[str, Any]]:
+    """Phase-only baseline: the mean training waveform, ignoring the kinematics (design D2).
+
+    For each ``split == "train"`` configuration, each converged beat
+    (``wingbeat >= CONVERGED_MIN_WINGBEAT``) is linearly interpolated in phase with period 1
+    (a query past the last sample wraps to phase 0); a configuration's curve is the mean of its
+    beat curves, and the baseline is the **equal-weight** mean over configurations, whatever
+    their row or beat counts. Holdout rows are never used, and input row order does not matter.
+    Pure numpy (no torch).
+
+    Args:
+        df: Dataset frame carrying ``config_name``, ``split``, ``wingbeat``, ``phase`` and the
+            target columns.
+        query_phase: ``(n,)`` phases in ``[0, 1)`` to evaluate the baseline at.
+        target_names: Target columns (defaults to :data:`TARGET_COLUMNS`).
+
+    Returns:
+        ``(predictions, definition)``: an ``(n, n_targets)`` array, and the ``phase_baseline``
+        definition block recorded in ``metrics.json``.
+
+    Raises:
+        ValueError: If there is no reference configuration, a beat has fewer than 2 rows or a
+            duplicate phase, a reference value is non-finite, or a reference or query phase is
+            non-finite or outside ``[0, 1)``.
+    """
+    names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
+    query = np.asarray(query_phase, dtype=float)
+    _check_phase(query, "query")
+    ref = df[(df["split"] == "train") & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
+    configs = sorted(ref["config_name"].unique())
+    if not configs:
+        raise ValueError(
+            "no reference configuration: the phase-only baseline needs at least one "
+            f"split == 'train' config with wingbeat >= {CONVERGED_MIN_WINGBEAT} rows"
+        )
+    total = np.zeros((query.shape[0], len(names)))
+    for config in configs:
+        rows = ref[ref["config_name"] == config]
+        beats = sorted(rows["wingbeat"].unique())
+        config_sum = np.zeros_like(total)
+        for beat in beats:
+            beat_rows = rows[rows["wingbeat"] == beat]
+            label = f"config {config!r} wingbeat {beat}"
+            phase = beat_rows["phase"].to_numpy(dtype=float)
+            values = beat_rows[names].to_numpy(dtype=float)
+            if phase.shape[0] < 2:
+                raise ValueError(f"{label} has fewer than 2 rows; cannot interpolate")
+            _check_phase(phase, f"{label}: reference")
+            if not np.all(np.isfinite(values)):
+                raise ValueError(f"{label} has a non-finite reference value")
+            order = np.argsort(phase, kind="stable")
+            phase = phase[order]
+            values = values[order]
+            if np.any(np.diff(phase) == 0.0):
+                raise ValueError(f"{label} has a duplicate phase")
+            for j in range(len(names)):
+                config_sum[:, j] += np.interp(query, phase, values[:, j], period=1.0)
+        total += config_sum / len(beats)
+    definition = {
+        "kind": "phase_only_periodic_interpolation",
+        "reference_split": "train",
+        "reference_configs": [str(c) for c in configs],
+        "weighting": "equal_per_config_then_beat",
+        "converged_min_wingbeat": CONVERGED_MIN_WINGBEAT,
+    }
+    return total / len(configs), definition
+
+
 def _json_safe(obj: Any) -> Any:
     """Recursively replace non-finite floats with ``None`` (NaN R² sentinel -> JSON null)."""
     if isinstance(obj, dict):
