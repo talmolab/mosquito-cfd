@@ -27,6 +27,7 @@ from mosquito_cfd.force_surrogate import (
     build_caption,
     build_figure,
     compute_speedup,
+    format_metric,
     generate_evidence_figure,
     lift_coefficient_dickinson,
     panel_annotation,
@@ -56,34 +57,71 @@ def _toy_predictions(configs=("s35_f085_p45", "s55_f115_p45"), n=8) -> pd.DataFr
     return pd.concat(frames, ignore_index=True)
 
 
-def _toy_metrics(
-    *, cf_x_r2=0.94, cf_y_r2=-3.61, cf_z_r2=0.83, cf_mx_r2=0.94, null_target="CF_mz"
-) -> dict:
-    """A tiny metrics dict mirroring the committed metrics.json structure.
+# Distinct per target so a test can tell which block a printed number came from.
+_POINTWISE = {
+    "CF_x": (0.9981, 0.041),
+    "CF_y": (0.9912, 0.012),
+    "CF_z": (0.9993, 0.087),
+    "CF_mx": (0.9977, 0.023),
+    "CF_my": (0.9985, 0.034),
+    "CF_mz": (0.9988, 0.056),
+}
+# (committed skill, seed-sweep min, seed-sweep max, phase-only baseline pointwise R²)
+_SKILL = {
+    "CF_x": (0.9876, 0.9876, 0.9921, 0.9546),
+    "CF_y": (0.9611, 0.9534, 0.9660, 0.9732),
+    "CF_z": (0.9834, 0.9801, 0.9850, 0.8968),
+    "CF_mx": (0.9721, 0.9688, 0.9760, 0.9128),
+    "CF_my": (0.9773, 0.9702, 0.9795, 0.9441),
+    "CF_mz": (0.9852, 0.9811, 0.9877, 0.9614),
+}
+# Config-resolved R²: collision-proof literals that must never reach the caption.
+_CONFIG_R2 = {
+    "CF_x": -7.123,
+    "CF_y": 0.4567,
+    "CF_z": -6.789,
+    "CF_mx": 0.3456,
+    "CF_my": -5.678,
+    "CF_mz": 0.2345,
+}
+_CONFIG_R2_LITERALS = ("7.123", "0.4567", "0.457", "6.789", "0.3456", "5.678", "0.2345")
 
-    ``null_target`` gets a JSON-``null`` (NaN-sentinel) config_mean_r2 to exercise rendering.
-    """
-    per_target = {t: {"rmse": 0.05, "mae": 0.03, "r2": 0.98} for t in TARGETS}
-    config_resolved = {
-        "CF_x": {"config_mean_r2": cf_x_r2, "within_config_variance_fraction": 0.978},
-        "CF_y": {"config_mean_r2": cf_y_r2, "within_config_variance_fraction": 0.999},
-        "CF_z": {"config_mean_r2": cf_z_r2, "within_config_variance_fraction": 0.999},
-        "CF_mx": {"config_mean_r2": cf_mx_r2, "within_config_variance_fraction": 0.999},
-        "CF_my": {"config_mean_r2": 0.99, "within_config_variance_fraction": 0.442},
-        "CF_mz": {"config_mean_r2": None, "within_config_variance_fraction": 0.999},
-    }
-    if null_target is not None:
-        config_resolved[null_target]["config_mean_r2"] = None
+
+def _toy_metrics(*, seeds=(1234, 1235, 1236, 1237, 1238)) -> dict:
+    """A tiny metrics dict mirroring the committed metrics.json structure."""
     return {
-        "per_target": per_target,
+        "per_target": {
+            t: {"rmse": rmse, "mae": 0.03, "r2": r2}
+            for t, (r2, rmse) in _POINTWISE.items()
+        },
         "aggregate": {"rmse": 0.05, "mae": 0.035, "r2": 0.985},
-        "config_resolved": config_resolved,
+        "config_resolved": {
+            t: {"config_mean_r2": v, "within_config_variance_fraction": 0.99}
+            for t, v in _CONFIG_R2.items()
+        },
+        "phase_baseline_skill": {
+            "phase_baseline": {"kind": "phase_only_periodic_interpolation"},
+            "per_target": {
+                t: {"skill": s, "phase_baseline_rmse": 0.4, "phase_baseline_r2": b}
+                for t, (s, _, _, b) in _SKILL.items()
+            },
+        },
+        "seed_sweep": {
+            "primary_seed": seeds[0],
+            "seeds": list(seeds),
+            "runs": [],
+            "range": {
+                t: {"skill": {"min": lo, "max": hi}}
+                for t, (_, lo, hi, _) in _SKILL.items()
+            },
+        },
         "inference": {
             "latency_ms": 0.232,
             "throughput_rows_per_s": 5.17e7,
             "basis": "mean single-row latency over 200 iters; mean batched throughput "
             "over 20 passes of 12535 rows on cuda; cuda-synchronized",
         },
+        "reproducibility": {"seeds": {"global": seeds[0]}},
     }
 
 
@@ -205,32 +243,121 @@ def test_sane_dickinson_divides_by_helper_f_ref(monkeypatch):
     np.testing.assert_allclose(halved, base / 2.0, rtol=1e-9)
 
 
-# --- panel_annotation / null + missing key ------------------------------------------------
+# --- panel_annotation / value rendering / null + missing key ------------------------------
 
 
 def test_panel_annotation_reads_metrics():
-    """Scenario: Per-panel annotation reports config-resolved R² and RMSE read from metrics.json."""
-    metrics = _toy_metrics(null_target=None)
+    """Scenario: Per-panel annotation reports skill, seed range, pointwise R² and RMSE read
+    from metrics.json."""
+    metrics = _toy_metrics()
     txt = panel_annotation(metrics, "CF_z")
-    assert "0.83" in txt  # config_resolved.CF_z.config_mean_r2
-    assert "0.05" in txt  # per_target.CF_z.rmse
-    # mutate -> output changes (not hard-coded)
-    metrics["config_resolved"]["CF_z"]["config_mean_r2"] = 0.50
-    assert "0.50" in panel_annotation(metrics, "CF_z")
+    assert "skill 0.983" in txt  # phase_baseline_skill.per_target.CF_z.skill
+    assert "(5 seeds: 0.980 to 0.985)" in txt  # seed_sweep.range.CF_z.skill
+    assert "R² 0.999" in txt  # per_target.CF_z.r2 = 0.9993 (rounds to 0.999, not 1.000)
+    assert "RMSE 0.087" in txt  # per_target.CF_z.rmse
+    for literal in _CONFIG_R2_LITERALS:
+        assert literal not in txt
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "expected"),
+    [
+        (
+            ("phase_baseline_skill", "per_target", "CF_z", "skill"),
+            0.5123,
+            "skill 0.512",
+        ),
+        (("seed_sweep", "range", "CF_z", "skill", "min"), 0.4321, "0.432 to 0.985"),
+        (("seed_sweep", "range", "CF_z", "skill", "max"), 0.9912, "0.980 to 0.991"),
+        (("per_target", "CF_z", "r2"), 0.9871, "R² 0.987"),
+        (("per_target", "CF_z", "rmse"), 0.1234, "RMSE 0.123"),
+    ],
+    ids=["skill", "range-min", "range-max", "r2", "rmse"],
+)
+def test_panel_annotation_mutates_with_each_value(path, value, expected):
+    """Changing any one annotated value in metrics.json changes the annotation."""
+    metrics = _toy_metrics()
+    node = metrics
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    assert expected in panel_annotation(metrics, "CF_z")
+
+
+def test_panel_annotation_names_the_seed_count():
+    """The range names how many seeds it spans; one seed says so instead of a range."""
+    three = _toy_metrics(seeds=(7, 8, 9))
+    assert "(3 seeds: 0.980 to 0.985)" in panel_annotation(three, "CF_z")
+    one = _toy_metrics(seeds=(7,))
+    txt = panel_annotation(one, "CF_z")
+    assert "(single seed, no range)" in txt
+    assert " to " not in txt
 
 
 def test_panel_annotation_null_renders_na():
-    """Scenario: A NaN-sentinel (null) config-resolved R² renders without crashing."""
-    metrics = _toy_metrics(null_target="CF_z")
+    """Scenario: a null skill renders as n/a without raising."""
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_z"]["skill"] = None
+    metrics["seed_sweep"]["range"]["CF_z"]["skill"] = None
     txt = panel_annotation(metrics, "CF_z")
-    assert "n/a" in txt.lower()
+    assert "skill n/a" in txt
+    assert "(5 seeds: n/a)" in txt
 
 
-def test_panel_annotation_missing_key_raises():
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (0.9997, ">0.999"),
+        (0.99949, "0.999"),
+        (0.9876, "0.988"),
+        (-0.150, "−0.150"),
+        (-0.0004, "−4.0e-04"),
+        (0.0004, "4.0e-04"),
+        (0.0, "0.000"),
+        (-7.5, "−7.500"),
+        (None, "n/a"),
+        (float("nan"), "n/a"),
+    ],
+)
+def test_metric_values_render_honestly(value, expected):
+    """Scenario: null, near-perfect, near-zero and negative values render honestly."""
+    assert format_metric(value) == expected
+
+
+def test_annotation_renders_near_perfect_negative_and_tiny_values():
+    """Panel text: >0.999 for skill and R², a 'lo to hi' range with U+2212, tiny in sci form."""
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_x"]["skill"] = 0.9997
+    metrics["per_target"]["CF_x"]["r2"] = 0.9996
+    metrics["seed_sweep"]["range"]["CF_x"]["skill"] = {"min": -0.150, "max": 0.992}
+    txt = panel_annotation(metrics, "CF_x")
+    assert "skill >0.999" in txt and "R² >0.999" in txt
+    assert "1.000" not in txt
+    assert "−0.150 to 0.992" in txt
+    metrics["phase_baseline_skill"]["per_target"]["CF_x"]["skill"] = -0.0004
+    txt = panel_annotation(metrics, "CF_x")
+    assert "skill −4.0e-04" in txt and "0.000" not in txt
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("phase_baseline_skill",),
+        ("phase_baseline_skill", "per_target", "CF_z"),
+        ("seed_sweep",),
+        ("seed_sweep", "range", "CF_z"),
+        ("per_target", "CF_z"),
+    ],
+    ids=["skill-block", "skill-entry", "sweep-block", "sweep-entry", "per-target"],
+)
+def test_panel_annotation_missing_key_raises(path):
     """Scenario: A required metrics key or panel coefficient is missing."""
-    metrics = _toy_metrics(null_target=None)
-    del metrics["config_resolved"]["CF_z"]
-    with pytest.raises((KeyError, ValueError)):
+    metrics = _toy_metrics()
+    node = metrics
+    for key in path[:-1]:
+        node = node[key]
+    del node[path[-1]]
+    with pytest.raises(KeyError, match=path[-1]):
         panel_annotation(metrics, "CF_z")
 
 
@@ -295,18 +422,25 @@ def test_rows_per_wingbeat_is_actual_parquet_counts(tmp_path):
 _TOY_BASELINE = {"overshoot_factor": 3.2, "baseline_rmse_cf_z": 0.98}
 
 
-def test_build_caption_discloses_everything():
-    """Scenario: Caption reports config-resolved skill, flags aggregate, discloses exclusions."""
-    metrics = _toy_metrics(null_target=None)
+def _caption(metrics):
     sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    return build_caption(metrics, sp, _TOY_BASELINE)
+
+
+def test_build_caption_discloses_everything():
+    """Scenario: Caption defines skill and shows why pointwise R² overstates it."""
+    cap = _caption(_toy_metrics())
     low = cap.lower()
-    assert (
-        "0.94" in cap and "0.83" in cap and "0.99" in cap
-    )  # per-axis config-resolved R²
-    assert "-3.61" in cap or "−3.61" in cap  # CF_y negative tell
-    assert "waveform" in low and "overstates" in low  # aggregate inflated
-    assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
+    assert "seed 1234" in cap and "5 seeds" in cap  # plotted seed + seed count
+    assert "1 − mse/mse₀" in low and "phase-only baseline" in low  # skill defined
+    # the phase-only baseline's own pointwise R² for the three panel axes
+    assert "0.955/0.897/0.944" in cap
+    assert "waveform" in low and "amplitude and shape" in low  # skill rewards more
+    assert "cycle-mean r²: readme" in low
+    assert "skill ≥ 0.953 for all six targets across 5 seeds" in low  # the skill floor
+    # off-panel moments excluded, with their skill (plotted seed + range)
+    assert "cf_mx 0.972 (5 seeds: 0.969 to 0.976)" in low
+    assert "cf_mz 0.985 (5 seeds: 0.981 to 0.988)" in low
     assert "coarse" in low  # coarse-grid pipeline-readiness framing
     assert "2.4" not in cap  # the false ~2.4x diffused-IB claim is retired
     assert "not validated" in low or "validated aerodynamics" in low
@@ -320,84 +454,96 @@ def test_build_caption_discloses_everything():
     assert ">1,000" in cap or ">1000" in cap
 
 
+def test_build_caption_never_prints_config_resolved_r2():
+    """Scenario: no configuration-resolved R² value is present in the caption."""
+    cap = _caption(_toy_metrics())
+    for literal in _CONFIG_R2_LITERALS:
+        assert literal not in cap
+    assert "config-resolved" not in cap.lower()
+
+
+def test_build_caption_headline_does_not_repeat_panel_numbers():
+    """The per-axis skill/R²/RMSE live on the panels; the headline carries the definition."""
+    headline = _caption(_toy_metrics()).split("\n")[0]
+    for value in ("0.988", "0.983", "0.977", "0.041", "0.087", "0.034"):
+        assert value not in headline
+
+
 def test_build_caption_off_panel_claims_are_data_driven_not_hardcoded():
-    """Scenario: caption's off-panel disclosure reflects the actual config-resolved R2 for
-    CF_y/CF_mx/CF_mz, not a hardcoded assumption (from one corpus) that CF_y is always the
-    negative "tell" and CF_mx/CF_mz always carry no between-config signal. A geometry fix that
-    flips which axis is inflation-revealing must not leave the caption asserting something
-    false (fix-force-surrogate-sweep-hinge: the corrected corpus made CF_y positive and gave
-    CF_mx a strong between-config R2, exposing this as hardcoded rather than data-driven).
-    """
-    metrics = _toy_metrics(cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
-    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp, _TOY_BASELINE)
+    """Scenario: the off-panel CF_mx/CF_mz disclosure is read from metrics.json at call time,
+    so a corpus in which an off-panel moment outscores the headline is visible."""
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_mx"]["skill"] = 0.9912
+    metrics["seed_sweep"]["range"]["CF_mz"]["skill"] = {"min": 0.7123, "max": 0.8456}
+    low = _caption(metrics).lower()
+    assert "cf_mx 0.991" in low
+    assert "cf_mz 0.985 (5 seeds: 0.712 to 0.846)" in low
+    assert "no between-config signal" not in low
+    assert "waveform fraction" not in low  # no fixed reason asserted for the exclusion
+
+
+def test_build_caption_skill_floor_follows_the_minimum_not_a_named_target():
+    """The floor is the minimum over all six targets' seed minima; no target is ranked."""
+    metrics = _toy_metrics()
+    metrics["seed_sweep"]["range"]["CF_mz"]["skill"] = {"min": 0.9101, "max": 0.99}
+    low = _caption(metrics).lower()
+    assert "skill ≥ 0.910 for all six targets" in low
+    assert "weakest" not in low
+
+
+def test_build_caption_flags_targets_below_the_phase_only_baseline_subordinate():
+    """Scenario: a target below the phase-only baseline is flagged, subordinate, and a
+    minimum of exactly 0 is not called below it."""
+    metrics = _toy_metrics()
+    metrics["seed_sweep"]["range"]["CF_x"]["skill"] = {"min": -0.25, "max": 0.99}
+    metrics["seed_sweep"]["range"]["CF_mz"]["skill"] = {"min": -0.0004, "max": 0.99}
+    metrics["seed_sweep"]["range"]["CF_y"]["skill"] = {"min": 0.0, "max": 0.99}
+    cap = _caption(metrics)
+    headline, caveats = cap.split("\n")[:2]
+    assert "below the phase-only baseline" in caveats.lower()
+    assert "CF_x (min skill −0.250)" in caveats
+    assert "CF_mz (min skill −4.0e-04)" in caveats
+    assert "CF_y (min" not in caveats  # exactly 0 is not below the phase-only baseline
+    assert "below the phase-only baseline" not in headline.lower()
+    assert "for all six targets" not in cap
+
+
+def test_build_caption_null_values_render_without_crashing():
+    """Scenario: null skills in the caption render as n/a; the floor skips nulls."""
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_mz"]["skill"] = None
+    metrics["phase_baseline_skill"]["per_target"]["CF_z"]["phase_baseline_r2"] = None
+    metrics["seed_sweep"]["range"]["CF_y"]["skill"] = None
+    cap = _caption(metrics)
     low = cap.lower()
-    assert "0.81 < 0" not in cap  # must not claim a positive number is negative
-    assert "no between-config signal" not in low  # CF_mx's own R2 says otherwise
-    # 0.77 is CF_mx-only (distinct from every other fixture value, incl. CF_my's 0.99), so
-    # this actually proves the disclosure ran, not a coincidental match elsewhere in the caption.
-    assert "0.77" in cap
+    assert "cf_mz n/a" in low
+    assert "0.955/n/a/0.944" in cap
+    # CF_y's 0.953 minimum is null now; the floor is the next-lowest minimum (CF_mx 0.969)
+    assert "skill ≥ 0.969 for the 5 targets with a defined skill across 5 seeds" in low
 
 
-def test_build_caption_flags_an_on_panel_negative_tell_not_just_off_panel():
-    """Scenario: when the negative config-resolved R2 is an on-panel target (CF_x/CF_z/CF_my),
-    not an off-panel one, the caveats line must name IT, not silently fall through to "no
-    off-panel target is negative" — which is true but omits the actual, on-panel evidence that
-    the aggregate is inflated. This is exactly the shape of the real, committed
-    fix-force-surrogate-sweep-hinge corpus (CF_x negative, all of CF_y/CF_mx/CF_mz positive) —
-    a shape the original off-panel-only scan silently mishandled (caught by /review-pr, not by
-    the first version of this test).
-    """
-    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, cf_mx_r2=0.77, null_target=None)
-    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp, _TOY_BASELINE)
-    low = cap.lower()
-    assert (
-        "cf_x" in low and "-0.01" in cap and "< 0" in cap
-    )  # names the real on-panel tell
-    assert "no off-panel target" not in low  # must not use the misleading fallback
-    assert (
-        "no target's config-resolved" not in low
-    )  # must not use the "nothing found" fallback
+def test_build_caption_all_null_skill_is_undefined_not_an_error():
+    """Every seed-sweep minimum null -> the caption says skill is undefined."""
+    metrics = _toy_metrics()
+    for entry in metrics["seed_sweep"]["range"].values():
+        entry["skill"] = None
+    assert "skill is undefined for every target" in _caption(metrics).lower()
 
 
-def test_build_caption_names_the_worst_offender_when_multiple_targets_are_negative():
-    """Scenario: with two simultaneously-negative targets, the caveats line must name the
-    MOST negative (worst) one, not just the first in axis order. A mild on-panel dip
-    (CF_x=-0.01) must not bury a severe off-panel failure (CF_mz=-5.0) — picking "first found"
-    by axis order would report the harmless one and hide the alarming one, which is exactly
-    the "silently wrong output" the disclosure mechanism exists to prevent.
-    """
-    metrics = _toy_metrics(cf_x_r2=-0.01, cf_y_r2=0.81, null_target=None)
-    metrics["config_resolved"]["CF_mz"]["config_mean_r2"] = -5.0
-    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp, _TOY_BASELINE)
-    low = cap.lower()
-    assert "cf_mz" in low and "-5.0" in cap  # the worst offender is named
-    assert "cf_x config-resolved r² = -0.01" not in low  # not the milder on-panel one
-    assert "off-panel" in low  # correctly labeled off-panel, not "on-panel"
-
-
-def test_build_caption_aggregate_r2_does_not_round_to_a_literal_1_00():
-    """Scenario: an aggregate R2 of 0.9989... must not render as a literal "1.00" — that
-    contradicts the surrounding prose's point that the aggregate is suspiciously close to,
-    but not literally, a perfect fit (a real bug: :.2f rounded 0.9989899... to "1.00" until
-    fixed to :.3f, found by /review-pr against the real committed corpus).
-    """
-    metrics = _toy_metrics(null_target=None)
-    metrics["aggregate"]["r2"] = 0.9989907931930803
-    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    cap = build_caption(metrics, sp, _TOY_BASELINE)
-    assert "1.00" not in cap
-    assert "0.999" in cap
+def test_build_caption_renders_near_perfect_phase_baseline_r2_as_above_0_999():
+    """A value that would print 1.000 prints >0.999 (the caption's phase-only baseline R²)."""
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_x"]["phase_baseline_r2"] = 0.99989
+    cap = _caption(metrics)
+    assert ">0.999/0.897/0.944" in cap
+    assert "1.000" not in cap
 
 
 def test_build_caption_mutates_with_metrics():
     """Scenario: Caption numbers are read from metrics, never hard-coded."""
-    metrics = _toy_metrics(null_target=None)
-    sp = compute_speedup(metrics["inference"], rows_per_wingbeat=2000)
-    metrics["config_resolved"]["CF_x"]["config_mean_r2"] = 0.42
-    assert "0.42" in build_caption(metrics, sp, _TOY_BASELINE)
+    metrics = _toy_metrics()
+    metrics["phase_baseline_skill"]["per_target"]["CF_my"]["phase_baseline_r2"] = 0.4242
+    assert "0.955/0.897/0.424" in _caption(metrics)
 
 
 # --- build_figure (Matplotlib object model, no pixels) ------------------------------------
@@ -449,6 +595,11 @@ def test_baseline_not_plotted_anywhere():
     for ax in fig.axes:
         labels = [t.lower() for t in ax.get_legend_handles_labels()[1]]
         assert not any("dickinson" in lbl or "baseline" in lbl for lbl in labels)
+    # ...and nothing beyond the per-config points and the 1:1 line: no curve of any kind
+    n_configs = _toy_predictions()["config_name"].nunique()
+    for ax in _scatter_axes(fig):
+        assert len(ax.lines) == 1  # the 1:1 reference only
+        assert len(ax.collections) == n_configs  # one scatter series per config
     import matplotlib.pyplot as plt
 
     plt.close(fig)
@@ -475,19 +626,26 @@ def _caption_text(metrics: dict) -> str:
     return text
 
 
-def test_build_figure_caption_names_its_single_seed():
-    """Scenario: the caption names the seed its config-resolved R² come from and points to the
-    README's seed spread, so the PNG quoted on its own cannot pass a single draw off as the
-    corpus's skill (config-resolved R² is strongly seed-dependent at six holdout configs)."""
+def test_build_figure_caption_names_its_seed_and_seed_count():
+    """Scenario: the caption names the plotted seed and the seed count."""
+    text = _caption_text(_toy_metrics(seeds=(4321, 1, 2)))
+    assert "seed 4321" in text and "3 seeds" in text
+
+
+def test_build_figure_caption_says_single_seed_no_range():
+    """With one seed the caption states "single seed, no range", never an implied spread."""
+    text = _caption_text(_toy_metrics(seeds=(4321,)))
+    assert "seed 4321" in text
+    assert "single seed, no range" in text
+    assert "seeds:" not in text and "across 1 seeds" not in text
+
+
+def test_build_figure_rejects_metrics_without_a_seed_sweep():
+    """A metrics.json with no seed_sweep block raises rather than captioning a default seed."""
     metrics = _toy_metrics()
-    metrics["reproducibility"] = {"seeds": {"global": 4321}}
-    text = _caption_text(metrics)
-    assert "Config-resolved R² (single seed 4321; 5-seed ranges in README):" in text
-
-
-def test_build_figure_caption_says_when_the_seed_is_not_recorded():
-    """A metrics.json without a recorded seed is captioned as such, not as some default seed."""
-    assert "Config-resolved R² (seed not recorded):" in _caption_text(_toy_metrics())
+    del metrics["seed_sweep"]
+    with pytest.raises(KeyError, match="seed_sweep"):
+        _caption_text(metrics)
 
 
 def test_build_figure_caption_states_the_lab_frame_moment_caveat():
@@ -543,6 +701,120 @@ def test_generate_writes_three_artifacts(tmp_path):
     assert "sha256:" in meta["docker_image"]
 
 
+def test_sidecar_records_skill_for_all_six_targets_and_no_config_r2(tmp_path):
+    """Scenario: the sidecar carries primary_seed, n_seeds, six-target skill / pointwise R² /
+    phase-only baseline R², the skill floor -- equal to metrics.json -- and no config_mean_r2."""
+    pred, metrics_path = _write_inputs(tmp_path)
+    out = tmp_path / "figures"
+    generate_evidence_figure(
+        predictions_path=pred,
+        metrics_path=metrics_path,
+        out_dir=out,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    raw = (out / "evidence_figure_metrics.json").read_text(encoding="utf-8")
+    fig_metrics = json.loads(raw)
+    metrics = _toy_metrics()
+    assert fig_metrics["primary_seed"] == 1234
+    assert fig_metrics["n_seeds"] == 5
+    for c in TARGETS:
+        skill = metrics["phase_baseline_skill"]["per_target"][c]
+        rng = metrics["seed_sweep"]["range"][c]["skill"]
+        assert fig_metrics["skill"][c] == {
+            "committed": skill["skill"],
+            "min": rng["min"],
+            "max": rng["max"],
+        }
+        assert fig_metrics["pointwise_r2"][c] == metrics["per_target"][c]["r2"]
+        assert (
+            fig_metrics["phase_baseline_pointwise_r2"][c] == skill["phase_baseline_r2"]
+        )
+    assert fig_metrics["skill_floor"] == {
+        "value": 0.9534,
+        "targets_below_phase_baseline": [],
+    }
+    assert "config_mean_r2" not in raw
+    for literal in _CONFIG_R2_LITERALS:
+        assert literal not in raw
+
+
+def test_sidecar_skill_floor_lists_targets_below_the_phase_only_baseline(tmp_path):
+    """The sidecar's skill_floor names the targets whose seed minimum is below zero."""
+    m = _toy_metrics()
+    # CF_mz is the lower minimum: the list is in target order, not ranked by value
+    m["seed_sweep"]["range"]["CF_mz"]["skill"] = {"min": -0.5, "max": 0.99}
+    m["seed_sweep"]["range"]["CF_x"]["skill"] = {"min": -0.25, "max": 0.99}
+    m["seed_sweep"]["range"]["CF_y"]["skill"] = {"min": 0.0, "max": 0.99}
+    pred = tmp_path / "p.parquet"
+    _toy_predictions().to_parquet(pred)
+    metrics_path = tmp_path / "m.json"
+    metrics_path.write_text(json.dumps(m))
+    out = tmp_path / "figures"
+    generate_evidence_figure(
+        predictions_path=pred,
+        metrics_path=metrics_path,
+        out_dir=out,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    fig_metrics = json.loads((out / "evidence_figure_metrics.json").read_text())
+    assert fig_metrics["skill_floor"] == {
+        "value": -0.5,
+        "targets_below_phase_baseline": ["CF_x", "CF_mz"],
+    }
+
+
+def test_every_number_in_the_caption_is_in_the_sidecar(tmp_path):
+    """Scenario: Every number in the caption is in the sidecar (issue #116)."""
+    pred, metrics_path = _write_inputs(tmp_path)
+    out = tmp_path / "figures"
+    fig_metrics = generate_evidence_figure(
+        predictions_path=pred,
+        metrics_path=metrics_path,
+        out_dir=out,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    cap = _caption(_toy_metrics())
+    assert f"seed {fig_metrics['primary_seed']}" in cap
+    assert f"{fig_metrics['n_seeds']} seeds" in cap
+    b = fig_metrics["phase_baseline_pointwise_r2"]
+    assert f"{b['CF_x']:.3f}/{b['CF_z']:.3f}/{b['CF_my']:.3f}" in cap
+    assert f"skill ≥ {fig_metrics['skill_floor']['value']:.3f}" in cap.lower()
+    for c in ("CF_mx", "CF_mz"):
+        s = fig_metrics["skill"][c]
+        assert (
+            f"{c} {s['committed']:.3f} (5 seeds: {s['min']:.3f} to {s['max']:.3f})"
+            in cap
+        )
+
+
+def test_figure_run_metadata_seeds_come_from_metrics_json(tmp_path):
+    """Scenario: provenance records seeds equal to the metrics.json seed_sweep."""
+    pred = tmp_path / "p.parquet"
+    _toy_predictions().to_parquet(pred)
+    metrics_path = tmp_path / "m.json"
+    metrics_path.write_text(json.dumps(_toy_metrics(seeds=(9, 3, 5))))
+    out = tmp_path / "figures"
+    generate_evidence_figure(
+        predictions_path=pred,
+        metrics_path=metrics_path,
+        out_dir=out,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    meta = json.loads((out / "run_metadata.json").read_text())
+    assert meta["seeds"] == {"global": 9, "sweep": [3, 5]}
+
+
+def test_generate_takes_no_seed_argument():
+    """The figure's seeds are read from metrics.json, never passed in (D7)."""
+    import inspect
+
+    assert "seeds" not in inspect.signature(generate_evidence_figure).parameters
+
+
 def test_generate_rejects_mutable_tag(tmp_path):
     """Scenario: Mutable image tag is rejected."""
     pred, metrics = _write_inputs(tmp_path)
@@ -592,8 +864,8 @@ def test_generate_json_sidecars_are_lf(tmp_path):
         docker_image_digest=DIGEST,
         timestamp=TS,
     )
-    raw = (out / "evidence_figure_metrics.json").read_bytes()
-    assert b"\r\n" not in raw
+    for name in ("evidence_figure_metrics.json", "run_metadata.json"):
+        assert b"\r\n" not in (out / name).read_bytes(), name
 
 
 def test_generate_rejects_degenerate_inputs(tmp_path):
@@ -709,12 +981,15 @@ def test_non_object_metrics_rejected(tmp_path):
     assert not (out / "evidence_figure.png").exists()
 
 
-def test_missing_metrics_key_leaves_no_partial_artifact(tmp_path):
+@pytest.mark.parametrize(
+    "key", ["inference", "phase_baseline_skill", "seed_sweep", "per_target"]
+)
+def test_missing_metrics_key_leaves_no_partial_artifact(tmp_path, key):
     """A metrics.json missing a required key raises and writes NO partial artifact set."""
     pred, _ = _write_inputs(tmp_path)
     metrics = tmp_path / "bad_metrics.json"
     m = _toy_metrics()
-    del m["inference"]
+    del m[key]
     metrics.write_text(json.dumps(m))
     out = tmp_path / "figs"
     with pytest.raises((KeyError, ValueError)):
@@ -793,6 +1068,24 @@ def test_cli_delegates_to_library(monkeypatch):
     assert Path(captured["metrics_path"]).name == "m.json"
     assert captured["docker_image_digest"] == DIGEST
     assert captured["timestamp"] == TS
+    assert "seeds" not in captured  # read from metrics.json, never a CLI flag
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "--predictions",
+                "p.parquet",
+                "--metrics",
+                "m.json",
+                "--out-dir",
+                "figs",
+                "--docker-digest",
+                DIGEST,
+                "--timestamp",
+                TS,
+                "--seed",
+                "1234",
+            ]
+        )
 
 
 # --- README full-disclosure home (honesty test-enforced off the PNG) ----------------------
