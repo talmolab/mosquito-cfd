@@ -108,7 +108,7 @@ def test_seed_run_statistics_equal_the_top_level_metrics():
         }
 
 
-# --- Scenario: Duplicate seeds are rejected before anything is read or written ------------
+# --- Scenario: Duplicate or negative seeds are rejected before anything is read or written
 
 
 @pytest.mark.parametrize(

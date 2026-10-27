@@ -52,9 +52,10 @@ with `ValueError` rather than emit a NaN.
 ### Requirement: Multi-seed sweep reported by the trainer
 
 The trainer SHALL accept a **primary seed** and zero or more **sweep seeds** (library default: none;
-the training driver's default: 1235–1238 after primary 1234). Seeds SHALL be validated before the
-dataset is read or the output directory is created. Provenance SHALL be captured before any artifact
-is written.
+the training driver's default: the four seeds after the primary, 1235–1238 after primary 1234).
+Seeds SHALL be validated before the dataset is read or the output directory is created. The
+phase-only baseline SHALL be built before any seed trains. Provenance SHALL be captured before any
+artifact is written.
 The primary seed SHALL be trained first; only its checkpoint, holdout predictions and inference
 timing SHALL be written; sweep seeds SHALL contribute metrics only. All four artifacts SHALL be
 written only after every seed has finished, so a failure in any seed writes nothing. `metrics.json`
@@ -95,11 +96,23 @@ there are none.
 - **When** the `seed_sweep` block is assembled
 - **Then** each `range` entry is the min/max over the non-null values of all seeds including the primary, an all-`null` statistic has a `null` range, a single seed has `min == max`, and `seeds` lists the primary seed first
 
-#### Scenario: Duplicate seeds are rejected before anything is read or written
+#### Scenario: Duplicate or negative seeds are rejected before anything is read or written
 
-- **Given** a sweep seed equal to the primary seed, or a repeated sweep seed
+- **Given** a sweep seed equal to the primary seed, a repeated sweep seed, or a negative seed
 - **When** the trainer is invoked
 - **Then** it raises `ValueError` without reading the dataset or creating any file in the output directory
+
+#### Scenario: A malformed phase-only baseline fails before any seed trains
+
+- **Given** a dataset whose training configurations hold a duplicate phase within a converged beat
+- **When** the trainer is invoked
+- **Then** it raises `ValueError` naming the duplicate phase before the per-seed fit runs for any seed
+
+#### Scenario: The driver's default sweep follows the primary seed
+
+- **Given** the training driver invoked without `--sweep-seeds`
+- **When** the primary seed is `s`
+- **Then** the sweep seeds are `s+1` to `s+4`, and `--sweep-seeds` given with no values means none
 
 #### Scenario: The committed sweep is internally consistent with the committed surrogate
 

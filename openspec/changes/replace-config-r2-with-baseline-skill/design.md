@@ -83,12 +83,15 @@ baseline(φ) = mean_c curve_c(φ)                                       # equal 
 
 `run_training(..., seed=1234, sweep_seeds=())`; the **library default is no sweep**, so existing
 callers and tests (and #110 at its own cost) don't train extra models silently. The driver's
-`--sweep-seeds N [N ...]` defaults to 1235–1238 (the committed recipe); `--sweep-seeds` with no values
-means none.
+`--sweep-seeds N [N ...]` defaults to the four seeds after `--seed` (1235–1238 for the committed
+1234, so re-training a recorded sweep seed as the primary never collides); `--sweep-seeds` with no
+values means none.
 
 1. Validate seeds **before reading the dataset or creating `out_dir`**: a sweep seed equal to the
-   primary or repeated raises `ValueError`.
-2. Validate the digest and hash the dataset bytes up front, as today.
+   primary, a repeated seed or a negative seed raises `ValueError`.
+2. Validate the digest and hash the dataset bytes up front, as today. Build the holdout table and the
+   phase-only baseline from the dataset alone, before any training, so a malformed dataset fails
+   before the first seed.
 3. Train the primary seed exactly as today; measure inference right after it, as today. **Keep the
    primary model object itself** (on its device) with its predictions and metrics. The checkpoint is
    later saved from that model exactly as today: the committed `surrogate.pt` holds `cuda` storage

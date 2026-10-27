@@ -28,7 +28,7 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
 
 ## 0. Record the blast radius before touching code
 
-0. [ ] Record the committed tests this change is expected to touch. **Any test outside this list
+0. [x] Record the committed tests this change is expected to touch. **Any test outside this list
    that needs editing halts the change for a decision.**
    - `tests/test_force_surrogate_evidence_figure.py`
      - `_toy_metrics` (:59): gains `phase_baseline_skill` and `seed_sweep`; config-R² literals made
@@ -82,60 +82,60 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
      (:478), `test_provenance_cpu_tier_digest_timestamp_seeds` (:532, `seeds == {"global": 1234}`);
      `test_force_surrogate_scale_invariance.py`; `test_no_false_diffused_ib_claim.py`;
      `test_comparison_figure.py`; `test_make_comparison_figure_cli.py`.
-0a. [ ] Commit C0 (this proposal). `openspec validate replace-config-r2-with-baseline-skill --strict`.
+0a. [x] Commit C0 (this proposal). `openspec validate replace-config-r2-with-baseline-skill --strict`.
 
 ---
 
 ## 1. Phase-only baseline (CPU tier, `train.py`) — C1
 
-1. [ ] **Test first** — known answer: two reference configs sampling `sin(2πφ)` and `2 + cos(2πφ)`,
+1. [x] **Test first** — known answer: two reference configs sampling `sin(2πφ)` and `2 + cos(2πφ)`,
    the second with 3× the rows, rows shuffled. Baseline at query phases equals the unweighted mean
    of the two periodic linear interpolants, not the row-weighted mean; shuffled == sorted input.
-2. [ ] **Test first** — periodic wrap: a query between a config's last sample (e.g. 0.95) and 1.0
+2. [x] **Test first** — periodic wrap: a query between a config's last sample (e.g. 0.95) and 1.0
    interpolates toward its phase-0 sample (hand-computed).
-3. [ ] **Test first** — holdout exclusion: holdout targets set to 1e6 → baseline bitwise unchanged;
+3. [x] **Test first** — holdout exclusion: holdout targets set to 1e6 → baseline bitwise unchanged;
    `reference_configs` equals the sorted `split == "train"` configs, including a seed's val configs.
-4. [ ] **Test first** — beats: a config with two converged beats + a startup beat contributes the
+4. [x] **Test first** — beats: a config with two converged beats + a startup beat contributes the
    mean of its two converged beat curves, counted once against a single-beat config; startup rows
    have no effect.
-5. [ ] **Test first** — `ValueError` naming the problem for: no reference config; a beat with < 2
+5. [x] **Test first** — `ValueError` naming the problem for: no reference config; a beat with < 2
    rows; a duplicate phase within a beat; a non-finite reference value; a reference phase of
    exactly 1.0 or < 0; a non-finite or out-of-range **query** phase.
-6. [ ] **Test first** — torch-free: add `build_phase_only_baseline` (and, in §2–§3,
+6. [x] **Test first** — torch-free: add `build_phase_only_baseline` (and, in §2–§3,
    `compute_baseline_skill`, `summarize_seed_sweep`) to the torch-barred subprocess test
    `test_pure_helpers_import_without_torch`; built twice → bitwise identical.
-7. [ ] Implement `build_phase_only_baseline(df, query_phase, target_names)` →
+7. [x] Implement `build_phase_only_baseline(df, query_phase, target_names)` →
    `(predictions, definition)`. Mutation-test 1–5 (row-weighted mean, no `period`, holdout included,
    beats pooled, duplicate/range/query checks removed); record kills. `ruff check` + `ruff format`.
    Commit C1.
 
 ## 2. Skill and the `phase_baseline_skill` block (CPU tier) — C2
 
-8. [ ] **Test first** — `compute_baseline_skill` known answers: surrogate = truth → 1; surrogate =
+8. [x] **Test first** — `compute_baseline_skill` known answers: surrogate = truth → 1; surrogate =
    baseline → 0; surrogate with twice the baseline's SSE → −1 (unclipped); baseline = truth → NaN,
    serialized `null`; `phase_baseline_rmse` / `phase_baseline_r2` known answers; zero rows and
    mismatched shapes raise `ValueError`.
-9. [ ] **Test first** — `build_metrics(..., phase_baseline=...)` writes `phase_baseline_skill` with
+9. [x] **Test first** — `build_metrics(..., phase_baseline=...)` writes `phase_baseline_skill` with
    the definition keys under `phase_baseline` and per-target `{skill, phase_baseline_rmse,
    phase_baseline_r2}` for all six targets; with `phase_baseline=None` the block is absent and the §0
    key-set gates stay green.
-10. [ ] Implement. Mutation-test 8–9; record kills. Ruff. Commit C2.
+10. [x] Implement. Mutation-test 8–9; record kills. Ruff. Commit C2.
 
 ## 3. Seed sweep — C3
 
-11. [ ] **Test first** — `summarize_seed_sweep(runs, primary_seed)`: `seeds` primary first; `range`
+11. [x] **Test first** — `summarize_seed_sweep(runs, primary_seed)`: `seeds` primary first; `range`
     NaN-aware min/max over all seeds incl. the primary; all-`null` → `null`; one seed → min == max.
-12. [ ] **Test first** (torch-free) — duplicate seeds (sweep == primary; repeated sweep seed) raise
+12. [x] **Test first** (torch-free) — duplicate or negative seeds (sweep == primary; repeated; < 0) raise
     `ValueError` before `dataset_path` is read (pass a nonexistent path) and before `out_dir` exists.
-13. [ ] **Test first** (torch-free) — order and atomicity, using the seam in design D4: with
+13. [x] **Test first** (torch-free) — order and atomicity, using the seam in design D4: with
     `_fit_one_seed` and `_measure_inference` monkeypatched (the recorder raises on the last seed so
     no `torch.save` is reached), the call order is `[primary, *sweep]`; with the recorder raising on the second seed,
     the error propagates and `out_dir` contains none of the four artifacts.
-14. [ ] **Test first** — driver: `--sweep-seeds` parses N ints, defaults to 1235 1236 1237 1238,
+14. [x] **Test first** — driver: `--sweep-seeds` parses N ints, defaults to the four seeds after `--seed` (1235–1238 for 1234),
     accepts zero values, and passes through to `run_training`; library `run_training` defaults to
     `sweep_seeds=()`. `build_training_metadata(seeds={"global": 1234, "sweep": [1235, 1236]})`
     round-trips (CPU tier).
-15. [ ] **Test first, torch tier** (`@pytest.mark.gpu`, parametrized over `cpu` and `cuda`, toy
+15. [x] **Test first, torch tier** (`@pytest.mark.gpu`, parametrized over `cpu` and `cuda`, toy
     dataset, few epochs):
     - (a) `sweep_seeds=()` vs `(a, b)`: identical predictions, checkpoint tensors, and every
       `metrics.json` value except `inference`;
@@ -147,7 +147,7 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
     `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/mosquito-cfd-train uv run --frozen --group train pytest -m gpu tests/test_force_surrogate_train_gpu.py -rs`.
     Record **0 skipped**. If (b) fails on `cuda`, stop before C3 at the D5(b) decision point
     (subprocess per sweep seed, or not) with the user.
-16. [ ] Implement: seed validation first; per-seed work factored into `_fit_one_seed` (own lazy
+16. [x] Implement: seed validation first; per-seed work factored into `_fit_one_seed` (own lazy
     torch import) without changing the primary path's operations or their order; the primary model
     object kept and saved exactly as today (no CPU copy — the committed checkpoint has `cuda`
     storage tags); provenance captured after training and before any write, as today (update the
@@ -158,7 +158,7 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
 
 ## 4. Evidence figure (CPU tier) — C4
 
-17. [ ] **Test first** — re-pin the §0 figure tests and `_toy_metrics`, then add:
+17. [x] **Test first** — re-pin the §0 figure tests and `_toy_metrics`, then add:
     - annotation: skill (3 dp), "(k seeds: lo to hi)", R², RMSE; each mutated in metrics → text
       changes;
     - rendering: skill and R² 0.9996/0.9997 → `>0.999`; null → `n/a`; range −0.150..0.992 →
@@ -173,34 +173,34 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
     - `k == 1` → "single seed, no range"; missing `phase_baseline_skill` / `seed_sweep` / a panel
       entry → `KeyError` before any file is written;
     - no line or scatter on any axis beyond the per-config points and the 1:1 line.
-18. [ ] **Test first** — sidecar: `primary_seed`, `n_seeds`, six-target `skill`, `pointwise_r2`,
+18. [x] **Test first** — sidecar: `primary_seed`, `n_seeds`, six-target `skill`, `pointwise_r2`,
     `phase_baseline_pointwise_r2`, `skill_floor` equal metrics.json; no `config_mean_r2`; every
     number the caption prints equals its sidecar value within display rounding (#116); figure
     `run_metadata.json` seeds equal `{"global": primary_seed, "sweep": seeds[1:]}`; both sidecars LF.
-19. [ ] Implement in `evidence_figure.py` and `scripts/make_evidence_figure.py` (drop the
+19. [x] Implement in `evidence_figure.py` and `scripts/make_evidence_figure.py` (drop the
     script's `--seed` and `generate_evidence_figure`'s `seeds` parameter; seeds from `metrics.json`). Remove `_config_mean_r2` from the figure path; update the stale
     docstring in `comparison_figure.py` (:253–258). Mutation-test 17–18; record kills. Ruff.
     Commit C4.
 
 ## 5. Committed-artifact guards (CPU tier), strict-xfail until regenerated — C5
 
-20. [ ] **Test first** — `test_committed_seed_sweep_is_internally_consistent`: `seed_sweep.seeds ==
+20. [x] **Test first** — `test_committed_seed_sweep_is_internally_consistent`: `seed_sweep.seeds ==
     [primary_seed, *run_metadata.seeds.sweep]`, `primary_seed == run_metadata.seeds.global`; each
     statistic of the primary run entry equals the top-level value; each run's `val_configs` equals
     `make_config_splits(filter_converged_beat(dataset), seed=s).val_configs`, and the primary's
     equals `reproducibility.val_configs`.
-21. [ ] **Test first** — `test_committed_phase_baseline_skill_recomputes`:
+21. [x] **Test first** — `test_committed_phase_baseline_skill_recomputes`:
     `build_phase_only_baseline(dataset, holdout_predictions.phase)` + `compute_baseline_skill` on the
     committed predictions equals `metrics.json` `phase_baseline_skill` within 1e-12, and
     `reference_configs` == sorted train configs. (Catches row misalignment inside `run_training`.)
-22. [ ] **Test first** — `test_readme_skill_table_is_metrics_json`: rows
+22. [x] **Test first** — `test_readme_skill_table_is_metrics_json`: rows
     `` | `CF_c` | s | lo to hi | b | `` for all six targets equal `metrics.json` at 3 dp (U+2212
     normalized); assert on sample strings that `_TABLE_ROW` cannot match a skill row, that the skill
     regex cannot match a config-R² row, and that the header is matched by neither.
-23. [ ] Re-pin `test_committed_figure_metrics_matches_committed_inputs`, the committed half of
+23. [x] Re-pin `test_committed_figure_metrics_matches_committed_inputs`, the committed half of
     `test_fixture_matches_committed_pr5_schema`, and `test_seed_variation_record_matches_the_committed_surrogate`
     per §0.
-24. [ ] Mark each committed-artifact test that is red against today's artifacts
+24. [x] Mark each committed-artifact test that is red against today's artifacts
     `@pytest.mark.xfail(strict=True, reason="#127: regenerated in C6/C7")`; record the node-ID list.
     `uv sync --frozen --group viz && uv run pytest -m "not gpu"`: green, XFAIL set == the list.
     Mutation-test 20–22 on saved-bytes copies of the committed JSON/README; record kills. Ruff.
@@ -211,23 +211,23 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
 > **Human checkpoint before the GPU run.** Before it, run a local code review of C1–C5
 > (`/code-review`) so that no code fix is needed after artifacts exist.
 
-25. [ ] Pre-flight in WSL from the worktree root: `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/mosquito-cfd-train`,
+25. [x] Pre-flight in WSL from the worktree root: `UV_PROJECT_ENVIRONMENT=$HOME/.venvs/mosquito-cfd-train`,
     `uv sync --frozen --group train`; `get_git_info()` prints C5's 40-hex commit with `dirty: false`
     (WSL git takes `--git-dir` per command; do not export `GIT_DIR`/`GIT_WORK_TREE`);
     `git status --porcelain` empty; `CUBLAS_WORKSPACE_CONFIG` unset; digest from
     `examples/prelim_sweep/run_metadata.json`.
-26. [ ] Train into a scratch directory **outside the repository** on ext4 (e.g.
+26. [x] Train into a scratch directory **outside the repository** on ext4 (e.g.
     `$HOME/mosquito-cfd-127/surrogate`; not `/tmp`): `uv run --frozen --group train python
     scripts/train_surrogate.py --dataset examples/prelim_sweep/dataset.parquet --out-dir <scratch>
     --docker-digest <digest> --timestamp <utc> --seed 1234 --sweep-seeds 1235 1236 1237 1238
     --epochs 2000 --device cuda --wandb disabled`.
-27. [ ] **Pre-registered gate (design D5):** (a) `cmp` scratch `surrogate.pt` and
+27. [x] **Pre-registered gate (design D5):** (a) `cmp` scratch `surrogate.pt` and
     `holdout_predictions.parquet` against the committed ones; (b) each seed's `config_mean_r2` ==
     `seed_variation.json` hinge-referenced, exactly. Any failure **halts** and follows D5's diagnosis
     with the user; nothing is loosened or re-pinned to pass, and nothing is copied into the repo.
-28. [ ] `git diff --exit-code uv.lock`. Record measured skill per target (plotted seed + range)
+28. [x] `git diff --exit-code uv.lock`. Record measured skill per target (plotted seed + range)
     against #125's bin numbers in the scratchpad (reported, not gated).
-29. [ ] **Human checkpoint before committing regenerated binaries** (state the size growth). Copy
+29. [x] **Human checkpoint before committing regenerated binaries** (state the size growth). Copy
     `metrics.json` and `run_metadata.json` in (pt/parquet unchanged by D5); remove the xfail markers
     that now pass; add the strict-xfail marker to
     `test_figure_metadata_names_the_committed_surrogate_outputs`; run `pytest -m "not gpu"` and confirm
@@ -235,9 +235,9 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
 
 ## 7. Figure and READMEs — C7
 
-30. [ ] `git status --porcelain` empty and HEAD == C6. Regenerate the figure
+30. [x] `git status --porcelain` empty and HEAD == C6. Regenerate the figure
     (`scripts/make_evidence_figure.py`, same digest, new timestamp). Inspect the PNG visually.
-31. [ ] README (`examples/prelim_sweep/README.md`), per design D8: restructure the honest-reading
+31. [x] README (`examples/prelim_sweep/README.md`), per design D8: restructure the honest-reading
     section; add the guarded skill table; change the false sentences at :247–254, :313, :321,
     :362–368; extend the schema list (:242–245) and the `metrics.json` row (:237); training command
     gains `--sweep-seeds`; reword :329–332 ("the plotted seed's config-resolved R² is …") keeping the
@@ -247,7 +247,7 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
     wing-frame conversion "deferred, not currently tracked"; n=5 wording ("no shift detected",
     "ranges"). `figures/README.md` :11–13, :18. Extend `test_readme_carries_full_disclosures` for the
     amplitude/shape caveat and CF_mx/CF_mz skill.
-31a. [ ] **One PNG only.** First remove every remaining xfail marker. Then the full suite before
+31a. [x] **One PNG only.** First remove every remaining xfail marker. Then the full suite before
     committing: ruff check + format check over the CI paths
     (`src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`),
     `uv sync --frozen --group viz && uv run pytest -m "not gpu"` (no XFAIL left), the WSL gpu command
@@ -258,12 +258,12 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
 
 ## 8. Docs, reconcile, ship — C8
 
-32. [ ] `docs/force_surrogate/roadmap.md`: row 12 → ✅; new row for this change (#127; closes
+32. [x] `docs/force_surrogate/roadmap.md`: row 12 → ✅; new row for this change (#127; closes
     #125/#116; no skill numbers, points to `metrics.json` and the README) before #110's row, whose
     "blocked until" points at it; row 5's pointer names `phase_baseline_skill` / `seed_sweep`.
     `docs/CHANGELOG.md`: entry with the D5 outcome, **BREAKING** sidecar key removal, no skill numbers.
     `openspec validate replace-config-r2-with-baseline-skill --strict`.
-33. [ ] Reconcile proposal / design / spec / tasks against the implementation; record any deviation
+33. [x] Reconcile proposal / design / spec / tasks against the implementation; record any deviation
     in the proposal under `### Why N instead of M?` and file an issue for any workaround. Provenance:
     `git diff --quiet <surrogate run_metadata commit> HEAD -- src/mosquito_cfd/force_surrogate/train.py scripts/train_surrogate.py`
     and `git diff --quiet <figure run_metadata commit> HEAD -- src/mosquito_cfd/force_surrogate/evidence_figure.py scripts/make_evidence_figure.py`;
