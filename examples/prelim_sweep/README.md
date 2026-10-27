@@ -234,24 +234,25 @@ does not collide with the dataset build's `run_metadata.json` one level up):
 
 | File | Status | Contents |
 |---|---|---|
-| `surrogate/metrics.json` | **committed** | Per-target / aggregate / per-config RMSE/MAE/R² on the 6 holdout configs + an inference latency/throughput block + a reproducibility block. |
+| `surrogate/metrics.json` | **committed** | Per-target / aggregate / per-config RMSE/MAE/R² on the 6 holdout configs + skill over the phase-only baseline (`phase_baseline_skill`) + per-seed statistics and their ranges over seeds 1234–1238 (`seed_sweep`) + an inference latency/throughput block + a reproducibility block. |
 | `surrogate/holdout_predictions.parquet` | **committed** | Per holdout (config, timestep): `CF_*_true`/`CF_*_pred` — the versioned input to the PR6 figure. |
 | `surrogate/surrogate.pt` | **committed** | The trained checkpoint (state dict + the train-fit standardizer stats). Binary (`*.pt` pinned in `.gitattributes`). |
 | `surrogate/run_metadata.json` | **committed** | Provenance: the dataset corpus's pinned `:fp64` digest, git SHA, host/GPU, seeds, resolved `torch`/`physicsnemo` versions. |
 
 The **normative schemas** for `metrics.json` and the predictions table are the `force-surrogate`
 spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"*,
-*"config_resolved block is present per target"*, and *"Predictions parquet schema"* — none is
-re-listed here to avoid drift.
+*"config_resolved block is present per target"*, and *"Predictions parquet schema"*, plus the
+requirements *"Phase-only baseline skill in metrics.json"* and *"Multi-seed sweep reported by the
+trainer"* — none is re-listed here to avoid drift.
 
-> **Read the `config_resolved` block, not just the aggregate R² (CC-4).** The pointwise aggregate
-> R² (~0.999) is **≥99% the within-beat force waveform** — a smooth periodic shape shared by every
-> config — so it overstates the kinematics→force-*map* skill. `metrics.json` also reports, per
-> target, `config_resolved.config_mean_r2` (R² on the per-config **cycle-mean** — the phase-removed
-> config-to-config skill; strongly seed-dependent for some targets at six holdout configurations —
-see the honest-reading section)
-> and `within_config_variance_fraction` (how waveform-driven the aggregate is). The PR6 figure
-> caption uses the honest config-resolved number, not the aggregate.
+> **Read skill over the phase-only baseline, not just the aggregate R² (CC-4).** The pointwise
+> aggregate R² (~0.999) is **≥99% the within-beat force waveform** — a smooth periodic shape shared
+> by every config — so it overstates the kinematics→force-*map* skill. `metrics.json` reports, per
+> target, `phase_baseline_skill` (how much the surrogate beats the mean training waveform) and
+> `seed_sweep` (its range over five seeds); it also keeps `config_resolved.config_mean_r2` (R² on
+> the per-config **cycle-mean**, strongly seed-dependent for some targets at six holdout
+> configurations) and `within_config_variance_fraction` (how waveform-driven the aggregate is). The
+> PR6 figure reports skill, not the aggregate — see the honest-reading section.
 
 **Training is local — the RTX A5000 (24 GB, FP32/TF32) via WSL2 + `uv`, *not* RunAI.** The GPU
 deps are an opt-in group. Inside WSL2, from the worktree root:
@@ -264,11 +265,14 @@ uv run --frozen --group train python scripts/train_surrogate.py \
     --out-dir examples/prelim_sweep/surrogate \
     --docker-digest "$(python -c 'import json,sys;print(json.load(open("examples/prelim_sweep/run_metadata.json"))["docker_image"])')" \
     --timestamp <iso-8601> \
+    --seed 1234 --sweep-seeds 1235 1236 1237 1238 \
     --device cuda --wandb online        # --wandb defaults to "disabled" (CI/rerun-safe)
 ```
 
-`--wandb online` logs the run to Weights & Biases; the default `disabled` is a no-op (no login
-needed) and `metrics.json` is always written from local state regardless of wandb.
+`--seed` is the committed model; `--sweep-seeds` (default: the four seeds after `--seed`) are
+trained in the same run for `metrics.json`'s `seed_sweep` only, after the primary seed, and change
+none of its outputs. `--wandb online` logs the run to Weights & Biases; the default `disabled` is a
+no-op (no login needed) and `metrics.json` is always written from local state regardless of wandb.
 
 Pass `--group train` on **every** `uv run` (a bare `uv run` re-syncs the default groups and can
 remove torch). Do not export `GIT_DIR`/`GIT_WORK_TREE`: `run_metadata.json`'s git capture already
@@ -281,7 +285,9 @@ the record says `dirty: false`.
 and CI-tested. The GPU run is not *guaranteed* bitwise (`warn_only` determinism, no
 `CUBLAS_WORKSPACE_CONFIG`), so `metrics.json` records `reproducibility.bitwise == "cpu_only"`; on the
 training A5000, three runs at seed 1234 on identical data were nonetheless observed to be
-bitwise-identical (only the wall-clock `inference` timing differed). The model trains in **FP32** (the A5000 path); the
+bitwise-identical (only the wall-clock `inference` timing differed), and the five-seed retrain that
+added `seed_sweep` reproduced the committed checkpoint and predictions byte-for-byte and every
+seed's config-resolved R² in `surrogate/seed_variation.json` exactly. The model trains in **FP32** (the A5000 path); the
 predictions are FP32 and `metrics.json` values are computed in float64 on the inverse-transformed
 predictions (the float32→float64 round-off is ≪ the reported RMSE).
 
@@ -310,7 +316,7 @@ wing-phase hinge-geometry diagnostic) and regeneration commands.
 | File | Status | Contents |
 |---|---|---|
 | `figures/evidence_figure.png` | **committed** | The ≥200-dpi figure (3 predicted-vs-CFD panels, points colored by held-out config with a shared legend, + caption). A snapshot artifact — review it visually, not by byte-diff; its numbers are auditable from the sidecar below. |
-| `figures/evidence_figure_metrics.json` | **committed** | Every number on the figure: per-axis surrogate RMSE, the `quasi_steady_reference` block (overshoot factor + CF_z RMSE), the annotated `config_mean_r2`, the per-config rows-per-wingbeat, and the full speedup decomposition (throughput + latency factors, batch size, parallelism factor). |
+| `figures/evidence_figure_metrics.json` | **committed** | Every number on the figure: per-axis surrogate RMSE, the plotted seed and seed count, per-target skill with its seed range, pointwise and phase-only-baseline R², the skill floor, the `quasi_steady_reference` block (overshoot factor + CF_z RMSE), the per-config rows-per-wingbeat, and the full speedup decomposition (throughput + latency factors, batch size, parallelism factor). |
 | `figures/run_metadata.json` | **committed** | Provenance: the pinned `:fp64` container **digest**, the caller-supplied timestamp, git SHA / host, and the SHA256 of **both** consumed inputs (predictions parquet + `metrics.json`) under `inputs`. |
 
 The figure's metric *numbers* are **not** re-tabulated here (read `evidence_figure_metrics.json` /
@@ -318,22 +324,48 @@ The figure's metric *numbers* are **not** re-tabulated here (read `evidence_figu
 
 ### Honest reading of the figure (CC-4)
 
-The on-figure caption is deliberately **compact** (headline + a terse Caveats line + a terse Baseline
-line + a pointer here); the full discussion lives here so the figure stays legible without losing any
-disclosure:
+The on-figure caption is deliberately **compact** (headline + a terse Caveats line + a terse
+quasi-steady-reference line + a pointer here); the full discussion lives here so the figure stays
+legible without losing any disclosure:
 
 - **Pipeline readiness, not validated aerodynamics.** The corpus is a **coarse 64×32×64** grid. The
   figure proves the data→surrogate→inference pipeline runs end-to-end on local hardware and that the
   PhysicsNeMo stack is usable — it is **not** a validated-aerodynamics claim. This is the deliberately
   reduced "easy" surrogate (roadmap Vision / §9), not the funded DoMINO/latent-dynamics surrogate.
-- **Use the config-resolved skill, not the aggregate — and read it across seeds.** The pointwise
-  aggregate R²≈0.999 is ≥99% the shared within-beat **phase waveform** and overstates the
-  kinematics→force-*map* skill; the figure reports the per-axis **config-resolved** R² of the
-  committed seed-1234 model (CF_x ≈−4.17, CF_z ≈0.98, CF_my ≈0.07). Those are **single-seed**
-  numbers, and with only six holdout configurations they are strongly seed-dependent. Retraining the
-  same data with the same code at seeds 1234–1238 gives (per-seed values, commits and environment in
-  [`surrogate/seed_variation.json`](surrogate/seed_variation.json); only seed 1234 is committed as a
-  model):
+- **What the figure reports: skill over a phase-only baseline.** The pointwise aggregate R²≈0.999
+  is ≥99% the shared within-beat **phase waveform** and overstates the kinematics→force-*map* skill.
+  Each panel therefore leads with **skill = 1 − MSE/MSE₀**, where MSE₀ is the holdout error of a
+  **phase-only baseline**: the mean training waveform (each of the 21 training configurations'
+  converged-beat waveform, interpolated periodically in phase, averaged with equal weight per
+  configuration). The baseline knows the phase but ignores stroke amplitude, frequency and pitch,
+  so skill measures what the surrogate gains from the kinematics: 0 is no better than the baseline,
+  1 is perfect, below 0 is worse. It is pooled over every holdout row, so it also credits predicting
+  how the waveform's amplitude and shape change with the kinematics, not only the cycle-mean force.
+  The baseline alone already scores a high pointwise R² (last column), which is how much of the
+  pointwise R² the shared waveform explains. From `surrogate/metrics.json` (`phase_baseline_skill`,
+  `seed_sweep`; the five seeds are 1234–1238, trained in one run, and only seed 1234 is committed as
+  a model):
+
+  | target | skill, seed 1234 | skill, 5 seeds | phase-only baseline R² |
+  |---|---|---|---|
+  | `CF_x` | 0.988 | 0.988 to 0.992 | 0.955 |
+  | `CF_y` | 0.974 | 0.974 to 0.984 | 0.973 |
+  | `CF_z` | 0.984 | 0.984 to 0.990 | 0.897 |
+  | `CF_mx` | 0.973 | 0.973 to 0.990 | 0.913 |
+  | `CF_my` | 0.977 | 0.970 to 0.984 | 0.944 |
+  | `CF_mz` | 0.983 | 0.983 to 0.991 | 0.961 |
+
+  Every target beats the phase-only baseline at every seed. Five seeds give the spread observed,
+  not a confidence interval. The plotted seed 1234 is the lowest of the five for every target
+  except `CF_my`, so the panels show the low end of each range.
+- **Why config-resolved (cycle-mean) R² left the figure.** Earlier versions of the figure reported
+  the per-axis **config-resolved** R² instead: R² on the per-config cycle-mean, the phase-removed
+  config-to-config skill. With six holdout configurations whose cycle-means barely differ for most
+  targets, it divides by a near-zero spread and swings with the training seed. It stays in
+  `metrics.json` (`config_resolved`); the plotted seed's config-resolved R² is CF_x ≈−4.17,
+  CF_z ≈0.98 and CF_my ≈0.07 on the panels, and CF_mx ≈0.96 and CF_mz ≈−8.45 off them. Retraining
+  the same data with the same code at seeds 1234–1238 gives (per-seed values, commits and
+  environment in [`surrogate/seed_variation.json`](surrogate/seed_variation.json)):
 
   | target | config-resolved R², 5 seeds | before #108 (particle-origin moments), 5 seeds |
   |---|---|---|
@@ -347,7 +379,8 @@ disclosure:
   `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.04), `CF_y` moderately so, and `CF_x`,
   `CF_my` and `CF_mz` not at all; the committed seed-1234 model is a low draw for `CF_x`, `CF_y` and
   `CF_mz`. Since the runs are bitwise-reproducible at a fixed seed, the spread is initialisation,
-  not GPU noise.
+  not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves
+  the per-config average force.
 
   **Reading the two columns.** Under a pre-registered, deliberately conservative rule — a target
   counts as moved only if its two 5-seed ranges are disjoint — no shift is detected. Five seeds a
@@ -357,15 +390,11 @@ disclosure:
   *their* skill comes from training all six jointly in one shared-trunk network, not from the
   moment re-referencing itself.
 
-  The concrete tell that the aggregate is inflated: `CF_x`'s config-resolved R² is **negative**
-  (worse than predicting the per-config mean) for four of the five seeds, even though its pointwise
-  scatter looks visually perfect — the config-to-config error is masked by the shared waveform. The
-  caption names whichever target is most negative for the committed seed, which for seed 1234 is
-  the off-panel `CF_mz`.
-  (Before the `fix-force-surrogate-sweep-hinge` corpus regeneration, it was the **off-panel** `CF_y`
-  that carried this tell, with `CF_x` at ≈0.94; the corrected hinge geometry (#71) flipped which axis shows
-  it — see `figures/README.md` and the `evidence_figure.py::build_caption` fix for why the caption
-  computes this from `metrics.json` rather than assuming one corpus's ranking holds for all others.)
+  The concrete tell that the pointwise aggregate is inflated: `CF_x`'s config-resolved R² is
+  **negative** (worse than predicting the per-config mean) for four of the five seeds, even though
+  its pointwise scatter looks visually perfect — the config-to-config error is masked by the shared
+  waveform. (Earlier captions named whichever target's config-resolved R² was most negative, which
+  moved from `CF_y` to `CF_mz` with the corrected hinge geometry, #71.)
 - **Headline moment = the M_y component, not "pitch moment".** The three plotted axes (`CF_x`, `CF_z`,
   `CF_my`) are **fixed by design** (`PANEL_COEFFICIENTS`, D1), not re-derived per corpus. In the
   pre-fix corpus, `CF_my` happened to be the only moment with genuine config-to-config signal
@@ -376,8 +405,8 @@ disclosure:
   1234: CF_my ≈0.07) and `CF_mz` −8.45 to 0.92 (seed 1234: CF_mz ≈−8.45). `CF_my`'s between-config
   variance fraction is a sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz`
   stay **omitted** from the
-  plotted axes), but the caption discloses the actual current `CF_mx`/`CF_mz` numbers rather than
-  claiming they carry "no between-config signal." CF_my is named the **M_y component** rather than
+  plotted axes), but the caption discloses their skill and seed range rather than claiming they
+  carry "no between-config signal." CF_my is named the **M_y component** rather than
   "pitch moment" because moments are **lab-frame** components about the hinge, not wing-frame
   (biomechanical) moments — see [`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments).
   The wing-frame conversion (`R(t)ᵀM`) is deferred and not currently tracked.
@@ -397,12 +426,13 @@ disclosure:
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
   (≈3.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
-  rate) equals `latency_speedup × parallelism_factor` (~8,550× this run — measured independently from,
+  rate) equals `latency_speedup × parallelism_factor` (~14,620× this run — measured independently from,
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
-  **per-evaluation latency speedup is ~440×** and is reported as the like-for-like floor. It is a
-  single wall-clock timing sample: bitwise-identical reruns measured ~380–470×, and the
-  throughput and parallelism factors are likewise single samples. Both
+  **per-evaluation latency speedup is ~257×** and is reported as the like-for-like floor. It is a
+  single wall-clock timing sample and a noisy one: bitwise-identical runs of the same model have
+  measured ~257–470×, so read it as a few hundred ×, not a precise factor. The throughput and
+  parallelism factors are likewise single samples. Both
   factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.
 
 ### Regenerating

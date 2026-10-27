@@ -1114,6 +1114,9 @@ def test_readme_carries_full_disclosures():
         "not currently tracked" in low
     )  # ...and that the wing-frame conversion is deferred
     assert "cf_mx" in low and "cf_mz" in low  # off-axis exclusion
+    # the skill definition and what it credits beyond the cycle-mean force
+    assert "phase-only baseline" in low and "skill = 1 − mse/mse₀" in low
+    assert "amplitude and shape" in low
     assert "symmetric-rotation" in low
     assert "stroke-plane-normal" in low and "lab-z" in low  # projection caveat
     assert "zero-parameter" in low  # fitted-vs-unfitted
@@ -1196,7 +1199,6 @@ def test_readme_throughput_figures_match_the_committed_sidecar():
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------
 
 
-@pytest.mark.xfail(strict=True, reason="#127: regenerated in C6/C7")
 def test_committed_figure_metrics_matches_committed_inputs():
     """The committed evidence_figure_metrics.json numbers match the committed metrics.json."""
     fig_dir = REPO / "examples" / "prelim_sweep" / "figures"

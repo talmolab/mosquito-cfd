@@ -106,7 +106,6 @@ def test_surrogate_metadata_names_the_committed_dataset():
     assert inputs["hash"] == _sha256(COARSE / "dataset.parquet")
 
 
-@pytest.mark.xfail(strict=True, reason="#127: figure regenerated in C7")
 def test_figure_metadata_names_the_committed_surrogate_outputs():
     """The figure's provenance hashes the committed predictions and metrics it was drawn from."""
     meta = _meta(FIGURES / "run_metadata.json")
@@ -182,8 +181,6 @@ def test_readme_seed_table_is_the_seed_record():
 
 
 # --- Seed sweep and phase-only baseline skill (replace-config-r2-with-baseline-skill) -----
-
-_REGENERATED = "#127: regenerated in C6/C7"
 
 
 def _dataset() -> pd.DataFrame:
@@ -271,7 +268,6 @@ def test_skill_and_config_r2_table_patterns_cannot_cross_match():
         assert not pattern.search(_SKILL_HEADER)
 
 
-@pytest.mark.xfail(strict=True, reason=_REGENERATED)
 def test_readme_skill_table_is_metrics_json():
     """The README's skill table is metrics.json, for all six targets, as the figure prints it."""
     readme = (COARSE / "README.md").read_text(encoding="utf-8")
