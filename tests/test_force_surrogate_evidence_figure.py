@@ -142,7 +142,6 @@ def test_fixture_matches_committed_pr5_schema():
     assert "split" not in toy.columns and "split" not in committed.columns
 
 
-@pytest.mark.xfail(strict=True, reason="#127: regenerated in C6/C7")
 def test_fixture_matches_committed_metrics_schema():
     """Scenario: the key paths the figure reads exist in the committed metrics.json and in the
     toy fixture alike (schema drift guard)."""

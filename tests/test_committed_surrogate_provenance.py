@@ -106,6 +106,7 @@ def test_surrogate_metadata_names_the_committed_dataset():
     assert inputs["hash"] == _sha256(COARSE / "dataset.parquet")
 
 
+@pytest.mark.xfail(strict=True, reason="#127: figure regenerated in C7")
 def test_figure_metadata_names_the_committed_surrogate_outputs():
     """The figure's provenance hashes the committed predictions and metrics it was drawn from."""
     meta = _meta(FIGURES / "run_metadata.json")
@@ -189,7 +190,6 @@ def _dataset() -> pd.DataFrame:
     return filter_converged_beat(pd.read_parquet(COARSE / "dataset.parquet"))
 
 
-@pytest.mark.xfail(strict=True, reason=_REGENERATED)
 def test_committed_seed_sweep_is_internally_consistent():
     """The committed sweep agrees with itself, the run record and the dataset.
 
@@ -222,7 +222,6 @@ def test_committed_seed_sweep_is_internally_consistent():
         assert run["val_configs"] == split.val_configs, run["seed"]
 
 
-@pytest.mark.xfail(strict=True, reason=_REGENERATED)
 def test_committed_phase_baseline_skill_recomputes():
     """phase_baseline_skill recomputed from the committed dataset and predictions matches.
 
