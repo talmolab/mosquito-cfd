@@ -15,9 +15,8 @@ the files they were produced from, unconditionally -- no state passes with a mis
   README's 5-seed table is that record's min/max (coarse only: the record exists only there);
 - the fine README's tables and disclosures agree with the committed JSON and cited sources.
 
-Fine parametrizations are strict-xfailed (``raises=FileNotFoundError/AssertionError``) until their
-artifacts land: surrogate-only checks in C4, figure and README checks in C5 (design D6). The
-README checks live in ``_readme_guards`` and are exercised on synthetic inputs below.
+The README checks live in ``_readme_guards`` and are also exercised on synthetic inputs below,
+so their logic is tested independently of the committed READMEs.
 
 The recorded commits do not survive the squash-merge as ancestors of ``main``; they stay
 resolvable via ``refs/pull/<n>/head``. Branch names are deliberately not pinned, so a later
@@ -67,22 +66,12 @@ FIGURES = COARSE / "figures"
 RESULTS_MD = REPO / "examples" / "flapping_wing" / "RESULTS.md"
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 
-# The fine figure and README do not exist until C5.
-_FINE_FIGURE_PENDING = pytest.mark.xfail(
-    strict=True,
-    raises=(FileNotFoundError, AssertionError),
-    reason="#110: fine figure and README land in C5",
-)
 
-
-def _corpora(fine_mark=()):
-    """Parametrize over both corpora, the fine one carrying ``fine_mark`` (if any)."""
+def _corpora():
+    """Parametrize over both corpora."""
     return pytest.mark.parametrize(
         "corpus",
-        [
-            pytest.param(COARSE, id="coarse"),
-            pytest.param(FINE, id="fine", marks=fine_mark),
-        ],
+        [pytest.param(COARSE, id="coarse"), pytest.param(FINE, id="fine")],
     )
 
 
@@ -106,11 +95,7 @@ def _readme(corpus: Path) -> str:
         pytest.param(COARSE / "run_metadata.json", id="coarse-corpus"),
         pytest.param(FINE / "run_metadata.json", id="fine-corpus"),
         pytest.param(FINE / "surrogate" / "run_metadata.json", id="fine-surrogate"),
-        pytest.param(
-            FINE / "figures" / "run_metadata.json",
-            id="fine-figure",
-            marks=_FINE_FIGURE_PENDING,
-        ),
+        pytest.param(FINE / "figures" / "run_metadata.json", id="fine-figure"),
     ],
 )
 def test_regenerated_records_carry_a_clean_git_commit(record):
@@ -180,7 +165,7 @@ def test_surrogate_trained_with_the_coarse_settings(corpus):
     assert surrogate_image == _meta(corpus / "run_metadata.json")["docker_image"]
 
 
-@_corpora(_FINE_FIGURE_PENDING)
+@_corpora()
 def test_figure_metadata_names_the_committed_surrogate_outputs(corpus):
     """The figure's provenance hashes the committed predictions and metrics it was drawn from,
     and names the grid and CFD cost the sidecar used (absent on the pre-#110 coarse record,
@@ -381,7 +366,7 @@ def test_skill_and_config_r2_table_patterns_cannot_cross_match():
         assert {tuple(cells) for cells in rows.values()} == {(marker[h],) * widths[h]}
 
 
-@_corpora(_FINE_FIGURE_PENDING)
+@_corpora()
 def test_readme_skill_table_is_metrics_json(corpus):
     """The README's skill table is metrics.json, for all six targets, as the figure prints it."""
     readme = _readme(corpus)
@@ -395,7 +380,6 @@ def test_readme_skill_table_is_metrics_json(corpus):
 # --- Fine-only guards (add-fine-corpus-surrogate, design D5/D6) ----------------------------
 
 
-@_FINE_FIGURE_PENDING
 def test_fine_cfd_cost_is_the_recomputed_median():
     """Scenario: The committed fine denominator is the recomputed median."""
     sidecar = _meta(FINE / "figures" / "evidence_figure_metrics.json")
@@ -407,9 +391,10 @@ def test_fine_cfd_cost_is_the_recomputed_median():
         sidecar["speedup"]["cfd_seconds_per_wingbeat"]
         == result["seconds_per_step"] * sidecar["speedup"]["rows_per_wingbeat"]
     )
+    figure_meta = _meta(FINE / "figures" / "run_metadata.json")
+    assert figure_meta["cfd_seconds_per_step"] == result["seconds_per_step"]
 
 
-@_FINE_FIGURE_PENDING
 def test_fine_readme_cycle_mean_table_and_no_config_r2_prose():
     """Scenario: The cycle-mean and skill tables are the fine metrics file; and no `CF_c ≈v`
     prose (checked after the positive table check, so it cannot pass vacuously early)."""
@@ -419,7 +404,6 @@ def test_fine_readme_cycle_mean_table_and_no_config_r2_prose():
     assert R2_NEAR_TARGET.findall(normalized) == []
 
 
-@_FINE_FIGURE_PENDING
 def test_fine_readme_comparison_table_follows_the_overlap_rule():
     """Scenarios: The comparison table is the two metrics files; Only disjoint ranges are
     described as a difference."""
@@ -430,7 +414,6 @@ def test_fine_readme_comparison_table_follows_the_overlap_rule():
     )
 
 
-@_FINE_FIGURE_PENDING
 def test_fine_readme_discloses_validation_status_qs_reference_and_cost():
     """Scenarios: The fine README states what "not validated" means; The fine README discloses
     the quasi-steady reference. Fixed numbers are checked verbatim in their cited source."""
@@ -695,7 +678,7 @@ def test_guards_reject_a_null_range_not_shown_as_na():
 
 def test_guards_raise_assertion_error_on_a_metrics_file_missing_a_key():
     """A metrics.json lacking a key the guards read fails as a content mismatch
-    (AssertionError, inside the xfail ``raises``), not as KeyError."""
+    (AssertionError), not as a KeyError that reads like a coding error."""
     coarse, fine = _synthetic_metrics()
     readme = _synthetic_readme(coarse, fine)
     broken = copy.deepcopy(fine)
@@ -729,6 +712,6 @@ def test_touching_ranges_count_as_overlapping():
 )
 def test_guards_raise_assertion_error_on_a_readme_without_tables(guard):
     """On a README with no tables (like today's fine one) every guard raises AssertionError,
-    never AttributeError/KeyError/IndexError, so the fine xfail markers stay meaningful."""
+    never AttributeError/KeyError/IndexError, so a missing table reads as a content failure."""
     with pytest.raises(AssertionError):
         guard("# Fine\n\nNot yet built.\n")

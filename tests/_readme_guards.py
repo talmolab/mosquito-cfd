@@ -2,11 +2,9 @@
 
 Each helper takes README text plus the parsed JSON it must agree with and signals every content
 failure (missing table, missing row, wrong cell, forbidden wording) with ``AssertionError``, never
-``AttributeError``/``KeyError``/``IndexError``. That keeps the fine-corpus tests inside their
-``xfail(raises=(FileNotFoundError, AssertionError))`` markers until the artifacts land, while a
-genuine coding error still fails (design D6). They are tested on synthetic inputs in
-``test_committed_surrogate_provenance.py``, so their logic is verified before any fine artifact
-exists.
+``AttributeError``/``KeyError``/``IndexError``, so a content mismatch never reads like a coding
+error (design D6). They are tested on synthetic inputs in ``test_committed_surrogate_provenance.py``,
+so their logic is verified independently of the committed READMEs.
 
 Tables are located by their exact header line and read row by row until the table ends, so one
 table's guard can never read another table's rows.

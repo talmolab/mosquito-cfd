@@ -1177,17 +1177,11 @@ def test_readme_config_resolved_r2_matches_committed_metrics():
 
 COARSE_CORPUS = REPO / "examples" / "prelim_sweep"
 FINE_CORPUS = REPO / "examples" / "prelim_sweep_fine"
-# The fine figure and README land in C5 of add-fine-corpus-surrogate (#110, design D6).
-_FINE_FIGURE_PENDING = pytest.mark.xfail(
-    strict=True,
-    raises=(FileNotFoundError, AssertionError),
-    reason="#110: fine figure and README land in C5",
-)
 _CORPORA = pytest.mark.parametrize(
     "corpus",
     [
         pytest.param(COARSE_CORPUS, id="coarse"),
-        pytest.param(FINE_CORPUS, id="fine", marks=_FINE_FIGURE_PENDING),
+        pytest.param(FINE_CORPUS, id="fine"),
     ],
 )
 

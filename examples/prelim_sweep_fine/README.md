@@ -16,9 +16,169 @@ enabled** — this corpus produces AMReX plotfiles, not just force CSVs.
 | `run_metadata_<config>.json` | Per-config run-observed metadata (27 files) — see "Run-observed metadata" below. |
 | `dataset.parquet` / `dataset.units.json` / `run_metadata.json` | The extracted force dataset and its build provenance — same schema and conventions as the coarse corpus's (see its README's "Dataset" section). |
 | `generate_full_corpus.py` | Thin driver over `mosquito_cfd.force_surrogate.sweep.generate_sweep()`. |
+| `surrogate/` | The force surrogate trained on this corpus (#110): `surrogate.pt` (seed 1234), `holdout_predictions.parquet`, `metrics.json` (with `phase_baseline_skill` and the 5-seed `seed_sweep`), `run_metadata.json`. Same trainer, flags and file layout as the coarse corpus's `surrogate/`. |
+| `figures/` | The evidence figure: `evidence_figure.png`, `evidence_figure_metrics.json` (every number on the figure), `run_metadata.json` (provenance, including the grid profile and the CFD cost per step). There is no separate `figures/README.md`; this file covers it. |
 
-**Not yet built:** unlike the coarse corpus, this corpus has no `surrogate/` or `figures/` yet —
-training the force surrogate on the fine-grid data and producing an evidence figure is future work.
+The surrogate and its figure are described in [Surrogate and evidence figure](#surrogate-and-evidence-figure)
+below.
+
+## Surrogate and evidence figure
+
+The surrogate is the coarse corpus's, retrained here with no functional change: the same trainer
+(`scripts/train_surrogate.py`), the same flags (2000 epochs, primary seed 1234, sweep seeds
+1235–1238, 3 validation configurations) and the same holdout split; only the dataset differs. The
+figure comes from the same generator with its `fine` grid profile. Background that is the same for
+both corpora is in the coarse README's
+[honest reading of the figure](../prelim_sweep/README.md#honest-reading-of-the-figure-cc-4) and is
+not repeated here.
+
+### What the figure reports: skill over the phase-only baseline
+
+Each panel leads with **skill = 1 − MSE/MSE₀**, where MSE₀ is the holdout error of the
+**phase-only baseline**: the mean training waveform of this corpus's 21 training configurations,
+which knows the phase but ignores stroke amplitude, frequency and pitch. 0 is no better than the
+baseline, 1 is perfect, below 0 is worse. Pooled over every holdout row, skill also credits
+predicting how the waveform's amplitude and shape change with the kinematics, not only the
+cycle-mean force. The baseline alone already scores a high pointwise R² (last column), which is how
+much of the surrogate's pointwise R² the shared waveform explains. From `surrogate/metrics.json`
+(the five seeds are trained in one run; only seed 1234 is committed as a model):
+
+| target | skill, seed 1234 | skill, 5 seeds | phase-only baseline R² |
+|---|---|---|---|
+| `CF_x` | 0.990 | 0.990 to 0.996 | 0.933 |
+| `CF_y` | 0.980 | 0.980 to 0.994 | 0.942 |
+| `CF_z` | 0.977 | 0.977 to 0.991 | 0.907 |
+| `CF_mx` | 0.968 | 0.968 to 0.993 | 0.925 |
+| `CF_my` | 0.985 | 0.975 to 0.986 | 0.944 |
+| `CF_mz` | 0.987 | 0.987 to 0.995 | 0.940 |
+
+Every target beats the phase-only baseline at every seed. Five seeds give the spread observed, not
+a confidence interval. The plotted seed 1234 is the lowest of the five for every target except
+`CF_my`, so the panels show the low end of each range. The panels plot `CF_x`, `CF_z` and `CF_my`;
+`CF_mx` and `CF_mz` are left off the panels by design (the panel set is fixed, not chosen per
+corpus) and their skill is given in the table above and in the caption. Moments are **lab-frame**
+components about the hinge, so `CF_my` is labelled the M_y component, not a wing-frame moment; the
+wing-frame conversion is deferred, not currently tracked
+([`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments)).
+
+### Config-resolved (cycle-mean) R², 5 seeds
+
+R² over the six holdout configurations' cycle means, the phase-removed config-to-config measure. It
+is off the figure for the reason given in the coarse README: for several targets it divides by a
+near-zero spread of six cycle means and swings with the seed. It stays in `metrics.json`
+(`config_resolved`, and `seed_sweep.range.<c>.config_mean_r2`):
+
+| target | cycle-mean R², 5 seeds |
+|---|---|
+| `CF_x` | −7.21 to 0.80 |
+| `CF_y` | 0.97 to 0.99 |
+| `CF_z` | 0.97 to 1.00 |
+| `CF_mx` | 0.94 to 1.00 |
+| `CF_my` | −0.20 to 0.86 |
+| `CF_mz` | −20.75 to 0.80 |
+
+On this corpus `CF_y`, `CF_z` and `CF_mx` are robust to the seed and `CF_x`, `CF_my` and `CF_mz` are
+not; only for the first three does the record support saying the surrogate resolves the per-config
+average force.
+
+### Coarse vs fine
+
+The same 5-seed skill ranges for both corpora, each read from its own committed `metrics.json`:
+
+| target | skill, 5 seeds, coarse | skill, 5 seeds, fine | ranges overlap |
+|---|---|---|---|
+| `CF_x` | 0.988 to 0.992 | 0.990 to 0.996 | yes |
+| `CF_y` | 0.974 to 0.984 | 0.980 to 0.994 | yes |
+| `CF_z` | 0.984 to 0.990 | 0.977 to 0.991 | yes |
+| `CF_mx` | 0.973 to 0.990 | 0.968 to 0.993 | yes |
+| `CF_my` | 0.970 to 0.984 | 0.975 to 0.986 | yes |
+| `CF_mz` | 0.983 to 0.991 | 0.987 to 0.995 | yes |
+
+The rule was fixed before the fine run: a target counts as moved only if its two 5-seed ranges are
+disjoint (computed on the unrounded values; touching ranges count as overlapping). Every pair
+overlaps, so for all six targets: no shift detected. Five seeds a side cannot rule out a difference
+as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
+difference would reflect the CFD data as well as the surrogate; this table is not a measurement of
+the effect of grid resolution on its own.
+
+### Quasi-steady reference
+
+The caption gives the ratio of an uncalibrated, translational-only Sane–Dickinson quasi-steady
+model to the fine-grid CFD lift: ~1.4× in RMS (`quasi_steady_reference.overshoot_factor` in
+`figures/evidence_figure_metrics.json`). The model omits rotational, added-mass and LEV lift, uses a
+symmetric-rotation angle of attack, and defines lift stroke-plane-normal while the CFD `CF_z` is the
+lab-z force, so it is reported as a reference number and not overlaid on the figure. The model itself
+is described in the coarse README.
+
+### Validation status of the fine CFD
+
+The caption says the figure shows agreement with CFD, not with experiment. The surrogate is scored
+against this corpus's CFD; nothing here compares the CFD with measured forces. What has been checked
+about the fine-grid CFD, all in [`examples/flapping_wing/RESULTS.md`](../flapping_wing/RESULTS.md):
+
+- **Grid convergence was checked at one wing motion, outside this sweep:** the 70° validation
+  stroke (this sweep's stroke amplitudes are 35–55°), on the A5000 at `dt` 2.5e-4 rather than this
+  corpus's 5e-4, and on peak body-frame forces only. The three-grid study (T3c, PR #52) gives
+  GCI_fine 3.7 % for `CF_normal` and 27.6 % for `CF_chord`. No moment and no lab-frame time series
+  was grid-checked.
+- **Comparison with a model, not a measurement** (T4): `CF_normal 2.23 vs model 2.48` and
+  `CF_chord 0.41 vs model 0.43` against van Veen's quasi-steady force model at that same point.
+- **This sweep's 27 runs** passed only the acceptance gate's internal checks (CFL, row counts, CC-F1,
+  beat symmetry; see below), not a comparison with any reference.
+
+### Speedup
+
+The headline (≈1.1×10⁸×) is batched GPU throughput (`inference.throughput_rows_per_s`) divided by
+the **sequential** fine-grid A40 CFD rate, and equals the latency speedup times the parallelism
+factor (~7,510× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
+which a CFD time integration cannot do). The like-for-like per-evaluation latency speedup is
+~14,893×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`.
+
+The CFD cost is per step: each dataset row is one CFD timestep, so the figure divides by the CFD's
+wall-clock time per step, the median over this corpus's 27 runs, 2.14 s per step
+(`scripts/cfd_seconds_per_step.py`). A wingbeat takes `1/(f*·dt)` steps, so a per-wingbeat time
+would depend on the kinematics while the per-step time does not. That wall time includes plotfile
+output (field capture every 100 steps) and solver start-up; the force-only rate measured in the fine
+pilot is in [`docs/force_surrogate/fine-grid-pilot-report.md`](../../docs/force_surrogate/fine-grid-pilot-report.md)
+(~2.01 s/step, on the pre-hinge-fix geometry). The coarse figure's denominator is not like-for-like
+with this one: it is a fixed 144 s per wingbeat, the rounded 2.4 min (146 seconds) of a single A40
+run of the 70° validation deck, which also wrote plotfiles (`examples/flapping_wing/RESULTS.md`,
+Performance), whereas this one is the median per-step time over the sweep's own runs.
+
+The `docker_image` recorded in `surrogate/run_metadata.json` and `figures/run_metadata.json` is the
+image that produced this corpus's CFD data (the same digest as `run_metadata.json`); training ran
+in a uv environment under WSL2 on a local RTX A5000, not in that container.
+
+### Regenerating
+
+```bash
+# 1. Train (WSL2, local A5000; from a clean, committed tree; see scripts/train_surrogate.py)
+export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/mosquito-cfd-train"
+uv sync --frozen --group train
+uv run --frozen --group train python scripts/train_surrogate.py \
+    --dataset examples/prelim_sweep_fine/dataset.parquet \
+    --out-dir <scratch>/surrogate \
+    --docker-digest "$(python -c 'import json;print(json.load(open("examples/prelim_sweep_fine/run_metadata.json"))["docker_image"])')" \
+    --timestamp <iso-8601-utc> \
+    --seed 1234 --sweep-seeds 1235 1236 1237 1238 \
+    --epochs 2000 --n-val-configs 3 --device cuda --wandb disabled
+
+# 2. The CFD cost per step
+uv run --frozen python scripts/cfd_seconds_per_step.py --metadata-dir examples/prelim_sweep_fine
+
+# 3. The figure (from a clean tree, after copying the surrogate in)
+uv run --frozen --group viz python scripts/make_evidence_figure.py \
+    --predictions examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet \
+    --metrics examples/prelim_sweep_fine/surrogate/metrics.json \
+    --grid fine --cfd-seconds-per-step <printed by step 2> \
+    --docker-digest <same digest as step 1> --timestamp <iso-8601-utc> \
+    --out-dir examples/prelim_sweep_fine/figures
+```
+
+The committed surrogate was trained twice from the same commit before it was committed: the
+checkpoint and predictions were byte-identical and `metrics.json` differed only in its wall-clock
+inference timing (an observed outcome on that host, not a bitwise-reproducibility claim;
+`reproducibility.bitwise` stays `cpu_only`).
 
 ## Field capture (CC-F1)
 
