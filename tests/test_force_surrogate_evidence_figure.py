@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from _readme_guards import R2_NEAR_TARGET
+from _readme_guards import R2_NEAR_TARGET, format_power_of_ten
 
 import mosquito_cfd.force_surrogate as fsurr
 from mosquito_cfd.force_surrogate import (
@@ -40,7 +40,6 @@ from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
 from mosquito_cfd.force_surrogate.evidence_figure import (
     GRID_PROFILES,
     _baseline_reference,
-    format_power_of_ten,
 )
 
 TARGETS = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
@@ -1365,6 +1364,21 @@ def test_fine_caption_names_the_fine_grid_and_nothing_coarse():
     for absent in ("coarse", "64x32x64", "pipeline readiness", "at this resolution"):
         assert absent not in low, absent
     assert "not used as a quantitative baseline." in low
+
+
+def test_build_caption_rejects_a_cost_that_does_not_fit_the_label():
+    """The fine label over the coarse 144 s, or the coarse label over another cost, raises."""
+    m = _toy_metrics()
+    coarse_cost = compute_speedup(m["inference"], rows_per_wingbeat=2000)
+    fine_cost = compute_speedup(
+        m["inference"], rows_per_wingbeat=2000, cfd_seconds_per_wingbeat=4375.0
+    )
+    with pytest.raises(ValueError, match="coarse"):
+        build_caption(m, coarse_cost, _TOY_BASELINE, grid="fine")
+    with pytest.raises(ValueError, match="fixed CFD cost"):
+        build_caption(m, fine_cost, _TOY_BASELINE, grid="coarse")
+    with pytest.raises(ValueError, match="unknown grid"):
+        build_caption(m, coarse_cost, _TOY_BASELINE, grid="medium")
 
 
 def test_baseline_reference_note_names_the_grid():

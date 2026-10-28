@@ -40,9 +40,13 @@ _COMPARATIVE = re.compile(r"(?i)\b(higher|lower) on fine\b")
 # One target per sentence: `[^.\n]` stops at the sentence end, so two comparative sentences on
 # one line are two matches, each naming its own target.
 _COMPARATIVE_FORM = re.compile(
-    r"`(CF_\w+)`[^.\n`]*\b(?:higher|lower) on fine across 5 seeds"
+    r"`(CF_\w+)`[^.\n`]*\b(higher|lower) on fine across 5 seeds"
 )
-_BANNED = re.compile(r"(?i)\b(improv\w*|better|worse|increas\w*|decreas\w*|drop\w*)\b")
+_BANNED = re.compile(
+    r"(?i)\b(improv\w*|better|worse|increas\w*|decreas\w*|drop\w*|greater|less|"
+    r"exceed\w*|outperform\w*|rise[sn]?|rising|fall(?:s|en|ing)?|gain\w*)\b"
+)
+_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
 _DENOMINATOR_RATIO = re.compile(
     r"(?i)(\d+(\.\d+)?\s*[×x]\s*(the\s+)?(coarse|slower)|times\s+(the\s+)?coarse)"
 )
@@ -57,8 +61,8 @@ def parse_table(readme: str, header: str) -> dict[str, list[str]]:
         if not line.startswith("|"):
             break
         cells = [c.strip() for c in line.strip("|").split("|")]
-        if set(cells[0]) <= {"-", ":", " "}:
-            continue  # the |---| separator
+        if cells[0] and set(cells[0]) <= {"-", ":"}:
+            continue  # the |---| separator (an empty first cell is a row, and fails below)
         match = _TARGET_CELL.match(cells[0])
         assert match, (
             f"row {line!r} under {header!r} does not start with a `CF_` target"
@@ -79,6 +83,7 @@ def _get(node: Any, *keys: str) -> Any:
 
 
 def _range_cell(rng: dict[str, Any] | None, fmt) -> str:
+    assert rng is None or isinstance(rng, dict), f"range is not an object: {rng!r}"
     if rng is None or rng.get("min") is None or rng.get("max") is None:
         return "n/a"
     return f"{fmt(rng['min'])} to {fmt(rng['max'])}"
@@ -95,9 +100,9 @@ def check_skill_table(readme: str, metrics: dict[str, Any]) -> None:
         skill = _get(metrics, "phase_baseline_skill", "per_target", c)
         rng = _get(metrics, "seed_sweep", "range", c, "skill")
         expected = [
-            format_metric(skill["skill"]),
+            format_metric(_get(skill, "skill")),
             _range_cell(rng, format_metric),
-            format_metric(skill["phase_baseline_r2"]),
+            format_metric(_get(skill, "phase_baseline_r2")),
         ]
         assert cells == expected, (c, cells, expected)
 
@@ -110,6 +115,20 @@ def check_cycle_mean_table(readme: str, metrics: dict[str, Any]) -> None:
         assert cells == [_range_cell(rng, _two_dp)], (c, cells)
 
 
+def format_power_of_ten(value: float) -> str:
+    """Render a large factor as the READMEs write it, e.g. ``≈3.8×10⁶×``.
+
+    The mantissa is rounded to one decimal place first, so 9.96e5 renders ``≈1.0×10⁶×``, not
+    ``≈10.0×10⁵×``.
+    """
+    assert isinstance(value, float) and math.isfinite(value) and value > 0, value
+    exponent = math.floor(math.log10(value))
+    mantissa = round(value / 10**exponent, 1)
+    if mantissa >= 10:
+        mantissa, exponent = round(mantissa / 10, 1), exponent + 1
+    return f"≈{mantissa:.1f}×10{str(exponent).translate(_SUPERSCRIPT)}×"
+
+
 def overlap_cell(coarse: dict[str, Any] | None, fine: dict[str, Any] | None) -> str:
     """``yes``/``no`` on the raw values (touching counts as overlapping); ``n/a`` if null."""
     ends = [r.get(k) if r else None for r in (coarse, fine) for k in ("min", "max")]
@@ -119,24 +138,27 @@ def overlap_cell(coarse: dict[str, Any] | None, fine: dict[str, Any] | None) -> 
     return "yes" if max(lo_c, lo_f) <= min(hi_c, hi_f) else "no"
 
 
-def _section(readme: str, heading_text: str) -> str:
+def _headings(lines: list[str]) -> list[tuple[int, int]]:
+    """``(line index, level)`` of each markdown heading, skipping fenced code blocks."""
+    out, fenced = [], False
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            fenced = not fenced
+        elif not fenced and stripped.startswith("#"):
+            out.append((i, len(stripped) - len(stripped.lstrip("#"))))
+    return out
+
+
+def _section(readme: str, heading_text: str) -> tuple[str, str]:
+    """The section under the first heading containing ``heading_text``, and the rest."""
     lines = readme.splitlines()
-    starts = [
-        i
-        for i, line in enumerate(lines)
-        if line.lstrip().startswith("#") and heading_text in line
-    ]
+    headings = _headings(lines)
+    starts = [(i, lvl) for i, lvl in headings if heading_text in lines[i]]
     assert starts, f"README has no heading containing {heading_text!r}"
-    start = starts[0]
-    level = len(lines[start].lstrip()) - len(lines[start].lstrip().lstrip("#"))
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        stripped = lines[i].lstrip()
-        if stripped.startswith("#"):
-            if len(stripped) - len(stripped.lstrip("#")) <= level:
-                end = i
-                break
-    return "\n".join(lines[start:end])
+    start, level = starts[0]
+    end = next((i for i, lvl in headings if i > start and lvl <= level), len(lines))
+    return "\n".join(lines[start:end]), "\n".join(lines[:start] + lines[end:])
 
 
 def check_comparison_table(
@@ -144,7 +166,7 @@ def check_comparison_table(
 ) -> None:
     """The coarse-vs-fine table and its prose follow the pre-registered overlap rule."""
     rows = parse_table(readme, COMPARISON_HEADER)
-    disjoint = set()
+    direction: dict[str, str] = {}
     for c, cells in rows.items():
         rc = _get(coarse, "seed_sweep", "range", c, "skill")
         rf = _get(fine, "seed_sweep", "range", c, "skill")
@@ -155,18 +177,21 @@ def check_comparison_table(
         ]
         assert cells == expected, (c, cells, expected)
         if expected[2] == "no":
-            disjoint.add(c)
-    section = _section(readme, COMPARISON_HEADING)
+            direction[c] = "lower" if rf["max"] < rc["min"] else "higher"
+    section, rest = _section(readme, COMPARISON_HEADING)
     assert COMPARISON_HEADER in section, "comparison table is outside its section"
+    outside = _COMPARATIVE.findall(rest)
+    assert not outside, f"higher/lower-on-fine wording outside its section: {outside}"
     comparatives = _COMPARATIVE.findall(section)
     forms = _COMPARATIVE_FORM.findall(section)
     assert len(forms) == len(comparatives), (
         f"{len(comparatives)} higher/lower-on-fine phrases but {len(forms)} in the allowed "
         "form (one `CF_c` target per sentence, '... on fine across 5 seeds')"
     )
-    named = set(forms)
-    assert named == disjoint, (
-        f"prose calls {sorted(named)} higher/lower on fine; disjoint: {sorted(disjoint)}"
+    named = dict(forms)
+    assert len(named) == len(forms), f"a target is described twice: {forms}"
+    assert named == direction, (
+        f"prose says {named}; the disjoint ranges say {direction}"
     )
     banned = _BANNED.findall(section)
     assert not banned, f"comparative wording outside the rule: {banned}"
@@ -239,6 +264,7 @@ def check_fine_qs_disclosure(readme: str, sidecar: dict[str, Any]) -> None:
 def check_fine_denominator(readme: str, sidecar: dict[str, Any]) -> None:
     """The fine CFD cost is stated as the sidecar value, and no coarse/fine ratio is stated."""
     seconds = _get(sidecar, "speedup", "cfd_seconds_per_wingbeat")
-    assert f"{round(seconds):,} s" in readme, f"README lacks '{round(seconds):,} s'"
+    stated = re.compile(rf"(?<![\d,.]){re.escape(f'{round(seconds):,}')} s\b")
+    assert stated.search(readme), f"README lacks '{round(seconds):,} s'"
     ratio = _DENOMINATOR_RATIO.search(readme)
     assert ratio is None, f"README states a denominator ratio: {ratio.group(0)!r}"

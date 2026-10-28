@@ -130,7 +130,6 @@ GRID_PROFILES: dict[str, GridProfile] = {
     p.name: p for p in (COARSE_PROFILE, FINE_PROFILE)
 }
 
-_SUPERSCRIPT = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
 _CONFIG_RE = re.compile(r"^s(\d+)_f(\d+)_p(\d+)$")
 _BATCH_RE = re.compile(r"passes of (\d+) rows")
 
@@ -441,19 +440,6 @@ def resolve_grid(
     return profile, float(seconds)
 
 
-def format_power_of_ten(value: float) -> str:
-    """Render a large factor as the README writes it, e.g. ``≈3.8×10⁶×``.
-
-    The mantissa is rounded to one decimal place first, so 9.96e5 renders ``≈1.0×10⁶×``, not
-    ``≈10.0×10⁵×``.
-    """
-    exponent = int(np.floor(np.log10(value)))
-    mantissa = round(value / 10**exponent, 1)
-    if mantissa >= 10:
-        mantissa, exponent = round(mantissa / 10, 1), exponent + 1
-    return f"≈{mantissa:.1f}×10{str(exponent).translate(_SUPERSCRIPT)}×"
-
-
 def compute_speedup(
     inference: dict[str, Any],
     rows_per_wingbeat: int,
@@ -559,9 +545,18 @@ def build_caption(
 
     Raises:
         KeyError: If ``seed_sweep``, ``phase_baseline_skill`` or a target's entry is missing.
-        ValueError: If ``grid`` is unknown.
+        ValueError: If ``grid`` is unknown, or the speedup's CFD cost does not fit the
+            profile's label (see :func:`resolve_grid`; the fine label over the coarse 144 s
+            is rejected too).
     """
-    profile = _profile(grid)
+    profile, _ = resolve_grid(grid, speedup["cfd_seconds_per_wingbeat"])
+    if profile.cfd_seconds_per_wingbeat is None and (
+        speedup["cfd_seconds_per_wingbeat"] == CFD_SECONDS_PER_WINGBEAT
+    ):
+        raise ValueError(
+            f"grid {grid!r} caption over the coarse {CFD_SECONDS_PER_WINGBEAT} s/wingbeat "
+            "cost; pass this grid's own CFD cost to compute_speedup"
+        )
     sweep = _seed_sweep(metrics)
     seed = _require(sweep, "primary_seed", "seed_sweep.primary_seed")
     k = _seed_count(metrics)

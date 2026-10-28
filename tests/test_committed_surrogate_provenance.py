@@ -410,6 +410,8 @@ def test_fine_cfd_cost_is_the_recomputed_median():
     sidecar = _meta(FINE / "figures" / "evidence_figure_metrics.json")
     result = median_cfd_seconds_per_wingbeat(sorted(FINE.glob("run_metadata_*.json")))
     assert result["n_configs"] == 27
+    # the fine caption names "fine-grid A40 CFD": the cost must come from A40 runs
+    assert result["gpu_model"] == "NVIDIA A40"
     assert (
         sidecar["speedup"]["cfd_seconds_per_wingbeat"] == result["seconds_per_wingbeat"]
     )
@@ -623,6 +625,26 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "denominator ratio stated": _replace_once(
             good, "per wingbeat and", "per wingbeat (30× the coarse) and"
         ),
+        "disjoint target given the wrong direction": _replace_once(
+            good,
+            "`CF_x` skill is lower on fine across 5 seeds",
+            "`CF_x` skill is higher on fine across 5 seeds",
+        ),
+        "comparative outside its section": _replace_once(
+            good, "# Fine\n", "# Fine\n\n`CF_x` is lower on fine across 5 seeds.\n"
+        ),
+        "banned word greater": _replace_once(
+            good, "For every other", "`CF_y` skill is greater. For every other"
+        ),
+        "denominator superstring": _replace_once(good, "4,375 s", "14,375 s"),
+        "prose after a code-fence comment": _replace_once(
+            good,
+            "\n\n## Regenerating",
+            "\n\n```bash\n# regenerate the table\n```\n\nSkill improves.\n\n## Regenerating",
+        ),
+        "row with an empty target cell": _replace_once(
+            good, cmp_y + "\n", cmp_y + "\n|  | 0.9 | 0.9 | yes |\n"
+        ),
     }
 
 
@@ -650,6 +672,12 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "QS nature missing",
         "denominator differs",
         "denominator ratio stated",
+        "disjoint target given the wrong direction",
+        "comparative outside its section",
+        "banned word greater",
+        "denominator superstring",
+        "prose after a code-fence comment",
+        "row with an empty target cell",
     ],
 )
 def test_guards_reject_each_defect_with_assertion_error(defect):
@@ -667,6 +695,21 @@ def test_guards_reject_a_null_range_not_shown_as_na():
     with pytest.raises(AssertionError):
         check_comparison_table(good, coarse, fine_null)
     assert overlap_cell(coarse["seed_sweep"]["range"]["CF_y"]["skill"], None) == "n/a"
+
+
+def test_guards_raise_assertion_error_on_a_metrics_file_missing_a_key():
+    """A metrics.json lacking a key the guards read fails as a content mismatch
+    (AssertionError, inside the xfail ``raises``), not as KeyError."""
+    coarse, fine = _synthetic_metrics()
+    readme = _synthetic_readme(coarse, fine)
+    broken = copy.deepcopy(fine)
+    del broken["phase_baseline_skill"]["per_target"]["CF_mz"]["phase_baseline_r2"]
+    with pytest.raises(AssertionError, match="phase_baseline_r2"):
+        check_skill_table(readme, broken)
+    broken = copy.deepcopy(fine)
+    broken["seed_sweep"]["range"]["CF_y"]["skill"] = [0.9, 0.95]
+    with pytest.raises(AssertionError, match="not an object"):
+        check_comparison_table(readme, coarse, broken)
 
 
 def test_touching_ranges_count_as_overlapping():
