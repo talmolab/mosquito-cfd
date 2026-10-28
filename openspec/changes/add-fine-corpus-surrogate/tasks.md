@@ -70,7 +70,7 @@ commit (tasks 24–25).
        inf;
      - a duplicate `config`;
      - two GPU models.
-   - **Script:** `scripts/cfd_seconds_per_wingbeat.py --metadata-dir <tmp>` (via `sys.executable`)
+   - **Script:** `scripts/cfd_seconds_per_step.py --metadata-dir <tmp>` (via `sys.executable`)
      prints a value with `float(stdout.strip()) == helper(...)`, with a corpus-level
      `run_metadata.json` lacking `timing` present in the directory.
 2. [ ] Implement `src/mosquito_cfd/force_surrogate/cfd_cost.py` and the script (Google docstrings).
@@ -201,6 +201,18 @@ commit (tasks 24–25).
      and record kills.
    - Ruff. `git diff --exit-code uv.lock`. Commit C3. `git status --porcelain` empty.
 
+## 4b. Pre-GPU code review and the per-step CFD cost (before task 10)
+
+9a. [ ] `/code-review` (high) of C1–C3: 10 findings. Fix 9 (one, the duplicated speedup/QS
+    computation in `generate_evidence_figure`, predates this change and is left), each fix
+    confirmed by reverting it as a mutation (10/10). Commit `58ee8fb`.
+9b. [ ] At the pre-GPU checkpoint the user chose a **per-step** fine CFD cost (review finding: the
+    per-wingbeat median pooled f* levels). Tests first: `median_cfd_seconds_per_step`, `--grid fine
+    --cfd-seconds-per-step`, `cfd_seconds_per_wingbeat = s × representative rows`, figure
+    `run_metadata` `cfd_seconds_per_step`, README states "x.xx s per step". Mutation-test
+    (21/21). Re-check the coarse PNG and sidecar byte-identical. Update proposal (`Why N instead
+    of M?`), design D2/D3, spec. Commit before the GPU run.
+
 ## 5. Fine training, OPERATOR-RUN (WSL2 + local A5000), NOT CI-GATED, C4
 
 > **Human checkpoint before the GPU run.** First run a local code review of C1–C3 (`/code-review`)
@@ -241,12 +253,12 @@ commit (tasks 24–25).
 ## 6. Fine figure and README, C5
 
 15. [ ] Preconditions: `git status --porcelain` empty, and HEAD == C4 (or C4′).
-    - `uv run --frozen python scripts/cfd_seconds_per_wingbeat.py --metadata-dir examples/prelim_sweep_fine`
+    - `uv run --frozen python scripts/cfd_seconds_per_step.py --metadata-dir examples/prelim_sweep_fine`
       gives `S`.
     - Generate the figure into a scratch dir:
       `uv run --frozen --group viz python scripts/make_evidence_figure.py --predictions
       examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet --metrics
-      examples/prelim_sweep_fine/surrogate/metrics.json --grid fine --cfd-seconds-per-wingbeat S
+      examples/prelim_sweep_fine/surrogate/metrics.json --grid fine --cfd-seconds-per-step S
       --docker-digest <fine digest> --timestamp <utc> --out-dir <scratch>`.
     - Inspect the PNG visually: caption legible, no clipped text, fine caveat present.
     - Copy it in; `git ls-files` shows the three figure files tracked once added. This happens

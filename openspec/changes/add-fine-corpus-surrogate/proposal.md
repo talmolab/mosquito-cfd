@@ -27,11 +27,11 @@ blocked on #127, which merged as PR #128.
     once by hand (PNG) and permanently in CI (sidecar).
   - The fine caveat says the figure shows agreement with CFD, not with experiment, and that grid
     convergence was checked only at one wing motion outside this sweep (exact text in D2).
-- **Fine CFD cost** (D3). New torch-free `median_cfd_seconds_per_wingbeat()` takes the median per-wingbeat
+- **Fine CFD cost** (D3). New torch-free `median_cfd_seconds_per_step()` takes the median per-step
   wall time over the 27 committed fine `run_metadata_<config>.json` files, and
-  `scripts/cfd_seconds_per_wingbeat.py` prints it.
-  - `scripts/make_evidence_figure.py` gains `--grid` and `--cfd-seconds-per-wingbeat` (required for
-    `fine`; must be 144 for `coarse`).
+  `scripts/cfd_seconds_per_step.py` prints it.
+  - `scripts/make_evidence_figure.py` gains `--grid` and `--cfd-seconds-per-step` (required for
+    `fine`; refused for `coarse`, whose cost stays fixed at 144 s per wingbeat).
   - CI recomputes the committed value.
   - The README discloses that the coarse and fine denominators are not like-for-like.
 - **Fine evidence figure** in `examples/prelim_sweep_fine/figures/`.
@@ -61,8 +61,8 @@ blocked on #127, which merged as PR #128.
 
 ### What does NOT change
 
-- The trainer's behaviour, model, features, split rule, hyperparameters, seeds and metrics schema;
-  `phase_baseline.py`.
+- The trainer's behaviour, model, features, split rule, hyperparameters, seeds and metrics schema,
+  including the phase-only baseline (`train.build_phase_only_baseline`).
 - Both corpora and the extractor. No coarse artifact is recommitted (`examples/prelim_sweep/**`),
   and the coarse README is unchanged.
 - The figure's panel set, its annotation formatting, its sidecar key set, and its scope guard (still
@@ -89,7 +89,7 @@ blocked on #127, which merged as PR #128.
   - `src/mosquito_cfd/force_surrogate/evidence_figure.py`;
   - new `src/mosquito_cfd/force_surrogate/cfd_cost.py`;
   - `scripts/make_evidence_figure.py`;
-  - new `scripts/cfd_seconds_per_wingbeat.py`;
+  - new `scripts/cfd_seconds_per_step.py`;
   - docstrings only in `train.py` and `scripts/train_surrogate.py`.
 - **Tests:**
   - `tests/test_force_surrogate_evidence_figure.py`;
@@ -125,6 +125,29 @@ blocked on #127, which merged as PR #128.
   code justifies regenerating the figure and pushing a second PNG blob, reported in the PR. Any
   non-blocking figure-code finding goes to a follow-up issue, and the committed figure stays
   consistent with its committed code.
+
+### Why N instead of M?
+
+Deviations found before the GPU run, each reconciled into design and spec:
+
+- **The fine CFD cost is a median per step, not per wingbeat.** Per-wingbeat time scales with
+  1/f*, so the approved median over per-wingbeat times pooled three f* levels and matched the
+  representative f*=1.0 config only by chance. The pre-GPU code review found it; the user chose
+  per step. The CLI flag is `--cfd-seconds-per-step`, the script `cfd_seconds_per_step.py`, and the
+  sidecar's `cfd_seconds_per_wingbeat` is derived (per-step cost × representative rows), so its
+  key set and the coarse figure are unchanged (coarse PNG and sidecar re-checked byte-identical).
+- **`build_caption` checks the cost against the label.** The review showed the public caption
+  builder could print the fine label over the coarse cost.
+- **`format_power_of_ten` lives in `tests/_readme_guards.py`**, not the shipped module: only the
+  README tests use it.
+- **The fine README's disclosure checks are a separate test** in
+  `test_committed_surrogate_provenance.py` built on the shared guard helpers, not a parametrization
+  of `test_readme_carries_full_disclosures`, whose coarse strings stay as they are.
+- **The guards check direction and comparatives README-wide**, the denominator with number
+  boundaries, sections skip fenced code, and every content failure is an `AssertionError`: all from
+  the pre-GPU review, each fix confirmed by reverting it as a mutation.
+- **No `phase_baseline.py`.** The proposal named a module that does not exist; the baseline is in
+  `train.py`.
 
 ### Delivery
 

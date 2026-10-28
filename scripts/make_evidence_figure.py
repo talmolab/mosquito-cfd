@@ -16,8 +16,8 @@ Run from the repository root, e.g.::
         --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \\
         --timestamp 2026-06-23T00:00:00+00:00
 
-For the fine corpus add ``--grid fine --cfd-seconds-per-wingbeat <S>``, where ``S`` is printed by
-``scripts/cfd_seconds_per_wingbeat.py --metadata-dir examples/prelim_sweep_fine``.
+For the fine corpus add ``--grid fine --cfd-seconds-per-step <S>``, where ``S`` is printed by
+``scripts/cfd_seconds_per_step.py --metadata-dir examples/prelim_sweep_fine``.
 """
 
 from __future__ import annotations
@@ -63,12 +63,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Grid profile: caption wording and CFD cost (default coarse).",
     )
     parser.add_argument(
-        "--cfd-seconds-per-wingbeat",
+        "--cfd-seconds-per-step",
         type=float,
         default=None,
         help=(
-            "CFD wall-clock seconds per wingbeat; required for --grid fine "
-            "(scripts/cfd_seconds_per_wingbeat.py prints it)."
+            "Median CFD wall-clock seconds per timestep; required for --grid fine "
+            "(scripts/cfd_seconds_per_step.py prints it)."
         ),
     )
     args = parser.parse_args(argv)
@@ -81,7 +81,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         timestamp=args.timestamp,
         dpi=args.dpi,
         grid=args.grid,
-        cfd_seconds_per_wingbeat=args.cfd_seconds_per_wingbeat,
+        cfd_seconds_per_step=args.cfd_seconds_per_step,
     )
     return 0
 

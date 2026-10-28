@@ -6,7 +6,8 @@
   (required); `examples/prelim_sweep` appears in `train.py` only in docstrings. The fine dataset
   has the coarse schema, the same 27 kinematic configs, the same 21/6 split, wingbeats 0–1, and the
   same `dt`, so converged-beat (`wingbeat >= CONVERGED_MIN_WINGBEAT = 1`) holdout configs have the
-  same 1738/2000/2353 rows per beat. `phase_baseline.py` handles several converged beats per config;
+  same 1738/2000/2353 rows per beat. The phase-only baseline (`train.build_phase_only_baseline`)
+  handles several converged beats per config;
   here there is exactly one (archived #127 design D2).
 - The evidence figure is **not** corpus-neutral. `evidence_figure.py` hard-codes the coarse grid in
   five places:
@@ -22,8 +23,9 @@
   steps). That deck writes plotfiles every 100 steps (`amr.plot_int = 100`). It is not a sweep
   configuration, and it is a single sample.
 - **What the fine CFD wall time is.** Each of the 27 `run_metadata_<config>.json` files has
-  `timing.wall_time_s`, `cycles_completed` (non-integer, e.g. 1.999625) and
-  `gpu_model == "NVIDIA A40"`. Per-wingbeat time is 3684–7771 s, median ≈4375 s. The median step rate
+  `timing.wall_time_s`, `timing.timesteps` and `gpu_model == "NVIDIA A40"`. Per step it is
+  2.097–3.302 s, median 2.1440 s. Per wingbeat it scales with 1/f* (a wingbeat is `1/(f*·dt)`
+  steps): medians 4996 / 4297 / 3739 s at f* = 0.85 / 1.0 / 1.15. The median step rate
   (≈2.14 s/step) is about 7% above the force-only fine pilot's 2.010 s/step
   (`docs/force_surrogate/fine-grid-pilot-report.md`; pilot `plot_int = -1`, pre-hinge-fix geometry).
   The ~2× spread is node variation, not kinematics.
@@ -71,38 +73,42 @@ class GridProfile:
     qs_suffix: str            # " at this resolution" / ""
     grid_caveat: str
     readme_pointer: str
-    cfd_seconds_per_wingbeat: float | None   # 144.0 (fixed) / None (must be supplied)
+    cfd_seconds_per_wingbeat: float | None   # 144.0 (fixed) / None (derived from a per-step cost)
 
 GRID_PROFILES = {"coarse": COARSE_PROFILE, "fine": FINE_PROFILE}
 ```
 
 | field | coarse (current text, unchanged) | fine |
 |---|---|---|
-| `cfd_label` | `coarse-grid A40 CFD` | `fine-grid A40 CFD at its median per-wingbeat wall time` |
+| `cfd_label` | `coarse-grid A40 CFD` | `fine-grid A40 CFD at its median per-step wall time` |
 | `lift_label` | `coarse-grid CFD lift` | `fine-grid CFD lift` |
 | `qs_suffix` | ` at this resolution` | (empty: on the fine grid the reason is the omitted terms) |
 | `grid_caveat` | `Coarse 64x32x64 grid: pipeline readiness, not validated aerodynamics.` | `Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence checked only at one wing motion outside this sweep (README).` |
 | `readme_pointer` | `examples/prelim_sweep/README.md` | `examples/prelim_sweep_fine/README.md` |
-| CFD seconds | `144.0` (`CFD_SECONDS_PER_WINGBEAT`, name kept) | none |
+| CFD cost | `144.0` s per wingbeat (`CFD_SECONDS_PER_WINGBEAT`, name kept) | a supplied cost per step |
 
 - `build_caption`, `build_figure`, `_baseline_reference` and `generate_evidence_figure` take
   keyword-only `grid: str = "coarse"`, resolved through `GRID_PROFILES`; an unknown name raises
   `ValueError` listing the valid names. `compute_speedup` takes keyword-only
   `cfd_seconds_per_wingbeat: float = CFD_SECONDS_PER_WINGBEAT`.
-- `generate_evidence_figure(..., grid=..., cfd_seconds_per_wingbeat=None)` validates everything
-  before writing:
+- `generate_evidence_figure(..., grid=..., cfd_seconds_per_step=None)` and `build_figure` validate
+  everything before writing (`resolve_grid`):
   - `fine` with `None` raises `ValueError`;
-  - any non-finite or ≤0 value raises;
-  - `coarse` with any value other than 144.0 raises, so the coarse label can never sit over another
-    grid's cost.
-- The figure's `run_metadata.json` always records `grid` and `cfd_seconds_per_wingbeat` from now on.
+  - a non-finite or ≤0 per-step cost raises;
+  - `coarse` given any per-step cost raises: its cost is fixed at 144 s per wingbeat.
+- For the fine profile, `cfd_seconds_per_wingbeat(profile, s, rows)` = `s × rows` of the
+  representative configuration, so the speedup's per-row CFD cost is exactly `s`.
+- `build_caption` rejects a speedup whose per-wingbeat cost does not fit its profile: the coarse
+  label over anything but 144 s, or the fine label over 144 s.
+- The figure's `run_metadata.json` always records `grid`, `cfd_seconds_per_step` (`null` for
+  coarse) and `cfd_seconds_per_wingbeat` from now on.
   The committed coarse record predates them; the spec says a record without them reads as
   `coarse` / 144 s. The coarse figure is **not** regenerated (D2 gate). The sidecar key set is
   unchanged; `speedup.cfd_seconds_per_wingbeat` already records the value.
 - The ">1,000x faster than CFD" headline holds on both grids. The latency-floor clause is printed for
   both in the same form.
 - CLI: `scripts/make_evidence_figure.py --grid {coarse,fine}` (default `coarse`) and
-  `--cfd-seconds-per-wingbeat FLOAT`, passed through.
+  `--cfd-seconds-per-step FLOAT`, passed through.
 
 **Coarse no-op gate.** It is pre-registered: a CI half plus a manual PNG half.
 
@@ -125,28 +131,34 @@ GRID_PROFILES = {"coarse": COARSE_PROFILE, "fine": FINE_PROFILE}
     coarse PNG and sidecar.
   - Any precondition or comparison failure halts for a decision with the user.
 
-### D3. Fine CFD cost: median per-wingbeat wall time, passed as a scalar
+### D3. Fine CFD cost: median per-step wall time, passed as a scalar
 
-`mosquito_cfd.force_surrogate.cfd_cost.median_cfd_seconds_per_wingbeat(paths) -> dict` (torch-free)
-returns `{"seconds_per_wingbeat", "n_configs", "gpu_model", "min", "max"}`:
+`mosquito_cfd.force_surrogate.cfd_cost.median_cfd_seconds_per_step(paths) -> dict` (torch-free)
+returns `{"seconds_per_step", "n_configs", "gpu_model", "min", "max"}`:
 
-- per file: `timing.wall_time_s / cycles_completed`;
+- per file: `timing.wall_time_s / timing.timesteps`;
 - `ValueError`, naming the file (`path.name`), on:
   - no paths;
   - a missing `config` or `gpu_model`;
-  - a `wall_time_s` or `cycles_completed` that is missing, `None`, `bool`, a string, non-finite
-    or ≤0;
+  - a `wall_time_s` that is missing, `None`, `bool`, a string, non-finite or ≤0;
+  - a `timesteps` that is not a positive integer (`bool` and fractional values rejected);
   - a duplicate `config`;
   - more than one distinct `gpu_model`;
 - `statistics.median` (for an even count, the mean of the middle two).
 
-`scripts/cfd_seconds_per_wingbeat.py --metadata-dir <dir>` globs `run_metadata_*.json` (the
+`scripts/cfd_seconds_per_step.py --metadata-dir <dir>` globs `run_metadata_*.json` (the
 corpus-level `run_metadata.json` does not match) and prints `repr(seconds)` on stdout (summary on
 stderr). `float(repr(x)) == x` for every float, so the value passes through the CLI exactly.
 
-**Why the median.** The ~2× spread is node variation (the pilot's step rate was near-constant across
-kinematics). The median is robust to the slow-node tail; a mean or the max would inflate the
-speedup.
+**Why per step.** The speedup divides by the CFD cost per row, and each dataset row is one CFD
+timestep. Per-wingbeat time scales with 1/f* (a wingbeat is `1/(f*·dt)` steps), so a median over
+per-wingbeat times pools three f* levels; it happened to land on an f*=1.0 config (4375 s), which
+matched the representative config only by chance. The per-step rate does not depend on the
+kinematics (the pilot's was near-constant), so it is the quantity to take the median of. Found by
+the pre-GPU code review; the user chose per step at the pre-GPU checkpoint.
+
+**Why the median.** The ~1.6× spread in per-step time (2.10–3.30 s) is node variation. The median
+is robust to the slow-node tail; a mean or the max would inflate the speedup.
 
 **Disclosure (README, not caption).** The two denominators are **not like-for-like**:
 
@@ -224,8 +236,9 @@ separate `figures/README.md`, because that table covers the figure files.
    - all of it cited to `examples/flapping_wing/RESULTS.md`.
 6. **"Speedup."**
    - Batched throughput vs sequential fine-grid A40 CFD, the batch size and the latency floor.
-   - D3's like-for-like disclosure. The fine denominator is stated only as the sidecar value rounded
-     to whole seconds (guarded), and no coarse/fine ratio is stated.
+   - D3's like-for-like disclosure. The fine cost is stated as "x.xx s per step" (the sidecar's
+     `cfd_seconds_per_wingbeat / rows_per_wingbeat`, 2 dp, guarded), and no coarse/fine ratio is
+     stated.
    - The digest names the data-producing image (D1).
 7. **"Regenerating."** The D1 command, the cost script, the figure command.
 
@@ -292,7 +305,8 @@ is built from literals. ids are literals too, and nothing reads a file at collec
 | new fine-only: cost median == sidecar; cycle-mean table; comparison table + prose rule | — | ✓ |
 | `seed_variation` tests, `_QUOTED_TARGETS`, `"2.4" not in readme`, `latency_speedup < 1000` | ✓ | — (see Why) |
 
-**Throughput formatter.** `format_power_of_ten(x)` is unit-tested on these cases, and the coarse
+**Throughput formatter.** `format_power_of_ten(x)` (in `tests/_readme_guards.py`; only tests use
+it) is unit-tested on these cases, and the coarse
 README test keeps its literal:
 
 | input | output |
@@ -347,7 +361,7 @@ Latency and parallelism use one explicit format per corpus (the coarse string is
     `scripts/train_surrogate.py` and `uv.lock`. A non-empty diff → back to §5.
   - *Figure record* (commit C4/C4′): `evidence_figure.py`, `cfd_cost.py`, `sidecar.py`, `train.py`
     (it supplies `write_json`), `benchmarks/metadata.py`, `scripts/make_evidence_figure.py`,
-    `scripts/cfd_seconds_per_wingbeat.py` and `uv.lock`. A non-empty diff → regenerate the figure
+    `scripts/cfd_seconds_per_step.py` and `uv.lock`. A non-empty diff → regenerate the figure
     only.
 - **One blob per binary in the pushed range**, checked at task 24 with
   `git rev-list --objects origin/main..HEAD`.

@@ -49,7 +49,7 @@ from _readme_guards import (
     parse_table,
 )
 
-from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_wingbeat
+from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_step
 from mosquito_cfd.force_surrogate.evidence_figure import format_metric
 from mosquito_cfd.force_surrogate.train import (
     TARGET_COLUMNS,
@@ -408,12 +408,13 @@ def test_readme_skill_table_is_metrics_json(corpus):
 def test_fine_cfd_cost_is_the_recomputed_median():
     """Scenario: The committed fine denominator is the recomputed median."""
     sidecar = _meta(FINE / "figures" / "evidence_figure_metrics.json")
-    result = median_cfd_seconds_per_wingbeat(sorted(FINE.glob("run_metadata_*.json")))
+    result = median_cfd_seconds_per_step(sorted(FINE.glob("run_metadata_*.json")))
     assert result["n_configs"] == 27
     # the fine caption names "fine-grid A40 CFD": the cost must come from A40 runs
     assert result["gpu_model"] == "NVIDIA A40"
     assert (
-        sidecar["speedup"]["cfd_seconds_per_wingbeat"] == result["seconds_per_wingbeat"]
+        sidecar["speedup"]["cfd_seconds_per_wingbeat"]
+        == result["seconds_per_step"] * sidecar["speedup"]["rows_per_wingbeat"]
     )
 
 
@@ -512,7 +513,7 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
             "motion outside this sweep (GCI_fine 3.7 % and 27.6 %, "
             "examples/flapping_wing/RESULTS.md). Moments are **lab-frame** components about "
             "the hinge; the wing-frame conversion is not currently tracked. The CFD cost is "
-            "the median of 4,375 s per wingbeat and includes plotfile output; the force-only "
+            "the median of 2.14 s per step and includes plotfile output; the force-only "
             "rate is in docs/force_surrogate/fine-grid-pilot-report.md."
         ),
         "qs": (
@@ -530,7 +531,7 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
 
 _SYNTHETIC_SIDECAR = {
     "quasi_steady_reference": {"overshoot_factor": 0.71},
-    "speedup": {"cfd_seconds_per_wingbeat": 4375.093773443361},
+    "speedup": {"cfd_seconds_per_wingbeat": 4288.0, "rows_per_wingbeat": 2000},
 }
 _SYNTHETIC_SOURCE = "| GCI_fine | 3.7 % |\n| GCI_fine | 27.6 % |"
 
@@ -621,9 +622,11 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         ),
         "QS ratio differs": _replace_once(good, "~0.7×", "~0.8×"),
         "QS nature missing": _replace_once(good, "symmetric-rotation AoA, ", ""),
-        "denominator differs": _replace_once(good, "4,375 s", "4,376 s"),
+        "denominator differs": _replace_once(
+            good, "2.14 s per step", "2.15 s per step"
+        ),
         "denominator ratio stated": _replace_once(
-            good, "per wingbeat and", "per wingbeat (30× the coarse) and"
+            good, "per step and", "per step (30× the coarse) and"
         ),
         "disjoint target given the wrong direction": _replace_once(
             good,
@@ -636,7 +639,9 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "banned word greater": _replace_once(
             good, "For every other", "`CF_y` skill is greater. For every other"
         ),
-        "denominator superstring": _replace_once(good, "4,375 s", "14,375 s"),
+        "denominator superstring": _replace_once(
+            good, "2.14 s per step", "12.14 s per step"
+        ),
         "prose after a code-fence comment": _replace_once(
             good,
             "\n\n## Regenerating",

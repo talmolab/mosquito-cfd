@@ -91,7 +91,8 @@ class GridProfile:
             the resolution as the reason; on the fine grid the reason is the omitted terms).
         grid_caveat: The caveat sentence naming the grid and what the figure does not show.
         readme_pointer: The corpus README the caption points to.
-        cfd_seconds_per_wingbeat: The fixed CFD cost, or ``None`` when it must be supplied.
+        cfd_seconds_per_wingbeat: The fixed per-wingbeat CFD cost, or ``None`` when it is
+            derived from a supplied per-step cost.
     """
 
     name: str
@@ -112,11 +113,11 @@ COARSE_PROFILE = GridProfile(
     readme_pointer="examples/prelim_sweep/README.md",
     cfd_seconds_per_wingbeat=CFD_SECONDS_PER_WINGBEAT,
 )
-# The fine CFD cost is the median per-wingbeat A40 wall time over the corpus's run metadata
+# The fine CFD cost is the median per-step A40 wall time over the corpus's run metadata
 # (force_surrogate.cfd_cost), supplied by the caller; it has no default.
 FINE_PROFILE = GridProfile(
     name="fine",
-    cfd_label="fine-grid A40 CFD at its median per-wingbeat wall time",
+    cfd_label="fine-grid A40 CFD at its median per-step wall time",
     lift_label="fine-grid CFD lift",
     qs_suffix="",
     grid_caveat=(
@@ -405,39 +406,58 @@ def _profile(grid: str) -> GridProfile:
 
 
 def resolve_grid(
-    grid: str, cfd_seconds_per_wingbeat: float | None
-) -> tuple[GridProfile, float]:
-    """Look up a grid profile and the CFD cost to use with it, validating both.
+    grid: str, cfd_seconds_per_step: float | None
+) -> tuple[GridProfile, float | None]:
+    """Look up a grid profile and validate the CFD cost supplied for it.
+
+    A profile with a fixed per-wingbeat cost (coarse) takes no per-step cost. A profile without
+    one (fine) requires the CFD's median seconds per timestep, from which the figure derives the
+    per-wingbeat cost of its representative configuration (:func:`cfd_seconds_per_wingbeat`).
 
     Args:
         grid: A :data:`GRID_PROFILES` name.
-        cfd_seconds_per_wingbeat: The CFD cost, or ``None`` for the profile's fixed cost.
+        cfd_seconds_per_step: The CFD's wall-clock seconds per timestep, or ``None``.
 
     Returns:
-        The profile and the CFD seconds per wingbeat.
+        The profile and the validated seconds per step (``None`` for a fixed-cost profile).
 
     Raises:
-        ValueError: If ``grid`` is unknown; the cost is missing for a profile without a fixed
-            one; the cost is non-finite or not positive; or a profile with a fixed cost is
-            given a different one (that would print its label over another grid's cost).
+        ValueError: If ``grid`` is unknown; a fixed-cost profile is given a per-step cost; or a
+            profile without a fixed cost gets none, or a non-finite or non-positive one.
     """
     profile = _profile(grid)
-    fixed = profile.cfd_seconds_per_wingbeat
-    seconds = fixed if cfd_seconds_per_wingbeat is None else cfd_seconds_per_wingbeat
-    if seconds is None:
+    if profile.cfd_seconds_per_wingbeat is not None:
+        if cfd_seconds_per_step is not None:
+            raise ValueError(
+                f"grid {grid!r} has a fixed CFD cost of {profile.cfd_seconds_per_wingbeat} "
+                f"s/wingbeat; it takes no per-step cost, got {cfd_seconds_per_step}"
+            )
+        return profile, None
+    if cfd_seconds_per_step is None:
         raise ValueError(
-            f"grid {grid!r} has no default CFD cost; pass cfd_seconds_per_wingbeat "
-            "(scripts/cfd_seconds_per_wingbeat.py)"
+            f"grid {grid!r} has no default CFD cost; pass cfd_seconds_per_step "
+            "(scripts/cfd_seconds_per_step.py)"
         )
-    if not np.isfinite(seconds) or seconds <= 0:
+    if not np.isfinite(cfd_seconds_per_step) or cfd_seconds_per_step <= 0:
         raise ValueError(
-            f"cfd_seconds_per_wingbeat must be finite and > 0, got {seconds}"
+            f"cfd_seconds_per_step must be finite and > 0, got {cfd_seconds_per_step}"
         )
-    if fixed is not None and seconds != fixed:
-        raise ValueError(
-            f"grid {grid!r} has a fixed CFD cost of {fixed} s/wingbeat, got {seconds}"
-        )
-    return profile, float(seconds)
+    return profile, float(cfd_seconds_per_step)
+
+
+def cfd_seconds_per_wingbeat(
+    profile: GridProfile, cfd_seconds_per_step: float | None, rows_per_wingbeat: int
+) -> float:
+    """The CFD cost of one wingbeat of the representative configuration.
+
+    The profile's fixed cost, or the per-step cost times the representative configuration's
+    rows per wingbeat (one dataset row per CFD timestep), so the speedup's per-row CFD cost is
+    exactly the per-step cost.
+    """
+    if profile.cfd_seconds_per_wingbeat is not None:
+        return profile.cfd_seconds_per_wingbeat
+    assert cfd_seconds_per_step is not None  # resolve_grid guarantees it
+    return cfd_seconds_per_step * rows_per_wingbeat
 
 
 def compute_speedup(
@@ -549,10 +569,14 @@ def build_caption(
             profile's label (see :func:`resolve_grid`; the fine label over the coarse 144 s
             is rejected too).
     """
-    profile, _ = resolve_grid(grid, speedup["cfd_seconds_per_wingbeat"])
-    if profile.cfd_seconds_per_wingbeat is None and (
-        speedup["cfd_seconds_per_wingbeat"] == CFD_SECONDS_PER_WINGBEAT
-    ):
+    profile = _profile(grid)
+    cost = speedup["cfd_seconds_per_wingbeat"]
+    fixed = profile.cfd_seconds_per_wingbeat
+    if fixed is not None and cost != fixed:
+        raise ValueError(
+            f"grid {grid!r} has a fixed CFD cost of {fixed} s/wingbeat, got {cost}"
+        )
+    if fixed is None and cost == CFD_SECONDS_PER_WINGBEAT:
         raise ValueError(
             f"grid {grid!r} caption over the coarse {CFD_SECONDS_PER_WINGBEAT} s/wingbeat "
             "cost; pass this grid's own CFD cost to compute_speedup"
@@ -664,7 +688,7 @@ def build_figure(
     metrics: dict[str, Any],
     *,
     grid: str = "coarse",
-    cfd_seconds_per_wingbeat: float | None = None,
+    cfd_seconds_per_step: float | None = None,
 ) -> plt.Figure:
     """Assemble the three-panel predicted-vs-CFD evidence figure (object model, no I/O).
 
@@ -672,22 +696,24 @@ def build_figure(
         predictions: Holdout predictions frame (``config_name, phase, CF_*_{true,pred}``).
         metrics: The loaded ``metrics.json`` dict.
         grid: The :data:`GRID_PROFILES` name for the caption's grid wording.
-        cfd_seconds_per_wingbeat: CFD cost for the speedup (see :func:`resolve_grid`).
+        cfd_seconds_per_step: CFD cost per timestep for a grid without a fixed cost
+            (see :func:`resolve_grid`).
 
     Returns:
         A :class:`matplotlib.figure.Figure` with three predicted-vs-CFD scatter panels
         (CF_x, CF_z, CF_my), points colored by held-out configuration with a shared legend.
     """
-    profile, seconds = resolve_grid(grid, cfd_seconds_per_wingbeat)
+    profile, per_step = resolve_grid(grid, cfd_seconds_per_step)
     _validate_predictions(predictions)
     configs = sorted(predictions["config_name"].unique())
     cmap = plt.get_cmap("tab10")
     color = {cfg: cmap(i % 10) for i, cfg in enumerate(configs)}
 
+    rows = _representative_rows(predictions)
     speedup = compute_speedup(
         _require(metrics, "inference", "inference block"),
-        _representative_rows(predictions),
-        cfd_seconds_per_wingbeat=seconds,
+        rows,
+        cfd_seconds_per_wingbeat=cfd_seconds_per_wingbeat(profile, per_step, rows),
     )
     baseline = _baseline_reference(predictions, grid=profile.name)
 
@@ -810,7 +836,7 @@ def generate_evidence_figure(
     timestamp: str,
     dpi: int = 200,
     grid: str = "coarse",
-    cfd_seconds_per_wingbeat: float | None = None,
+    cfd_seconds_per_step: float | None = None,
 ) -> dict[str, Any]:
     """Generate + write the evidence figure, its metrics sidecar, and run provenance.
 
@@ -824,8 +850,9 @@ def generate_evidence_figure(
         timestamp: Caller-supplied ISO-8601 timestamp (no wall-clock baked in, CC-1).
         dpi: Raster resolution (>=200).
         grid: The :data:`GRID_PROFILES` name (caption wording and CFD cost).
-        cfd_seconds_per_wingbeat: The CFD cost per wingbeat: required for ``"fine"``; for
-            ``"coarse"`` it must be omitted or equal :data:`CFD_SECONDS_PER_WINGBEAT`.
+        cfd_seconds_per_step: The CFD's median wall-clock seconds per timestep: required
+            for ``"fine"``; must be omitted for ``"coarse"``, whose cost is the fixed
+            :data:`CFD_SECONDS_PER_WINGBEAT`.
 
     Returns:
         The ``evidence_figure_metrics.json`` payload: per-axis surrogate RMSE, the plotted seed
@@ -843,7 +870,7 @@ def generate_evidence_figure(
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
     validate_image_digest(docker_image_digest)  # fail-fast on a mutable tag
-    profile, seconds = resolve_grid(grid, cfd_seconds_per_wingbeat)
+    profile, per_step = resolve_grid(grid, cfd_seconds_per_step)
 
     predictions = pd.read_parquet(predictions_path)
     metrics = json.loads(Path(metrics_path).read_text(encoding="utf-8"))
@@ -861,11 +888,13 @@ def generate_evidence_figure(
         )
 
     fig = build_figure(
-        predictions, metrics, grid=profile.name, cfd_seconds_per_wingbeat=seconds
+        predictions, metrics, grid=profile.name, cfd_seconds_per_step=per_step
     )
+    rows = _representative_rows(predictions)
+    seconds = cfd_seconds_per_wingbeat(profile, per_step, rows)
     speedup = compute_speedup(
         _require(metrics, "inference", "inference block"),
-        _representative_rows(predictions),
+        rows,
         cfd_seconds_per_wingbeat=seconds,
     )
     baseline = _baseline_reference(predictions, grid=profile.name)
@@ -902,6 +931,7 @@ def generate_evidence_figure(
             "metrics_json_sha256": _sha256(metrics_path),
             "seeds": {"global": fig_metrics["primary_seed"], "sweep": seeds[1:]},
             "grid": profile.name,
+            "cfd_seconds_per_step": per_step,
             "cfd_seconds_per_wingbeat": seconds,
         },
     )

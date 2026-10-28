@@ -35,7 +35,7 @@ from mosquito_cfd.force_surrogate import (
     parse_config_name,
     sane_dickinson_cf_z,
 )
-from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_wingbeat
+from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_step
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
 from mosquito_cfd.force_surrogate.evidence_figure import (
     GRID_PROFILES,
@@ -1322,7 +1322,7 @@ _FINE_CAVEAT = (
     "checked only at one wing motion outside this sweep (README)."
 )
 _FINE_STRINGS = (
-    "parallel evals vs sequential fine-grid A40 CFD at its median per-wingbeat wall time; "
+    "parallel evals vs sequential fine-grid A40 CFD at its median per-step wall time; "
     "per-evaluation latency floor",
     f"). {_FINE_CAVEAT} Moment is",
     "x the fine-grid CFD lift (RMS)",
@@ -1409,7 +1409,7 @@ def test_compute_speedup_uses_the_given_cfd_cost():
         ("fine", -1.0),
         ("fine", math.nan),
         ("fine", math.inf),
-        ("coarse", 4375.0),
+        ("coarse", 2.1),
         ("medium", None),
     ],
     ids=[
@@ -1418,7 +1418,7 @@ def test_compute_speedup_uses_the_given_cfd_cost():
         "fine-neg",
         "fine-nan",
         "fine-inf",
-        "coarse-4375",
+        "coarse-given-a-per-step-cost",
         "unknown",
     ],
 )
@@ -1434,7 +1434,7 @@ def test_bad_grid_or_cfd_cost_raises_before_any_artifact(tmp_path, grid, seconds
             docker_image_digest=DIGEST,
             timestamp=TS,
             grid=grid,
-            cfd_seconds_per_wingbeat=seconds,
+            cfd_seconds_per_step=seconds,
         )
     assert not out.exists()
     if grid == "medium":
@@ -1452,19 +1452,25 @@ def test_fine_run_records_grid_and_cost_with_the_coarse_sidecar_keys(tmp_path):
     )
     generate_evidence_figure(out_dir=coarse_out, **common)
     generate_evidence_figure(
-        out_dir=fine_out, grid="fine", cfd_seconds_per_wingbeat=4375.0, **common
+        out_dir=fine_out, grid="fine", cfd_seconds_per_step=2.0, **common
     )
     coarse = json.loads((coarse_out / "evidence_figure_metrics.json").read_text())
     fine = json.loads((fine_out / "evidence_figure_metrics.json").read_text())
     assert set(fine) == set(coarse)
     assert set(fine["speedup"]) == set(coarse["speedup"])
-    assert fine["speedup"]["cfd_seconds_per_wingbeat"] == 4375.0
+    # the per-step cost times the representative config's rows per wingbeat (8 in the toy)
+    rows = fine["speedup"]["rows_per_wingbeat"]
+    assert rows == 8
+    assert fine["speedup"]["cfd_seconds_per_wingbeat"] == 2.0 * rows
+    assert fine["speedup"]["cfd_rows_per_s"] == pytest.approx(1 / 2.0, rel=1e-15)
     assert "the fine-grid CFD lift" in fine["quasi_steady_reference"]["note"]
     assert "the coarse-grid CFD lift" in coarse["quasi_steady_reference"]["note"]
     meta = json.loads((fine_out / "run_metadata.json").read_text())
-    assert meta["grid"] == "fine" and meta["cfd_seconds_per_wingbeat"] == 4375.0
+    assert meta["grid"] == "fine" and meta["cfd_seconds_per_step"] == 2.0
+    assert meta["cfd_seconds_per_wingbeat"] == 2.0 * rows
     meta = json.loads((coarse_out / "run_metadata.json").read_text())
-    assert meta["grid"] == "coarse" and meta["cfd_seconds_per_wingbeat"] == 144.0
+    assert meta["grid"] == "coarse" and meta["cfd_seconds_per_step"] is None
+    assert meta["cfd_seconds_per_wingbeat"] == 144.0
 
 
 @pytest.mark.parametrize(
@@ -1486,11 +1492,9 @@ def test_cli_passes_grid_and_cfd_cost(monkeypatch):
         "--docker-digest", DIGEST, "--timestamp", TS,
     ]  # fmt: skip
     assert cli.main(base) == 0
-    assert captured["grid"] == "coarse" and captured["cfd_seconds_per_wingbeat"] is None
-    assert (
-        cli.main([*base, "--grid", "fine", "--cfd-seconds-per-wingbeat", "4375.0"]) == 0
-    )
-    assert captured["grid"] == "fine" and captured["cfd_seconds_per_wingbeat"] == 4375.0
+    assert captured["grid"] == "coarse" and captured["cfd_seconds_per_step"] is None
+    assert cli.main([*base, "--grid", "fine", "--cfd-seconds-per-step", "2.144"]) == 0
+    assert captured["grid"] == "fine" and captured["cfd_seconds_per_step"] == 2.144
     with pytest.raises(SystemExit):
         cli.main([*base, "--grid", "medium"])
 
@@ -1506,13 +1510,8 @@ def test_committed_sidecar_regenerates_from_committed_inputs(tmp_path, corpus):
     figures = corpus / "figures"
     grid = {}
     if corpus == FINE_CORPUS:
-        cost = median_cfd_seconds_per_wingbeat(
-            sorted(corpus.glob("run_metadata_*.json"))
-        )
-        grid = {
-            "grid": "fine",
-            "cfd_seconds_per_wingbeat": cost["seconds_per_wingbeat"],
-        }
+        cost = median_cfd_seconds_per_step(sorted(corpus.glob("run_metadata_*.json")))
+        grid = {"grid": "fine", "cfd_seconds_per_step": cost["seconds_per_step"]}
     generate_evidence_figure(
         predictions_path=corpus / "surrogate" / "holdout_predictions.parquet",
         metrics_path=corpus / "surrogate" / "metrics.json",

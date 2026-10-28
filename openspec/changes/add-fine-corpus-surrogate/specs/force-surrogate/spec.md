@@ -43,31 +43,44 @@ reproducibility and provenance" requirement is unchanged.
 
 ### Requirement: Fine-grid CFD cost is derived from committed run metadata
 
-A torch-free helper `median_cfd_seconds_per_wingbeat(paths)` SHALL reduce per-configuration run
-metadata files to the median of `timing.wall_time_s / cycles_completed`, returning that median with
-the configuration count, the single GPU model, and the minimum and maximum. It SHALL raise
-`ValueError`, naming the offending file, for an empty input, a missing `config` or `gpu_model`, a
-missing, `null`, boolean, string, non-finite or non-positive `wall_time_s` or `cycles_completed`, a
+A torch-free helper `median_cfd_seconds_per_step(paths)` SHALL reduce per-configuration run metadata
+files to the median of `timing.wall_time_s / timing.timesteps`, returning that median with the
+configuration count, the single GPU model, and the minimum and maximum. The cost is per timestep, not
+per wingbeat, because a wingbeat takes `1/(f*·dt)` steps, so per-wingbeat time scales with the
+kinematics while the per-step rate does not. It SHALL raise `ValueError`, naming the offending file,
+for an empty input, a missing `config` or `gpu_model`, a `wall_time_s` that is missing, `null`,
+boolean, a string, non-finite or non-positive, a `timesteps` that is not a positive integer, a
 duplicate configuration, or more than one GPU model. A script SHALL print the median for a metadata
-directory (reading only `run_metadata_<config>.json`, ignoring a corpus-level `run_metadata.json`).
-The fine evidence figure's speedup denominator SHALL be that median over the 27 committed fine
-`run_metadata_<config>.json` files, and a CI test SHALL recompute it and compare it exactly with the
-committed sidecar's `speedup.cfd_seconds_per_wingbeat`. The fine README SHALL disclose that the
-coarse and fine denominators are not like-for-like: the coarse 144 s is 2.4 min, the rounded wall
+directory (reading only `run_metadata_<config>.json`, ignoring a corpus-level `run_metadata.json`) in
+a form that `float()` reads back exactly.
+
+The fine evidence figure SHALL take that median over the 27 committed fine
+`run_metadata_<config>.json` files as its CFD cost per step, so the speedup's per-row CFD cost is the
+per-step cost; the sidecar's `speedup.cfd_seconds_per_wingbeat` SHALL be that cost times the
+representative configuration's `rows_per_wingbeat`, and the figure's `run_metadata.json` SHALL record
+the per-step cost as `cfd_seconds_per_step`. CI tests SHALL recompute the median and compare it
+exactly with both. The fine README SHALL state the fine cost per step and disclose that the coarse and
+fine denominators are not like-for-like: the coarse 144 s per wingbeat is 2.4 min, the rounded wall
 time (146 s) of a single A40 run of the 70° validation deck (`examples/flapping_wing/RESULTS.md`,
-Performance), while the fine value is the median over the sweep's own runs; both include plotfile
-output and solver start-up. The README SHALL state the fine denominator only as the sidecar value
-(rounded, guarded) and SHALL NOT state a ratio between the two denominators.
+Performance), while the fine value is the median per-step time over the sweep's own runs; both
+include plotfile output and solver start-up. The README SHALL NOT state a ratio between the two
+denominators.
 
-#### Scenario: Known-answer median, including non-integer cycle counts
+#### Scenario: Known-answer median per step
 
-- **Given** metadata files with (wall time, cycles) of (300, 2), (400, 2), (1000, 2) on one GPU model, and separately a file with (3999, 1.9995)
+- **Given** metadata files with (wall time, timesteps) of (300, 200), (400, 200), (1000, 200) on one GPU model
 - **When** the helper runs
-- **Then** the first set returns `seconds_per_wingbeat == 200.0`, `n_configs == 3`, `min == 150.0`, `max == 500.0`, independent of input order, the single file returns exactly `3999 / 1.9995`, and an even count returns the mean of the middle two
+- **Then** it returns `seconds_per_step == 2.0`, `n_configs == 3`, `min == 1.5`, `max == 5.0`, independent of input order, and an even count returns the mean of the middle two
+
+#### Scenario: The per-step cost does not depend on the step count
+
+- **Given** two configurations with the same per-step rate but 4706 and 3478 timesteps (f* 0.85 and 1.15)
+- **When** the helper runs
+- **Then** both give the same per-step cost, so `min == max`
 
 #### Scenario: Malformed or empty metadata is rejected
 
-- **Given** no files, or a file with a missing `config` or `gpu_model`, or a `wall_time_s` or `cycles_completed` that is missing, `null`, boolean, a string, zero, negative, NaN or infinite, or a duplicated configuration, or a second GPU model
+- **Given** no files, or a file with a missing `config` or `gpu_model`, a `wall_time_s` that is missing, `null`, boolean, a string, zero, negative, NaN or infinite, a `timesteps` that is missing, `null`, boolean, a string, zero, negative or fractional, a duplicated configuration, or a second GPU model
 - **When** the helper runs
 - **Then** it raises `ValueError` naming the file (or, for no files, saying none were given)
 
@@ -79,9 +92,9 @@ output and solver start-up. The README SHALL state the fine denominator only as 
 
 #### Scenario: The committed fine denominator is the recomputed median
 
-- **Given** the committed fine run metadata and the committed fine `evidence_figure_metrics.json`
+- **Given** the committed fine run metadata, the committed fine `evidence_figure_metrics.json` and the fine figure's `run_metadata.json`
 - **When** the committed-artifact tests run
-- **Then** `median_cfd_seconds_per_wingbeat` over the 27 files equals `speedup.cfd_seconds_per_wingbeat` exactly and reports 27 configurations
+- **Then** `median_cfd_seconds_per_step` over the 27 files reports 27 configurations on the A40, `speedup.cfd_seconds_per_wingbeat` equals that median times `speedup.rows_per_wingbeat` exactly, and the figure's `cfd_seconds_per_step` equals the median exactly
 
 ### Requirement: Fine README compares coarse and fine skill under a pre-registered overlap rule
 
@@ -122,7 +135,7 @@ difference to grid resolution alone. No skill, pointwise R² or cycle-mean R² v
 
 - **Given** the fine README's coarse-vs-fine section
 - **When** its prose is checked
-- **Then** every "higher on fine" / "lower on fine" sentence has the stated form and names exactly the targets whose overlap cell is `no`, and the section contains no other comparative wording ("shift" other than "no shift detected", "improve", "better", "worse", "increase", "decrease", "drop")
+- **Then** every "higher on fine" / "lower on fine" sentence has the stated form, appears only in that section, names exactly the targets whose overlap cell is `no`, and states the direction the ranges show; and the section contains no other comparative wording ("shift" other than "no shift detected", "improve", "better", "worse", "increase", "decrease", "drop", "greater", "less", "exceed", "outperform", "rise", "fall", "gain")
 
 #### Scenario: The fine README states what "not validated" means
 
@@ -134,7 +147,7 @@ difference to grid resolution alone. No skill, pointwise R² or cycle-mean R² v
 
 - **Given** the fine README and the committed fine `evidence_figure_metrics.json`
 - **When** its quasi-steady disclosures are checked
-- **Then** it states the fine-grid RMS ratio equal to the sidecar's `overshoot_factor` at the caption's precision, and that the model is uncalibrated and translational-only, omits rotational/added-mass/LEV lift, assumes symmetric-rotation, is a stroke-plane-normal force compared with the lab-z CFD component, and is not overlaid on the figure; and it states the fine CFD denominator only as the sidecar's `cfd_seconds_per_wingbeat` rounded to whole seconds, with no ratio between the coarse and fine denominators
+- **Then** it states the fine-grid RMS ratio equal to the sidecar's `overshoot_factor` at the caption's precision, and that the model is uncalibrated and translational-only, omits rotational/added-mass/LEV lift, assumes symmetric-rotation, is a stroke-plane-normal force compared with the lab-z CFD component, and is not overlaid on the figure; and it states the fine CFD cost as "<x.xx> s per step", where x.xx is the sidecar's `cfd_seconds_per_wingbeat / rows_per_wingbeat` at 2 dp, with no ratio between the coarse and fine denominators
 
 ## MODIFIED Requirements
 
@@ -289,7 +302,8 @@ because that ranking is corpus-dependent and has already inverted more than once
 annotate the inference-vs-CFD speedup as a **batched GPU-throughput** speedup —
 `inference.throughput_rows_per_s` ÷ the A40 CFD throughput on the figure's grid (per-config
 converged-beat rows ÷ that grid's per-wingbeat wall-clock: 144 s on the coarse grid; on the fine grid
-the median over the committed per-configuration run metadata, labelled as a median) — which is the >1,000× claim. Because this factor equals
+the median per-step wall time over the committed per-configuration run metadata times the representative
+configuration's rows per wingbeat, labelled as a median per-step time) — which is the >1,000× claim. Because this factor equals
 `latency_speedup × batch_size` (the surrogate is a pointwise map that batches; the CFD is an
 **inherently sequential** time integration that cannot), the annotation SHALL disclose, in the caption's words "N=<batch> parallel evals vs sequential
 <the profile's CFD label>", that
@@ -358,9 +372,9 @@ draw as the corpus's skill, it SHALL state "single seed, no range" when the swee
 
 #### Scenario: The fine profile labels the fine grid and its median CFD cost
 
-- **Given** a metrics.json and predictions, the `fine` grid profile and a CFD per-wingbeat cost `S`
+- **Given** a metrics.json and predictions, the `fine` grid profile and a CFD cost per step `s`
 - **When** the caption and speedup are built
-- **Then** the throughput factor equals `throughput_rows_per_s / (rows_per_wingbeat / S)`, the caption labels the denominator "fine-grid A40 CFD at its median per-wingbeat wall time", states "Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence checked only at one wing motion outside this sweep (README).", omits "at this resolution" from the quasi-steady line, points to `examples/prelim_sweep_fine/README.md`, and contains no "coarse", "64x32x64" or "pipeline readiness"
+- **Then** the throughput factor equals `throughput_rows_per_s × s`, the sidecar's `cfd_seconds_per_wingbeat` equals `s × rows_per_wingbeat`, the caption labels the denominator "fine-grid A40 CFD at its median per-step wall time", states "Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence checked only at one wing motion outside this sweep (README).", omits "at this resolution" from the quasi-steady line, points to `examples/prelim_sweep_fine/README.md`, and contains no "coarse", "64x32x64" or "pipeline readiness"
 
 #### Scenario: The default profile reproduces the coarse figure byte for byte
 
@@ -383,14 +397,16 @@ the per-config rows-per-wingbeat, the CFD per-wingbeat cost used (`cfd_seconds_p
 realized factors with their units); and a `run_metadata.json` emitted via
 `capture_surrogate_run_metadata` requiring a pinned container **digest** and a **caller-supplied**
 timestamp (CC-1), recording the hash of the consumed inputs (the predictions parquet and
-metrics.json) and the seeds read from `metrics.json` `seed_sweep`, plus the grid profile name (`grid`) and the
-CFD per-wingbeat cost used (`cfd_seconds_per_wingbeat`); a record without those two keys (the
-committed coarse figure's, which predates them) SHALL be read as `coarse` / 144 s. For the `fine`
-profile the CFD cost has no default; for the `coarse` profile it SHALL be 144 s (a different value
-would print the coarse label over another grid's cost). Generation with a missing fine cost, any
-non-finite or non-positive cost, a coarse cost other than 144 s, or an unknown profile name SHALL
-raise `ValueError` before any artifact is written. The sidecar key set SHALL be the same for both
-profiles. The sidecar SHALL NOT carry
+metrics.json) and the seeds read from `metrics.json` `seed_sweep`, plus the grid profile name (`grid`), the CFD
+cost per step supplied (`cfd_seconds_per_step`, `null` for a fixed-cost profile) and the CFD
+per-wingbeat cost used (`cfd_seconds_per_wingbeat`); a record without those keys (the committed
+coarse figure's, which predates them) SHALL be read as `coarse` / 144 s. The `fine` profile requires
+a CFD cost per step and has no default; the `coarse` profile's cost is fixed at 144 s per wingbeat
+and it takes no per-step cost. Generation with a missing fine per-step cost, a non-finite or
+non-positive one, a per-step cost for the coarse profile, or an unknown profile name SHALL raise
+`ValueError` before any artifact is written. The caption builder SHALL likewise reject a speedup
+whose per-wingbeat cost does not fit its profile (the coarse label over a cost other than 144 s,
+or the fine label over 144 s). The sidecar key set SHALL be the same for both profiles. The sidecar SHALL NOT carry
 configuration-resolved R², which the figure no longer displays. The JSON sidecars SHALL be written
 **LF-newline UTF-8** (as `write_units_sidecar` does) so the committed artifacts do not churn between
 Windows authoring and Linux CI.
@@ -427,7 +443,7 @@ Windows authoring and Linux CI.
 
 #### Scenario: A fine figure without a CFD cost writes nothing
 
-- **Given** the `fine` grid profile and no CFD per-wingbeat cost (or 0, a negative value, NaN or inf), the `coarse` profile with a cost other than 144 s, or an unknown profile name
+- **Given** the `fine` grid profile and no CFD cost per step (or 0, a negative value, NaN or inf), the `coarse` profile given a per-step cost, or an unknown profile name
 - **When** figure generation is invoked
 - **Then** it raises `ValueError` and the output directory contains no artifact
 

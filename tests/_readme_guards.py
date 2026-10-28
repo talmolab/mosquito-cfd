@@ -262,9 +262,11 @@ def check_fine_qs_disclosure(readme: str, sidecar: dict[str, Any]) -> None:
 
 
 def check_fine_denominator(readme: str, sidecar: dict[str, Any]) -> None:
-    """The fine CFD cost is stated as the sidecar value, and no coarse/fine ratio is stated."""
-    seconds = _get(sidecar, "speedup", "cfd_seconds_per_wingbeat")
-    stated = re.compile(rf"(?<![\d,.]){re.escape(f'{round(seconds):,}')} s\b")
-    assert stated.search(readme), f"README lacks '{round(seconds):,} s'"
+    """The fine per-step CFD cost is stated (2 dp, from the sidecar), with no ratio to coarse."""
+    per_wingbeat = _get(sidecar, "speedup", "cfd_seconds_per_wingbeat")
+    rows = _get(sidecar, "speedup", "rows_per_wingbeat")
+    stated_text = f"{per_wingbeat / rows:.2f} s per step"
+    stated = re.compile(rf"(?<![\d.]){re.escape(stated_text)}\b")
+    assert stated.search(readme), f"README lacks {stated_text!r}"
     ratio = _DENOMINATOR_RATIO.search(readme)
     assert ratio is None, f"README states a denominator ratio: {ratio.group(0)!r}"
