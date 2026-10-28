@@ -28,7 +28,8 @@
   steps): medians 4996 / 4297 / 3739 s at f* = 0.85 / 1.0 / 1.15. The median step rate
   (≈2.14 s/step) is about 7% above the force-only fine pilot's 2.010 s/step
   (`docs/force_surrogate/fine-grid-pilot-report.md`; pilot `plot_int = -1`, pre-hinge-fix geometry).
-  The ~2× spread is node variation, not kinematics.
+  The spread is concentrated on two of the six nodes (every run above 2.38 s/step is on
+  gpu-node8 or gpu-node12), so this corpus does not separate a node effect from a kinematic one.
 - **What "grid-checked" means.** T3c (PR #52) ran the 3-grid convergence study at the 70° validation
   stroke, outside the sweep's φ ∈ {35, 45, 55}°, at `dt = 2.5e-4` on the A5000, on peak body-frame
   `CF_normal` (GCI_fine "3.7 %") and `CF_chord` (GCI_fine "27.6 %"; the source writes a space before
@@ -82,7 +83,7 @@ GRID_PROFILES = {"coarse": COARSE_PROFILE, "fine": FINE_PROFILE}
 |---|---|---|
 | `cfd_label` | `coarse-grid A40 CFD` | `fine-grid A40 CFD at its median per-step wall time` |
 | `lift_label` | `coarse-grid CFD lift` | `fine-grid CFD lift` |
-| `qs_suffix` | ` at this resolution` | (empty: on the fine grid the reason is the omitted terms) |
+| `qs_suffix` | ` at this resolution` | (empty: the fine caption does not give the grid as the reason) |
 | `grid_caveat` | `Coarse 64x32x64 grid: pipeline readiness, not validated aerodynamics.` | `Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence checked only at one wing motion outside this sweep (README).` |
 | `readme_pointer` | `examples/prelim_sweep/README.md` | `examples/prelim_sweep_fine/README.md` |
 | CFD cost | `144.0` s per wingbeat (`CFD_SECONDS_PER_WINGBEAT`, name kept) | a supplied cost per step |
@@ -153,12 +154,14 @@ stderr). `float(repr(x)) == x` for every float, so the value passes through the 
 **Why per step.** The speedup divides by the CFD cost per row, and each dataset row is one CFD
 timestep. Per-wingbeat time scales with 1/f* (a wingbeat is `1/(f*·dt)` steps), so a median over
 per-wingbeat times pools three f* levels; it happened to land on an f*=1.0 config (4375 s), which
-matched the representative config only by chance. The per-step rate does not depend on the
-kinematics (the pilot's was near-constant), so it is the quantity to take the median of. Found by
+matched the representative config only by chance. The per-step rate is the cost per row by
+definition and is not expected to depend much on the kinematics (the pilot's three configs gave
+2.00–2.02 s/step), so it is the quantity to take the median of. Found by
 the pre-GPU code review; the user chose per step at the pre-GPU checkpoint.
 
-**Why the median.** The ~1.6× spread in per-step time (2.10–3.30 s) is node variation. The median
-is robust to the slow-node tail; a mean or the max would inflate the speedup.
+**Why the median.** Per-step time spans 2.10–3.30 s, the slow tail all on two nodes (node and
+kinematics are not separated in this corpus). The median is robust to that tail; a mean or the
+max would inflate the speedup. The README states the range alongside the median.
 
 **Disclosure (README, not caption).** The two denominators are **not like-for-like**:
 

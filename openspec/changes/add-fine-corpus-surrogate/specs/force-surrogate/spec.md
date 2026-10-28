@@ -46,8 +46,8 @@ reproducibility and provenance" requirement is unchanged.
 A torch-free helper `median_cfd_seconds_per_step(paths)` SHALL reduce per-configuration run metadata
 files to the median of `timing.wall_time_s / timing.timesteps`, returning that median with the
 configuration count, the single GPU model, and the minimum and maximum. The cost is per timestep, not
-per wingbeat, because a wingbeat takes `1/(f*·dt)` steps, so per-wingbeat time scales with the
-kinematics while the per-step rate does not. It SHALL raise `ValueError`, naming the offending file,
+per wingbeat: the speedup divides by the cost per row, each row is one timestep, and a wingbeat takes
+`1/(f*·dt)` steps, so per-wingbeat time scales with the frequency by construction. It SHALL raise `ValueError`, naming the offending file,
 for an empty input, a missing `config` or `gpu_model`, a `wall_time_s` that is missing, `null`,
 boolean, a string, non-finite or non-positive, a `timesteps` that is not a positive integer, a
 duplicate configuration, or more than one GPU model. A script SHALL print the median for a metadata
@@ -59,7 +59,9 @@ The fine evidence figure SHALL take that median over the 27 committed fine
 per-step cost; the sidecar's `speedup.cfd_seconds_per_wingbeat` SHALL be that cost times the
 representative configuration's `rows_per_wingbeat`, and the figure's `run_metadata.json` SHALL record
 the per-step cost as `cfd_seconds_per_step`. CI tests SHALL recompute the median and compare it
-exactly with both. The fine README SHALL state the fine cost per step and disclose that the coarse and
+exactly with both. The fine README's Speedup section SHALL state the fine cost per step, its range
+over the 27 runs (from the helper's `min`/`max`), that it is a median, and that the wall time
+includes plotfile output and solver start-up, and the README SHALL disclose that the coarse and
 fine denominators are not like-for-like: the coarse 144 s per wingbeat is 2.4 min, the rounded wall
 time (146 s) of a single A40 run of the 70° validation deck (`examples/flapping_wing/RESULTS.md`,
 Performance), while the fine value is the median per-step time over the sweep's own runs; both
@@ -147,7 +149,7 @@ difference to grid resolution alone. No skill, pointwise R² or cycle-mean R² v
 
 - **Given** the fine README and the committed fine `evidence_figure_metrics.json`
 - **When** its quasi-steady disclosures are checked
-- **Then** it states the fine-grid RMS ratio equal to the sidecar's `overshoot_factor` at the caption's precision, and that the model is uncalibrated and translational-only, omits rotational/added-mass/LEV lift, assumes symmetric-rotation, is a stroke-plane-normal force compared with the lab-z CFD component, and is not overlaid on the figure; and it states the fine CFD cost as "<x.xx> s per step", where x.xx is the sidecar's `cfd_seconds_per_wingbeat / rows_per_wingbeat` at 2 dp, with no ratio between the coarse and fine denominators
+- **Then** it states the fine-grid RMS ratio equal to the sidecar's `overshoot_factor` at the caption's precision, and that the model is uncalibrated and translational-only, omits rotational/added-mass/LEV lift, assumes symmetric-rotation, is a stroke-plane-normal force compared with the lab-z CFD component, and is not overlaid on the figure; with the ratio and the model description inside its Quasi-steady reference section; and its Speedup section states the fine CFD cost as "<x.xx> s per step", where x.xx is the sidecar's `cfd_seconds_per_wingbeat / rows_per_wingbeat` at 2 dp, the per-step range over the runs, that it is a median, and that it includes plotfile output and solver start-up, with no ratio between the coarse and fine denominators anywhere in the README
 
 ## MODIFIED Requirements
 
@@ -219,16 +221,16 @@ overlay (CC-4 deviation; reference-only decision recorded in the proposal):** th
 rotational, added-mass, and LEV lift — so a scatter overlay would mostly re-display the model's
 analytic loops rather than demonstrate surrogate skill. The earlier "~2.4× diffused-IB underestimate"
 framing was a normalization-convention artifact and is removed (the CFD `ib_force` is correct). Under
-the corrected van Veen normalization the model's RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)` is **< 1** on the coarse
-corpus (it **under-predicts** the now-in-band CFD lift, ≈ 0.7 on the committed coarse corpus — the opposite of the
-old > 1 "overshoot," because the CFD lift is no longer mis-normalized small). The figure SHALL record
+the corrected van Veen normalization the model's RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)` is reported
+as measured, with no bound asserted: the earlier statement that it is < 1 (≈ 0.7) does not match the
+committed coarse value (≈ 1.3, `examples/prelim_sweep/figures/evidence_figure_metrics.json`); stale
+numbers in this spec are tracked in #115. The figure SHALL record
 this RMS ratio (key `overshoot_factor`) and the baseline RMSE in `evidence_figure_metrics.json`, and
 the caption SHALL disclose the ratio neutrally (the model is ~N× the CFD lift in RMS, the lift
 named for the figure's grid profile: "coarse-grid CFD lift" or "fine-grid CFD lift", in both
 the caption and the sidecar `note`) and that the
 uncalibrated translational model is therefore **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine
-profile omits that phrase, since there the reason is the omitted terms, not the grid. On the fine
-profile no bound on the RMS ratio is asserted; it is reported as measured.
+profile omits that phrase and does not give the grid as the reason.
 
 #### Scenario: Baseline coefficient matches the documented formula on known inputs
 
@@ -258,7 +260,7 @@ profile no bound on the RMS ratio is asserted; it is reported as measured.
 
 - **Given** the computed Sane–Dickinson reference and the CFD-true CF_z
 - **When** the sidecar and caption are built
-- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (the RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)`, a positive finite number — **< 1** under the van Veen convention on the coarse corpus as stated above; no bound is asserted for the fine profile, whose value is reported as measured) and `baseline_rmse_cf_z`, and the caption states neutrally that the uncalibrated translational quasi-steady model is ~N× the coarse-grid (or, for the fine profile, fine-grid) CFD lift in RMS and is **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine profile omits that phrase, since there the reason is the omitted terms, not the grid (it is not framed as a comparison the surrogate "beats")
+- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (the RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)`, a positive finite number, reported as measured with no bound asserted for either profile) and `baseline_rmse_cf_z`, and the caption states neutrally that the uncalibrated translational quasi-steady model is ~N× the coarse-grid (or, for the fine profile, fine-grid) CFD lift in RMS and is **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine profile omits that phrase (it is not framed as a comparison the surrogate "beats")
 
 #### Scenario: No diffused-IB underestimate claim remains
 

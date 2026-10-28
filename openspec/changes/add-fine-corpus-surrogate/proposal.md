@@ -167,8 +167,17 @@ Deviations found before the GPU run, each reconciled into design and spec:
   310,190 B; `evidence_figure_metrics.json` 2,485 B; figure `run_metadata.json` 1,120 B
   (≈1.95 MB total).
 - **Mutation kills:** C1 13/13, C2 20/20, C3 10/10, review fixes 10/10, per-step 21/21, fine
-  artifacts 20/20.
+  artifacts 20/20, fresh-review guards 6/6.
 - **Follow-up issue:** #130.
+- **Fresh review of C4–C6 (task 23):** no blocking findings. Fixed (C7, docs and tests only, so
+  neither provenance scope changed): the MODIFIED Sane–Dickinson text no longer asserts a coarse
+  ratio < 1 (≈ 0.7) that the committed coarse value (≈ 1.3) contradicts; the fine README no longer
+  implies the omitted lift terms explain an over-prediction; the per-step cost's 2.10–3.30 s range
+  and its node/kinematics confound are stated instead of "the per-step time does not depend on the
+  kinematics"; the denominator and quasi-steady guards are scoped to their sections (the first
+  could not fail); "21 training configurations" now says 21 non-holdout. Left as is: the
+  `cfd_cost.py` module docstring's "the per-step rate does not" wording (it cites the pilot's
+  2.00–2.02 s/step; editing it would change the figure's provenance scope), noted for #130.
 
 ### Delivery
 

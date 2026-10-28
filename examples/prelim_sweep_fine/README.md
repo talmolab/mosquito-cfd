@@ -35,8 +35,9 @@ not repeated here.
 ### What the figure reports: skill over the phase-only baseline
 
 Each panel leads with **skill = 1 − MSE/MSE₀**, where MSE₀ is the holdout error of the
-**phase-only baseline**: the mean training waveform of this corpus's 21 training configurations,
-which knows the phase but ignores stroke amplitude, frequency and pitch. 0 is no better than the
+**phase-only baseline**: the mean waveform of this corpus's 21 non-holdout configurations (the
+`train` split, including the 3 the trainer sets aside for validation), which knows the phase but
+ignores stroke amplitude, frequency and pitch. 0 is no better than the
 baseline, 1 is perfect, below 0 is worse. Pooled over every holdout row, skill also credits
 predicting how the waveform's amplitude and shape change with the kinematics, not only the
 cycle-mean force. The baseline alone already scores a high pointwise R² (last column), which is how
@@ -107,8 +108,10 @@ The caption gives the ratio of an uncalibrated, translational-only Sane–Dickin
 model to the fine-grid CFD lift: ~1.4× in RMS (`quasi_steady_reference.overshoot_factor` in
 `figures/evidence_figure_metrics.json`). The model omits rotational, added-mass and LEV lift, uses a
 symmetric-rotation angle of attack, and defines lift stroke-plane-normal while the CFD `CF_z` is the
-lab-z force, so it is reported as a reference number and not overlaid on the figure. The model itself
-is described in the coarse README.
+lab-z force, so it is reported as a reference number and not overlaid on the figure. The ratio is
+above 1 even though the omitted terms would add lift, so the omissions do not explain the gap; why
+the uncalibrated model over-predicts this grid's lift was not investigated here. The model itself is
+described in the coarse README.
 
 ### Validation status of the fine CFD
 
@@ -137,10 +140,16 @@ which a CFD time integration cannot do). The like-for-like per-evaluation latenc
 The CFD cost is per step: each dataset row is one CFD timestep, so the figure divides by the CFD's
 wall-clock time per step, the median over this corpus's 27 runs, 2.14 s per step
 (`scripts/cfd_seconds_per_step.py`). A wingbeat takes `1/(f*·dt)` steps, so a per-wingbeat time
-would depend on the kinematics while the per-step time does not. That wall time includes plotfile
-output (field capture every 100 steps) and solver start-up; the force-only rate measured in the fine
-pilot is in [`docs/force_surrogate/fine-grid-pilot-report.md`](../../docs/force_surrogate/fine-grid-pilot-report.md)
-(~2.01 s/step, on the pre-hinge-fix geometry). The coarse figure's denominator is not like-for-like
+scales with the frequency by construction; the per-step time is not expected to depend much on the
+kinematics (the fine pilot measured 2.00–2.02 s/step across its three configs), but over these 27
+runs it spans 2.10–3.30 s per step, with the slowest runs on two of the six cluster nodes, so this
+corpus does not separate a node effect from a kinematic one. The median is used because it is
+robust to that slow tail. That wall time includes plotfile output (field capture every 100 steps)
+and solver start-up; the force-only rate measured in the fine pilot is in
+[`docs/force_surrogate/fine-grid-pilot-report.md`](../../docs/force_surrogate/fine-grid-pilot-report.md)
+(~2.01 s/step, on the pre-hinge-fix geometry). The sidecar's `cfd_seconds_per_wingbeat` is this
+per-step cost times the 2,000 rows of the figure's representative configuration (the f* = 1.00
+holdout config); it is not a cost for every configuration's wingbeat. The coarse figure's denominator is not like-for-like
 with this one: it is a fixed 144 s per wingbeat, the rounded 2.4 min (146 seconds) of a single A40
 run of the 70° validation deck, which also wrote plotfiles (`examples/flapping_wing/RESULTS.md`,
 Performance), whereas this one is the median per-step time over the sweep's own runs.

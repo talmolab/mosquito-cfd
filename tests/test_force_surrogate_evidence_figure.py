@@ -1257,7 +1257,7 @@ def test_committed_figure_metrics_matches_committed_inputs(corpus):
     # CC-4); the surrogate beats it by RMSE regardless. This is data-dependent on the fine
     # corpus: if it fires there, stop and decide (design Risks), do not re-pin.
     qs = fig_metrics["quasi_steady_reference"]
-    assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (van Veen: < 1)
+    assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (no bound asserted)
     assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
 
 

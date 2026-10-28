@@ -206,8 +206,6 @@ FINE_REQUIRED = (
     "27.6 %",
     "examples/flapping_wing/RESULTS.md",
     "docs/force_surrogate/fine-grid-pilot-report.md",
-    "plotfile",
-    "median",
     "phase-only baseline",
     "skill = 1 − mse/mse₀",
     "lab-frame",
@@ -250,21 +248,37 @@ QS_REQUIRED = (
 
 
 def check_fine_qs_disclosure(readme: str, sidecar: dict[str, Any]) -> None:
-    """The quasi-steady paragraph gives the sidecar's ratio and the model's nature."""
+    """The quasi-steady section gives the sidecar's ratio and the model's nature."""
     ratio = _get(sidecar, "quasi_steady_reference", "overshoot_factor")
     assert isinstance(ratio, float) and math.isfinite(ratio), ratio
-    assert f"~{ratio:.1f}×" in readme, f"README lacks the QS ratio ~{ratio:.1f}×"
-    low = readme.lower()
+    section, _ = _section(readme, "Quasi-steady reference")
+    assert f"~{ratio:.1f}×" in section, f"QS section lacks the ratio ~{ratio:.1f}×"
+    low = section.lower()
     missing = [s for s in QS_REQUIRED if s not in low]
     assert not missing, f"fine README QS paragraph lacks {missing}"
 
 
-def check_fine_denominator(readme: str, sidecar: dict[str, Any]) -> None:
-    """The fine per-step CFD cost is stated (2 dp, from the sidecar), with no ratio to coarse."""
+def check_fine_denominator(
+    readme: str,
+    sidecar: dict[str, Any],
+    per_step_range: tuple[float, float] | None = None,
+) -> None:
+    """The Speedup section states the fine per-step CFD cost (2 dp, from the sidecar), what that
+    wall time contains, and (if given) the per-step range over the runs; no ratio to coarse."""
     per_wingbeat = _get(sidecar, "speedup", "cfd_seconds_per_wingbeat")
     rows = _get(sidecar, "speedup", "rows_per_wingbeat")
+    section, _ = _section(readme, "Speedup")
     stated_text = f"{per_wingbeat / rows:.2f} s per step"
     stated = re.compile(rf"(?<![\d.]){re.escape(stated_text)}\b")
-    assert stated.search(readme), f"README lacks {stated_text!r}"
+    assert stated.search(section), f"Speedup section lacks {stated_text!r}"
+    low = section.lower()
+    # "includes plotfile output", not bare "plotfile": the section also says the coarse run wrote them
+    required = ("median", "includes plotfile output", "start-up")
+    missing = [s for s in required if s not in low]
+    assert not missing, f"Speedup section does not say the cost is/contains {missing}"
+    if per_step_range is not None:
+        lo, hi = per_step_range
+        span = f"{lo:.2f}–{hi:.2f} s per step"
+        assert span in section, f"Speedup section lacks the per-step range {span!r}"
     ratio = _DENOMINATOR_RATIO.search(readme)
     assert ratio is None, f"README states a denominator ratio: {ratio.group(0)!r}"

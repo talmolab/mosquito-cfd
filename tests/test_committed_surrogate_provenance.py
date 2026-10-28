@@ -424,7 +424,8 @@ def test_fine_readme_discloses_validation_status_qs_reference_and_cost():
         readme, RESULTS_MD.read_text(encoding="utf-8"), ("3.7 %", "27.6 %")
     )
     check_fine_qs_disclosure(readme, sidecar)
-    check_fine_denominator(readme, sidecar)
+    cost = median_cfd_seconds_per_step(sorted(FINE.glob("run_metadata_*.json")))
+    check_fine_denominator(readme, sidecar, per_step_range=(cost["min"], cost["max"]))
 
 
 # --- Synthetic tests of the guard helpers (run now, before any fine artifact) --------------
@@ -486,9 +487,13 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
             "with CFD, not with experiment; grid convergence was checked only at one wing "
             "motion outside this sweep (GCI_fine 3.7 % and 27.6 %, "
             "examples/flapping_wing/RESULTS.md). Moments are **lab-frame** components about "
-            "the hinge; the wing-frame conversion is not currently tracked. The CFD cost is "
-            "the median of 2.14 s per step and includes plotfile output; the force-only "
-            "rate is in docs/force_surrogate/fine-grid-pilot-report.md."
+            "the hinge; the wing-frame conversion is not currently tracked. Field capture "
+            "writes plotfiles."
+        ),
+        "speedup": (
+            "The CFD cost is the median of 2.14 s per step and includes plotfile output and "
+            "solver start-up (2.10–3.30 s per step across the runs); the force-only rate is "
+            "in docs/force_surrogate/fine-grid-pilot-report.md."
         ),
         "qs": (
             "The uncalibrated, translational-only quasi-steady model (symmetric-rotation AoA, "
@@ -497,9 +502,10 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
     }
     parts.update(overrides)
     return (
-        f"# Fine\n\n{parts['disclosures']}\n\n{parts['qs']}\n\n{parts['skill']}\n\n"
+        f"# Fine\n\n{parts['disclosures']}\n\n{parts['skill']}\n\n"
         f"{parts['cycle']}\n\n## {COMPARISON_HEADING}\n\n{parts['comparison']}\n\n"
-        f"{parts['prose']}\n\n## Regenerating\n\ncommands\n"
+        f"{parts['prose']}\n\n## Quasi-steady reference\n\n{parts['qs']}\n\n"
+        f"## Speedup\n\n{parts['speedup']}\n\n## Regenerating\n\ncommands\n"
     )
 
 
@@ -507,6 +513,7 @@ _SYNTHETIC_SIDECAR = {
     "quasi_steady_reference": {"overshoot_factor": 0.71},
     "speedup": {"cfd_seconds_per_wingbeat": 4288.0, "rows_per_wingbeat": 2000},
 }
+_SYNTHETIC_RANGE = (2.097, 3.302)
 _SYNTHETIC_SOURCE = "| GCI_fine | 3.7 % |\n| GCI_fine | 27.6 % |"
 
 
@@ -517,7 +524,7 @@ def _all_guards(readme: str, coarse: dict, fine: dict) -> None:
     check_fine_disclosures(readme)
     check_quoted_in_source(readme, _SYNTHETIC_SOURCE, ("3.7 %", "27.6 %"))
     check_fine_qs_disclosure(readme, _SYNTHETIC_SIDECAR)
-    check_fine_denominator(readme, _SYNTHETIC_SIDECAR)
+    check_fine_denominator(readme, _SYNTHETIC_SIDECAR, per_step_range=_SYNTHETIC_RANGE)
 
 
 def test_guards_accept_a_correct_synthetic_readme():
@@ -618,11 +625,34 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         ),
         "prose after a code-fence comment": _replace_once(
             good,
-            "\n\n## Regenerating",
-            "\n\n```bash\n# regenerate the table\n```\n\nSkill improves.\n\n## Regenerating",
+            "\n\n## Quasi-steady reference",
+            "\n\n```bash\n# regenerate the table\n```\n\nSkill improves.\n\n"
+            "## Quasi-steady reference",
         ),
         "row with an empty target cell": _replace_once(
             good, cmp_y + "\n", cmp_y + "\n|  | 0.9 | 0.9 | yes |\n"
+        ),
+        "plotfile disclosure only outside Speedup": _replace_once(
+            _replace_once(
+                good,
+                "includes plotfile output and solver start-up",
+                "includes solver start-up",
+            ),
+            "Field capture writes plotfiles.",
+            "Field capture writes plotfiles; the CFD cost includes plotfile output.",
+        ),
+        "start-up disclosure missing": _replace_once(
+            good,
+            "includes plotfile output and solver start-up",
+            "includes plotfile output",
+        ),
+        "per-step range missing": _replace_once(
+            good, " (2.10–3.30 s per step across the runs)", ""
+        ),
+        "QS paragraph outside its section": _replace_once(
+            good,
+            "## Quasi-steady reference\n\n",
+            "## Quasi-steady reference\n\nSee below.\n\n## Model\n\n",
         ),
     }
 
@@ -657,6 +687,10 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "denominator superstring",
         "prose after a code-fence comment",
         "row with an empty target cell",
+        "plotfile disclosure only outside Speedup",
+        "start-up disclosure missing",
+        "per-step range missing",
+        "QS paragraph outside its section",
     ],
 )
 def test_guards_reject_each_defect_with_assertion_error(defect):
