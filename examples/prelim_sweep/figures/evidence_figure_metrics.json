@@ -4,10 +4,59 @@
     "CF_z": 0.021698391994378757,
     "CF_my": 0.022527819932718695
   },
-  "config_mean_r2": {
-    "CF_x": -4.170654886470504,
-    "CF_z": 0.9804241548443937,
-    "CF_my": 0.06886227097199471
+  "primary_seed": 1234,
+  "n_seeds": 5,
+  "skill": {
+    "CF_x": {
+      "committed": 0.9878643917804139,
+      "min": 0.9878643917804139,
+      "max": 0.9923201760348408
+    },
+    "CF_y": {
+      "committed": 0.9744095516037377,
+      "min": 0.9744095516037377,
+      "max": 0.984431230555837
+    },
+    "CF_z": {
+      "committed": 0.9838098377643206,
+      "min": 0.9838098377643206,
+      "max": 0.9902290456972815
+    },
+    "CF_mx": {
+      "committed": 0.9731657705986549,
+      "min": 0.9731657705986549,
+      "max": 0.9895178464470501
+    },
+    "CF_my": {
+      "committed": 0.9773511542420076,
+      "min": 0.9698341418672275,
+      "max": 0.9841863475193975
+    },
+    "CF_mz": {
+      "committed": 0.9832180073641285,
+      "min": 0.9832180073641285,
+      "max": 0.9911490791595372
+    }
+  },
+  "pointwise_r2": {
+    "CF_x": 0.9994493298493718,
+    "CF_y": 0.999313777785918,
+    "CF_z": 0.9983285995529343,
+    "CF_mx": 0.9976600963972865,
+    "CF_my": 0.9987349419218381,
+    "CF_mz": 0.9993522066102364
+  },
+  "phase_baseline_pointwise_r2": {
+    "CF_x": 0.9546236051243515,
+    "CF_y": 0.973184439621534,
+    "CF_z": 0.8967644411010054,
+    "CF_mx": 0.912801535392842,
+    "CF_my": 0.944144699836833,
+    "CF_mz": 0.9613994950528715
+  },
+  "skill_floor": {
+    "value": 0.9698341418672275,
+    "targets_below_phase_baseline": []
   },
   "quasi_steady_reference": {
     "baseline_rmse_cf_z": 1.7784708701047294,
@@ -15,15 +64,15 @@
     "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to the coarse-grid CFD lift, so not a quantitative baseline here"
   },
   "speedup": {
-    "throughput_speedup": 3762821.190324869,
-    "latency_speedup": 440.33033214585583,
+    "throughput_speedup": 3757026.3089224985,
+    "latency_speedup": 256.99266790970785,
     "batch_size": 12535,
-    "parallelism_factor": 8545.450802781546,
+    "parallelism_factor": 14619.196491016222,
     "cfd_rows_per_s": 13.88888888888889,
     "cfd_seconds_per_wingbeat": 144.0,
     "rows_per_wingbeat": 2000,
-    "surrogate_throughput_rows_per_s": 52261405.421178736,
-    "surrogate_latency_ms": 0.16351360499996304,
+    "surrogate_throughput_rows_per_s": 52180920.95725693,
+    "surrogate_latency_ms": 0.28016363496135455,
     "cfd_rate_is_sequential": true
   },
   "rows_per_wingbeat_per_config": {

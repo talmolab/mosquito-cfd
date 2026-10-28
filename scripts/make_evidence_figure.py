@@ -3,7 +3,8 @@ r"""Generate the predicted-vs-CFD force-surrogate evidence figure (Track B PR6).
 Thin driver over :mod:`mosquito_cfd.force_surrogate.evidence_figure` (all logic lives in the
 tested library). Reads the committed PR5 artifacts (``holdout_predictions.parquet`` +
 ``metrics.json``) and writes ``evidence_figure.png`` (>=200 dpi), an
-``evidence_figure_metrics.json`` sidecar, and a ``run_metadata.json`` provenance file.
+``evidence_figure_metrics.json`` sidecar, and a ``run_metadata.json`` provenance file whose
+seeds are read from ``metrics.json`` ``seed_sweep`` (there is no seed flag to disagree with it).
 Force-only (CC-6): no plotfiles, no cluster, no GPU.
 
 Run from the repository root, e.g.::
@@ -50,7 +51,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         required=True,
         help="Caller-supplied ISO-8601 timestamp (reproducible provenance).",
     )
-    parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--dpi", type=int, default=200)
     args = parser.parse_args(argv)
 
@@ -60,7 +60,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_dir=args.out_dir,
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
-        seeds={"global": args.seed},
         dpi=args.dpi,
     )
     return 0

@@ -48,7 +48,10 @@ from mosquito_cfd.force_surrogate.normalization import (  # noqa: E402
 from mosquito_cfd.force_surrogate.sidecar import (  # noqa: E402
     capture_surrogate_run_metadata,
 )
-from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
+from mosquito_cfd.force_surrogate.train import (  # noqa: E402
+    TARGET_COLUMNS,
+    write_json,
+)
 
 # The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y
 # component", not "pitch moment" (moments are lab-frame; the wing-frame conversion is not
@@ -60,6 +63,11 @@ from mosquito_cfd.force_surrogate.train import write_json  # noqa: E402
 PANEL_COEFFICIENTS: tuple[str, str, str] = ("CF_x", "CF_z", "CF_my")
 MOMENT_PANEL = "CF_my"
 LIFT_PANEL = "CF_z"
+# All six targets (the trainer's own list): the caption's skill floor and the sidecar cover
+# every one (issue #116).
+TARGETS: tuple[str, ...] = tuple(TARGET_COLUMNS)
+# The one phrase used wherever a sweep has a single seed (never an implied spread).
+_SINGLE_SEED = "single seed, no range"
 
 # Coarse-grid A40 CFD cost (~2.4 min/wingbeat; roadmap Hardware row). Used only for the
 # speedup denominator, which the annotation labels "coarse-grid A40 CFD" (design D4).
@@ -196,29 +204,103 @@ def _require(mapping: dict[str, Any], key: str, ctx: str) -> Any:
     return mapping[key]
 
 
-def _config_mean_r2(metrics: dict[str, Any], coef: str) -> float | None:
-    """Read ``config_resolved.<coef>.config_mean_r2`` (may be ``None`` NaN-sentinel)."""
-    cr = _require(metrics, "config_resolved", "config-resolved skill block")
-    entry = _require(cr, coef, f"config_resolved entry for {coef}")
-    return entry.get("config_mean_r2")
+def _per_target(metrics: dict[str, Any], coef: str) -> dict[str, Any]:
+    """Read ``per_target.<coef>`` (clear error if any level is missing)."""
+    pt = _require(metrics, "per_target", "per-target metrics block")
+    return _require(pt, coef, f"per_target entry for {coef}")
 
 
 def _per_target_rmse(metrics: dict[str, Any], coef: str) -> float:
     """Read ``per_target.<coef>.rmse`` (clear error if any level is missing)."""
-    pt = _require(metrics, "per_target", "per-target metrics block")
-    entry = _require(pt, coef, f"per_target entry for {coef}")
-    return _require(entry, "rmse", f"per_target.{coef}.rmse")
+    return _require(_per_target(metrics, coef), "rmse", f"per_target.{coef}.rmse")
 
 
-def _fmt_r2(value: float | None) -> str:
-    """Format a config-resolved R2, rendering the ``None`` NaN-sentinel as 'n/a'."""
-    if value is None or (isinstance(value, float) and np.isnan(value)):
+def _skill_entry(metrics: dict[str, Any], coef: str) -> dict[str, Any]:
+    """Read ``phase_baseline_skill.per_target.<coef>`` (skill + the phase-only baseline's R²)."""
+    block = _require(metrics, "phase_baseline_skill", "phase-only baseline skill block")
+    per_target = _require(block, "per_target", "phase_baseline_skill.per_target")
+    return _require(per_target, coef, f"phase_baseline_skill entry for {coef}")
+
+
+def _pointwise_r2(metrics: dict[str, Any], coef: str) -> float | None:
+    """Read ``per_target.<coef>.r2`` (``None`` is the NaN sentinel; a missing key raises)."""
+    return _require(_per_target(metrics, coef), "r2", f"per_target.{coef}.r2")
+
+
+def _phase_baseline_r2(metrics: dict[str, Any], coef: str) -> float | None:
+    """Read ``phase_baseline_skill.per_target.<coef>.phase_baseline_r2`` (missing raises)."""
+    return _require(
+        _skill_entry(metrics, coef),
+        "phase_baseline_r2",
+        f"phase_baseline_skill.per_target.{coef}.phase_baseline_r2",
+    )
+
+
+def _seed_sweep(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Read the ``seed_sweep`` block; a metrics.json without one is rejected (no default seed).
+
+    The plotted seed must be listed first: the provenance records ``seeds[1:]`` as the sweep.
+    """
+    sweep = _require(metrics, "seed_sweep", "seed-sweep block")
+    primary = _require(sweep, "primary_seed", "seed_sweep.primary_seed")
+    seeds = _require(sweep, "seeds", "seed_sweep.seeds")
+    if not seeds or seeds[0] != primary:
+        raise ValueError(
+            f"seed_sweep.seeds {seeds} must list the primary seed first ({primary})"
+        )
+    return sweep
+
+
+def _skill_range(metrics: dict[str, Any], coef: str) -> dict[str, Any] | None:
+    """Read ``seed_sweep.range.<coef>.skill`` (``None`` when null for every seed)."""
+    ranges = _require(_seed_sweep(metrics), "range", "seed_sweep.range")
+    entry = _require(ranges, coef, f"seed_sweep range for {coef}")
+    return _require(entry, "skill", f"seed_sweep.range.{coef}.skill")
+
+
+def _is_null(value: float | None) -> bool:
+    return value is None or (isinstance(value, float) and np.isnan(value))
+
+
+def format_metric(value: float | None) -> str:
+    """Render a skill or R² value for the figure (design D6).
+
+    Three decimals; a value that would print ``1.000`` prints ``>0.999``; a nonzero value that
+    would print ``±0.000`` prints in scientific form (so a below-baseline flag never reads
+    ``0.000``); negatives use U+2212; a null (the NaN sentinel) prints ``n/a``.
+    """
+    if _is_null(value):
         return "n/a"
-    return f"{value:.2f}"
+    if value == 0:  # including -0.0, which is not below anything
+        return "0.000"
+    text = f"{value:.3f}"
+    if text == "1.000":
+        return ">0.999"
+    if text in ("0.000", "-0.000") and value != 0:
+        text = f"{value:.1e}"
+    return "−" + text[1:] if text.startswith("-") else text
+
+
+def _seed_count(metrics: dict[str, Any]) -> int:
+    return len(_require(_seed_sweep(metrics), "seeds", "seed_sweep.seeds"))
+
+
+def _skill_with_range(metrics: dict[str, Any], coef: str) -> str:
+    """``"0.988 (5 seeds: 0.988 to 0.992)"``, or ``"... (single seed, no range)"``."""
+    skill = format_metric(_require(_skill_entry(metrics, coef), "skill", coef))
+    k = _seed_count(metrics)
+    rng = _skill_range(metrics, coef)
+    if k == 1:
+        return f"{skill} ({_SINGLE_SEED})"
+    if rng is None:
+        return f"{skill} ({k} seeds: n/a)"
+    return f"{skill} ({k} seeds: {format_metric(rng['min'])} to {format_metric(rng['max'])})"
 
 
 def panel_annotation(metrics: dict[str, Any], coef: str) -> str:
-    """Per-panel annotation: config-resolved R2 + RMSE, read from ``metrics`` (not literals).
+    """Per-panel annotation: skill (with seed range), pointwise R² and RMSE from ``metrics``.
+
+    Skill is over the phase-only baseline; every value is read, never a literal.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
@@ -230,9 +312,31 @@ def panel_annotation(metrics: dict[str, Any], coef: str) -> str:
     Raises:
         KeyError: If a required metrics key for ``coef`` is missing.
     """
-    r2 = _fmt_r2(_config_mean_r2(metrics, coef))
+    r2 = format_metric(_pointwise_r2(metrics, coef))
     rmse = _per_target_rmse(metrics, coef)
-    return f"config-R² = {r2}\nRMSE = {rmse:.3f}"
+    return f"skill {_skill_with_range(metrics, coef)}\nR² {r2} · RMSE {rmse:.3f}"
+
+
+def skill_floor(metrics: dict[str, Any]) -> dict[str, Any]:
+    """The skill floor over all six targets' seed-sweep minima (design D6).
+
+    The floor is reported instead of a "weakest target": overlapping seed ranges do not support
+    a ranking. Null minima are skipped; the targets whose minimum is below zero (worse than the
+    phase-only baseline) are listed in target order. A minimum of exactly 0 is not below it.
+
+    Returns:
+        ``{"value": float | None, "targets_below_phase_baseline": [...], "n_defined": int}``.
+    """
+    minima = {}
+    for c in TARGETS:
+        rng = _skill_range(metrics, c)
+        minima[c] = None if rng is None or _is_null(rng.get("min")) else rng["min"]
+    defined = {c: m for c, m in minima.items() if m is not None}
+    return {
+        "value": min(defined.values()) if defined else None,
+        "targets_below_phase_baseline": [c for c, m in defined.items() if m < 0],
+        "n_defined": len(defined),
+    }
 
 
 def compute_speedup(
@@ -281,25 +385,44 @@ def compute_speedup(
     }
 
 
+def _floor_sentence(metrics: dict[str, Any], k: int) -> str:
+    """The skill-floor caveat: the floor, or the targets below the phase-only baseline."""
+    floor = skill_floor(metrics)
+    if floor["value"] is None:
+        return "Skill is undefined for every target."
+    below = floor["targets_below_phase_baseline"]
+    if below:
+        named = ", ".join(
+            f"{c} (min skill {format_metric(_skill_range(metrics, c)['min'])})"
+            for c in below
+        )
+        return f"Below the phase-only baseline: {named}."
+    scope = (
+        "all six targets"
+        if floor["n_defined"] == len(TARGETS)
+        else f"the {floor['n_defined']} targets with a defined skill"
+    )
+    span = f"({_SINGLE_SEED})" if k == 1 else f"across {k} seeds"
+    return f"Skill ≥ {format_metric(floor['value'])} for {scope} {span}."
+
+
 def build_caption(
     metrics: dict[str, Any], speedup: dict[str, Any], baseline: dict[str, Any]
 ) -> str:
-    """Build the compact, honest figure caption (design D3; full prose lives in the README).
+    """Build the compact, honest figure caption (design D6; full prose lives in the README).
 
-    A positive headline (per-axis config-resolved R2/RMSE + the batched >1,000x speedup), a
-    terse "Caveats:" line, a terse quasi-steady-reference line, and a README pointer.
-    Which target is flagged as the negative-R2 "tell" that the aggregate overstates skill, if
-    any, is read from **all six** targets at call time: which target is negative is
-    corpus-dependent, and it can be an on-panel axis. Scanning only the off-panel three would
-    miss that case entirely and silently fall back to a "nothing to report" message while an
-    on-panel axis sits negative three words earlier in the same caption's headline — checked
-    deliberately, not assumed to be off-panel. If more than one target is negative, the **most
-    negative** (worst) one is named, not just the first in axis order — a mild on-panel dip must
-    not bury a severe off-panel failure.
+    A positive headline (the plotted seed, the definition of skill over the phase-only
+    baseline and the seed count, + the batched >1,000x speedup; the per-axis numbers live on
+    the panels), a terse "Caveats:" line, a terse quasi-steady-reference line, and a README
+    pointer. Configuration-resolved R² is not printed: it divides by the near-zero spread of
+    six cycle means for some targets and swings with the seed (it stays in ``metrics.json``
+    and the README).
 
-    The headline names the seed its config-resolved R² come from (``reproducibility.seeds``):
-    with six holdout configurations those numbers are strongly seed-dependent, so the PNG must
-    not present one draw as the corpus's skill. The seed spread itself lives in the README.
+    The caveats state the **skill floor** over all six targets -- not a "weakest" target,
+    because overlapping seed ranges do not support a ranking -- or, when that floor is
+    negative, each target below the phase-only baseline, as a subordinate flag. The off-panel
+    CF_mx/CF_mz skill is read at call time, so a corpus in which an off-panel moment outscores
+    the headline stays visible.
 
     Args:
         metrics: The loaded ``metrics.json`` dict.
@@ -308,57 +431,39 @@ def build_caption(
 
     Returns:
         The multi-line caption string. Every number is read from the artifacts.
+
+    Raises:
+        KeyError: If ``seed_sweep``, ``phase_baseline_skill`` or a target's entry is missing.
     """
-    r2 = {c: _fmt_r2(_config_mean_r2(metrics, c)) for c in PANEL_COEFFICIENTS}
-    rmse = {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS}
-    all_config_r2 = {
-        c: _config_mean_r2(metrics, c)
-        for c in ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
-    }
-    agg = _require(metrics, "aggregate", "aggregate metrics")["r2"]
+    sweep = _seed_sweep(metrics)
+    seed = _require(sweep, "primary_seed", "seed_sweep.primary_seed")
+    k = _seed_count(metrics)
+    seeds_note = _SINGLE_SEED if k == 1 else f"ranges over {k} seeds"
+    phase_r2 = "/".join(
+        format_metric(_phase_baseline_r2(metrics, c)) for c in PANEL_COEFFICIENTS
+    )
+    off_panel = "; ".join(
+        f"{c} {_skill_with_range(metrics, c)}" for c in ("CF_mx", "CF_mz")
+    )
     thr = speedup["throughput_speedup"]
     lat = speedup["latency_speedup"]
     batch = speedup["batch_size"]
     overshoot = baseline["overshoot_factor"]
-    seed = metrics.get("reproducibility", {}).get("seeds", {}).get("global")
-    seed_note = (
-        "seed not recorded"
-        if seed is None
-        else f"single seed {seed}; 5-seed ranges in README"
-    )
     headline = (
-        f"Predicted-vs-CFD force coefficients on held-out configurations. "
-        f"Config-resolved R² ({seed_note}): CF_x {r2['CF_x']}, CF_z {r2['CF_z']}, "
-        f"CF_m (M_y) {r2['CF_my']}; RMSE {rmse['CF_x']:.3f}/{rmse['CF_z']:.3f}/"
-        f"{rmse['CF_my']:.3f}. Surrogate inference >1,000x faster than CFD "
-        f"(batched GPU throughput ~{thr:.1e}x, N={batch} parallel evals vs sequential "
-        f"coarse-grid A40 CFD; per-evaluation latency floor ~{lat:.0f}x)."
-    )
-    negative_targets = {
-        c: v for c, v in all_config_r2.items() if v is not None and v < 0
-    }
-    if negative_targets:
-        # The worst (most negative) offender, not just the first in axis order — with two
-        # simultaneous negatives, a mild on-panel one must not bury a severe off-panel one.
-        flag_c, flag_v = min(negative_targets.items(), key=lambda kv: kv[1])
-        where = (
-            "on-panel — one of the three plotted axes above"
-            if flag_c in PANEL_COEFFICIENTS
-            else "off-panel"
-        )
-        tell = f"{flag_c} config-resolved R² = {_fmt_r2(flag_v)} < 0 ({where})"
-    else:
-        tell = "no target's config-resolved R² is negative this run"
-    off_panel_disclosure = ", ".join(
-        f"{c} {_fmt_r2(all_config_r2[c])}" for c in ("CF_mx", "CF_mz")
+        f"Predicted vs CFD on held-out configurations, seed {seed}. Skill = 1 − MSE/MSE₀, "
+        f"where MSE₀ is the error of a phase-only baseline (the mean training waveform; "
+        f"ignores stroke, frequency and pitch); {seeds_note}. Surrogate inference >1,000x "
+        f"faster than CFD (batched GPU throughput ~{thr:.1e}x, N={batch} parallel evals vs "
+        f"sequential coarse-grid A40 CFD; per-evaluation latency floor ~{lat:.0f}x)."
     )
     caveats = (
-        f"Caveats: aggregate pointwise R²~{agg:.3f} is waveform-dominated and overstates "
-        f"skill ({tell}). Coarse 64x32x64 grid: "
-        f"pipeline readiness, not validated "
-        f"aerodynamics. Moment is the lab-frame M_y component (wing-frame conversion not "
-        f"currently tracked); "
-        f"CF_mx/CF_mz omitted from panels (config-resolved R²: {off_panel_disclosure})."
+        f"Caveats: pointwise R² mostly reflects the shared waveform (the phase-only "
+        f"baseline alone scores R² {phase_r2} for CF_x/CF_z/CF_my); skill also rewards "
+        f"predicting how waveform amplitude and shape change with the kinematics, not only "
+        f"the cycle-mean force (cycle-mean R²: README). {_floor_sentence(metrics, k)} "
+        f"CF_mx/CF_mz omitted from panels (skill {off_panel}). Coarse 64x32x64 grid: "
+        f"pipeline readiness, not validated aerodynamics. Moment is the lab-frame M_y "
+        f"component (wing-frame conversion not currently tracked)."
     )
     reference = (
         f"Quasi-steady reference (not plotted): an uncalibrated translational Sane-Dickinson "
@@ -546,6 +651,16 @@ def _validate_predictions(predictions: pd.DataFrame) -> None:
         )
 
 
+def _skill_record(metrics: dict[str, Any], coef: str) -> dict[str, Any]:
+    """The sidecar's ``skill.<coef>``: the plotted seed's value and the seed-sweep range."""
+    rng = _skill_range(metrics, coef) or {}
+    return {
+        "committed": _require(_skill_entry(metrics, coef), "skill", coef),
+        "min": rng.get("min"),
+        "max": rng.get("max"),
+    }
+
+
 def _sha256(path: Path) -> str:
     """SHA256 hex digest of a file's bytes."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -558,7 +673,6 @@ def generate_evidence_figure(
     out_dir: Path,
     docker_image_digest: str,
     timestamp: str,
-    seeds: dict[str, int] | None = None,
     dpi: int = 200,
 ) -> dict[str, Any]:
     """Generate + write the evidence figure, its metrics sidecar, and run provenance.
@@ -571,12 +685,14 @@ def generate_evidence_figure(
         out_dir: Output directory (``examples/prelim_sweep/figures/``).
         docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (no wall-clock baked in, CC-1).
-        seeds: Optional seed dict recorded in provenance.
         dpi: Raster resolution (>=200).
 
     Returns:
-        The ``evidence_figure_metrics.json`` payload (per-axis surrogate RMSE, CF_z baseline
-        RMSE, the annotated config-resolved R2, and the speedup decomposition).
+        The ``evidence_figure_metrics.json`` payload: per-axis surrogate RMSE, the plotted seed
+        and seed count, six-target skill (plotted seed + seed range), pointwise R² and
+        phase-only baseline R², the skill floor, the quasi-steady reference and the speedup
+        decomposition -- every number the caption prints. The provenance seeds are read from
+        ``metrics.json`` ``seed_sweep``, so they cannot disagree with the caption.
 
     Raises:
         ValueError: If the digest is a mutable tag, or the predictions have <2 configs / 0 rows.
@@ -609,9 +725,22 @@ def generate_evidence_figure(
     )
     baseline = _baseline_reference(predictions)
 
+    sweep = _seed_sweep(metrics)
+    seeds = list(_require(sweep, "seeds", "seed_sweep.seeds"))
+    floor = skill_floor(metrics)
     fig_metrics: dict[str, Any] = {
         "surrogate_rmse": {c: _per_target_rmse(metrics, c) for c in PANEL_COEFFICIENTS},
-        "config_mean_r2": {c: _config_mean_r2(metrics, c) for c in PANEL_COEFFICIENTS},
+        "primary_seed": _require(sweep, "primary_seed", "seed_sweep.primary_seed"),
+        "n_seeds": len(seeds),
+        "skill": {c: _skill_record(metrics, c) for c in TARGETS},
+        "pointwise_r2": {c: _pointwise_r2(metrics, c) for c in TARGETS},
+        "phase_baseline_pointwise_r2": {
+            c: _phase_baseline_r2(metrics, c) for c in TARGETS
+        },
+        "skill_floor": {
+            "value": floor["value"],
+            "targets_below_phase_baseline": floor["targets_below_phase_baseline"],
+        },
         "quasi_steady_reference": baseline,
         "speedup": speedup,
         "rows_per_wingbeat_per_config": _rows_by_config(predictions),
@@ -626,7 +755,7 @@ def generate_evidence_figure(
             # The helper hashes only the single inputs_file; record the *second* input's hash
             # under a distinct key so the built-in inputs.file/hash is not clobbered.
             "metrics_json_sha256": _sha256(metrics_path),
-            "seeds": seeds or {},
+            "seeds": {"global": fig_metrics["primary_seed"], "sweep": seeds[1:]},
         },
     )
 

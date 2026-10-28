@@ -1,9 +1,9 @@
 {
-  "run_id": "3b71e059-0f45-4a1f-83d3-1d6c82edfb46",
-  "timestamp": "2026-10-16T22:13:38Z",
+  "run_id": "894de5fb-dd4f-4562-9513-179375f296ed",
+  "timestamp": "2026-10-27T18:41:33Z",
   "git": {
-    "commit": "630980d9ab134f18106c70c859cbd202ca3ff341",
-    "branch": "fix-moment-reference-hinge-pr3",
+    "commit": "1e7080eaa8f8c8fb62c603b9793fffb7ab0029ba",
+    "branch": "evidence-figure-skill-metric",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
@@ -23,8 +23,14 @@
     "file": "examples\\prelim_sweep\\surrogate\\holdout_predictions.parquet",
     "hash": "2762a45e3dc26cc63a776cf4c01004d188039b9bbcc36a84091af5c22d7e0a60"
   },
-  "metrics_json_sha256": "d8b8819a409016a83a98bbae18afc43a676c770b7bf6fcc3021bddfe5cc5ac4c",
+  "metrics_json_sha256": "07c6ba3a87b84126c75e7f9197cb727072064d8cc3ad2deaa87b6f9ea0f032e7",
   "seeds": {
-    "global": 1234
+    "global": 1234,
+    "sweep": [
+      1235,
+      1236,
+      1237,
+      1238
+    ]
   }
 }

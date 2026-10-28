@@ -44,17 +44,32 @@ def test_parser_wires_all_flags():
             "cuda",
             "--wandb",
             "online",
+            "--sweep-seeds",
+            "8",
+            "9",
         ]
     )
     assert args.dataset == "d.parquet"
     assert args.out_dir == "out"
     assert args.seed == 7 and args.epochs == 5 and args.n_val_configs == 2
     assert args.device == "cuda" and args.wandb == "online"
+    assert args.sweep_seeds == [8, 9]
     # default wandb is the safe disabled mode
-    defaults = driver.build_parser().parse_args(
-        ["--dataset", "d", "--out-dir", "o", "--docker-digest", "x", "--timestamp", "t"]
-    )
+    required = ["--dataset", "d", "--out-dir", "o", "--docker-digest", "x"]
+    defaults = driver.build_parser().parse_args([*required, "--timestamp", "t"])
     assert defaults.wandb == "disabled"
+    # the committed recipe: primary 1234 plus the four seeds after it; empty means none
+    assert defaults.seed == 1234
+    assert driver.resolve_sweep_seeds(defaults) == [1235, 1236, 1237, 1238]
+    # the default follows --seed, so re-training a recorded sweep seed never collides
+    moved = driver.build_parser().parse_args(
+        [*required, "--timestamp", "t", "--seed", "1236"]
+    )
+    assert driver.resolve_sweep_seeds(moved) == [1237, 1238, 1239, 1240]
+    none = driver.build_parser().parse_args(
+        [*required, "--timestamp", "t", "--sweep-seeds"]
+    )
+    assert driver.resolve_sweep_seeds(none) == []
 
 
 def test_main_delegates_without_importing_torch(monkeypatch):
@@ -88,10 +103,14 @@ def test_main_delegates_without_importing_torch(monkeypatch):
             "2026-06-18T00:00:00Z",
             "--wandb",
             "disabled",
+            "--sweep-seeds",
+            "5",
+            "6",
         ]
     )
     assert rc == 0
     assert captured["dataset"] == "d.parquet"
+    assert captured["sweep_seeds"] == [5, 6]
     assert captured["docker_image_digest"].endswith("a" * 64)
     assert captured["wandb_mode"] == "disabled"
     assert "torch" not in sys.modules  # the driver never triggered the lazy import

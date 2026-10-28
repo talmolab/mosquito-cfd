@@ -250,13 +250,13 @@ def build_coarse_vs_fine_comparison(
 def _config_resolved_r2(metrics: dict[str, Any], coefficient: str) -> float | None:
     """Read ``config_resolved.<coefficient>.config_mean_r2`` -- never ``per_target``.
 
-    Typed ``float | None`` (not just ``float``), matching ``evidence_figure.py``'s own
-    ``_config_mean_r2`` accessor: ``train.py``'s ``compute_config_resolved`` legitimately writes
-    a JSON ``null`` here when between-config variance is (near-)zero, and that ``None`` is a
-    meaningful diagnostic result in its own right (near-zero between-config signal), not an
-    error to hide -- passed through as-is rather than formatted/hidden like
-    ``evidence_figure.py``'s caption-only ``_fmt_r2`` does, since this diagnostic's whole purpose
-    is reporting the exact number, not a human-readable caption.
+    Typed ``float | None`` (not just ``float``): ``train.py``'s ``compute_config_resolved``
+    legitimately writes a JSON ``null`` here when between-config variance is (near-)zero, and
+    that ``None`` is a meaningful diagnostic result in its own right (near-zero between-config
+    signal), not an error to hide -- passed through as-is rather than formatted as ``n/a`` the
+    way a figure caption would, since this diagnostic's whole purpose is reporting the exact
+    number. (The evidence figure no longer reads config-resolved R²; it reports skill over the
+    phase-only baseline.)
 
     Raises:
         KeyError: If any level of the path is missing, naming exactly which key and why

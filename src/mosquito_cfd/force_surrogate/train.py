@@ -27,6 +27,7 @@ import hashlib
 import io
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -571,6 +572,238 @@ def compute_config_resolved(
     return out
 
 
+def _check_phase(phase: NDArray[np.floating], what: str) -> None:
+    """Raise unless every phase is finite and in ``[0, 1)``."""
+    if not np.all(np.isfinite(phase)) or np.any((phase < 0.0) | (phase >= 1.0)):
+        raise ValueError(f"{what} phase must be finite and in [0, 1)")
+
+
+def build_phase_only_baseline(
+    df: pd.DataFrame,
+    query_phase: NDArray[np.floating],
+    target_names: list[str] | None = None,
+) -> tuple[NDArray[np.floating], dict[str, Any]]:
+    """Phase-only baseline: the mean training waveform, ignoring the kinematics (design D2).
+
+    For each ``split == "train"`` configuration, each converged beat
+    (``wingbeat >= CONVERGED_MIN_WINGBEAT``) is linearly interpolated in phase with period 1
+    (a query past the last sample wraps to phase 0); a configuration's curve is the mean of its
+    beat curves, and the baseline is the **equal-weight** mean over configurations, whatever
+    their row or beat counts. Holdout rows are never used, and input row order does not matter.
+    Pure numpy (no torch).
+
+    Args:
+        df: Dataset frame carrying ``config_name``, ``split``, ``wingbeat``, ``phase`` and the
+            target columns.
+        query_phase: ``(n,)`` phases in ``[0, 1)`` to evaluate the baseline at.
+        target_names: Target columns (defaults to :data:`TARGET_COLUMNS`).
+
+    Returns:
+        ``(predictions, definition)``: an ``(n, n_targets)`` array, and the ``phase_baseline``
+        definition block recorded in ``metrics.json``.
+
+    Raises:
+        ValueError: If there is no reference configuration, a beat has fewer than 2 rows or a
+            duplicate phase, a reference value is non-finite, or a reference or query phase is
+            non-finite or outside ``[0, 1)``.
+    """
+    names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
+    query = np.asarray(query_phase, dtype=float)
+    _check_phase(query, "query")
+    ref = df[(df["split"] == "train") & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
+    configs = sorted(ref["config_name"].unique())
+    if not configs:
+        raise ValueError(
+            "no reference configuration: the phase-only baseline needs at least one "
+            f"split == 'train' config with wingbeat >= {CONVERGED_MIN_WINGBEAT} rows"
+        )
+    total = np.zeros((query.shape[0], len(names)))
+    for config in configs:
+        rows = ref[ref["config_name"] == config]
+        beats = sorted(rows["wingbeat"].unique())
+        config_sum = np.zeros_like(total)
+        for beat in beats:
+            beat_rows = rows[rows["wingbeat"] == beat]
+            label = f"config {config!r} wingbeat {beat}"
+            phase = beat_rows["phase"].to_numpy(dtype=float)
+            values = beat_rows[names].to_numpy(dtype=float)
+            if phase.shape[0] < 2:
+                raise ValueError(f"{label} has fewer than 2 rows; cannot interpolate")
+            _check_phase(phase, f"{label}: reference")
+            if not np.all(np.isfinite(values)):
+                raise ValueError(f"{label} has a non-finite reference value")
+            order = np.argsort(phase, kind="stable")
+            phase = phase[order]
+            values = values[order]
+            if np.any(np.diff(phase) == 0.0):
+                raise ValueError(f"{label} has a duplicate phase")
+            for j in range(len(names)):
+                config_sum[:, j] += np.interp(query, phase, values[:, j], period=1.0)
+        total += config_sum / len(beats)
+    definition = {
+        "kind": "phase_only_periodic_interpolation",
+        "reference_split": "train",
+        "reference_configs": [str(c) for c in configs],
+        "weighting": "equal_per_config_then_beat",
+        "converged_min_wingbeat": CONVERGED_MIN_WINGBEAT,
+    }
+    return total / len(configs), definition
+
+
+def compute_baseline_skill(
+    y_true: NDArray[np.floating],
+    y_pred: NDArray[np.floating],
+    y_baseline: NDArray[np.floating],
+    target_names: list[str],
+) -> dict[str, dict[str, float]]:
+    """Skill over the phase-only baseline, ``1 - SSE(surrogate)/SSE(baseline)`` (design D1).
+
+    Pooled over rows per target, on the same rows as the pointwise ``per_target`` metrics, so it
+    is the MSE ratio. Not clipped: a negative skill means worse than the phase-only baseline.
+    When the baseline's SSE is at most ``_VARIANCE_EPS * sum(t**2)`` (it already matches the
+    target), skill is the NaN sentinel, serialized ``null``.
+
+    Args:
+        y_true: ``(n, n_targets)`` true coefficients (physical units).
+        y_pred: ``(n, n_targets)`` surrogate predictions, aligned with ``y_true``.
+        y_baseline: ``(n, n_targets)`` phase-only baseline predictions, aligned with ``y_true``.
+        target_names: The ``n_targets`` column names.
+
+    Returns:
+        ``{name: {"skill", "phase_baseline_rmse", "phase_baseline_r2"}}``.
+
+    Raises:
+        ValueError: On zero rows, mismatched shapes, or a ``target_names`` length mismatch.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    y_baseline = np.asarray(y_baseline, dtype=float)
+    if y_pred.shape != y_true.shape or y_baseline.shape != y_true.shape:
+        raise ValueError(
+            "y_true, y_pred and y_baseline must share shape; got "
+            f"{y_true.shape}, {y_pred.shape}, {y_baseline.shape}"
+        )
+    if y_true.shape[1] != len(target_names):
+        raise ValueError(
+            f"target_names has {len(target_names)} names but arrays have "
+            f"{y_true.shape[1]} columns"
+        )
+    if y_true.shape[0] == 0:
+        raise ValueError("cannot compute skill on a zero-row array")
+    out: dict[str, dict[str, float]] = {}
+    for i, name in enumerate(target_names):
+        t = y_true[:, i]
+        sse = float(np.sum((t - y_pred[:, i]) ** 2))
+        sse_baseline = float(np.sum((t - y_baseline[:, i]) ** 2))
+        skill = (
+            float("nan")
+            if sse_baseline <= _VARIANCE_EPS * float(np.sum(t**2))
+            else 1.0 - sse / sse_baseline
+        )
+        out[name] = {
+            "skill": skill,
+            "phase_baseline_rmse": float(np.sqrt(sse_baseline / t.shape[0])),
+            "phase_baseline_r2": _r2(t, y_baseline[:, i]),
+        }
+    return out
+
+
+# Per-target statistics recorded for every seed of a sweep (design D4).
+SEED_SWEEP_STATISTICS = ("skill", "r2", "rmse", "config_mean_r2")
+
+
+def build_seed_run(
+    seed: int,
+    val_configs: list[str],
+    y_true: NDArray[np.floating],
+    y_pred: NDArray[np.floating],
+    holdout_df: pd.DataFrame,
+    y_baseline: NDArray[np.floating],
+    target_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """One seed's ``seed_sweep.runs`` entry (pure numpy, design D4).
+
+    Uses the same helpers as :func:`build_metrics`, so the primary seed's entry equals the
+    top-level ``per_target``, ``config_resolved`` and ``phase_baseline_skill`` values.
+
+    Args:
+        seed: The seed this run was trained with.
+        val_configs: The validation configurations that seed carved.
+        y_true: ``(n, n_targets)`` true holdout coefficients.
+        y_pred: ``(n, n_targets)`` this seed's holdout predictions.
+        holdout_df: The holdout rows (carries ``config_name``), aligned with ``y_true``.
+        y_baseline: ``(n, n_targets)`` phase-only baseline predictions, aligned with ``y_true``.
+        target_names: Target column names (defaults to :data:`TARGET_COLUMNS`).
+
+    Returns:
+        ``{"seed", "val_configs", "per_target": {name: {skill, r2, rmse, config_mean_r2}}}``.
+    """
+    names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
+    pointwise = compute_metrics(y_true, y_pred, names)["per_target"]
+    resolved = compute_config_resolved(
+        y_true, y_pred, holdout_df["config_name"].to_numpy(), names
+    )
+    skill = compute_baseline_skill(y_true, y_pred, y_baseline, names)
+    return {
+        "seed": int(seed),
+        "val_configs": list(val_configs),
+        "per_target": {
+            name: {
+                "skill": skill[name]["skill"],
+                "r2": pointwise[name]["r2"],
+                "rmse": pointwise[name]["rmse"],
+                "config_mean_r2": resolved[name]["config_mean_r2"],
+            }
+            for name in names
+        },
+    }
+
+
+def summarize_seed_sweep(
+    runs: list[dict[str, Any]], primary_seed: int
+) -> dict[str, Any]:
+    """Assemble the ``seed_sweep`` block: the runs, primary first, and per-target ranges.
+
+    Each range is the NaN-aware min/max of a statistic over **all** seeds, the primary
+    included; a statistic that is null (NaN or ``None``) for every seed has a ``None`` range.
+    With n = 5 seeds, min/max is reported rather than a spread the sample cannot support.
+
+    Args:
+        runs: One :func:`build_seed_run` entry per seed.
+        primary_seed: The committed seed; its run is listed first.
+
+    Returns:
+        ``{"primary_seed", "seeds", "runs", "range": {name: {stat: {"min", "max"} | None}}}``.
+
+    Raises:
+        ValueError: If a seed is repeated or the primary seed has no run.
+    """
+    seeds = [run["seed"] for run in runs]
+    if len(set(seeds)) != len(seeds):
+        raise ValueError(f"seed sweep has a repeated seed: {seeds}")
+    if primary_seed not in seeds:
+        raise ValueError(f"primary seed {primary_seed} has no run in {seeds}")
+    ordered = [run for run in runs if run["seed"] == primary_seed]
+    ordered += [run for run in runs if run["seed"] != primary_seed]
+    value_range: dict[str, dict[str, Any]] = {}
+    for name in ordered[0]["per_target"]:
+        value_range[name] = {}
+        for stat in SEED_SWEEP_STATISTICS:
+            values = [run["per_target"][name][stat] for run in ordered]
+            finite = [
+                float(v) for v in values if v is not None and np.isfinite(float(v))
+            ]
+            value_range[name][stat] = (
+                {"min": min(finite), "max": max(finite)} if finite else None
+            )
+    return {
+        "primary_seed": int(primary_seed),
+        "seeds": [run["seed"] for run in ordered],
+        "runs": ordered,
+        "range": value_range,
+    }
+
+
 def _json_safe(obj: Any) -> Any:
     """Recursively replace non-finite floats with ``None`` (NaN R² sentinel -> JSON null)."""
     if isinstance(obj, dict):
@@ -625,6 +858,7 @@ def build_metrics(
     target_names: list[str] | None = None,
     inference: dict[str, Any],
     reproducibility: dict[str, Any],
+    phase_baseline: tuple[NDArray[np.floating], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the ``metrics.json`` payload (per-target / aggregate / per-config / + blocks).
 
@@ -635,10 +869,12 @@ def build_metrics(
         target_names: Target column names (defaults to :data:`TARGET_COLUMNS`).
         inference: The inference-timing block (``latency_ms``/``throughput_rows_per_s``/basis).
         reproducibility: The reproducibility block (seeds, features, ``bitwise`` scope).
+        phase_baseline: ``(predictions, definition)`` from :func:`build_phase_only_baseline`,
+            aligned with ``y_true``. When given, a ``phase_baseline_skill`` block is added.
 
     Returns:
         ``{"per_target", "aggregate", "per_config", "config_resolved", "inference",
-        "reproducibility"}``.
+        "reproducibility"}``, plus ``"phase_baseline_skill"`` when ``phase_baseline`` is given.
     """
     names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
     y_true = np.asarray(y_true, dtype=float)
@@ -651,7 +887,7 @@ def build_metrics(
         per_config[str(cfg)] = compute_metrics(y_true[mask], y_pred[mask], names)
     # Phase-honest config-resolved skill, reported alongside the waveform-dominated aggregate (D13).
     config_resolved = compute_config_resolved(y_true, y_pred, config_names, names)
-    return {
+    metrics: dict[str, Any] = {
         "per_target": overall["per_target"],
         "aggregate": overall["aggregate"],
         "per_config": per_config,
@@ -659,6 +895,13 @@ def build_metrics(
         "inference": dict(inference),
         "reproducibility": dict(reproducibility),
     }
+    if phase_baseline is not None:
+        y_baseline, definition = phase_baseline
+        metrics["phase_baseline_skill"] = {
+            "phase_baseline": dict(definition),
+            "per_target": compute_baseline_skill(y_true, y_pred, y_baseline, names),
+        }
+    return metrics
 
 
 def _library_version(distribution: str) -> str | None:
@@ -675,7 +918,7 @@ def build_training_metadata(
     *,
     docker_image_digest: str,
     timestamp: str,
-    seeds: dict[str, int],
+    seeds: dict[str, int | list[int]],
     feature_names: list[str],
     dataset_path: Path | str | None = None,
     dataset_sha256: str | None = None,
@@ -691,7 +934,8 @@ def build_training_metadata(
     Args:
         docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
         timestamp: Caller-supplied ISO-8601 timestamp.
-        seeds: The run seeds.
+        seeds: The run seeds (``{"global": <primary>, "sweep": [<sweep seeds>]}`` from
+            :func:`run_training`).
         feature_names: The input feature list.
         dataset_path: The dataset parquet the run consumed, recorded as ``inputs.file`` /
             ``inputs.hash`` (sha256) so a committed surrogate names the corpus it came from.
@@ -833,6 +1077,95 @@ def _measure_inference(
 DEFAULT_SEED = 1234
 
 
+@dataclass
+class _SeedFit:
+    """One seed's fitted model and its holdout predictions (the per-seed seam, design D4)."""
+
+    split: SplitAssignment
+    model: Any
+    feature_std: Standardizer
+    target_std: Standardizer
+    feature_names: list[str]
+    history: list[float]
+    x_test: NDArray[np.floating]
+    y_pred: NDArray[np.floating]
+    val_aggregate: dict[str, Any]
+
+
+def _fit_one_seed(
+    df: pd.DataFrame,
+    *,
+    seed: int,
+    n_val_configs: int,
+    epochs: int,
+    hidden: int,
+    num_layers: int,
+    lr: float,
+    device: str,
+) -> _SeedFit:
+    """Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
+
+    ``run_training`` calls this once per seed; it is module-level so the torch-free tests can
+    replace it with a recorder (order and atomicity, design D4).
+    """
+    split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
+
+    cfg = df["config_name"].to_numpy()
+    train_mask = np.isin(cfg, split.train_configs)
+    val_mask = np.isin(cfg, split.val_configs)
+    test_mask = np.isin(cfg, split.test_configs)
+
+    x_all, feature_names = build_features(df)
+    feature_std = Standardizer().fit(x_all[train_mask])
+    xz = feature_std.transform(x_all)
+    y_all = df[TARGET_COLUMNS].to_numpy(dtype=float)
+    target_std = Standardizer().fit(y_all[train_mask])
+    yz = target_std.transform(y_all)
+
+    model = build_model(
+        len(feature_names),
+        len(TARGET_COLUMNS),
+        seed=seed,
+        hidden=hidden,
+        num_layers=num_layers,
+    )
+    # Train with the val set driving best-checkpoint selection (CC-4: val is config-level).
+    history = train_model(
+        model,
+        xz[train_mask],
+        yz[train_mask],
+        epochs=epochs,
+        seed=seed,
+        lr=lr,
+        device=device,
+        x_val=xz[val_mask],
+        y_val=yz[val_mask],
+    )
+
+    yz_pred = predict(model, xz[test_mask], device=device)
+    y_pred = target_std.inverse_transform(yz_pred)
+
+    # Validation generalization of the selected model (the val set is held out of the fit and
+    # of the holdout metrics; reported so the carved configs are used, not silently discarded).
+    y_val_pred = target_std.inverse_transform(
+        predict(model, xz[val_mask], device=device)
+    )
+    val_aggregate = compute_metrics(y_all[val_mask], y_val_pred, list(TARGET_COLUMNS))[
+        "aggregate"
+    ]
+    return _SeedFit(
+        split=split,
+        model=model,
+        feature_std=feature_std,
+        target_std=target_std,
+        feature_names=list(feature_names),
+        history=history,
+        x_test=xz[test_mask],
+        y_pred=y_pred,
+        val_aggregate=val_aggregate,
+    )
+
+
 def run_training(
     dataset_path: Path | str,
     out_dir: Path | str,
@@ -840,6 +1173,7 @@ def run_training(
     docker_image_digest: str,
     timestamp: str,
     seed: int = DEFAULT_SEED,
+    sweep_seeds: Sequence[int] = (),
     epochs: int = 2000,
     n_val_configs: int = 3,
     hidden: int = DEFAULT_HIDDEN,
@@ -858,6 +1192,11 @@ def run_training(
     regressor, evaluates on the holdout configs, and writes ``metrics.json``, the
     holdout-predictions parquet, the model checkpoint, and ``run_metadata.json`` into ``out_dir``.
 
+    Each ``sweep_seeds`` entry is trained after the primary ``seed`` in the same process and
+    contributes metrics only (``metrics.json`` ``seed_sweep``); the checkpoint, predictions and
+    inference timing are the primary seed's. All four artifacts are written after the last seed
+    finishes, so a failure in any seed writes nothing (design D4).
+
     Torch tier: this drives ``build_model``/``train_model``/``predict`` and ``torch.save`` (lazy
     imports), so it runs on the A5000, not CI.
 
@@ -867,7 +1206,8 @@ def run_training(
         docker_image_digest: Pinned ``sha256:`` digest (sourced from the dataset's
             ``run_metadata.json``).
         timestamp: Caller-supplied ISO-8601 timestamp.
-        seed: Run seed.
+        seed: The primary seed (the committed model).
+        sweep_seeds: Further seeds trained for metrics only (default none).
         epochs: Training epochs (full-batch).
         n_val_configs: Validation configurations carved from the train pool.
         hidden: MLP hidden width.
@@ -880,15 +1220,27 @@ def run_training(
 
     Returns:
         A dict of the written artifact paths plus the in-memory ``metrics`` and ``split``.
+
+    Raises:
+        ValueError: If a sweep seed equals the primary seed or repeats (before anything is
+            read or written).
     """
-    # NOTE: torch is imported lazily *below* (right before model construction) so all the
-    # pure-pandas validation here — digest, schema, converged-beat/holdout checks — is reachable
-    # and testable without the optional `train` group (design D2).
+    # NOTE: torch is imported lazily (by the per-seed fit and the checkpoint write) so all the
+    # pure-pandas validation here — seeds, digest, schema, converged-beat/holdout checks — is
+    # reachable and testable without the optional `train` group (design D2).
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
+    # Seeds first: nothing is read or created for an invalid sweep (design D4).
+    sweep = [int(s) for s in sweep_seeds]
+    all_seeds = [int(seed), *sweep]
+    if any(s < 0 for s in all_seeds):
+        raise ValueError(f"seeds must be non-negative (numpy RNG); got {all_seeds}")
+    if len(set(all_seeds)) != len(all_seeds):
+        raise ValueError(
+            f"duplicate seed in primary {seed} + sweep {sweep}: each seed must be distinct"
+        )
     dataset_path = Path(dataset_path)
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     # Fail fast on a missing/mutable digest *before* paying for the full A5000 training run
     # (a pure regex guard; the same digest is re-validated by build_training_metadata, CC-1).
     validate_image_digest(docker_image_digest)
@@ -919,57 +1271,50 @@ def run_training(
             CONVERGED_MIN_WINGBEAT,
             len(holdout_after),
         )
-    split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
-
-    cfg = df["config_name"].to_numpy()
-    train_mask = np.isin(cfg, split.train_configs)
-    val_mask = np.isin(cfg, split.val_configs)
-    test_mask = np.isin(cfg, split.test_configs)
-
-    x_all, feature_names = build_features(df)
-    feature_std = Standardizer().fit(x_all[train_mask])
-    xz = feature_std.transform(x_all)
-    y_all = df[TARGET_COLUMNS].to_numpy(dtype=float)
-    target_std = Standardizer().fit(y_all[train_mask])
-    yz = target_std.transform(y_all)
-
-    import torch  # lazy: only the model/IO path below needs it (design D2)
-
-    model = build_model(
-        len(feature_names),
-        len(TARGET_COLUMNS),
-        seed=seed,
-        hidden=hidden,
-        num_layers=num_layers,
-    )
-    # Train with the val set driving best-checkpoint selection (CC-4: val is config-level).
-    history = train_model(
-        model,
-        xz[train_mask],
-        yz[train_mask],
-        epochs=epochs,
-        seed=seed,
-        lr=lr,
-        device=device,
-        x_val=xz[val_mask],
-        y_val=yz[val_mask],
-    )
-
+    fit_kwargs = {
+        "n_val_configs": n_val_configs,
+        "epochs": epochs,
+        "hidden": hidden,
+        "num_layers": num_layers,
+        "lr": lr,
+        "device": device,
+    }
+    # The holdout rows and the phase-only baseline depend on the dataset, not the seed (D2),
+    # so a malformed baseline reference fails here, before any seed trains.
+    test_configs = sorted(df.loc[df["split"] == "holdout", "config_name"].unique())
+    test_mask = np.isin(df["config_name"].to_numpy(), test_configs)
     holdout_df = df[test_mask].reset_index(drop=True)
-    yz_pred = predict(model, xz[test_mask], device=device)
-    y_pred = target_std.inverse_transform(yz_pred)
-    y_true = y_all[test_mask]
-
-    # Validation generalization of the selected model (the val set is held out of the fit and
-    # of the holdout metrics; reported so the carved configs are used, not silently discarded).
-    y_val_pred = target_std.inverse_transform(
-        predict(model, xz[val_mask], device=device)
+    y_true = df[TARGET_COLUMNS].to_numpy(dtype=float)[test_mask]
+    phase_baseline = build_phase_only_baseline(
+        df, holdout_df["phase"].to_numpy(dtype=float), list(TARGET_COLUMNS)
     )
-    val_aggregate = compute_metrics(y_all[val_mask], y_val_pred, list(TARGET_COLUMNS))[
-        "aggregate"
-    ]
 
-    inference = _measure_inference(model, xz[test_mask], device=device)
+    # The primary (committed) seed first, timed right after it is trained (design D4).
+    primary = _fit_one_seed(df, seed=seed, **fit_kwargs)
+    split = primary.split
+    y_pred = primary.y_pred
+    inference = _measure_inference(primary.model, primary.x_test, device=device)
+    runs = [
+        build_seed_run(
+            seed, split.val_configs, y_true, y_pred, holdout_df, phase_baseline[0]
+        )
+    ]
+    # Sweep seeds contribute metrics only; their models are discarded.
+    for sweep_seed in sweep:
+        fit = _fit_one_seed(df, seed=sweep_seed, **fit_kwargs)
+        runs.append(
+            build_seed_run(
+                sweep_seed,
+                fit.split.val_configs,
+                y_true,
+                fit.y_pred,
+                holdout_df,
+                phase_baseline[0],
+            )
+        )
+
+    feature_names = primary.feature_names
+    history = primary.history
     reproducibility = {
         "seeds": {"global": seed},
         "features": list(feature_names),
@@ -980,21 +1325,31 @@ def run_training(
         "final_train_loss": history[-1] if history else None,
         "model_selection": "best_validation_checkpoint",
         "val_configs": list(split.val_configs),
-        "val_aggregate": val_aggregate,
+        "val_aggregate": primary.val_aggregate,
     }
     metrics = build_metrics(
-        y_true, y_pred, holdout_df, inference=inference, reproducibility=reproducibility
+        y_true,
+        y_pred,
+        holdout_df,
+        inference=inference,
+        reproducibility=reproducibility,
+        phase_baseline=phase_baseline,
     )
+    metrics["seed_sweep"] = summarize_seed_sweep(runs, seed)
     predictions = build_predictions_frame(holdout_df, y_true, y_pred)
     metadata = build_training_metadata(
         docker_image_digest=docker_image_digest,
         timestamp=timestamp,
-        seeds={"global": seed},
+        seeds={"global": seed, "sweep": sweep},
         feature_names=list(feature_names),
         dataset_path=dataset_path,
         dataset_sha256=dataset_sha256,
     )
 
+    # Every seed has finished: only now is anything written (a failure above writes nothing).
+    import torch  # lazy: only the checkpoint write needs it (design D2)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = out_dir / "metrics.json"
     predictions_path = out_dir / "holdout_predictions.parquet"
     checkpoint_path = out_dir / checkpoint_name
@@ -1003,11 +1358,11 @@ def run_training(
     predictions.to_parquet(predictions_path, index=False)
     torch.save(
         {
-            "state_dict": model.state_dict(),
-            "feature_mean": feature_std.mean_,
-            "feature_scale": feature_std.scale_,
-            "target_mean": target_std.mean_,
-            "target_scale": target_std.scale_,
+            "state_dict": primary.model.state_dict(),
+            "feature_mean": primary.feature_std.mean_,
+            "feature_scale": primary.feature_std.scale_,
+            "target_mean": primary.target_std.mean_,
+            "target_scale": primary.target_std.scale_,
             "feature_names": list(feature_names),
             "target_names": list(TARGET_COLUMNS),
             "seed": seed,

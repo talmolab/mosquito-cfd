@@ -16,6 +16,7 @@ from a clean, committed tree (``run_metadata.json`` records the commit and ``dir
         --out-dir examples/prelim_sweep/surrogate \\
         --docker-digest "$(python -c 'import json;print(json.load(open(\"examples/prelim_sweep/run_metadata.json\"))[\"docker_image\"])')" \\
         --timestamp <iso-8601-utc> \\
+        --seed 1234 --sweep-seeds 1235 1236 1237 1238 \\
         --device cuda --wandb online
 
 Pass ``--group train`` on every ``uv run`` (a bare ``uv run`` can sync torch away), do not export
@@ -31,6 +32,9 @@ import argparse
 # Importing the library does NOT import torch (run_training lazy-imports it); the driver stays
 # importable on a CPU-only host so its arg-wiring is unit-testable without the train group.
 from mosquito_cfd.force_surrogate import train
+
+# Default sweep size: the seeds after --seed (for the committed 1234, that is 1235-1238).
+DEFAULT_SWEEP_SIZE = 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,7 +52,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--timestamp", required=True, help="Caller-supplied ISO-8601 timestamp."
     )
-    p.add_argument("--seed", type=int, default=train.DEFAULT_SEED, help="Run seed.")
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=train.DEFAULT_SEED,
+        help="Primary seed (the committed model).",
+    )
+    p.add_argument(
+        "--sweep-seeds",
+        type=int,
+        nargs="*",
+        default=None,
+        help=(
+            "Further seeds trained for metrics only (default: the four seeds after --seed, "
+            "1235-1238 for 1234; none if given without values)."
+        ),
+    )
     p.add_argument("--epochs", type=int, default=2000, help="Training epochs.")
     p.add_argument(
         "--n-val-configs",
@@ -66,6 +85,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def resolve_sweep_seeds(args: argparse.Namespace) -> list[int]:
+    """The sweep seeds: as given, or by default the ``DEFAULT_SWEEP_SIZE`` seeds after --seed.
+
+    Relative to ``--seed`` so that re-training any recorded seed as the primary never collides
+    with a fixed default sweep.
+    """
+    if args.sweep_seeds is None:
+        return [args.seed + i for i in range(1, DEFAULT_SWEEP_SIZE + 1)]
+    return list(args.sweep_seeds)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the training pipeline; returns a process exit code."""
     args = build_parser().parse_args(argv)
@@ -75,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
         seed=args.seed,
+        sweep_seeds=resolve_sweep_seeds(args),
         epochs=args.epochs,
         n_val_configs=args.n_val_configs,
         device=args.device,

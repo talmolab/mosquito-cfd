@@ -9,13 +9,13 @@ PR6's *Evidence-of-Readiness* figure: predicted-vs-CFD scatter for **CF_x / CF_z
 the six held-out configurations (points colored by config with a shared legend), plus an
 honest, data-driven caption and batched-throughput speedup annotation. See the parent
 [`../README.md`](../README.md#figure-figures)'s "Figure" section for the full discussion,
-including why the pointwise aggregate R² overstates skill and how to read the per-axis
-config-resolved numbers.
+including what skill over the phase-only baseline measures, why the pointwise aggregate R²
+overstates it, and why config-resolved R² left the figure.
 
 | File | Shows |
 |------|-------|
 | `evidence_figure.png` | Predicted-vs-CFD scatter, `CF_x`/`CF_z`/`CF_my`, held-out configs. |
-| `evidence_figure_metrics.json` | Every number on the figure (RMSE, config-resolved R², speedup decomposition). |
+| `evidence_figure_metrics.json` | Every number on the figure (RMSE, skill and its seed range, pointwise and phase-only-baseline R², skill floor, speedup decomposition). |
 | `run_metadata.json` | Provenance: pinned `:fp64` digest, timestamp, git SHA/host, input hashes. |
 
 ## Wing-phase geometry diagnostic — `scripts/make_wing_phase_diagnostic.py`

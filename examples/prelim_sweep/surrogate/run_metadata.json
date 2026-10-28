@@ -1,9 +1,9 @@
 {
-  "run_id": "7c1a3da5-15a1-4666-ba77-3c48bfd9b8a4",
-  "timestamp": "2026-10-16T21:31:08Z",
+  "run_id": "133a637f-4b5c-41c5-902d-2228e7ef550e",
+  "timestamp": "2026-10-27T17:56:13Z",
   "git": {
-    "commit": "d13f06eebb57fd33d32221f9225c74199202cd1f",
-    "branch": "fix-moment-reference-hinge-pr3",
+    "commit": "6b6c14b7cf3a2269ecd18e0d2ad2efa44e2f422c",
+    "branch": "evidence-figure-skill-metric",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
@@ -24,7 +24,13 @@
     "hash": "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa"
   },
   "seeds": {
-    "global": 1234
+    "global": 1234,
+    "sweep": [
+      1235,
+      1236,
+      1237,
+      1238
+    ]
   },
   "features": [
     "stroke_amp_deg",

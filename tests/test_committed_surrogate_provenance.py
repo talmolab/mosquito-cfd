@@ -26,7 +26,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from mosquito_cfd.force_surrogate.train import TARGET_COLUMNS
+from mosquito_cfd.force_surrogate.evidence_figure import format_metric
+from mosquito_cfd.force_surrogate.train import (
+    TARGET_COLUMNS,
+    build_phase_only_baseline,
+    compute_baseline_skill,
+    filter_converged_beat,
+    make_config_splits,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 COARSE = REPO / "examples" / "prelim_sweep"
@@ -113,8 +120,9 @@ def _seed_record() -> dict:
 def test_seed_variation_record_matches_the_committed_surrogate():
     """The committed seed-variation record's corrected seed-1234 run *is* the committed surrogate.
 
-    Its six config_mean_r2 equal metrics.json exactly, its dataset hash is the committed
-    dataset's and its commit is the surrogate's own. Both datasets cover seeds 1234-1238, from
+    Its six config_mean_r2 equal metrics.json exactly and its dataset hash is the committed
+    dataset's. (Its commit is not compared with the surrogate's: a retrain at a later commit,
+    such as the seed-sweep regeneration, must not break this.) Both datasets cover seeds 1234-1238, from
     clean trees, at one epoch count. (The pre-#108 entries cannot be reconciled in CI: the old
     metrics.json is only in history, which CI's depth-1 checkout does not fetch.)
     """
@@ -138,10 +146,6 @@ def test_seed_variation_record_matches_the_committed_surrogate():
     assert committed["config_mean_r2"] == {
         c: metrics["config_resolved"][c]["config_mean_r2"] for c in targets
     }
-    assert (
-        committed["git_commit"]
-        == _meta(SURROGATE / "run_metadata.json")["git"]["commit"]
-    )
 
 
 _TABLE_ROW = re.compile(
@@ -174,3 +178,110 @@ def test_readme_seed_table_is_the_seed_record():
     )
     if "for four of the five seeds" in readme:
         assert negative_cf_x == 4
+
+
+# --- Seed sweep and phase-only baseline skill (replace-config-r2-with-baseline-skill) -----
+
+
+def _dataset() -> pd.DataFrame:
+    return filter_converged_beat(pd.read_parquet(COARSE / "dataset.parquet"))
+
+
+def test_committed_seed_sweep_is_internally_consistent():
+    """The committed sweep agrees with itself, the run record and the dataset.
+
+    ``seed_sweep.seeds`` is the primary seed then run_metadata's sweep seeds; the primary run
+    entry's statistics equal the top-level blocks; each run's ``val_configs`` is the split
+    recomputed from the dataset for that seed. Not a GPU-bitwise pin (design D5): nothing here
+    asserts a sweep seed's metrics against a hand record.
+    """
+    metrics = _meta(SURROGATE / "metrics.json")
+    seeds = _meta(SURROGATE / "run_metadata.json")["seeds"]
+    sweep = metrics["seed_sweep"]
+    assert sweep["primary_seed"] == seeds["global"] == 1234
+    assert sweep["seeds"] == [seeds["global"], *seeds["sweep"]]
+    assert [r["seed"] for r in sweep["runs"]] == sweep["seeds"]
+    assert metrics["reproducibility"]["seeds"]["global"] == sweep["primary_seed"]
+
+    primary = sweep["runs"][0]
+    for c in TARGET_COLUMNS:
+        assert primary["per_target"][c] == {
+            "skill": metrics["phase_baseline_skill"]["per_target"][c]["skill"],
+            "r2": metrics["per_target"][c]["r2"],
+            "rmse": metrics["per_target"][c]["rmse"],
+            "config_mean_r2": metrics["config_resolved"][c]["config_mean_r2"],
+        }, c
+    assert primary["val_configs"] == metrics["reproducibility"]["val_configs"]
+
+    dataset = _dataset()
+    for run in sweep["runs"]:
+        split = make_config_splits(dataset, seed=run["seed"])
+        assert run["val_configs"] == split.val_configs, run["seed"]
+
+
+def test_committed_phase_baseline_skill_recomputes():
+    """phase_baseline_skill recomputed from the committed dataset and predictions matches.
+
+    Catches a row misalignment inside run_training: the baseline is rebuilt at the committed
+    predictions' phases and scored against their true and predicted columns.
+    """
+    metrics = _meta(SURROGATE / "metrics.json")["phase_baseline_skill"]
+    holdout = pd.read_parquet(SURROGATE / "holdout_predictions.parquet")
+    dataset = _dataset()
+    y_baseline, definition = build_phase_only_baseline(
+        dataset, holdout["phase"].to_numpy(dtype=float), list(TARGET_COLUMNS)
+    )
+    assert metrics["phase_baseline"] == definition
+    assert definition["reference_configs"] == sorted(
+        dataset.loc[dataset["split"] == "train", "config_name"].unique()
+    )
+    y_true = holdout[[f"{c}_true" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    y_pred = holdout[[f"{c}_pred" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    recomputed = compute_baseline_skill(
+        y_true, y_pred, y_baseline, list(TARGET_COLUMNS)
+    )
+    for c in TARGET_COLUMNS:
+        for key, value in recomputed[c].items():
+            assert metrics["per_target"][c][key] == pytest.approx(value, abs=1e-12), (
+                c,
+                key,
+            )
+
+
+# A README skill-table row: target, plotted-seed skill, seed range, phase-only baseline R².
+_SKILL_ROW = re.compile(
+    r"^\s*\|\s*`(CF_\w+)`\s*\|\s*(\S+)\s*\|\s*(\S+) to (\S+)\s*\|\s*(\S+)\s*\|\s*$",
+    re.M,
+)
+_SKILL_HEADER = (
+    "| target | skill, seed 1234 | skill, 5 seeds | phase-only baseline R² |"
+)
+
+
+def test_skill_and_config_r2_table_patterns_cannot_cross_match():
+    """Each README table guard reads only its own table, and neither reads the header."""
+    skill_row = "| `CF_x` | 0.988 | 0.988 to 0.992 | 0.955 |"
+    config_row = "| `CF_x` | -4.17 to 0.09 | -0.01 to 0.09 |"
+    assert _SKILL_ROW.search(skill_row) and not _TABLE_ROW.search(skill_row)
+    assert _TABLE_ROW.search(config_row) and not _SKILL_ROW.search(config_row)
+    for pattern in (_SKILL_ROW, _TABLE_ROW):
+        assert not pattern.search(_SKILL_HEADER)
+
+
+def test_readme_skill_table_is_metrics_json():
+    """The README's skill table is metrics.json, for all six targets, as the figure prints it."""
+    readme = (COARSE / "README.md").read_text(encoding="utf-8")
+    assert _SKILL_HEADER in readme
+    rows = {m[0]: m[1:] for m in _SKILL_ROW.findall(readme)}
+    assert set(rows) == set(TARGET_COLUMNS), sorted(rows)
+    metrics = _meta(SURROGATE / "metrics.json")
+    for c, cells in rows.items():
+        skill = metrics["phase_baseline_skill"]["per_target"][c]
+        rng = metrics["seed_sweep"]["range"][c]["skill"]
+        expected = (
+            format_metric(skill["skill"]),
+            format_metric(rng["min"]),
+            format_metric(rng["max"]),
+            format_metric(skill["phase_baseline_r2"]),
+        )
+        assert cells == expected, c
