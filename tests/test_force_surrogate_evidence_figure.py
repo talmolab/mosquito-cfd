@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _readme_guards import R2_NEAR_TARGET
 
 import mosquito_cfd.force_surrogate as fsurr
 from mosquito_cfd.force_surrogate import (
@@ -34,6 +35,7 @@ from mosquito_cfd.force_surrogate import (
     parse_config_name,
     sane_dickinson_cf_z,
 )
+from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_wingbeat
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
 from mosquito_cfd.force_surrogate.evidence_figure import (
     GRID_PROFILES,
@@ -1146,12 +1148,8 @@ def _normalized_readme() -> str:
     return re.sub(r"([≈=])\s+", r"\1", text)
 
 
-# Any CF name followed, within one line and before any other CF name, by "≈<num>" or "=<num>".
-# Broad on purpose: a stale value in a slightly different form (``CF_z R² ≈0.51``,
-# ``CF_my = 0.51``, a Unicode minus) is caught rather than skipped. Percentages are excluded.
-_R2_NEAR_TARGET = re.compile(
-    r"\b(CF_(?:mx|my|mz|x|y|z))\b`?((?:(?!CF_)[^≈=\n|]){0,60})[≈=](-?\d+\.(\d+))(?![\d%])"
-)
+# Shared with the fine README guard (which requires it to find nothing there).
+_R2_NEAR_TARGET = R2_NEAR_TARGET
 # Historical values the README quotes on purpose (an earlier corpus), not current results.
 _HISTORICAL_R2 = {("CF_x", "0.94")}
 # The figure's three panels plus the two off-panel moments must each be quoted.
@@ -1178,38 +1176,59 @@ def test_readme_config_resolved_r2_matches_committed_metrics():
         assert canonical in readme.replace("`", ""), f"README must quote {canonical!r}"
 
 
-def test_readme_throughput_figures_match_the_committed_sidecar():
+COARSE_CORPUS = REPO / "examples" / "prelim_sweep"
+FINE_CORPUS = REPO / "examples" / "prelim_sweep_fine"
+# The fine figure and README land in C5 of add-fine-corpus-surrogate (#110, design D6).
+_FINE_FIGURE_PENDING = pytest.mark.xfail(
+    strict=True,
+    raises=(FileNotFoundError, AssertionError),
+    reason="#110: fine figure and README land in C5",
+)
+_CORPORA = pytest.mark.parametrize(
+    "corpus",
+    [
+        pytest.param(COARSE_CORPUS, id="coarse"),
+        pytest.param(FINE_CORPUS, id="fine", marks=_FINE_FIGURE_PENDING),
+    ],
+)
+
+
+@_CORPORA
+def test_readme_throughput_figures_match_the_committed_sidecar(corpus):
     """The README's batched-throughput and parallelism figures are the sidecar's, like the
     latency floor -- each is a single wall-clock timing sample that moves on every retrain."""
-    readme = (REPO / "examples" / "prelim_sweep" / "README.md").read_text(
-        encoding="utf-8"
-    )
+    readme = (corpus / "README.md").read_text(encoding="utf-8")
     sidecar = json.loads(
-        (
-            REPO
-            / "examples"
-            / "prelim_sweep"
-            / "figures"
-            / "evidence_figure_metrics.json"
-        ).read_text()
+        (corpus / "figures" / "evidence_figure_metrics.json").read_text()
     )["speedup"]
     throughput = sidecar["throughput_speedup"]
-    assert 1e6 <= throughput < 1e7, (
-        "update the README's ×10⁶ wording for this magnitude"
-    )
-    assert f"≈{throughput / 1e6:.1f}×10⁶×" in readme
+    assert format_power_of_ten(throughput) in readme
     assert f"~{round(sidecar['parallelism_factor'], -1):,.0f}×" in readme
+    if corpus == COARSE_CORPUS:
+        assert 1e6 <= throughput < 1e7, (
+            "update the README's ×10⁶ wording for this magnitude"
+        )
+        assert f"≈{throughput / 1e6:.1f}×10⁶×" in readme
+    else:
+        # the fine latency floor is expected above 1,000x, so it is written with a separator
+        assert f"~{round(sidecar['latency_speedup']):,}×" in readme
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------
 
 
-def test_committed_figure_metrics_matches_committed_inputs():
+@_CORPORA
+def test_committed_figure_metrics_matches_committed_inputs(corpus):
     """The committed evidence_figure_metrics.json numbers match the committed metrics.json."""
-    fig_dir = REPO / "examples" / "prelim_sweep" / "figures"
+    fig_dir = corpus / "figures"
     raw = (fig_dir / "evidence_figure_metrics.json").read_text(encoding="utf-8")
     fig_metrics = json.loads(raw)
-    metrics = json.loads(COMMITTED_METRICS.read_text())
+    metrics = json.loads((corpus / "surrogate" / "metrics.json").read_text())
+    holdout_rows = len(
+        pd.read_parquet(
+            corpus / "surrogate" / "holdout_predictions.parquet", columns=["phase"]
+        )
+    )
     for c in PANEL_COEFFICIENTS:
         assert fig_metrics["surrogate_rmse"][c] == metrics["per_target"][c]["rmse"]
     sweep = metrics["seed_sweep"]
@@ -1236,11 +1255,14 @@ def test_committed_figure_metrics_matches_committed_inputs():
     assert "config_mean_r2" not in raw
     sp = fig_metrics["speedup"]
     assert sp["throughput_speedup"] > 1000
-    assert sp["latency_speedup"] < 1000
-    assert sp["batch_size"] == 12535
-    # the uncalibrated translational QS reference is a poor fit to the coarse CFD (reference-only,
-    # CC-4). Under the van Veen convention the RMS ratio is < 1 (the model under-predicts the
-    # now-in-band CFD lift); the surrogate beats it by RMSE regardless.
+    assert sp["batch_size"] == holdout_rows
+    if corpus == COARSE_CORPUS:
+        # coarse facts: the latency floor is below 1,000x and the holdout is 12,535 rows
+        assert sp["latency_speedup"] < 1000
+        assert sp["batch_size"] == 12535
+    # the uncalibrated translational QS reference is a poor fit to the CFD (reference-only,
+    # CC-4); the surrogate beats it by RMSE regardless. This is data-dependent on the fine
+    # corpus: if it fires there, stop and decide (design Risks), do not re-pin.
     qs = fig_metrics["quasi_steady_reference"]
     assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (van Veen: < 1)
     assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
@@ -1462,16 +1484,28 @@ def test_cli_passes_grid_and_cfd_cost(monkeypatch):
 _QS_COMPUTED = ("baseline_rmse_cf_z", "overshoot_factor")
 
 
-def test_committed_sidecar_regenerates_from_committed_inputs(tmp_path):
-    """Scenario: The default profile reproduces the coarse figure byte for byte (sidecar half,
-    CI-runnable): exact for copied values, rel 1e-12 for the two computed QS RMS values."""
-    figures = REPO / "examples" / "prelim_sweep" / "figures"
+@_CORPORA
+def test_committed_sidecar_regenerates_from_committed_inputs(tmp_path, corpus):
+    """Scenarios: The default profile reproduces the coarse figure byte for byte (sidecar half,
+    CI-runnable); The fine figure is tied to the fine surrogate and regenerates from it. Exact
+    for copied values, rel 1e-12 for the two computed QS RMS values."""
+    figures = corpus / "figures"
+    grid = {}
+    if corpus == FINE_CORPUS:
+        cost = median_cfd_seconds_per_wingbeat(
+            sorted(corpus.glob("run_metadata_*.json"))
+        )
+        grid = {
+            "grid": "fine",
+            "cfd_seconds_per_wingbeat": cost["seconds_per_wingbeat"],
+        }
     generate_evidence_figure(
-        predictions_path=COMMITTED_PRED,
-        metrics_path=COMMITTED_METRICS,
+        predictions_path=corpus / "surrogate" / "holdout_predictions.parquet",
+        metrics_path=corpus / "surrogate" / "metrics.json",
         out_dir=tmp_path,
         docker_image_digest=DIGEST,
         timestamp=TS,
+        **grid,
     )
     fresh = json.loads((tmp_path / "evidence_figure_metrics.json").read_text())
     committed = json.loads((figures / "evidence_figure_metrics.json").read_text())
