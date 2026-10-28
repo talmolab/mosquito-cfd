@@ -321,7 +321,7 @@ commit (tasks 24–25).
     (`PYTHONIOENCODING=utf-8`): from the committed JSON, or from the cited source file.
     - A fresh reviewer agent reviews the artifact and docs commits (C4–C6) and the C1–C3 code diff.
     - Check off tasks 0–23. Commit C6.
-24. [ ] **Human checkpoint before pushing.** Run `/pre-merge-check`. Then:
+24. [x] **Human checkpoint before pushing.** Run `/pre-merge-check`. Then:
     - `git rev-list --objects origin/main..HEAD` shows one blob per new binary path.
     - Open the PR to `main`:
       - "Closes #110." on its own line;
@@ -329,5 +329,9 @@ commit (tasks 24–25).
       - blob sizes and both gate outcomes reported.
     - Write the squash message by hand **and** post it as a PR comment, for pasting at merge.
     - Post-push figure-code fixes follow the proposal's policy (BLOCKING only → second PNG, reported).
-25. [ ] After merge (human checkpoint): run `/cleanup-merged`, including the OpenSpec archive. In the
+
+    *Done as PR #132 (squash `28c82f1`, 2026-10-28). CI green; no post-push review findings, so no
+    second PNG. The hand-written squash message was posted as a PR comment, but the merge used
+    GitHub's default body. Follow-ups: #130, #131.*
+25. [x] After merge (human checkpoint): run `/cleanup-merged`, including the OpenSpec archive. In the
     archive commit, flip roadmap row 14 to ✅ and check off tasks 24–25.
