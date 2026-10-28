@@ -148,6 +148,27 @@ Deviations found before the GPU run, each reconciled into design and spec:
   the pre-GPU review, each fix confirmed by reverting it as a mutation.
 - **No `phase_baseline.py`.** The proposal named a module that does not exist; the baseline is in
   `train.py`.
+- **Training ran at `5f5db6e`, not C3.** The pre-GPU review produced two more commits (`58ee8fb`
+  fixes, `5f5db6e` per-step cost) before the GPU run; the D4 gate and the freeze apply to that
+  commit. The figure was generated at C4 (`e0040d6`). Both provenance scopes (design D8) were
+  unchanged at C6.
+
+### Outcomes
+
+- **Coarse no-op gate:** `main`'s code and the branch's produced byte-identical coarse PNG and
+  sidecar, both equal to the committed ones (each in its own `.venv`, identical frozen packages,
+  matplotlib 3.10.8); re-checked after the per-step change. The sidecar half runs in CI.
+- **D4 gate (fine training, A5000, `5f5db6e`):** two full 5-seed runs; `surrogate.pt` and
+  `holdout_predictions.parquet` byte-identical, `metrics.json` equal outside the inference
+  wall-clock fields, `run_metadata.json` equal outside `run_id`, both clean. Torch tier 48 passed,
+  0 skipped, the two #129 failures only.
+- **Measured blobs (raw):** `surrogate.pt` 41,321 B; `holdout_predictions.parquet` 1,570,974 B;
+  `metrics.json` 20,459 B; surrogate `run_metadata.json` 1,094 B; `evidence_figure.png`
+  310,190 B; `evidence_figure_metrics.json` 2,485 B; figure `run_metadata.json` 1,120 B
+  (≈1.95 MB total).
+- **Mutation kills:** C1 13/13, C2 20/20, C3 10/10, review fixes 10/10, per-step 21/21, fine
+  artifacts 20/20.
+- **Follow-up issue:** #130.
 
 ### Delivery
 

@@ -37,7 +37,7 @@ commit (tasks 24–25).
 
 ## 0. Blast radius
 
-0. [ ] Record the committed tests this change is expected to touch. **Any test outside this list
+0. [x] Record the committed tests this change is expected to touch. **Any test outside this list
    that needs editing halts the change for a decision.**
    - `tests/test_force_surrogate_evidence_figure.py`:
      - `test_build_caption_discloses_everything` and `test_cli_delegates_to_library` (new kwargs);
@@ -57,7 +57,7 @@ commit (tasks 24–25).
 
 ## 1. Fine CFD cost helper (design D3), C1
 
-1. [ ] **Test first** (`tests/test_force_surrogate_cfd_cost.py`, tmp_path, torch-free):
+1. [x] **Test first** (`tests/test_force_surrogate_cfd_cost.py`, tmp_path, torch-free):
    - **Known answers:**
      - (300, 2), (400, 2), (1000, 2) → 200.0, n=3, min 150.0, max 500.0, independent of input order;
      - a single file (3999, 1.9995) → exactly `3999 / 1.9995`;
@@ -73,7 +73,7 @@ commit (tasks 24–25).
    - **Script:** `scripts/cfd_seconds_per_step.py --metadata-dir <tmp>` (via `sys.executable`)
      prints a value with `float(stdout.strip()) == helper(...)`, with a corpus-level
      `run_metadata.json` lacking `timing` present in the directory.
-2. [ ] Implement `src/mosquito_cfd/force_surrogate/cfd_cost.py` and the script (Google docstrings).
+2. [x] Implement `src/mosquito_cfd/force_surrogate/cfd_cost.py` and the script (Google docstrings).
    Mutation-test task 1:
    - remove each validation branch;
    - median → mean;
@@ -85,7 +85,7 @@ commit (tasks 24–25).
 
 ## 2. Grid-aware evidence figure (design D2), C2
 
-3. [ ] **Test first** (`tests/test_force_surrogate_evidence_figure.py`, toy fixtures):
+3. [x] **Test first** (`tests/test_force_surrogate_evidence_figure.py`, toy fixtures):
    - **Coarse caption:**
      - the default (`grid` omitted) caption equals the `grid="coarse"` caption;
      - it contains verbatim "sequential coarse-grid A40 CFD", "Coarse 64x32x64 grid: pipeline
@@ -117,7 +117,7 @@ commit (tasks 24–25).
      - `--grid medium` is rejected by argparse.
    - **`test_committed_sidecar_regenerates_from_committed_inputs[coarse]`** (design D2, CI half):
      parsed-JSON equal; exact except `approx(rel=1e-12)` on the two QS RMS values.
-4. [ ] Implement `GridProfile`/`GRID_PROFILES` and `format_power_of_ten`, and thread `grid` /
+4. [x] Implement `GridProfile`/`GRID_PROFILES` and `format_power_of_ten`, and thread `grid` /
    `cfd_seconds_per_wingbeat` through `build_caption`, `build_figure`, `_baseline_reference`,
    `compute_speedup`, `generate_evidence_figure` and `scripts/make_evidence_figure.py`, keeping the
    "compute everything first, then write" order.
@@ -131,7 +131,7 @@ commit (tasks 24–25).
 
 ## 3. Coarse no-op gate, manual PNG half (design D2): after C2, before C3 is committed
 
-5. [ ] On the Windows host:
+5. [x] On the Windows host:
    - `git worktree add --detach <scratchpad>/main-dada8f0 dada8f0`.
    - In each worktree's own root, `uv sync --frozen --group viz` (each its own `.venv`).
    - Record in each env:
@@ -140,7 +140,7 @@ commit (tasks 24–25).
      - `uv pip freeze --exclude-editable` (must be identical);
      - `matplotlib.__version__`.
    - Any precondition failure halts.
-6. [ ] Generate the coarse figure from each into `<scratch>/a` (main) and `<scratch>/b` (C2), with
+6. [x] Generate the coarse figure from each into `<scratch>/a` (main) and `<scratch>/b` (C2), with
    `uv run --frozen --group viz python scripts/make_evidence_figure.py` from that worktree's root, the
    committed coarse digest and the committed coarse timestamp.
    - **Hard gate:** `cmp` a/b PNG and sidecar, and `cmp` a against the committed coarse PNG and
@@ -151,7 +151,7 @@ commit (tasks 24–25).
 
 ## 4. Committed-artifact guards over both corpora (design D6), C3
 
-7. [ ] **Test first: pure guard helpers**, tested on synthetic inputs built from the coarse
+7. [x] **Test first: pure guard helpers**, tested on synthetic inputs built from the coarse
    `metrics.json` plus hand-written README text. Each helper passes on a correct case and fails on the
    listed defects.
    - **`check_skill_table`:** perturbed cell; missing row.
@@ -174,7 +174,7 @@ commit (tasks 24–25).
      sentence between the two denominators is present.
    - **All helpers:** on README text with no table at all (today's fine README), they raise
      `AssertionError`, not `AttributeError`/`KeyError`/`IndexError`.
-8. [ ] **Test first: parametrize the §0 tests over `CORPORA`**, keeping every coarse assertion
+8. [x] **Test first: parametrize the §0 tests over `CORPORA`**, keeping every coarse assertion
    literally:
    - the `≈3.8×10⁶×` string;
    - `batch_size == 12535`;
@@ -191,7 +191,7 @@ commit (tasks 24–25).
    - the cross-match test extended to all four table patterns and headers.
 
    Negative README checks share a test function with a positive one.
-9. [ ] Mark every fine parametrization and fine-only test
+9. [x] Mark every fine parametrization and fine-only test
    `xfail(strict=True, raises=(FileNotFoundError, AssertionError), reason="#110: fine artifacts land in C4/C5")`.
    - Do not mark the existing `fine-corpus` record param or the cross-match test.
    - Record the XFAIL node-ID list and pre-register the C4 subset (design D6).
@@ -203,10 +203,10 @@ commit (tasks 24–25).
 
 ## 4b. Pre-GPU code review and the per-step CFD cost (before task 10)
 
-9a. [ ] `/code-review` (high) of C1–C3: 10 findings. Fix 9 (one, the duplicated speedup/QS
+9a. [x] `/code-review` (high) of C1–C3: 10 findings. Fix 9 (one, the duplicated speedup/QS
     computation in `generate_evidence_figure`, predates this change and is left), each fix
     confirmed by reverting it as a mutation (10/10). Commit `58ee8fb`.
-9b. [ ] At the pre-GPU checkpoint the user chose a **per-step** fine CFD cost (review finding: the
+9b. [x] At the pre-GPU checkpoint the user chose a **per-step** fine CFD cost (review finding: the
     per-wingbeat median pooled f* levels). Tests first: `median_cfd_seconds_per_step`, `--grid fine
     --cfd-seconds-per-step`, `cfd_seconds_per_wingbeat = s × representative rows`, figure
     `run_metadata` `cfd_seconds_per_step`, README states "x.xx s per step". Mutation-test
@@ -218,7 +218,7 @@ commit (tasks 24–25).
 > **Human checkpoint before the GPU run.** First run a local code review of C1–C3 (`/code-review`)
 > so that no code fix is needed after artifacts exist.
 
-10. [ ] **Pre-flight** in WSL (`wsl -e bash -c`, non-login; `PATH=$HOME/.local/bin:$PATH`), from the
+10. [x] **Pre-flight** in WSL (`wsl -e bash -c`, non-login; `PATH=$HOME/.local/bin:$PATH`), from the
     worktree root, in **every** command or copied script:
     - `export UV_PROJECT_ENVIRONMENT=$HOME/.venvs/mosquito-cfd-train`, then
       `uv sync --frozen --group train`;
@@ -231,11 +231,11 @@ commit (tasks 24–25).
     - the digest comes from `examples/prelim_sweep_fine/run_metadata.json`.
 
     Scripts are written with the Write tool and copied to `~` with `tr -d '\r'`.
-11. [ ] Run design D1's command twice, into `$HOME/mosquito-cfd-110/run1/surrogate` and
+11. [x] Run design D1's command twice, into `$HOME/mosquito-cfd-110/run1/surrogate` and
     `.../run2/surrogate` (ext4; not `/tmp`), with the same timestamp.
-12. [ ] **Pre-registered gate (design D4 a–c).** Any failure **halts**; nothing is loosened; nothing
+12. [x] **Pre-registered gate (design D4 a–c).** Any failure **halts**; nothing is loosened; nothing
     is copied into the repo. From here on, C1–C3 are frozen (design D8).
-13. [ ] **WSL torch tier:** `uv run --frozen --group train pytest
+13. [x] **WSL torch tier:** `uv run --frozen --group train pytest
     tests/test_force_surrogate_train.py tests/test_force_surrogate_train_gpu.py -rs`.
     - Require 0 skipped in `test_force_surrogate_train_gpu.py`.
     - The only allowed failures are the two #129 tests in `tests/test_force_surrogate_train.py`:
@@ -243,7 +243,7 @@ commit (tasks 24–25).
       `test_run_training_raises_clearly_when_all_holdout_startup_only`.
     - `git diff --exit-code uv.lock`.
     - Record the fine skill per target (plotted seed + range) in the scratchpad.
-14. [ ] **Human checkpoint before committing binaries.** Report measured blob sizes, then:
+14. [x] **Human checkpoint before committing binaries.** Report measured blob sizes, then:
     - copy run1's four files into `examples/prelim_sweep_fine/surrogate/`;
     - `git ls-files` shows all four tracked;
     - remove the pre-registered C4 xfail markers (and only those);
@@ -252,7 +252,7 @@ commit (tasks 24–25).
 
 ## 6. Fine figure and README, C5
 
-15. [ ] Preconditions: `git status --porcelain` empty, and HEAD == C4 (or C4′).
+15. [x] Preconditions: `git status --porcelain` empty, and HEAD == C4 (or C4′).
     - `uv run --frozen python scripts/cfd_seconds_per_step.py --metadata-dir examples/prelim_sweep_fine`
       gives `S`.
     - Generate the figure into a scratch dir:
@@ -263,20 +263,20 @@ commit (tasks 24–25).
     - Inspect the PNG visually: caption legible, no clipped text, fine caveat present.
     - Copy it in; `git ls-files` shows the three figure files tracked once added. This happens
       **before** any README edit.
-16. [ ] Fine README per design D5:
+16. [x] Fine README per design D5:
     - replace "Not yet built";
     - extend "What's here";
     - write the seven sections;
     - take every run-derived number from the committed JSON, and every fixed number verbatim from its
       cited source.
-17. [ ] Remove every remaining xfail marker. Mutation-test the fine guards on saved-bytes copies of
+17. [x] Remove every remaining xfail marker. Mutation-test the fine guards on saved-bytes copies of
     the fine JSON/README, and record kills:
     - flip an overlap cell;
     - perturb a range;
     - drop a disclosure;
     - change the sidecar seconds;
     - add `CF_z ≈0.5` prose.
-18. [ ] **One PNG only.** Run the full suite before committing:
+18. [x] **One PNG only.** Run the full suite before committing:
     - ruff check + format check over the CI paths;
     - `uv sync --frozen --group viz && uv run --frozen pytest -m "not gpu"` from Git Bash (no XFAIL
       left);
@@ -288,17 +288,17 @@ commit (tasks 24–25).
 
 ## 7. Docs, reconcile, ship, C6
 
-19. [ ] `docs/force_surrogate/roadmap.md`, with no skill numbers in any of the edits:
+19. [x] `docs/force_surrogate/roadmap.md`, with no skill numbers in any of the edits:
     - **Row 14:** replace "*(not yet proposed)*" with `add-fine-corpus-surrogate`, status 🟡, pointing
       to `examples/prelim_sweep_fine/surrogate/metrics.json` and the fine README.
     - **Hardware section:** add a pointer to the fine README for the fine-grid CFD cost (no number).
       Keep "2.4 min".
     - **Grid-resolution finding:** one sentence pointing to the fine README's coarse-vs-fine table.
-20. [ ] Repoint the stale "fine surrogate does not exist yet" text to the follow-up issue:
+20. [x] Repoint the stale "fine surrogate does not exist yet" text to the follow-up issue:
     - `openspec/project.md` Pending (the `coarse_vs_fine_comparison.png` item);
     - `tests/fixtures/comparison_figure/README.md` (:8–12, :65–74);
     - flag, but do not fix, the other stale `project.md` lines in the follow-up issue.
-21. [ ] File the follow-up issue. It references #110 without any closing keyword and covers:
+21. [x] File the follow-up issue. It references #110 without any closing keyword and covers:
     - rethinking `make_comparison_figure.py`, which plots config-resolved R² that #127 moved off
       figures;
     - the coarse README's QS paragraph ("needs a finer, IB-bias-free grid");
@@ -311,13 +311,13 @@ commit (tasks 24–25).
     - no skill numbers.
 
     Then `openspec validate add-fine-corpus-surrogate --strict`.
-22. [ ] Reconcile proposal, design, spec and tasks against the implementation. Record any deviation
+22. [x] Reconcile proposal, design, spec and tasks against the implementation. Record any deviation
     under `### Why N instead of M?` in the proposal, and file an issue for any workaround.
     - **Provenance check:** run `git diff --quiet <recorded commit> HEAD -- <scope>` for each of the
       two scopes in design D8:
       - surrogate record vs the trainer-path scope (non-empty → back to §5);
       - figure record vs the figure scope (non-empty → regenerate the figure only, per D8).
-23. [ ] Recompute every number in the fine README and CHANGELOG with a script
+23. [x] Recompute every number in the fine README and CHANGELOG with a script
     (`PYTHONIOENCODING=utf-8`): from the committed JSON, or from the cited source file.
     - A fresh reviewer agent reviews the artifact and docs commits (C4–C6) and the C1–C3 code diff.
     - Check off tasks 0–23. Commit C6.

@@ -178,7 +178,8 @@ There is no prior fine artifact to byte-match. The gate is pre-registered:
 
 - Before each run, in WSL:
   - `git --git-dir=<…> status --porcelain` is empty;
-  - HEAD is C3;
+  - HEAD is the training commit (planned as C3; in the event `5f5db6e`, after the pre-GPU review
+    commits `58ee8fb` and `5f5db6e`);
   - `test ! -e .venv/bin` (no Linux venv inside the Windows worktree);
   - `UV_PROJECT_ENVIRONMENT` is set **inside every** `wsl -e bash -c` command or copied script.
 - Run the full 5-seed training (D1) **twice**, into `$HOME/mosquito-cfd-110/run{1,2}/surrogate`
@@ -187,7 +188,7 @@ There is no prior fine artifact to byte-match. The gate is pre-registered:
 - **(b)** `metrics.json` is equal as parsed JSON after removing the wall-clock fields of
   `inference` (`latency_ms`, `throughput_rows_per_s`); `inference.basis` is compared.
   `run_metadata.json` is equal after removing `run_id`.
-- **(c)** Both records have `git.commit == C3`, `dirty is False`, and
+- **(c)** Both records have `git.commit ==` the training commit, `dirty is False`, and
   `branch == "add-fine-corpus-surrogate"`.
 - Any failure **halts** for a decision with the user, and nothing is loosened. Run 1 is committed.
 - The outcome goes in tasks.md, the CHANGELOG and the PR body, worded as an observed outcome, not a
