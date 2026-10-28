@@ -380,6 +380,15 @@ def test_readme_skill_table_is_metrics_json(corpus):
 # --- Fine-only guards (add-fine-corpus-surrogate, design D5/D6) ----------------------------
 
 
+@_corpora()
+def test_committed_binaries_exist_and_are_well_formed(corpus):
+    """The committed checkpoint and PNG exist and are not truncated or placeholder files."""
+    png = (corpus / "figures" / "evidence_figure.png").read_bytes()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) > 100_000
+    checkpoint = (corpus / "surrogate" / "surrogate.pt").read_bytes()
+    assert checkpoint[:2] == b"PK" and len(checkpoint) > 10_000  # torch zip format
+
+
 def test_fine_cfd_cost_is_the_recomputed_median():
     """Scenario: The committed fine denominator is the recomputed median."""
     sidecar = _meta(FINE / "figures" / "evidence_figure_metrics.json")
@@ -483,7 +492,8 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
             "detected. Each grid is scored against its own corpus's phase-only baseline."
         ),
         "disclosures": (
-            "Skill = 1 − MSE/MSE₀ over the phase-only baseline. The figure shows agreement "
+            "Skill = 1 − MSE/MSE₀ over the phase-only baseline; it credits amplitude and "
+            "shape changes. The figure shows agreement "
             "with CFD, not with experiment; grid convergence was checked only at one wing "
             "motion outside this sweep (GCI_fine 3.7 % and 27.6 %, "
             "examples/flapping_wing/RESULTS.md). Moments are **lab-frame** components about "
@@ -491,13 +501,15 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
             "writes plotfiles."
         ),
         "speedup": (
+            "Batched throughput (N=12,535 rows) is compared with the sequential CFD. "
             "The CFD cost is the median of 2.14 s per step and includes plotfile output and "
             "solver start-up (2.10–3.30 s per step across the runs); the force-only rate is "
             "in docs/force_surrogate/fine-grid-pilot-report.md."
         ),
         "qs": (
             "The uncalibrated, translational-only quasi-steady model (symmetric-rotation AoA, "
-            "stroke-plane-normal lift vs lab-z CFD) is ~0.7× the CFD lift and is not overlaid."
+            "stroke-plane-normal lift vs lab-z CFD; it omits rotational, added-mass and LEV "
+            "lift) is ~0.7× the CFD lift and is not overlaid."
         ),
     }
     parts.update(overrides)
@@ -511,7 +523,11 @@ def _synthetic_readme(coarse: dict, fine: dict, **overrides: str) -> str:
 
 _SYNTHETIC_SIDECAR = {
     "quasi_steady_reference": {"overshoot_factor": 0.71},
-    "speedup": {"cfd_seconds_per_wingbeat": 4288.0, "rows_per_wingbeat": 2000},
+    "speedup": {
+        "cfd_seconds_per_wingbeat": 4288.0,
+        "rows_per_wingbeat": 2000,
+        "batch_size": 12535,
+    },
 }
 _SYNTHETIC_RANGE = (2.097, 3.302)
 _SYNTHETIC_SOURCE = "| GCI_fine | 3.7 % |\n| GCI_fine | 27.6 % |"
@@ -649,6 +665,70 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "per-step range missing": _replace_once(
             good, " (2.10–3.30 s per step across the runs)", ""
         ),
+        "comparative: higher than on coarse": _replace_once(
+            good,
+            "For every other",
+            "`CF_y` skill is higher than on coarse. For every other",
+        ),
+        "comparative: lower for the fine grid": _replace_once(
+            good,
+            "For every other",
+            "`CF_y` is lower for the fine grid. For every other",
+        ),
+        "allowed form split across a line for an overlapping target": _replace_once(
+            good,
+            "For every other",
+            "`CF_y` is lower\non fine across 5 seeds. For every other",
+        ),
+        "comparative about fine outside the section": _replace_once(
+            good,
+            "commands\n",
+            "commands\n\nThe fine grid improves every target's skill.\n",
+        ),
+        "duplicate skill table with wrong values": good
+        + "\n\n"
+        + good[
+            good.index(SKILL_HEADER) : good.index("\n\n", good.index(SKILL_HEADER))
+        ].replace("0.9", "0.1")
+        + "\n",
+        "duplicate Speedup heading": good
+        + "\n## Speedup (revised)\n\nActually 5.00 s per step.\n",
+        "GCI superstring": _replace_once(good, "3.7 % and", "13.7 % and"),
+        "extra per-step value in Speedup": _replace_once(
+            good,
+            "2.14 s per step and",
+            "2.14 s per step (precisely 9.99 s per step) and",
+        ),
+        "extra QS ratio": _replace_once(
+            good, "~0.7× the CFD lift", "~0.7× (or ~3.0× by peak) the CFD lift"
+        ),
+        "ratio: times slower than coarse": _replace_once(
+            good, "per step and", "per step (30 times slower than coarse) and"
+        ),
+        "ratio: factor of": _replace_once(
+            good, "per step and", "per step (a factor of 30 above the coarse cost) and"
+        ),
+        "own-baseline sentence missing": _replace_once(
+            good,
+            " Each grid is scored against its own corpus's phase-only baseline.",
+            "",
+        ),
+        "resolution attribution": _replace_once(
+            good, "For every other", "Grid resolution explains `CF_x`. For every other"
+        ),
+        "QS omitted terms missing": _replace_once(
+            good, "; it omits rotational, added-mass and LEV lift", ""
+        ),
+        "QS rotational term missing": _replace_once(
+            good, "omits rotational, added-mass", "omits added-mass"
+        ),
+        "amplitude and shape missing": _replace_once(
+            good, "; it credits amplitude and shape changes", ""
+        ),
+        "sequential missing": _replace_once(
+            good, "with the sequential CFD", "with the CFD"
+        ),
+        "batch size missing": _replace_once(good, " (N=12,535 rows)", ""),
         "QS paragraph outside its section": _replace_once(
             good,
             "## Quasi-steady reference\n\n",
@@ -691,6 +771,24 @@ def _defects(coarse: dict, fine: dict) -> dict[str, str]:
         "start-up disclosure missing",
         "per-step range missing",
         "QS paragraph outside its section",
+        "comparative: higher than on coarse",
+        "comparative: lower for the fine grid",
+        "allowed form split across a line for an overlapping target",
+        "comparative about fine outside the section",
+        "duplicate skill table with wrong values",
+        "duplicate Speedup heading",
+        "GCI superstring",
+        "extra per-step value in Speedup",
+        "extra QS ratio",
+        "ratio: times slower than coarse",
+        "ratio: factor of",
+        "own-baseline sentence missing",
+        "resolution attribution",
+        "QS omitted terms missing",
+        "QS rotational term missing",
+        "amplitude and shape missing",
+        "sequential missing",
+        "batch size missing",
     ],
 )
 def test_guards_reject_each_defect_with_assertion_error(defect):

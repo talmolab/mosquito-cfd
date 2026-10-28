@@ -177,7 +177,22 @@ Deviations found before the GPU run, each reconciled into design and spec:
   kinematics"; the denominator and quasi-steady guards are scoped to their sections (the first
   could not fail); "21 training configurations" now says 21 non-holdout. Left as is: the
   `cfd_cost.py` module docstring's "the per-step rate does not" wording (it cites the pilot's
-  2.00–2.02 s/step; editing it would change the figure's provenance scope), noted for #130.
+  2.00–2.02 s/step; editing it would change the figure's provenance scope), filed in #131.
+- **Pre-PR `/review-pr` (5 reviewers, branch mode):** no blocking findings. Fixed (tests, test
+  config and README only; neither provenance scope changed): README guards hardened against the
+  bypasses found (other comparative phrasings and line-wrapped forms, comparatives about the fine
+  grid outside the section, duplicated tables/headings, numbers matched as substrings, extra
+  per-step or QS values, more ratio wordings, the own-baseline sentence, resolution attribution,
+  the QS omitted terms, "amplitude and shape", "sequential", the batch size), each by a synthetic
+  defect and confirmed by reverting it (13/13); a committed-binaries existence/format test;
+  `pythonpath = ["tests"]` so the helper import works under any `--import-mode`; the README now
+  says the surrogate was timed on the RTX A5000, that both grids share the holdout and validation
+  configs, where the overlap rule was registered, and where the figure ran. The `src` hardening
+  the reviewers found (input validation in `resolve_grid`/`compute_speedup`/`cfd_cost`, exports,
+  POSIX paths in provenance, CLI usage errors) is deferred to #131: no committed artifact depends
+  on it, and fixing it would change the committed figure's provenance scope. The coarse CI check
+  compares the regenerated sidecar as parsed JSON (exact except the two QS RMS values at rel
+  1e-12); the PNG's byte identity was checked by hand.
 
 ### Delivery
 

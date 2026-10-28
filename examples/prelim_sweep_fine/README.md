@@ -95,8 +95,10 @@ The same 5-seed skill ranges for both corpora, each read from its own committed 
 | `CF_my` | 0.970 to 0.984 | 0.975 to 0.986 | yes |
 | `CF_mz` | 0.983 to 0.991 | 0.987 to 0.995 | yes |
 
-The rule was fixed before the fine run: a target counts as moved only if its two 5-seed ranges are
-disjoint (computed on the unrounded values; touching ranges count as overlapping). Every pair
+Both corpora use the same six holdout and the same three validation configurations. The rule was
+fixed before the fine run, in the `add-fine-corpus-surrogate` OpenSpec change (design D5 and the
+spec): a target counts as moved only if its two 5-seed ranges are disjoint (computed on the
+unrounded values; touching ranges count as overlapping). Every pair
 overlaps, so for all six targets: no shift detected. Five seeds a side cannot rule out a difference
 as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
 difference would reflect the CFD data as well as the surrogate; this table is not a measurement of
@@ -131,9 +133,10 @@ about the fine-grid CFD, all in [`examples/flapping_wing/RESULTS.md`](../flappin
 
 ### Speedup
 
-The headline (≈1.1×10⁸×) is batched GPU throughput (`inference.throughput_rows_per_s`) divided by
-the **sequential** fine-grid A40 CFD rate, and equals the latency speedup times the parallelism
-factor (~7,510× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
+The headline (≈1.1×10⁸×) is batched GPU throughput (`inference.throughput_rows_per_s`, the
+surrogate timed on the local RTX A5000) divided by the **sequential** fine-grid CFD rate (run on the
+cluster's A40s), so the two sides are on different GPUs. It equals the latency speedup times the
+parallelism factor (~7,510× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
 which a CFD time integration cannot do). The like-for-like per-evaluation latency speedup is
 ~14,893×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`.
 
@@ -156,7 +159,8 @@ Performance), whereas this one is the median per-step time over the sweep's own 
 
 The `docker_image` recorded in `surrogate/run_metadata.json` and `figures/run_metadata.json` is the
 image that produced this corpus's CFD data (the same digest as `run_metadata.json`); training ran
-in a uv environment under WSL2 on a local RTX A5000, not in that container.
+in a uv environment under WSL2 on a local RTX A5000, and the figure was generated natively on the
+Windows host of the same machine, neither in that container.
 
 ### Regenerating
 

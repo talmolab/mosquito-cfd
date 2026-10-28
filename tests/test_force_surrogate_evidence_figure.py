@@ -1388,7 +1388,7 @@ def test_baseline_reference_note_names_the_grid():
 def test_compute_speedup_uses_the_given_cfd_cost():
     inf = _toy_metrics()["inference"]
     sp = compute_speedup(inf, rows_per_wingbeat=2000, cfd_seconds_per_wingbeat=4000.0)
-    assert sp["throughput_speedup"] == 5.17e7 / (2000 / 4000.0)
+    assert sp["throughput_speedup"] == pytest.approx(1.034e8, rel=1e-12)
     assert sp["latency_speedup"] == (4000.0 / 2000) / (0.232 / 1000.0)
     assert sp["cfd_seconds_per_wingbeat"] == 4000.0
     default = compute_speedup(inf, rows_per_wingbeat=2000)
