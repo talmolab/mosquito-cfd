@@ -210,9 +210,11 @@ the same `groupby(...).mean()` aggregation the figure visualizes, and
 `build_config_mean_collapse_diagnostic` SHALL report `config_resolved` R² values read verbatim from
 the source `metrics.json`, never re-derived or approximated. This guards specifically against
 conflating `metrics.json`'s `config_resolved` block (config-mean R²) with its separate `per_target`
-block (RMSE) — a documented gotcha in the tooling this capability replaces (`evidence_figure.py`'s
-`_config_mean_r2` vs `_per_target_rmse` split reads two different blocks; treating them as one view
-of the same number is a real, previously-made mistake this requirement exists to prevent).
+block (RMSE) — a documented gotcha in the tooling this capability replaces (`evidence_figure.py`
+formerly read config-mean R² and RMSE through separate `_config_mean_r2` and `_per_target_rmse`
+accessors from two different blocks, before the evidence figure moved to skill over a phase-only
+baseline; treating them as one view of the same number is a real, previously-made mistake this
+requirement exists to prevent).
 
 #### Scenario: per-config mean markers match a direct pandas groupby on the same data
 

@@ -268,9 +268,11 @@ clean whenever an artifact is generated; tasks.md is checked off once, in C8.
     `git diff --quiet <surrogate run_metadata commit> HEAD -- src/mosquito_cfd/force_surrogate/train.py scripts/train_surrogate.py`
     and `git diff --quiet <figure run_metadata commit> HEAD -- src/mosquito_cfd/force_surrogate/evidence_figure.py scripts/make_evidence_figure.py`;
     either non-empty forces regeneration under 31a. Check off tasks; commit C8.
-34. [ ] **Human checkpoint before pushing.** `/pre-merge-check`; PR to `main`: "Closes #127.",
+34. [x] **Human checkpoint before pushing.** `/pre-merge-check`; PR to `main`: "Closes #127.",
     "Closes #125.", "Closes #116." on separate lines; "Unblocks #110"; #115/#124/#102 named only as
     out of scope (no closing keyword near them). Name the two recorded commits (reachable via
     `refs/pull/<N>/head` after squash; `inputs.hash` is the content link). Squash message written by
     hand (what changed, the D5 outcome, binary growth), not the default commit list.
-35. [ ] After merge: `/cleanup-merged`, including the OpenSpec archive.
+    *Done as PR #128 (squash `b213424`); the hand-written squash message was prepared but the
+    merge used GitHub's default body.*
+35. [x] After merge: `/cleanup-merged`, including the OpenSpec archive.
