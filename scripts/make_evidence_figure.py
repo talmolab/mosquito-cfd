@@ -15,6 +15,9 @@ Run from the repository root, e.g.::
         --out-dir examples/prelim_sweep/figures \\
         --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \\
         --timestamp 2026-06-23T00:00:00+00:00
+
+For the fine corpus add ``--grid fine --cfd-seconds-per-wingbeat <S>``, where ``S`` is printed by
+``scripts/cfd_seconds_per_wingbeat.py --metadata-dir examples/prelim_sweep_fine``.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from mosquito_cfd.force_surrogate import generate_evidence_figure
+from mosquito_cfd.force_surrogate.evidence_figure import GRID_PROFILES
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -52,6 +56,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Caller-supplied ISO-8601 timestamp (reproducible provenance).",
     )
     parser.add_argument("--dpi", type=int, default=200)
+    parser.add_argument(
+        "--grid",
+        choices=sorted(GRID_PROFILES),
+        default="coarse",
+        help="Grid profile: caption wording and CFD cost (default coarse).",
+    )
+    parser.add_argument(
+        "--cfd-seconds-per-wingbeat",
+        type=float,
+        default=None,
+        help=(
+            "CFD wall-clock seconds per wingbeat; required for --grid fine "
+            "(scripts/cfd_seconds_per_wingbeat.py prints it)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     generate_evidence_figure(
@@ -61,6 +80,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         docker_image_digest=args.docker_digest,
         timestamp=args.timestamp,
         dpi=args.dpi,
+        grid=args.grid,
+        cfd_seconds_per_wingbeat=args.cfd_seconds_per_wingbeat,
     )
     return 0
 

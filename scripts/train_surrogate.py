@@ -21,8 +21,10 @@ from a clean, committed tree (``run_metadata.json`` records the commit and ``dir
 
 Pass ``--group train`` on every ``uv run`` (a bare ``uv run`` can sync torch away), do not export
 ``GIT_DIR``/``GIT_WORK_TREE`` (the git capture resolves a Windows worktree from WSL itself, #78),
-and leave ``CUBLAS_WORKSPACE_CONFIG`` unset, as the committed runs did. See
-``examples/prelim_sweep/README.md`` for the full recipe.
+and leave ``CUBLAS_WORKSPACE_CONFIG`` unset, as the committed runs did. For the fine corpus
+substitute ``examples/prelim_sweep_fine`` in all three paths (same flags otherwise). See
+``examples/prelim_sweep/README.md`` and ``examples/prelim_sweep_fine/README.md`` for the full
+recipes.
 """
 
 from __future__ import annotations
