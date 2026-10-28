@@ -69,11 +69,68 @@ TARGETS: tuple[str, ...] = tuple(TARGET_COLUMNS)
 # The one phrase used wherever a sweep has a single seed (never an implied spread).
 _SINGLE_SEED = "single seed, no range"
 
-# Coarse-grid A40 CFD cost (~2.4 min/wingbeat; roadmap Hardware row). Used only for the
-# speedup denominator, which the annotation labels "coarse-grid A40 CFD" (design D4).
+# Coarse-grid A40 CFD cost (~2.4 min/wingbeat; roadmap Hardware row: the rounded 146 s of one
+# A40 run of the 70° validation deck, examples/flapping_wing/RESULTS.md "Performance"). Used
+# only for the coarse speedup denominator, which the annotation labels "coarse-grid A40 CFD"
+# (design D4).
 CFD_SECONDS_PER_WINGBEAT = 144.0
 
-_README_POINTER = "examples/prelim_sweep/README.md"
+
+@dataclass(frozen=True)
+class GridProfile:
+    """The grid-specific text and CFD cost of one corpus's evidence figure.
+
+    The coarse profile's strings are the figure's original wording, so the default figure is
+    byte-identical to the committed coarse one (change ``add-fine-corpus-surrogate``, D2).
+
+    Attributes:
+        name: ``"coarse"`` or ``"fine"``.
+        cfd_label: The CFD named in the speedup headline, after "sequential".
+        lift_label: The CFD lift the quasi-steady reference is compared with.
+        qs_suffix: Appended to "not used as a quantitative baseline" (the coarse caption gives
+            the resolution as the reason; on the fine grid the reason is the omitted terms).
+        grid_caveat: The caveat sentence naming the grid and what the figure does not show.
+        readme_pointer: The corpus README the caption points to.
+        cfd_seconds_per_wingbeat: The fixed per-wingbeat CFD cost, or ``None`` when it is
+            derived from a supplied per-step cost.
+    """
+
+    name: str
+    cfd_label: str
+    lift_label: str
+    qs_suffix: str
+    grid_caveat: str
+    readme_pointer: str
+    cfd_seconds_per_wingbeat: float | None
+
+
+COARSE_PROFILE = GridProfile(
+    name="coarse",
+    cfd_label="coarse-grid A40 CFD",
+    lift_label="coarse-grid CFD lift",
+    qs_suffix=" at this resolution",
+    grid_caveat="Coarse 64x32x64 grid: pipeline readiness, not validated aerodynamics.",
+    readme_pointer="examples/prelim_sweep/README.md",
+    cfd_seconds_per_wingbeat=CFD_SECONDS_PER_WINGBEAT,
+)
+# The fine CFD cost is the median per-step A40 wall time over the corpus's run metadata
+# (force_surrogate.cfd_cost), supplied by the caller; it has no default.
+FINE_PROFILE = GridProfile(
+    name="fine",
+    cfd_label="fine-grid A40 CFD at its median per-step wall time",
+    lift_label="fine-grid CFD lift",
+    qs_suffix="",
+    grid_caveat=(
+        "Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence "
+        "checked only at one wing motion outside this sweep (README)."
+    ),
+    readme_pointer="examples/prelim_sweep_fine/README.md",
+    cfd_seconds_per_wingbeat=None,
+)
+GRID_PROFILES: dict[str, GridProfile] = {
+    p.name: p for p in (COARSE_PROFILE, FINE_PROFILE)
+}
+
 _CONFIG_RE = re.compile(r"^s(\d+)_f(\d+)_p(\d+)$")
 _BATCH_RE = re.compile(r"passes of (\d+) rows")
 
@@ -339,12 +396,79 @@ def skill_floor(metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _profile(grid: str) -> GridProfile:
+    """The :data:`GRID_PROFILES` entry for ``grid``; ``ValueError`` naming the valid names."""
+    if grid not in GRID_PROFILES:
+        raise ValueError(
+            f"unknown grid {grid!r}; expected one of {sorted(GRID_PROFILES)}"
+        )
+    return GRID_PROFILES[grid]
+
+
+def resolve_grid(
+    grid: str, cfd_seconds_per_step: float | None
+) -> tuple[GridProfile, float | None]:
+    """Look up a grid profile and validate the CFD cost supplied for it.
+
+    A profile with a fixed per-wingbeat cost (coarse) takes no per-step cost. A profile without
+    one (fine) requires the CFD's median seconds per timestep, from which the figure derives the
+    per-wingbeat cost of its representative configuration (:func:`cfd_seconds_per_wingbeat`).
+
+    Args:
+        grid: A :data:`GRID_PROFILES` name.
+        cfd_seconds_per_step: The CFD's wall-clock seconds per timestep, or ``None``.
+
+    Returns:
+        The profile and the validated seconds per step (``None`` for a fixed-cost profile).
+
+    Raises:
+        ValueError: If ``grid`` is unknown; a fixed-cost profile is given a per-step cost; or a
+            profile without a fixed cost gets none, or a non-finite or non-positive one.
+    """
+    profile = _profile(grid)
+    if profile.cfd_seconds_per_wingbeat is not None:
+        if cfd_seconds_per_step is not None:
+            raise ValueError(
+                f"grid {grid!r} has a fixed CFD cost of {profile.cfd_seconds_per_wingbeat} "
+                f"s/wingbeat; it takes no per-step cost, got {cfd_seconds_per_step}"
+            )
+        return profile, None
+    if cfd_seconds_per_step is None:
+        raise ValueError(
+            f"grid {grid!r} has no default CFD cost; pass cfd_seconds_per_step "
+            "(scripts/cfd_seconds_per_step.py)"
+        )
+    if not np.isfinite(cfd_seconds_per_step) or cfd_seconds_per_step <= 0:
+        raise ValueError(
+            f"cfd_seconds_per_step must be finite and > 0, got {cfd_seconds_per_step}"
+        )
+    return profile, float(cfd_seconds_per_step)
+
+
+def cfd_seconds_per_wingbeat(
+    profile: GridProfile, cfd_seconds_per_step: float | None, rows_per_wingbeat: int
+) -> float:
+    """The CFD cost of one wingbeat of the representative configuration.
+
+    The profile's fixed cost, or the per-step cost times the representative configuration's
+    rows per wingbeat (one dataset row per CFD timestep), so the speedup's per-row CFD cost is
+    exactly the per-step cost.
+    """
+    if profile.cfd_seconds_per_wingbeat is not None:
+        return profile.cfd_seconds_per_wingbeat
+    assert cfd_seconds_per_step is not None  # resolve_grid guarantees it
+    return cfd_seconds_per_step * rows_per_wingbeat
+
+
 def compute_speedup(
-    inference: dict[str, Any], rows_per_wingbeat: int
+    inference: dict[str, Any],
+    rows_per_wingbeat: int,
+    *,
+    cfd_seconds_per_wingbeat: float = CFD_SECONDS_PER_WINGBEAT,
 ) -> dict[str, Any]:
     """Decompose the inference-vs-CFD speedup into throughput (headline) and latency (floor).
 
-    The headline >1,000x is **batched GPU throughput** vs the coarse-grid A40 CFD rate;
+    The headline >1,000x is **batched GPU throughput** vs the grid's A40 CFD rate;
     because it equals ``latency_speedup * batch_size`` (the surrogate batches; the CFD is a
     sequential time integration), the batch size and parallelism factor are returned for
     honest disclosure (design D4).
@@ -353,6 +477,8 @@ def compute_speedup(
         inference: The ``metrics.json`` ``inference`` block (``latency_ms``,
             ``throughput_rows_per_s``, ``basis``).
         rows_per_wingbeat: Converged-beat rows for the representative config.
+        cfd_seconds_per_wingbeat: CFD wall-clock seconds per wingbeat (default: the coarse
+            grid's).
 
     Returns:
         A dict with ``throughput_speedup``, ``latency_speedup``, ``batch_size``,
@@ -365,8 +491,8 @@ def compute_speedup(
     """
     throughput = _require(inference, "throughput_rows_per_s", "inference throughput")
     latency_ms = _require(inference, "latency_ms", "inference latency")
-    cfd_rows_per_s = rows_per_wingbeat / CFD_SECONDS_PER_WINGBEAT
-    t_cfd_per_row_s = CFD_SECONDS_PER_WINGBEAT / rows_per_wingbeat
+    cfd_rows_per_s = rows_per_wingbeat / cfd_seconds_per_wingbeat
+    t_cfd_per_row_s = cfd_seconds_per_wingbeat / rows_per_wingbeat
     throughput_speedup = throughput / cfd_rows_per_s
     latency_speedup = t_cfd_per_row_s / (latency_ms / 1000.0)
     batch_match = _BATCH_RE.search(inference.get("basis", ""))
@@ -377,7 +503,7 @@ def compute_speedup(
         "batch_size": batch_size,
         "parallelism_factor": throughput_speedup / latency_speedup,
         "cfd_rows_per_s": cfd_rows_per_s,
-        "cfd_seconds_per_wingbeat": CFD_SECONDS_PER_WINGBEAT,
+        "cfd_seconds_per_wingbeat": cfd_seconds_per_wingbeat,
         "rows_per_wingbeat": rows_per_wingbeat,
         "surrogate_throughput_rows_per_s": throughput,
         "surrogate_latency_ms": latency_ms,
@@ -407,7 +533,11 @@ def _floor_sentence(metrics: dict[str, Any], k: int) -> str:
 
 
 def build_caption(
-    metrics: dict[str, Any], speedup: dict[str, Any], baseline: dict[str, Any]
+    metrics: dict[str, Any],
+    speedup: dict[str, Any],
+    baseline: dict[str, Any],
+    *,
+    grid: str = "coarse",
 ) -> str:
     """Build the compact, honest figure caption (design D6; full prose lives in the README).
 
@@ -428,13 +558,29 @@ def build_caption(
         metrics: The loaded ``metrics.json`` dict.
         speedup: The :func:`compute_speedup` result.
         baseline: The :func:`_baseline_reference` result (overshoot factor for the caption).
+        grid: The :data:`GRID_PROFILES` name whose wording the caption uses.
 
     Returns:
         The multi-line caption string. Every number is read from the artifacts.
 
     Raises:
         KeyError: If ``seed_sweep``, ``phase_baseline_skill`` or a target's entry is missing.
+        ValueError: If ``grid`` is unknown, or the speedup's CFD cost does not fit the
+            profile's label (see :func:`resolve_grid`; the fine label over the coarse 144 s
+            is rejected too).
     """
+    profile = _profile(grid)
+    cost = speedup["cfd_seconds_per_wingbeat"]
+    fixed = profile.cfd_seconds_per_wingbeat
+    if fixed is not None and cost != fixed:
+        raise ValueError(
+            f"grid {grid!r} has a fixed CFD cost of {fixed} s/wingbeat, got {cost}"
+        )
+    if fixed is None and cost == CFD_SECONDS_PER_WINGBEAT:
+        raise ValueError(
+            f"grid {grid!r} caption over the coarse {CFD_SECONDS_PER_WINGBEAT} s/wingbeat "
+            "cost; pass this grid's own CFD cost to compute_speedup"
+        )
     sweep = _seed_sweep(metrics)
     seed = _require(sweep, "primary_seed", "seed_sweep.primary_seed")
     k = _seed_count(metrics)
@@ -454,24 +600,24 @@ def build_caption(
         f"where MSE₀ is the error of a phase-only baseline (the mean training waveform; "
         f"ignores stroke, frequency and pitch); {seeds_note}. Surrogate inference >1,000x "
         f"faster than CFD (batched GPU throughput ~{thr:.1e}x, N={batch} parallel evals vs "
-        f"sequential coarse-grid A40 CFD; per-evaluation latency floor ~{lat:.0f}x)."
+        f"sequential {profile.cfd_label}; per-evaluation latency floor ~{lat:.0f}x)."
     )
     caveats = (
         f"Caveats: pointwise R² mostly reflects the shared waveform (the phase-only "
         f"baseline alone scores R² {phase_r2} for CF_x/CF_z/CF_my); skill also rewards "
         f"predicting how waveform amplitude and shape change with the kinematics, not only "
         f"the cycle-mean force (cycle-mean R²: README). {_floor_sentence(metrics, k)} "
-        f"CF_mx/CF_mz omitted from panels (skill {off_panel}). Coarse 64x32x64 grid: "
-        f"pipeline readiness, not validated aerodynamics. Moment is the lab-frame M_y "
+        f"CF_mx/CF_mz omitted from panels (skill {off_panel}). {profile.grid_caveat} "
+        f"Moment is the lab-frame M_y "
         f"component (wing-frame conversion not currently tracked)."
     )
     reference = (
         f"Quasi-steady reference (not plotted): an uncalibrated translational Sane-Dickinson "
-        f"model is ~{overshoot:.1f}x the coarse-grid CFD lift (RMS) — translational-only, it "
+        f"model is ~{overshoot:.1f}x the {profile.lift_label} (RMS) — translational-only, it "
         f"omits rotational/added-mass/LEV lift — "
-        f"so it is not used as a quantitative baseline at this resolution."
+        f"so it is not used as a quantitative baseline{profile.qs_suffix}."
     )
-    return f"{headline}\n{caveats}\n{reference}\nFull discussion: {_README_POINTER}."
+    return f"{headline}\n{caveats}\n{reference}\nFull discussion: {profile.readme_pointer}."
 
 
 def _baseline_for_config(df_cfg: pd.DataFrame) -> np.ndarray:
@@ -490,18 +636,21 @@ def _rmse(true: np.ndarray, pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.asarray(true) - np.asarray(pred)) ** 2)))
 
 
-def _baseline_reference(predictions: pd.DataFrame) -> dict[str, Any]:
+def _baseline_reference(
+    predictions: pd.DataFrame, *, grid: str = "coarse"
+) -> dict[str, Any]:
     """Translational Sane-Dickinson CF_z reference (computed, NOT overlaid on the figure).
 
-    The uncalibrated translational quasi-steady model is a poor fit to the coarse-grid CFD lift
-    (RMS ratio < 1 under the van Veen convention; it omits rotational, added-mass, and LEV lift,
-    so it under-predicts the now-in-band CFD) — so the gap mostly re-displays the model's analytic
-    loops rather than surrogate skill.
+    The uncalibrated translational quasi-steady model is a poor fit to the CFD lift (it omits
+    rotational, added-mass, and LEV lift; on the coarse corpus its RMS ratio is reported against
+    the in-band CFD under the van Veen convention) — so the gap mostly re-displays the model's
+    analytic loops rather than surrogate skill.
     It is therefore reported as a reference number (RMSE + overshoot factor), not drawn as a
     misleading scatter overlay (design D2; CC-4 deviation recorded in the proposal).
 
     Args:
         predictions: Holdout predictions frame.
+        grid: The :data:`GRID_PROFILES` name whose CFD lift the ``note`` names.
 
     Returns:
         ``{baseline_rmse_cf_z, overshoot_factor, note}`` — ``overshoot_factor`` is
@@ -521,7 +670,7 @@ def _baseline_reference(predictions: pd.DataFrame) -> dict[str, Any]:
         "note": (
             "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the "
             "figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to "
-            "the coarse-grid CFD lift, so not a quantitative baseline here"
+            f"the {_profile(grid).lift_label}, so not a quantitative baseline here"
         ),
     }
 
@@ -534,27 +683,39 @@ def _panel_title(coef: str) -> str:
     return f"{coef}  ({label} force)"
 
 
-def build_figure(predictions: pd.DataFrame, metrics: dict[str, Any]) -> plt.Figure:
+def build_figure(
+    predictions: pd.DataFrame,
+    metrics: dict[str, Any],
+    *,
+    grid: str = "coarse",
+    cfd_seconds_per_step: float | None = None,
+) -> plt.Figure:
     """Assemble the three-panel predicted-vs-CFD evidence figure (object model, no I/O).
 
     Args:
         predictions: Holdout predictions frame (``config_name, phase, CF_*_{true,pred}``).
         metrics: The loaded ``metrics.json`` dict.
+        grid: The :data:`GRID_PROFILES` name for the caption's grid wording.
+        cfd_seconds_per_step: CFD cost per timestep for a grid without a fixed cost
+            (see :func:`resolve_grid`).
 
     Returns:
         A :class:`matplotlib.figure.Figure` with three predicted-vs-CFD scatter panels
         (CF_x, CF_z, CF_my), points colored by held-out configuration with a shared legend.
     """
+    profile, per_step = resolve_grid(grid, cfd_seconds_per_step)
     _validate_predictions(predictions)
     configs = sorted(predictions["config_name"].unique())
     cmap = plt.get_cmap("tab10")
     color = {cfg: cmap(i % 10) for i, cfg in enumerate(configs)}
 
+    rows = _representative_rows(predictions)
     speedup = compute_speedup(
         _require(metrics, "inference", "inference block"),
-        _representative_rows(predictions),
+        rows,
+        cfd_seconds_per_wingbeat=cfd_seconds_per_wingbeat(profile, per_step, rows),
     )
-    baseline = _baseline_reference(predictions)
+    baseline = _baseline_reference(predictions, grid=profile.name)
 
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 5.2))
     for ax, coef in zip(axes, PANEL_COEFFICIENTS, strict=True):
@@ -605,7 +766,7 @@ def build_figure(predictions: pd.DataFrame, metrics: dict[str, Any]) -> plt.Figu
     fig.text(
         0.5,
         -0.04,
-        build_caption(metrics, speedup, baseline),
+        build_caption(metrics, speedup, baseline, grid=profile.name),
         ha="center",
         va="top",
         fontsize=6.5,
@@ -674,6 +835,8 @@ def generate_evidence_figure(
     docker_image_digest: str,
     timestamp: str,
     dpi: int = 200,
+    grid: str = "coarse",
+    cfd_seconds_per_step: float | None = None,
 ) -> dict[str, Any]:
     """Generate + write the evidence figure, its metrics sidecar, and run provenance.
 
@@ -682,10 +845,14 @@ def generate_evidence_figure(
     Args:
         predictions_path: Committed ``holdout_predictions.parquet``.
         metrics_path: Committed ``metrics.json``.
-        out_dir: Output directory (``examples/prelim_sweep/figures/``).
+        out_dir: Output directory (the corpus's ``figures/``).
         docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (no wall-clock baked in, CC-1).
         dpi: Raster resolution (>=200).
+        grid: The :data:`GRID_PROFILES` name (caption wording and CFD cost).
+        cfd_seconds_per_step: The CFD's median wall-clock seconds per timestep: required
+            for ``"fine"``; must be omitted for ``"coarse"``, whose cost is the fixed
+            :data:`CFD_SECONDS_PER_WINGBEAT`.
 
     Returns:
         The ``evidence_figure_metrics.json`` payload: per-axis surrogate RMSE, the plotted seed
@@ -695,13 +862,15 @@ def generate_evidence_figure(
         ``metrics.json`` ``seed_sweep``, so they cannot disagree with the caption.
 
     Raises:
-        ValueError: If the digest is a mutable tag, or the predictions have <2 configs / 0 rows.
+        ValueError: If the digest is a mutable tag, the grid or CFD cost is invalid (see
+            :func:`resolve_grid`), or the predictions have <2 configs / 0 rows.
     """
     # --- Validate + compute EVERYTHING fallible first; only then touch the filesystem, so a
     #     late failure can never leave a partial artifact set (no orphan PNG).
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
     validate_image_digest(docker_image_digest)  # fail-fast on a mutable tag
+    profile, per_step = resolve_grid(grid, cfd_seconds_per_step)
 
     predictions = pd.read_parquet(predictions_path)
     metrics = json.loads(Path(metrics_path).read_text(encoding="utf-8"))
@@ -718,12 +887,17 @@ def generate_evidence_figure(
             "config-resolved scatter is undefined otherwise"
         )
 
-    fig = build_figure(predictions, metrics)
+    fig = build_figure(
+        predictions, metrics, grid=profile.name, cfd_seconds_per_step=per_step
+    )
+    rows = _representative_rows(predictions)
+    seconds = cfd_seconds_per_wingbeat(profile, per_step, rows)
     speedup = compute_speedup(
         _require(metrics, "inference", "inference block"),
-        _representative_rows(predictions),
+        rows,
+        cfd_seconds_per_wingbeat=seconds,
     )
-    baseline = _baseline_reference(predictions)
+    baseline = _baseline_reference(predictions, grid=profile.name)
 
     sweep = _seed_sweep(metrics)
     seeds = list(_require(sweep, "seeds", "seed_sweep.seeds"))
@@ -756,6 +930,9 @@ def generate_evidence_figure(
             # under a distinct key so the built-in inputs.file/hash is not clobbered.
             "metrics_json_sha256": _sha256(metrics_path),
             "seeds": {"global": fig_metrics["primary_seed"], "sweep": seeds[1:]},
+            "grid": profile.name,
+            "cfd_seconds_per_step": per_step,
+            "cfd_seconds_per_wingbeat": seconds,
         },
     )
 

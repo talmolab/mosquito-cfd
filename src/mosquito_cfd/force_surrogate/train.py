@@ -1,8 +1,8 @@
 """Kinematics(+phase) -> force-coefficient surrogate trainer (Track B, PR5).
 
 Trains a small **PhysicsNeMo** regressor mapping a wing-kinematics vector plus the within-beat
-phase to the six normalized force/moment coefficients of the committed
-``examples/prelim_sweep/dataset.parquet``, evaluates it on **held-out configurations** (CC-4),
+phase to the six normalized force/moment coefficients of a committed corpus's
+``dataset.parquet`` (``examples/prelim_sweep/`` or ``examples/prelim_sweep_fine/``), evaluates it on **held-out configurations** (CC-4),
 and emits ``metrics.json`` + a holdout-predictions table + ``run_metadata.json`` (CC-1). This is
 the deliberately small, **force-only** surrogate (roadmap CC-6): no field/plotfile reading, no
 DoMINO/latent-dynamics, no RL.
@@ -1201,7 +1201,7 @@ def run_training(
     imports), so it runs on the A5000, not CI.
 
     Args:
-        dataset_path: Path to ``examples/prelim_sweep/dataset.parquet``.
+        dataset_path: Path to a corpus's ``dataset.parquet`` (coarse or fine).
         out_dir: Directory to write the four artifacts into.
         docker_image_digest: Pinned ``sha256:`` digest (sourced from the dataset's
             ``run_metadata.json``).

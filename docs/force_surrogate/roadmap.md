@@ -60,7 +60,8 @@ CC-4 figure caption must keep it honest — readiness evidence, not the funded s
 
 ## Hardware
 
-- **CFD (sweep):** Salk RunAI **A40** (FP64 container). ~2.4 min per coarse-grid wingbeat.
+- **CFD (sweep):** Salk RunAI **A40** (FP64 container). ~2.4 min per coarse-grid wingbeat. The
+  fine-grid cost, per step, is in `examples/prelim_sweep_fine/README.md` (Speedup).
 - **Training:** **local RTX A5000** (24 GB, FP32/TF32) — *not* RunAI (RunAI is A40-only).
 
 ---
@@ -200,7 +201,7 @@ section; it is not restated here, because it has changed with every corpus regen
 | 11 | `add-fine-corpus-run-verification` | CFL sizing (`ns.cfl = 0.6`; `ns.fixed_dt` is a ceiling), run-observed metadata, corpus guards + acceptance gate ([PR #97](https://github.com/talmolab/mosquito-cfd/pull/97)); the full 27-config fine run and its `dataset.parquet` ([PR #100](https://github.com/talmolab/mosquito-cfd/pull/100)). | cluster | ✅ |
 | 12 | `fix-moment-reference-hinge` | Moment coefficients re-referenced from the IB particle's origin to the deck's declared hinge (#108): shift helper + canonical docs ([PR #117](https://github.com/talmolab/mosquito-cfd/pull/117)); extraction wiring + both corpora re-extracted ([PR #118](https://github.com/talmolab/mosquito-cfd/pull/118)); coarse surrogate retrained + evidence figure regenerated ([PR #126](https://github.com/talmolab/mosquito-cfd/pull/126), which closes #108). | local / A5000 | ✅ |
 | 13 | `replace-config-r2-with-baseline-skill` | Evidence figure reports skill over a phase-only baseline (the mean training waveform) with its range over seeds 1234–1238, trained in one run, in place of config-resolved R²; the figure sidecar records every caption number for all six targets ([#127](https://github.com/talmolab/mosquito-cfd/issues/127), closes [#125](https://github.com/talmolab/mosquito-cfd/issues/125), [#116](https://github.com/talmolab/mosquito-cfd/issues/116)). Values live in `examples/prelim_sweep/surrogate/metrics.json` and the README's skill table, not here. [PR #128](https://github.com/talmolab/mosquito-cfd/pull/128) | local / A5000 | ✅ |
-| 14 | *(not yet proposed)* | Train the surrogate on the fine corpus and build its evidence figure ([#110](https://github.com/talmolab/mosquito-cfd/issues/110)); unblocked by row 13. | A5000 | ⬜ |
+| 14 | `add-fine-corpus-surrogate` | Surrogate trained on the fine corpus with the coarse run's trainer and flags, and its evidence figure: a grid-aware figure (`--grid fine`, the CFD cost per step from the fine run metadata), committed-artifact guards over both corpora, and a guarded coarse-vs-fine 5-seed skill table in the fine README ([#110](https://github.com/talmolab/mosquito-cfd/issues/110); follow-ups [#130](https://github.com/talmolab/mosquito-cfd/issues/130)). Values live in `examples/prelim_sweep_fine/surrogate/metrics.json` and the fine README, not here. | A5000 | 🟡 |
 
 **Dependency order:** PR1 → PR2 → PR3 → PR3.5 → PR4 → PR5 → PR6 (rows 7-14 followed). PR3.5 (Argo) supersedes PR3's
 transport and is what actually produces the corpus. PR4 can be built and fully tested against
@@ -217,7 +218,9 @@ The committed 27-config corpus above was generated entirely on the **coarse 64×
 `CF_normal` is comparatively well-behaved even at medium resolution. This means the corpus's
 `CF_x`/chord-component training target is trustworthy only in relative/pipeline terms
 (CC-4's "pipeline readiness on coarse-grid forces," not validated aerodynamics), not in absolute
-magnitude.
+magnitude. The fine corpus now has its own surrogate (row 14); `examples/prelim_sweep_fine/README.md`
+compares the two corpora's 5-seed skill ranges and states what the fine CFD has and has not been
+checked against.
 
 **Pilot complete — GO recommendation:** `add-fine-grid-training-pilot` ran a 3-config pilot at
 fine 256³ resolution (reusing `generate_sweep()`/`submit_workflow.sh smoke` unmodified, RunAI

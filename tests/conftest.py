@@ -20,6 +20,10 @@ from pathlib import Path
 
 import pytest
 
+# Shared README guard helpers live in a non-test module; rewrite their asserts so a failing guard
+# reports the compared values, as a test-module assert would.
+pytest.register_assert_rewrite("_readme_guards")
+
 
 def _cuda_available() -> bool:
     """True only if torch is importable *and* reports a CUDA device.

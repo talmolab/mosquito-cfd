@@ -1,0 +1,86 @@
+{
+  "surrogate_rmse": {
+    "CF_x": 0.03233434729796563,
+    "CF_z": 0.022673467133805806,
+    "CF_my": 0.015789811070694992
+  },
+  "primary_seed": 1234,
+  "n_seeds": 5,
+  "skill": {
+    "CF_x": {
+      "committed": 0.989776816135081,
+      "min": 0.989776816135081,
+      "max": 0.9959668308245451
+    },
+    "CF_y": {
+      "committed": 0.9799977959566399,
+      "min": 0.9799977959566399,
+      "max": 0.9937001503623268
+    },
+    "CF_z": {
+      "committed": 0.9770005294841001,
+      "min": 0.9770005294841001,
+      "max": 0.9905410344266189
+    },
+    "CF_mx": {
+      "committed": 0.9684980816883039,
+      "min": 0.9684980816883039,
+      "max": 0.9925529168914591
+    },
+    "CF_my": {
+      "committed": 0.9854943373453707,
+      "min": 0.974752053929043,
+      "max": 0.9864361810445282
+    },
+    "CF_mz": {
+      "committed": 0.9865312487753023,
+      "min": 0.9865312487753023,
+      "max": 0.99508971650889
+    }
+  },
+  "pointwise_r2": {
+    "CF_x": 0.9993117454692403,
+    "CF_y": 0.9988438908028964,
+    "CF_z": 0.9978669069962495,
+    "CF_mx": 0.9976379309054926,
+    "CF_my": 0.999186604712977,
+    "CF_mz": 0.9991931018742602
+  },
+  "phase_baseline_pointwise_r2": {
+    "CF_x": 0.9326770857441565,
+    "CF_y": 0.9422009097298724,
+    "CF_z": 0.907254690829693,
+    "CF_mx": 0.9250182458370986,
+    "CF_my": 0.9439256718986668,
+    "CF_mz": 0.9400910958797649
+  },
+  "skill_floor": {
+    "value": 0.9684980816883039,
+    "targets_below_phase_baseline": []
+  },
+  "quasi_steady_reference": {
+    "baseline_rmse_cf_z": 1.7588371478248073,
+    "overshoot_factor": 1.4074274138248275,
+    "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to the fine-grid CFD lift, so not a quantitative baseline here"
+  },
+  "speedup": {
+    "throughput_speedup": 111848500.1567032,
+    "latency_speedup": 14892.88032598733,
+    "batch_size": 12535,
+    "parallelism_factor": 7510.199350862518,
+    "cfd_rows_per_s": 0.4664074024406598,
+    "cfd_seconds_per_wingbeat": 4288.096607245543,
+    "rows_per_wingbeat": 2000,
+    "surrogate_throughput_rows_per_s": 52166968.42497167,
+    "surrogate_latency_ms": 0.14396465000000802,
+    "cfd_rate_is_sequential": true
+  },
+  "rows_per_wingbeat_per_config": {
+    "s35_f085_p45": 2353,
+    "s45_f085_p60": 2353,
+    "s45_f100_p60": 2000,
+    "s45_f115_p60": 1738,
+    "s55_f085_p45": 2353,
+    "s55_f115_p45": 1738
+  }
+}

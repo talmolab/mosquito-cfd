@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _readme_guards import R2_NEAR_TARGET, format_power_of_ten
 
 import mosquito_cfd.force_surrogate as fsurr
 from mosquito_cfd.force_surrogate import (
@@ -34,7 +35,12 @@ from mosquito_cfd.force_surrogate import (
     parse_config_name,
     sane_dickinson_cf_z,
 )
+from mosquito_cfd.force_surrogate.cfd_cost import median_cfd_seconds_per_step
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
+from mosquito_cfd.force_surrogate.evidence_figure import (
+    GRID_PROFILES,
+    _baseline_reference,
+)
 
 TARGETS = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
 
@@ -1141,12 +1147,8 @@ def _normalized_readme() -> str:
     return re.sub(r"([≈=])\s+", r"\1", text)
 
 
-# Any CF name followed, within one line and before any other CF name, by "≈<num>" or "=<num>".
-# Broad on purpose: a stale value in a slightly different form (``CF_z R² ≈0.51``,
-# ``CF_my = 0.51``, a Unicode minus) is caught rather than skipped. Percentages are excluded.
-_R2_NEAR_TARGET = re.compile(
-    r"\b(CF_(?:mx|my|mz|x|y|z))\b`?((?:(?!CF_)[^≈=\n|]){0,60})[≈=](-?\d+\.(\d+))(?![\d%])"
-)
+# Shared with the fine README guard (which requires it to find nothing there).
+_R2_NEAR_TARGET = R2_NEAR_TARGET
 # Historical values the README quotes on purpose (an earlier corpus), not current results.
 _HISTORICAL_R2 = {("CF_x", "0.94")}
 # The figure's three panels plus the two off-panel moments must each be quoted.
@@ -1173,38 +1175,53 @@ def test_readme_config_resolved_r2_matches_committed_metrics():
         assert canonical in readme.replace("`", ""), f"README must quote {canonical!r}"
 
 
-def test_readme_throughput_figures_match_the_committed_sidecar():
+COARSE_CORPUS = REPO / "examples" / "prelim_sweep"
+FINE_CORPUS = REPO / "examples" / "prelim_sweep_fine"
+_CORPORA = pytest.mark.parametrize(
+    "corpus",
+    [
+        pytest.param(COARSE_CORPUS, id="coarse"),
+        pytest.param(FINE_CORPUS, id="fine"),
+    ],
+)
+
+
+@_CORPORA
+def test_readme_throughput_figures_match_the_committed_sidecar(corpus):
     """The README's batched-throughput and parallelism figures are the sidecar's, like the
     latency floor -- each is a single wall-clock timing sample that moves on every retrain."""
-    readme = (REPO / "examples" / "prelim_sweep" / "README.md").read_text(
-        encoding="utf-8"
-    )
+    readme = (corpus / "README.md").read_text(encoding="utf-8")
     sidecar = json.loads(
-        (
-            REPO
-            / "examples"
-            / "prelim_sweep"
-            / "figures"
-            / "evidence_figure_metrics.json"
-        ).read_text()
+        (corpus / "figures" / "evidence_figure_metrics.json").read_text()
     )["speedup"]
     throughput = sidecar["throughput_speedup"]
-    assert 1e6 <= throughput < 1e7, (
-        "update the README's ×10⁶ wording for this magnitude"
-    )
-    assert f"≈{throughput / 1e6:.1f}×10⁶×" in readme
+    assert format_power_of_ten(throughput) in readme
     assert f"~{round(sidecar['parallelism_factor'], -1):,.0f}×" in readme
+    if corpus == COARSE_CORPUS:
+        assert 1e6 <= throughput < 1e7, (
+            "update the README's ×10⁶ wording for this magnitude"
+        )
+        assert f"≈{throughput / 1e6:.1f}×10⁶×" in readme
+    else:
+        # the fine latency floor is expected above 1,000x, so it is written with a separator
+        assert f"~{round(sidecar['latency_speedup']):,}×" in readme
 
 
 # --- Committed-figure contract (guards the committed sidecar against drift) ----------------
 
 
-def test_committed_figure_metrics_matches_committed_inputs():
+@_CORPORA
+def test_committed_figure_metrics_matches_committed_inputs(corpus):
     """The committed evidence_figure_metrics.json numbers match the committed metrics.json."""
-    fig_dir = REPO / "examples" / "prelim_sweep" / "figures"
+    fig_dir = corpus / "figures"
     raw = (fig_dir / "evidence_figure_metrics.json").read_text(encoding="utf-8")
     fig_metrics = json.loads(raw)
-    metrics = json.loads(COMMITTED_METRICS.read_text())
+    metrics = json.loads((corpus / "surrogate" / "metrics.json").read_text())
+    holdout_rows = len(
+        pd.read_parquet(
+            corpus / "surrogate" / "holdout_predictions.parquet", columns=["phase"]
+        )
+    )
     for c in PANEL_COEFFICIENTS:
         assert fig_metrics["surrogate_rmse"][c] == metrics["per_target"][c]["rmse"]
     sweep = metrics["seed_sweep"]
@@ -1231,13 +1248,16 @@ def test_committed_figure_metrics_matches_committed_inputs():
     assert "config_mean_r2" not in raw
     sp = fig_metrics["speedup"]
     assert sp["throughput_speedup"] > 1000
-    assert sp["latency_speedup"] < 1000
-    assert sp["batch_size"] == 12535
-    # the uncalibrated translational QS reference is a poor fit to the coarse CFD (reference-only,
-    # CC-4). Under the van Veen convention the RMS ratio is < 1 (the model under-predicts the
-    # now-in-band CFD lift); the surrogate beats it by RMSE regardless.
+    assert sp["batch_size"] == holdout_rows
+    if corpus == COARSE_CORPUS:
+        # coarse facts: the latency floor is below 1,000x and the holdout is 12,535 rows
+        assert sp["latency_speedup"] < 1000
+        assert sp["batch_size"] == 12535
+    # the uncalibrated translational QS reference is a poor fit to the CFD (reference-only,
+    # CC-4); the surrogate beats it by RMSE regardless. This is data-dependent on the fine
+    # corpus: if it fires there, stop and decide (design Risks), do not re-pin.
     qs = fig_metrics["quasi_steady_reference"]
-    assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (van Veen: < 1)
+    assert qs["overshoot_factor"] > 0  # positive finite RMS ratio (no bound asserted)
     assert qs["baseline_rmse_cf_z"] > fig_metrics["surrogate_rmse"]["CF_z"]
 
 
@@ -1279,3 +1299,227 @@ def test_missing_r2_key_raises_before_any_artifact(tmp_path, path):
             timestamp=TS,
         )
     assert not out.exists()
+
+
+# --- Grid profiles (add-fine-corpus-surrogate, design D2) ---------------------------------
+
+# Each string runs up to fixed punctuation on both sides, so an appended or edited word fails.
+_COARSE_STRINGS = (
+    "parallel evals vs sequential coarse-grid A40 CFD; per-evaluation latency floor",
+    "). Coarse 64x32x64 grid: pipeline readiness, not validated aerodynamics. Moment is",
+    "x the coarse-grid CFD lift (RMS)",
+    "not used as a quantitative baseline at this resolution.\n",
+    "\nFull discussion: examples/prelim_sweep/README.md.",
+)
+_FINE_CAVEAT = (
+    "Fine 256x128x256 grid: agreement with CFD, not with experiment; grid convergence "
+    "checked only at one wing motion outside this sweep (README)."
+)
+_FINE_STRINGS = (
+    "parallel evals vs sequential fine-grid A40 CFD at its median per-step wall time; "
+    "per-evaluation latency floor",
+    f"). {_FINE_CAVEAT} Moment is",
+    "x the fine-grid CFD lift (RMS)",
+    "not used as a quantitative baseline.\n",
+    "\nFull discussion: examples/prelim_sweep_fine/README.md.",
+)
+
+
+def _grid_caption(grid=None, seconds=CFD_SECONDS_PER_WINGBEAT):
+    m = _toy_metrics()
+    sp = compute_speedup(
+        m["inference"], rows_per_wingbeat=2000, cfd_seconds_per_wingbeat=seconds
+    )
+    if grid is None:
+        return build_caption(m, sp, _TOY_BASELINE)
+    return build_caption(m, sp, _TOY_BASELINE, grid=grid)
+
+
+def test_grid_profiles_are_coarse_and_fine():
+    assert set(GRID_PROFILES) == {"coarse", "fine"}
+    assert GRID_PROFILES["coarse"].cfd_seconds_per_wingbeat == CFD_SECONDS_PER_WINGBEAT
+    assert GRID_PROFILES["fine"].cfd_seconds_per_wingbeat is None
+
+
+def test_default_caption_is_the_coarse_caption_verbatim():
+    """Scenario: The default profile reproduces the coarse figure (caption half)."""
+    cap = _grid_caption()
+    assert cap == _grid_caption("coarse")
+    for s in _COARSE_STRINGS:
+        assert s in cap, s
+
+
+def test_fine_caption_names_the_fine_grid_and_nothing_coarse():
+    """Scenario: The fine profile labels the fine grid and its median CFD cost."""
+    cap = _grid_caption("fine", seconds=4375.0)
+    for s in _FINE_STRINGS:
+        assert s in cap, s
+    low = cap.lower()
+    for absent in ("coarse", "64x32x64", "pipeline readiness", "at this resolution"):
+        assert absent not in low, absent
+    assert "not used as a quantitative baseline." in low
+
+
+def test_build_caption_rejects_a_cost_that_does_not_fit_the_label():
+    """The fine label over the coarse 144 s, or the coarse label over another cost, raises."""
+    m = _toy_metrics()
+    coarse_cost = compute_speedup(m["inference"], rows_per_wingbeat=2000)
+    fine_cost = compute_speedup(
+        m["inference"], rows_per_wingbeat=2000, cfd_seconds_per_wingbeat=4375.0
+    )
+    with pytest.raises(ValueError, match="coarse"):
+        build_caption(m, coarse_cost, _TOY_BASELINE, grid="fine")
+    with pytest.raises(ValueError, match="fixed CFD cost"):
+        build_caption(m, fine_cost, _TOY_BASELINE, grid="coarse")
+    with pytest.raises(ValueError, match="unknown grid"):
+        build_caption(m, coarse_cost, _TOY_BASELINE, grid="medium")
+
+
+def test_baseline_reference_note_names_the_grid():
+    pred = _toy_predictions()
+    coarse = _baseline_reference(pred)
+    assert coarse == _baseline_reference(pred, grid="coarse")
+    assert "the coarse-grid CFD lift" in coarse["note"]
+    fine = _baseline_reference(pred, grid="fine")
+    assert "the fine-grid CFD lift" in fine["note"] and "coarse" not in fine["note"]
+    assert fine["overshoot_factor"] == coarse["overshoot_factor"]
+
+
+def test_compute_speedup_uses_the_given_cfd_cost():
+    inf = _toy_metrics()["inference"]
+    sp = compute_speedup(inf, rows_per_wingbeat=2000, cfd_seconds_per_wingbeat=4000.0)
+    assert sp["throughput_speedup"] == pytest.approx(1.034e8, rel=1e-12)
+    assert sp["latency_speedup"] == (4000.0 / 2000) / (0.232 / 1000.0)
+    assert sp["cfd_seconds_per_wingbeat"] == 4000.0
+    default = compute_speedup(inf, rows_per_wingbeat=2000)
+    assert default["cfd_seconds_per_wingbeat"] == 144.0
+
+
+@pytest.mark.parametrize(
+    ("grid", "seconds"),
+    [
+        ("fine", None),
+        ("fine", 0.0),
+        ("fine", -1.0),
+        ("fine", math.nan),
+        ("fine", math.inf),
+        ("coarse", 2.1),
+        ("medium", None),
+    ],
+    ids=[
+        "fine-none",
+        "fine-zero",
+        "fine-neg",
+        "fine-nan",
+        "fine-inf",
+        "coarse-given-a-per-step-cost",
+        "unknown",
+    ],
+)
+def test_bad_grid_or_cfd_cost_raises_before_any_artifact(tmp_path, grid, seconds):
+    """Scenario: A fine figure without a CFD cost writes nothing."""
+    pred, metrics = _write_inputs(tmp_path)
+    out = tmp_path / "figs"
+    with pytest.raises(ValueError) as err:
+        generate_evidence_figure(
+            predictions_path=pred,
+            metrics_path=metrics,
+            out_dir=out,
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            grid=grid,
+            cfd_seconds_per_step=seconds,
+        )
+    assert not out.exists()
+    if grid == "medium":
+        assert "coarse" in str(err.value) and "fine" in str(err.value)
+
+
+def test_fine_run_records_grid_and_cost_with_the_coarse_sidecar_keys(tmp_path):
+    pred, metrics = _write_inputs(tmp_path)
+    coarse_out, fine_out = tmp_path / "coarse", tmp_path / "fine"
+    common = dict(
+        predictions_path=pred,
+        metrics_path=metrics,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    generate_evidence_figure(out_dir=coarse_out, **common)
+    generate_evidence_figure(
+        out_dir=fine_out, grid="fine", cfd_seconds_per_step=2.0, **common
+    )
+    coarse = json.loads((coarse_out / "evidence_figure_metrics.json").read_text())
+    fine = json.loads((fine_out / "evidence_figure_metrics.json").read_text())
+    assert set(fine) == set(coarse)
+    assert set(fine["speedup"]) == set(coarse["speedup"])
+    # the per-step cost times the representative config's rows per wingbeat (8 in the toy)
+    rows = fine["speedup"]["rows_per_wingbeat"]
+    assert rows == 8
+    assert fine["speedup"]["cfd_seconds_per_wingbeat"] == 2.0 * rows
+    assert fine["speedup"]["cfd_rows_per_s"] == pytest.approx(1 / 2.0, rel=1e-15)
+    assert "the fine-grid CFD lift" in fine["quasi_steady_reference"]["note"]
+    assert "the coarse-grid CFD lift" in coarse["quasi_steady_reference"]["note"]
+    meta = json.loads((fine_out / "run_metadata.json").read_text())
+    assert meta["grid"] == "fine" and meta["cfd_seconds_per_step"] == 2.0
+    assert meta["cfd_seconds_per_wingbeat"] == 2.0 * rows
+    meta = json.loads((coarse_out / "run_metadata.json").read_text())
+    assert meta["grid"] == "coarse" and meta["cfd_seconds_per_step"] is None
+    assert meta["cfd_seconds_per_wingbeat"] == 144.0
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(3.76e6, "≈3.8×10⁶×"), (1.14e8, "≈1.1×10⁸×"), (9.96e5, "≈1.0×10⁶×")],
+)
+def test_format_power_of_ten(value, expected):
+    assert format_power_of_ten(value) == expected
+
+
+def test_cli_passes_grid_and_cfd_cost(monkeypatch):
+    cli = _load_cli()
+    captured = {}
+    monkeypatch.setattr(
+        cli, "generate_evidence_figure", lambda **kw: captured.update(kw) or {}
+    )
+    base = [
+        "--predictions", "p.parquet", "--metrics", "m.json", "--out-dir", "figs",
+        "--docker-digest", DIGEST, "--timestamp", TS,
+    ]  # fmt: skip
+    assert cli.main(base) == 0
+    assert captured["grid"] == "coarse" and captured["cfd_seconds_per_step"] is None
+    assert cli.main([*base, "--grid", "fine", "--cfd-seconds-per-step", "2.144"]) == 0
+    assert captured["grid"] == "fine" and captured["cfd_seconds_per_step"] == 2.144
+    with pytest.raises(SystemExit):
+        cli.main([*base, "--grid", "medium"])
+
+
+_QS_COMPUTED = ("baseline_rmse_cf_z", "overshoot_factor")
+
+
+@_CORPORA
+def test_committed_sidecar_regenerates_from_committed_inputs(tmp_path, corpus):
+    """Scenarios: The default profile reproduces the coarse figure byte for byte (sidecar half,
+    CI-runnable); The fine figure is tied to the fine surrogate and regenerates from it. Exact
+    for copied values, rel 1e-12 for the two computed QS RMS values."""
+    figures = corpus / "figures"
+    grid = {}
+    if corpus == FINE_CORPUS:
+        cost = median_cfd_seconds_per_step(sorted(corpus.glob("run_metadata_*.json")))
+        grid = {"grid": "fine", "cfd_seconds_per_step": cost["seconds_per_step"]}
+    generate_evidence_figure(
+        predictions_path=corpus / "surrogate" / "holdout_predictions.parquet",
+        metrics_path=corpus / "surrogate" / "metrics.json",
+        out_dir=tmp_path,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+        **grid,
+    )
+    fresh = json.loads((tmp_path / "evidence_figure_metrics.json").read_text())
+    committed = json.loads((figures / "evidence_figure_metrics.json").read_text())
+    fresh_qs, committed_qs = (
+        d.pop("quasi_steady_reference") for d in (fresh, committed)
+    )
+    assert fresh == committed
+    assert fresh_qs["note"] == committed_qs["note"]
+    for key in _QS_COMPUTED:
+        assert fresh_qs[key] == pytest.approx(committed_qs[key], rel=1e-12), key
