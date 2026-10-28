@@ -67,12 +67,7 @@ FIGURES = COARSE / "figures"
 RESULTS_MD = REPO / "examples" / "flapping_wing" / "RESULTS.md"
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 
-# The fine artifacts do not exist until C4 (surrogate) / C5 (figure + README).
-_FINE_SURROGATE_PENDING = pytest.mark.xfail(
-    strict=True,
-    raises=(FileNotFoundError, AssertionError),
-    reason="#110: fine surrogate artifacts land in C4",
-)
+# The fine figure and README do not exist until C5.
 _FINE_FIGURE_PENDING = pytest.mark.xfail(
     strict=True,
     raises=(FileNotFoundError, AssertionError),
@@ -80,8 +75,8 @@ _FINE_FIGURE_PENDING = pytest.mark.xfail(
 )
 
 
-def _corpora(fine_mark):
-    """Parametrize over both corpora, the fine one carrying ``fine_mark``."""
+def _corpora(fine_mark=()):
+    """Parametrize over both corpora, the fine one carrying ``fine_mark`` (if any)."""
     return pytest.mark.parametrize(
         "corpus",
         [
@@ -110,11 +105,7 @@ def _readme(corpus: Path) -> str:
         pytest.param(FIGURES / "run_metadata.json", id="figure"),
         pytest.param(COARSE / "run_metadata.json", id="coarse-corpus"),
         pytest.param(FINE / "run_metadata.json", id="fine-corpus"),
-        pytest.param(
-            FINE / "surrogate" / "run_metadata.json",
-            id="fine-surrogate",
-            marks=_FINE_SURROGATE_PENDING,
-        ),
+        pytest.param(FINE / "surrogate" / "run_metadata.json", id="fine-surrogate"),
         pytest.param(
             FINE / "figures" / "run_metadata.json",
             id="fine-figure",
@@ -138,7 +129,7 @@ def test_regenerated_records_carry_a_clean_git_commit(record):
     assert git.get("dirty") is False, git
 
 
-@_corpora(_FINE_SURROGATE_PENDING)
+@_corpora()
 def test_surrogate_holdout_targets_equal_the_committed_dataset(corpus):
     """Every holdout ``<target>_true``, for all six targets, is the committed dataset's value.
 
@@ -161,7 +152,7 @@ def test_surrogate_holdout_targets_equal_the_committed_dataset(corpus):
         )
 
 
-@_corpora(_FINE_SURROGATE_PENDING)
+@_corpora()
 def test_surrogate_metadata_names_the_committed_dataset(corpus):
     """The surrogate's provenance hashes the exact committed dataset it was trained on."""
     inputs = _meta(corpus / "surrogate" / "run_metadata.json").get("inputs")
@@ -170,7 +161,7 @@ def test_surrogate_metadata_names_the_committed_dataset(corpus):
     assert inputs["hash"] == _sha256(corpus / "dataset.parquet")
 
 
-@_corpora(_FINE_SURROGATE_PENDING)
+@_corpora()
 def test_surrogate_trained_with_the_coarse_settings(corpus):
     """Both surrogates use the coarse run's settings and their own corpus's image (#110).
 
@@ -281,7 +272,7 @@ def _dataset(corpus: Path) -> pd.DataFrame:
     return filter_converged_beat(pd.read_parquet(corpus / "dataset.parquet"))
 
 
-@_corpora(_FINE_SURROGATE_PENDING)
+@_corpora()
 def test_committed_seed_sweep_is_internally_consistent(corpus):
     """The committed sweep agrees with itself, the run record and the dataset.
 
@@ -314,7 +305,7 @@ def test_committed_seed_sweep_is_internally_consistent(corpus):
         assert run["val_configs"] == split.val_configs, run["seed"]
 
 
-@_corpora(_FINE_SURROGATE_PENDING)
+@_corpora()
 def test_committed_phase_baseline_skill_recomputes(corpus):
     """phase_baseline_skill recomputed from the committed dataset and predictions matches.
 
