@@ -270,8 +270,10 @@ uv run --frozen --group train python scripts/train_surrogate.py \
 ```
 
 `--seed` is the committed model; `--sweep-seeds` (default: the four seeds after `--seed`) are
-trained in the same run for `metrics.json`'s `seed_sweep` only, after the primary seed, and change
-none of its outputs. `--wandb online` logs the run to Weights & Biases; the default `disabled` is a
+trained in the same run for `metrics.json`'s `seed_sweep` only, after the primary seed, and leave
+the primary seed's checkpoint, predictions and timing unchanged. Train into a scratch `--out-dir`
+outside the repository, check it, then copy the four files into `surrogate/`: nothing is written
+until the last seed finishes, but a failure during the writes themselves can leave a partial set. `--wandb online` logs the run to Weights & Biases; the default `disabled` is a
 no-op (no login needed) and `metrics.json` is always written from local state regardless of wandb.
 
 Pass `--group train` on **every** `uv run` (a bare `uv run` re-syncs the default groups and can
@@ -363,7 +365,7 @@ legible without losing any disclosure:
   config-to-config skill. With six holdout configurations whose cycle-means barely differ for most
   targets, it divides by a near-zero spread and swings with the training seed. It stays in
   `metrics.json` (`config_resolved`); the plotted seed's config-resolved R² is CF_x ≈−4.17,
-  CF_z ≈0.98 and CF_my ≈0.07 on the panels, and CF_mx ≈0.96 and CF_mz ≈−8.45 off them. Retraining
+  CF_z ≈0.98 and CF_my ≈0.07 for the panel targets, and CF_mx ≈0.96 and CF_mz ≈−8.45 off them. Retraining
   the same data with the same code at seeds 1234–1238 gives (per-seed values, commits and
   environment in [`surrogate/seed_variation.json`](surrogate/seed_variation.json)):
 
@@ -376,7 +378,7 @@ legible without losing any disclosure:
   | `CF_my` | −1.96 to 0.93 | −0.46 to 0.81 |
   | `CF_mz` | −8.45 to 0.92 | −5.45 to 0.86 |
 
-  `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.04), `CF_y` moderately so, and `CF_x`,
+  `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.05), `CF_y` moderately so, and `CF_x`,
   `CF_my` and `CF_mz` not at all; the committed seed-1234 model is a low draw for `CF_x`, `CF_y` and
   `CF_mz`. Since the runs are bitwise-reproducible at a fixed seed, the spread is initialisation,
   not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves

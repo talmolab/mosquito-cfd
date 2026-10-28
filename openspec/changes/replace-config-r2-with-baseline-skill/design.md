@@ -75,7 +75,7 @@ baseline(φ) = mean_c curve_c(φ)                                       # equal 
     "reference_configs": ["...21 names..."], "weighting": "equal_per_config_then_beat",
     "converged_min_wingbeat": 1
   },
-  "per_target": {"CF_x": {"skill": 0.988, "phase_baseline_rmse": 0.40, "phase_baseline_r2": 0.955}}
+  "per_target": {"CF_x": {"skill": 0.988, "phase_baseline_rmse": 0.376, "phase_baseline_r2": 0.955}}
 }
 ```
 

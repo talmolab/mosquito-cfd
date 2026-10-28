@@ -92,8 +92,8 @@ Deviations found while implementing, each reconciled into design D4 and the spec
 - **The four artifacts are not written via a temporary directory and rename.** The spec promises
   only that a failing seed writes nothing, which holds because every write follows the last seed. A
   failure part-way through the writes themselves (disk full) can still leave some files; the
-  committed recipe trains into a scratch directory and copies in, so a partial write never reaches
-  the repository.
+  documented recipe (README, tasks 26) trains into a scratch directory and copies in, so a partial
+  write never reaches the repository.
 
 ### Delivery
 
