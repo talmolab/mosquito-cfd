@@ -69,4 +69,4 @@ Generating the **real** version of these two figures against actual fine-grid ho
 `examples/prelim_sweep_fine/surrogate/metrics.json`, writing to `docs/visualization/` as genuine
 evidence — see the top of this file) is deferred. The fine surrogate now exists (#110), but these
 figures plot config-resolved R², which the evidence figure dropped as ill-conditioned (#127);
-what a real comparison should show is open in #130. See `openspec/project.md`'s Pending section.
+what a real comparison should show is open in #114. See `openspec/project.md`'s Pending section.

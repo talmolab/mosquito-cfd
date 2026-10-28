@@ -185,7 +185,7 @@ mosquito-cfd/
 - [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
   `docs/visualization/diagnostic_config_mean_collapse.png`. `examples/prelim_sweep_fine/surrogate/`
   now exists (#110), but these figures plot config-resolved R², which the evidence figure dropped
-  as ill-conditioned (#127); what they should show is open in #130. The synthetic-fixture-derived
+  as ill-conditioned (#127); what they should show is open in #114. The synthetic-fixture-derived
   renders used to validate the figure-building code live at `tests/fixtures/comparison_figure/`
   (see its `README.md`), not under `docs/`.
 
