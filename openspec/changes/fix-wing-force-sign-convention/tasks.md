@@ -161,11 +161,11 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 15. [x] **Test first, then fix (#19):** none of `runner.py`, `run_one_config.py` and the argo template
     contains `assum` or `not yet verified` **anywhere** (case-insensitive). Each contains "verified
     against the A40 corpus (PR #18)".
-16. [ ] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
+16. [x] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
     approval before pushing.** Open PR1 with "advances #109", mentioning #19 without a keyword. #19
     stays open until the OpenSpec archive after PR3: its list includes the live spec text
     (`force-surrogate/spec.md:775`), which changes only when the delta is archived. Close #19 by hand
-    then.
+    then. **Done: PR1 merged as #134 (`5b650fa`, 2026-10-29).**
 
 ### PR1 implementation notes (deviations recorded, not silent)
 
