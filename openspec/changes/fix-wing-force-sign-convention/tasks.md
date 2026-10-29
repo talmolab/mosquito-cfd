@@ -231,9 +231,9 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR2a — flapping-wing path (no `Z:`; 8 figure files)
 
-17. [ ] Re-derive task 0's PR2a list, and put it in the PR body.
-18. [ ] File the follow-up issue "which CFD force should the van Veen comparison use: the 6-DOF force or
-    `ib_w`?" first.
+17. [x] Re-derive task 0's PR2a list, and put it in the PR body. **Done on `08824e8`: 8 failures, all on the list or task 27; no other test breaks.**
+18. [x] File the follow-up issue "which CFD force should the van Veen comparison use: the 6-DOF force or
+    `ib_w`?" first. **Filed as #135.**
 19. [ ] **Test first:**
     - `reconstruct_wing_forces` gives `cf_*_ib == −ib/f_ref` and `cf_hydro == cf_added + ρ_f·cf_ib`.
     - The raw identity `cf_hydro·f_ref == ρ_f·(SumU − ib_force)` holds.
