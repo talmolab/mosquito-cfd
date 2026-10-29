@@ -86,6 +86,7 @@ def _github_slug(heading: str) -> str:
 def _on_wing(coefficients, raw, f_ref) -> bool:
     """Whether every coefficient component is ``−raw/f_ref``; all-zero raw data is not evidence."""
     for c, r in zip(coefficients, raw, strict=True):
+        assert np.isfinite(r).all(), "non-finite raw component"
         assert np.abs(r).max() > 0, (
             "all-zero raw component: the condition would be vacuous"
         )
@@ -276,6 +277,26 @@ def test_corpus_condition_flips_on_negated_coefficient_copies(tmp_path):
     zeroed.to_parquet(tmp_path / "zeroed.parquet", index=False)
     with pytest.raises(AssertionError, match="vacuous"):
         corpus_coefficients_on_wing((tmp_path / "zeroed.parquet", on_wing[1]))
+
+
+def test_conditions_define_on_wing_as_minus_raw_over_f_ref(tmp_path):
+    """Pins which sign counts as on-wing, independent of the committed data and the doc.
+
+    The direction tests only check that a condition flips; this checks which way. Coefficients built
+    as ``−F/f_ref`` are on-wing and ``+F/f_ref`` are not, for the corpus and flapping-wing helpers.
+    """
+    f_star, stroke = 1.15, 55.0
+    f_ref = compute_force_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).f_ref
+    raw = np.random.default_rng(0).normal(size=(50, 3))
+    for sign, expected in ((-1.0, True), (1.0, False)):
+        df = pd.DataFrame(raw, columns=["Fx", "Fy", "Fz"])
+        df[["CF_x", "CF_y", "CF_z"]] = sign * raw / f_ref
+        df["stroke_amp_deg"], df["frequency_fstar"] = stroke, f_star
+        df.to_parquet(tmp_path / "synthetic.parquet", index=False)
+        assert _parquet_on_wing(tmp_path / "synthetic.parquet") is expected, sign
+        assert _on_wing(list(sign * raw.T / f_ref), list(raw.T), f_ref) is expected, (
+            sign
+        )
 
 
 def test_flapping_condition_flips_with_the_code_path():

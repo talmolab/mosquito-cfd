@@ -103,7 +103,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 4. [x] **Test first, raw work (never xfail).** Over 57 runs:
    - `W ≥ 0` at every row, and `W(t) − W₀ ≥ 0` after `W₀` (the first row with `t ≥ 0.005`; see the
      PR1 review-fix notes).
-   - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails.
+   - Non-vacuity: exactly 57 runs, each with a late window of ≥ 0.9 wingbeats; a NaN, zero-row or too-short run fails.
    - Keep-last dedup.
    - **Deck mapping by sha256** against `run_metadata_t2a/t3b/t3c.json` `inputs.hash`, with the hinge
      literal `(4.0, 0.5, 4.0)`. `X,Y,Z` is a sanity check only (design D3).
@@ -217,6 +217,15 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 - **Validation CSVs** must also start at `t = 0` (fresh docs review).
 - **Kill tables (round 1 fixes):** 21/21 guard mutants killed, 6 baselines as expected, and the
   unrelated "assume" control passes; `force_on_wing` 3/3.
+- **Second review of the fix commit (`006e7e3`).** No blocking or important findings; its three
+  suggestions are taken:
+  - A synthetic test pins **which** sign is on-wing (`−F/f_ref` true, `+F/f_ref` false), since the
+    direction tests only check that a condition flips. Non-finite raw data now gets its own message.
+  - The late-window non-vacuity is **≥ 0.9 wingbeats** (validation CSVs 0.995, corpus 1.994), not
+    "≥ 2 late rows", which could not fail.
+  - `force_on_wing` documents its scalar return and names the bad component.
+  - Kill table: 5/5 (inverted and sign-blind `_on_wing`, the beat floor and its time basis, the
+    message).
 
 ---
 

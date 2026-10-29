@@ -146,7 +146,7 @@ Guards in `tests/test_ib_force_sign_convention.py`:
 - **Raw, on-fluid, 57 runs.**
   - Assertions: `W ≥ 0` at every row, `W > 0` after the first, and `W(t) − W₀ ≥ 0` after `W₀` (the
     first row with `t ≥ 0.005`, the end of the impulsive-start transient).
-  - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails. Corpus
+  - Non-vacuity: exactly 57 runs, each with a late window of ≥ 0.9 wingbeats; a NaN, zero-row or too-short run fails. Corpus
     runs start at `t = 0` with strictly increasing time.
   - Keep-last `iStep` dedup.
   - **Deck mapping by sha256.** Each validation CSV's deck sha equals the `inputs.hash` in its run

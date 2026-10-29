@@ -55,6 +55,9 @@ _N_RUNS = _N_CORPUS_CONFIGS + len(_VALIDATION_RUNS)
 # End of the impulsive-start transient (first ~8 steps, t <= 0.004; see the comment on
 # flapping_wing.STEADY_WINDOW_T0). The late increment is measured from here.
 _TRANSIENT_END = 0.005
+# Shortest late window, in wingbeats. The validation CSVs are one beat long (0.995 beats after the
+# transient) and the corpus runs two, so a truncated run fails this.
+_MIN_LATE_BEATS = 0.9
 
 
 class CoefficientsOnFluid(AssertionError):
@@ -66,6 +69,7 @@ class _Run:
     name: str
     time: np.ndarray
     omega: np.ndarray  # (n, 3) lab-frame angular velocity
+    frequency: float  # wingbeat frequency from the deck
     force: np.ndarray  # (n, 3) raw solver Fx..Fz
     moment_origin: np.ndarray  # (n, 3) raw solver Mx..Mz, about the particle origin
     moment_hinge: np.ndarray  # (n, 3) raw moments shifted to the hinge
@@ -104,6 +108,10 @@ def _omega(time: np.ndarray, deck_text: str) -> np.ndarray:
     )
 
 
+def _frequency(deck_text: str) -> float:
+    return read_deck_value(deck_text, "particle_inputs.kinematics_frequency")
+
+
 def _shift(moment: np.ndarray, force: np.ndarray, offset: np.ndarray) -> np.ndarray:
     return np.column_stack(shift_moment_reference(*moment.T, *force.T, offset=offset))
 
@@ -140,6 +148,7 @@ def _corpus_runs() -> tuple[_Run, ...]:
                     name=f"{corpus}/{config['name']}",
                     time=t,
                     omega=_omega(t, deck),
+                    frequency=_frequency(deck),
                     force=force,
                     moment_origin=moment,
                     moment_hinge=_shift(moment, force, origin - hinge),
@@ -181,6 +190,7 @@ def _validation_runs() -> tuple[_Run, ...]:
                 name=f"flapping_wing/{csv_name}",
                 time=t,
                 omega=_omega(t, deck),
+                frequency=_frequency(deck),
                 force=force,
                 moment_origin=moment,
                 moment_hinge=_shift(moment, force, origin[0] - hinge),
@@ -207,7 +217,10 @@ def _assert_runs_are_usable(runs: tuple[_Run, ...], expected: int) -> None:
     """Non-vacuity: the guard covers every run, each with a usable late window and finite data."""
     assert len(runs) == expected, f"expected {expected} runs, got {len(runs)}"
     for run in runs:
-        assert _late(run.time).sum() >= 2, f"{run.name}: fewer than 2 late rows"
+        late_beats = (run.time[-1] - _TRANSIENT_END) * run.frequency
+        assert late_beats >= _MIN_LATE_BEATS, (
+            f"{run.name}: late window covers only {late_beats:.3f} wingbeats"
+        )
         assert np.isfinite(run.force).all() and np.isfinite(run.moment_hinge).all(), (
             f"{run.name}: non-finite force or moment"
         )

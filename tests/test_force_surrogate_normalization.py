@@ -504,8 +504,10 @@ def test_force_on_wing_rejects_non_float_and_keeps_masks():
     from mosquito_cfd.force_surrogate import force_on_wing
 
     for bad in (np.array([1, 2], dtype=np.uint8), np.array([True]), np.array([1, 2])):
-        with pytest.raises(TypeError, match="floating"):
+        with pytest.raises(TypeError, match=r"floating components; component 1 is"):
             force_on_wing(np.array([1.0]), bad)
+    (scalar,) = force_on_wing(np.float32(2.0))  # 0-d in, NumPy scalar out
+    assert isinstance(scalar, np.floating) and scalar == -2.0
     masked = np.ma.masked_array([1.0, 2.0], mask=[False, True])
     (out,) = force_on_wing(masked)
     assert isinstance(out, np.ma.MaskedArray)

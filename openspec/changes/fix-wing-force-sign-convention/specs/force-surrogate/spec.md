@@ -53,7 +53,7 @@ difference of `rotation_matrix`.
 - **Then** `W(t) ≥ 0` at every row, with no tolerance, in every run
 - **And** `W(t) > 0` at every row after the first, so the opposite sign would fail every run (measured margin `min W[1:] / max|W| = 0.0059`)
 - **And** with `W₀` the value at the first row after the impulsive-start transient (`t ≥ 0.005`, per the comment on `STEADY_WINDOW_T0`), the increment `W(t) − W₀ ≥ 0` for every later row, so the verdict does not rest on the transient alone. Increments over arbitrary later windows are not asserted: the power dips below zero within a beat.
-- **And** the check covers exactly 57 runs, each starting at `t = 0` (from rest) with strictly increasing time and at least 2 rows at `t ≥ 0.005`. A NaN anywhere in `W`, a zero-row run or a too-short run fails rather than passing.
+- **And** the check covers exactly 57 runs, each starting at `t = 0` (from rest) with strictly increasing time and a late window (`t ≥ 0.005`) of at least 0.9 wingbeats. A NaN anywhere in `W`, a zero-row run or a too-short run fails rather than passing.
 
 #### Scenario: Raw force and moment share one convention
 

@@ -20,7 +20,9 @@ from numpy.typing import ArrayLike, NDArray
 IB_FORCE_ACTS_ON: Final = "fluid"
 
 
-def force_on_wing(*components: ArrayLike) -> tuple[NDArray[np.floating], ...]:
+def force_on_wing(
+    *components: ArrayLike,
+) -> tuple[NDArray[np.floating] | np.floating, ...]:
     """Return the IB reaction on the wing to the solver's on-fluid ``ib_force``/``ib_moment``.
 
     Elementwise negation of each component (Newton's third law). It is the single place the wing
@@ -32,16 +34,19 @@ def force_on_wing(*components: ArrayLike) -> tuple[NDArray[np.floating], ...]:
             array stays masked.
 
     Returns:
-        One negated array per component, with shape and dtype preserved.
+        One negated value per component, with shape and dtype preserved: an array for array input,
+        a NumPy floating scalar for scalar or 0-d input.
 
     Raises:
         TypeError: If a component is not floating point (negating an unsigned or bool array would
             wrap or fail rather than give the reaction).
     """
     arrays = [np.asanyarray(c) for c in components]
-    for a in arrays:
+    for i, a in enumerate(arrays):
         if not np.issubdtype(a.dtype, np.floating):
-            raise TypeError(f"force_on_wing needs floating components, got {a.dtype}")
+            raise TypeError(
+                f"force_on_wing needs floating components; component {i} is {a.dtype}"
+            )
     return tuple(np.negative(a) for a in arrays)
 
 
