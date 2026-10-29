@@ -463,3 +463,64 @@ def test_moment_coefficients_docstring_no_longer_carries_the_pending_marker():
     low = (MomentCoefficients.__doc__ or "").lower()
     assert "not yet applied" not in low
     assert "shift_moment_reference" in low
+
+
+# ---------------------------------------------------------------------------
+# Force sign convention (fix-wing-force-sign-convention, issue #109)
+# ---------------------------------------------------------------------------
+
+_SIGN_SECTION = "docs/coordinate-convention.md#force-and-moment-sign"
+
+
+def test_force_on_wing_negates_every_component():
+    """``force_on_wing`` is the elementwise negation of each array it is given, nothing else.
+
+    It is the single place the wing paths apply the sign: the solver's ``ib_force``/``ib_moment``
+    act on the fluid, and this returns the reaction on the wing.
+    """
+    from mosquito_cfd.force_surrogate import force_on_wing
+
+    a = np.array([1.0, -2.5, 0.0, np.nan, np.inf], dtype=np.float32)
+    b = np.arange(6.0).reshape(2, 3)
+    out_a, out_b = force_on_wing(a, b)
+    assert out_a.dtype == np.float32 and out_a.shape == a.shape
+    assert out_b.shape == (2, 3)
+    np.testing.assert_array_equal(out_a[:2], [-1.0, 2.5])
+    assert np.signbit(out_a[2])  # -0.0, an exact negation
+    assert np.isnan(out_a[3]) and out_a[4] == -np.inf
+    np.testing.assert_array_equal(out_b, -b)
+    (empty,) = force_on_wing(np.array([]))
+    assert empty.shape == (0,)
+    (scalar,) = force_on_wing(3.0)
+    assert scalar == -3.0
+    assert len(force_on_wing(1.0, 2.0, 3.0)) == 3
+
+
+def test_ib_force_acts_on_the_fluid_constant():
+    from mosquito_cfd.force_surrogate import IB_FORCE_ACTS_ON
+
+    assert IB_FORCE_ACTS_ON == "fluid"
+
+
+def test_coefficient_docstrings_are_sign_agnostic_and_link_the_sign_section():
+    """The containers state no sign of their own; the canonical section owns the convention.
+
+    They carry no interim status: ``normalization.py`` is in PR2b's frozen extraction scope, so a
+    pending note here could not be removed after re-extraction without changing that scope.
+    ``cf_z`` is the lab vertical (z), not "span-normal": the span is y.
+
+    Spec: coordinate-convention "The canonical convention page states the force and moment sign".
+    """
+    from mosquito_cfd.force_surrogate import ForceCoefficients, force_on_wing
+
+    for obj in (ForceCoefficients, MomentCoefficients):
+        doc = obj.__doc__ or ""
+        assert _SIGN_SECTION in doc, obj.__name__
+        assert "sign-agnostic" in doc.lower(), obj.__name__
+    for obj in (ForceCoefficients, compute_force_coefficients):
+        doc = obj.__doc__ or ""
+        assert "span-normal" not in doc.lower(), obj.__name__
+        assert "lab vertical" in doc.lower(), obj.__name__
+    assert _SIGN_SECTION in (force_on_wing.__doc__ or "")
+    for obj in (ForceCoefficients, MomentCoefficients, compute_force_coefficients):
+        assert "pending" not in (obj.__doc__ or "").lower(), obj.__name__

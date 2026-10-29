@@ -14,6 +14,26 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+# What IAMReX's ``kernel.ib_force`` / ``kernel.ib_moment`` (the IB-particle CSV's ``Fx..Mz``) act
+# on. See docs/coordinate-convention.md#force-and-moment-sign.
+IB_FORCE_ACTS_ON = "fluid"
+
+
+def force_on_wing(*components: ArrayLike) -> tuple[NDArray[np.floating], ...]:
+    """Return the IB reaction on the wing to the solver's on-fluid ``ib_force``/``ib_moment``.
+
+    Elementwise negation of each component (Newton's third law). It is the single place the wing
+    paths apply the sign; the convention and its evidence are in
+    ``docs/coordinate-convention.md#force-and-moment-sign``.
+
+    Args:
+        *components: Solver force or moment components, scalar or array-like.
+
+    Returns:
+        One negated array per component, with shape and dtype preserved.
+    """
+    return tuple(np.negative(np.asarray(c)) for c in components)
+
 
 @dataclass(frozen=True)
 class ForceReference:
@@ -63,6 +83,10 @@ class MomentReference:
 class MomentCoefficients:
     """Aerodynamic moment coefficients (moment / ``M_ref``), dimensionless.
 
+    The container is sign-agnostic: it holds whatever moments it is given. The sign the
+    committed corpora carry is stated in
+    ``docs/coordinate-convention.md#force-and-moment-sign``.
+
     The three components are **lab-frame** components taken about the **wing hinge**
     (the deck's declared pivot). ``docs/coordinate-convention.md`` is the canonical
     definition of that reference point -- it is named, not justified, here.
@@ -104,10 +128,14 @@ class ForceCoefficients:
     design. Compare individual fields (e.g. ``np.testing.assert_allclose``), not whole
     instances. Each field is a numpy array, or a 0-d numpy scalar for scalar inputs.
 
+    The container is sign-agnostic: it holds whatever forces it is given. The sign the
+    committed corpora carry is stated in
+    ``docs/coordinate-convention.md#force-and-moment-sign``.
+
     Attributes:
         cf_x: Stroke-axis force coefficient.
         cf_y: Lateral force coefficient.
-        cf_z: Lift / span-normal force coefficient.
+        cf_z: Lift (lab vertical, z) force coefficient.
     """
 
     cf_x: np.floating | NDArray[np.floating]
@@ -353,7 +381,7 @@ def compute_force_coefficients(
     Args:
         fx: Stroke-axis force(s) [dimensionless]. Scalar or array-like.
         fy: Lateral force(s).
-        fz: Lift / span-normal force(s).
+        fz: Lift (lab vertical, z) force(s).
         f_ref: Reference force from :func:`compute_force_reference`. Must be nonzero.
 
     Returns:

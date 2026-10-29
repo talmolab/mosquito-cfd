@@ -34,6 +34,7 @@ from mosquito_cfd.force_surrogate.evidence_figure import (
     skill_floor,
 )
 from mosquito_cfd.force_surrogate.normalization import (
+    IB_FORCE_ACTS_ON,
     ForceCoefficients,
     ForceReference,
     MomentCoefficients,
@@ -42,6 +43,7 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_force_reference,
     compute_moment_coefficient,
     compute_moment_reference,
+    force_on_wing,
     shift_moment_reference,
 )
 from mosquito_cfd.force_surrogate.run_one_config import run_config
@@ -117,6 +119,8 @@ __all__ = [
     "compute_moment_coefficient",
     "compute_moment_reference",
     "shift_moment_reference",
+    "force_on_wing",
+    "IB_FORCE_ACTS_ON",
     "ConfigExtractionError",
     "DatasetBuild",
     "build_dataset",
