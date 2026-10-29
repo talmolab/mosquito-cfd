@@ -1,7 +1,7 @@
 """Per-component force-decomposition figure (Tier T4): van Veen model vs CFD, cluster-free.
 
 Replots van Veen's (2022) quasi-steady model — translational / added-mass / Wagner / total — against
-the CFD total ``ib_force`` body-frame coefficients (fine 256³ grid, ``forces_fine.csv``, T3c/PR #52),
+the CFD IB force on the wing's body-frame coefficients (fine 256³ grid, ``forces_fine.csv``, T3c/PR #52),
 for the chord and normal separately, over the steady window. Everything is recomputed from the
 committed IB-particle CSV via ``decompose_wing_force`` (van Veen's *model* replotted at our operating
 point — NOT a digitized figure; the time-resolved mosquito curves are van Veen Fig 13, not Fig 3-4).
@@ -72,7 +72,7 @@ def make_figure(
             color="black",
             lw=1.6,
             ls="--",
-            label="CFD total (ib_force)",
+            label="CFD IB force on wing",
         )
         ax.axhline(0, color="gray", lw=0.5, ls=":")
         ax.set_title(title, fontsize=11)

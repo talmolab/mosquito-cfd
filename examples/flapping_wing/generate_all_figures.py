@@ -26,7 +26,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 
 from mosquito_cfd.benchmarks.wing_kinematics import rotation_matrix as _wing_rotation
-from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate import compute_force_reference, force_on_wing
 from mosquito_cfd.force_surrogate.constants import R_GYRATION
 from mosquito_cfd.geometry import generate_planform, read_vertex_file
 
@@ -256,9 +256,11 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
     df = pd.read_csv(forces_csv)
     t = df["time"].values
-    Fx = df["Fx"].values
-    Fy = df["Fy"].values
-    Fz = df["Fz"].values
+    # The IB force on the wing: ib_force acts on the fluid
+    # (docs/coordinate-convention.md#force-and-moment-sign).
+    Fx, Fy, Fz = force_on_wing(
+        df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)
+    )
 
     phi, alpha = euler_angles(t)
 
@@ -314,7 +316,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax2.legend(fontsize=8, loc="upper right")
     plt.setp(ax2.get_xticklabels(), visible=False)
 
-    # Panel 3: CF_z (lift / span-axis force)
+    # Panel 3: CF_z (lift / lab vertical force)
     ax3.plot(t_s, CF_z, color=RED, lw=1.5, label="CF_z (vertical / lift)")
     ax3.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
     # Mark acceptance range

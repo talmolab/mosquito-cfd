@@ -6,15 +6,19 @@ convention (``F_ref = 0.5*rho*omega**2*S_yy`` via the single-source helper). The
 6-DOF momentum-balance force are reported **separately**, with their formula locked to the
 IAMReX ``WriteIBForceAndMoment`` definition (not tuned to make the gate pass).
 
-Sign: ``ib_force`` acts on the fluid. The coefficient sign convention is stated in
+Sign: ``ib_force`` acts on the fluid, so every coefficient here is built from the IB force on the
+wing, ``ib_w = −ib_force``, applied once through ``force_on_wing``. The convention is stated in
 ``docs/coordinate-convention.md#force-and-moment-sign``.
 
 IAMReX force semantics (``IAMReX-fork/Source/DiffusedIB.cpp``):
-  - ``Fx/Fy/Fz`` columns are ``kernel.ib_force`` (the accumulated immersed-boundary force).
+  - ``Fx/Fy/Fz`` columns are ``kernel.ib_force`` (the accumulated immersed-boundary force, on the
+    fluid).
   - ``SumU{x,y,z}`` columns are written as ``(sum_u_new - sum_u_old)/dt`` (line ~1261) — i.e.
     **already a rate**, NOT a raw momentum sum, so no further ``d/dt`` is applied here.
-  - The 6-DOF momentum balance (line ~1078) makes the net hydrodynamic force
-    ``F_hydro = rho_f * (SumU - ib_force)``. The added-mass contribution is ``rho_f * SumU``.
+  - The free-body 6-DOF balance (line ~1078) would give the body force
+    ``F_hydro = rho_f * (SumU - ib_force) = rho_f * SumU + rho_f * ib_w``. The solver never evaluates
+    it for this prescribed-motion wing. ``rho_f * SumU`` is the solver's internal-fluid momentum term
+    (called "added mass" in this code); it is not van Veen's added-mass component.
 
 Frame note (issue #1 / T2a): :func:`plausibility_gate` grades **lab-frame** coefficients as an
 O(1) **magnitude plausibility** check. The faithful **body-frame** per-component van Veen
@@ -43,7 +47,7 @@ from mosquito_cfd.benchmarks.wing_kinematics import (
     rotation_matrix_legacy,
     stroke_rate,
 )
-from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate import compute_force_reference, force_on_wing
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 
 # Steady evaluation window: a documented PHYSICAL criterion, not tuned to land in band.
@@ -128,9 +132,9 @@ def added_mass_force(
 class WingForceDecomposition:
     """Lab-frame van Veen force coefficients for the flapping wing, decomposed.
 
-    Each ``cf_*`` is a per-timestep array. ``ib`` is the gated quantity; ``added_mass``
-    (``rho_f*SumU``) and ``f_hydro`` (``rho_f*(SumU - ib_force)``, the 6-DOF momentum
-    balance) are reported, not gated.
+    Each ``cf_*`` is a per-timestep array. ``ib`` is the IB force on the wing ``ib_w`` and is the
+    gated quantity; ``added`` (``rho_f*SumU``) and ``hydro`` (the 6-DOF balance
+    ``rho_f*(SumU - ib_force) = added + rho_f*ib_w``) are reported, not gated.
     """
 
     time: NDArray[np.floating]
@@ -178,12 +182,12 @@ def reconstruct_wing_forces(
             f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg for "
             "degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0)."
         )
-    ib_x, ib_z = df["Fx"].to_numpy(float), df["Fz"].to_numpy(float)
+    ib_x, ib_z = force_on_wing(df["Fx"].to_numpy(float), df["Fz"].to_numpy(float))
     am_x = added_mass_force(df["SumUx"].to_numpy(float), rho_f)
     am_z = added_mass_force(df["SumUz"].to_numpy(float), rho_f)
-    # 6-DOF momentum balance: F_hydro = rho_f*(SumU - ib_force) = added_mass - rho_f*ib_force.
-    fh_x = am_x - rho_f * ib_x
-    fh_z = am_z - rho_f * ib_z
+    # 6-DOF balance: F_hydro = rho_f*(SumU - ib_force) = added_mass + rho_f*ib_w.
+    fh_x = am_x + rho_f * ib_x
+    fh_z = am_z + rho_f * ib_z
     return WingForceDecomposition(
         time=df["time"].to_numpy(float),
         f_ref=f_ref,
@@ -256,8 +260,8 @@ def added_mass_fraction(
 # --- Body-frame (chord/normal) per-component van Veen comparison (Tier T2a) -------------------
 #
 # #36 graded a LAB-frame O(1) magnitude gate and deferred the faithful body-frame per-component
-# comparison to T2a (see the module frame caveat above). Here the lab-frame ib_force is rotated
-# into the instantaneous WING body frame by the analytic R(t) from the kinematics mirror (the same
+# comparison to T2a (see the module frame caveat above). Here the lab-frame IB force on the wing
+# (ib_w = -ib_force) is rotated into the instantaneous WING body frame by the analytic R(t) from the kinematics mirror (the same
 # composition the solver applies), giving chord-wise CF_chord and wing-normal CF_normal in van
 # Veen's convention F = (F_x chord, F_z normal). The spanwise F_y is carried as a diagnostic
 # (cf_span) but van Veen ignores it. Rotation axes are passed EXPLICITLY (no hard-coded streamwise
@@ -272,7 +276,7 @@ _NORMAL_AXIS = np.array([0.0, 0.0, 1.0])
 for _axis in (_CHORD_AXIS, _SPAN_AXIS, _NORMAL_AXIS):
     _axis.setflags(write=False)
 
-# Body-frame CSV columns (ib_force vector). Fy is needed here (unlike the lab-frame gate).
+# Body-frame CSV columns (the ib_force vector). Fy is needed here (unlike the lab-frame gate).
 _REQUIRED_BODY_CSV_COLUMNS = ("time", "Fx", "Fy", "Fz")
 
 
@@ -384,8 +388,8 @@ def reconstruct_wing_body_forces(
 ) -> WingBodyFrameDecomposition:
     """Body-frame CF_chord/CF_normal series from an IB-particle CSV via the analytic ``R(t)``.
 
-    For each timestep the lab-frame ``ib_force`` ``(Fx,Fy,Fz)`` is rotated into the wing body frame
-    by ``R(t)`` from the kinematics mirror (:mod:`mosquito_cfd.benchmarks.wing_kinematics`), the same
+    For each timestep the lab-frame IB force on the wing, ``ib_w = −(Fx,Fy,Fz)`` (via
+    ``force_on_wing``), is rotated into the wing body frame by ``R(t)`` from the kinematics mirror (:mod:`mosquito_cfd.benchmarks.wing_kinematics`), the same
     composition the solver applies. ``F_ref`` comes from the single-source ``compute_force_reference``.
 
     Args:
@@ -416,7 +420,9 @@ def reconstruct_wing_body_forces(
         )
     time = df["time"].to_numpy(float)
     f_lab = np.column_stack(
-        [df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)]
+        force_on_wing(
+            df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)
+        )
     )
     rot_fn = rotation_matrix_legacy if legacy_kinematics else rotation_matrix
     phi_amp = np.radians(phi_amp_deg)
@@ -521,18 +527,20 @@ def body_frame_overall_match(
 
 # --- Added-mass-subtracted body-frame CF diagnostic (#40 cheap interim) -----------------------
 #
-# A REPORTED (not graded) diagnostic: subtract the logged added-mass rho_f*SumU (via added_mass_force,
-# #36) from the total ib_force, rotate the remainder into the wing body frame with the SAME analytic
-# R(t) / body_frame_coefficients the T2a decomposition uses (CC-V4 — reused, not re-derived; the two
-# defect classes stay separate), and report peak |CF_chord|/|CF_normal| for total vs subtracted plus
-# the body-frame added-mass RMS share. It isolates the added-mass share of the T2a CF_chord PARTIAL
-# (0.923 -> 0.652); it does NOT re-grade van Veen (CC-V2 — no *_match/pass field) and does NOT resolve
-# the PARTIAL (0.652 is still ~2x van Veen's translational ~0.3 — the residual is the full T4).
+# A REPORTED (not graded) diagnostic. The name is historical: it compares two candidate wing forces
+# in the body frame, rotated with the SAME analytic R(t) / body_frame_coefficients the T2a decomposition
+# uses (CC-V4 — reused, not re-derived):
+#   - ib_w, the IB force on the wing (-ib_force), which the graders and T4's "CFD total" use; and
+#   - the 6-DOF force rho_f*SumU + rho_f*ib_w, the solver's free-body balance applied to the wing's
+#     columns. rho_f*SumU is the solver's internal-fluid momentum term (called "added mass" here; via
+#     added_mass_force, #36); it is not van Veen's added-mass component.
+# It reports peak |CF_chord|/|CF_normal| for both, the signed peak-to-peak drop 1 - ib/6dof, and the
+# body-frame RMS share of the internal-fluid term. It does NOT re-grade van Veen (CC-V2 — no
+# *_match/pass field) and does NOT settle which force van Veen should be compared with (#135).
 
-# Columns the added-mass-subtracted diagnostic reads. It rotates the FULL 3-D force and added-mass
-# vectors, so it needs Fy AND SumU{x,y,z}. No single existing tuple covers all seven:
-# _REQUIRED_CSV_COLUMNS lacks Fy and SumUy; _REQUIRED_BODY_CSV_COLUMNS lacks the SumU* columns
-# (SumUy is in neither) — hence this own set.
+# Columns the diagnostic reads. It rotates the FULL 3-D force and internal-fluid vectors, so it needs
+# Fy AND SumU{x,y,z}. No single existing tuple covers all seven: _REQUIRED_CSV_COLUMNS lacks Fy and
+# SumUy; _REQUIRED_BODY_CSV_COLUMNS lacks the SumU* columns (SumUy is in neither) — hence this own set.
 _REQUIRED_SUBTRACTED_CSV_COLUMNS = (
     "time",
     "Fx",
@@ -543,24 +551,25 @@ _REQUIRED_SUBTRACTED_CSV_COLUMNS = (
     "SumUz",
 )
 
-# Numerical-degeneracy floor for a body-frame TOTAL-component CF peak. Below it, the drop fraction
-# (1 - sub/total) and the RMS share (rms(added)/rms(ib)) are ill-conditioned: exactly 0 -> a
-# ZeroDivisionError / 0-0 nan; a roundoff-scale denominator -> a huge, FINITE, silently-propagating
-# garbage ratio. The floor sits ~8 orders below any physical normalized coefficient (real insect-wing
-# body-frame CF peaks are O(0.1-10)) and ~4 orders above rotation roundoff, so it fires only on genuine
-# degeneracy and never on a real run. Tolerance-based (cf. the module's atol=1e-8 rotation check), NOT
-# an exact ==0.0 that would miss a roundoff-scale peak and leave its guard branch untestable.
+# Numerical-degeneracy floor for a body-frame CF peak used as a denominator: the 6-DOF peak (in the
+# drop fraction 1 - ib/6dof) and the ib_w peak (bounding rms(ib_w) in the RMS share). Below it the
+# ratio is ill-conditioned: exactly 0 -> a ZeroDivisionError / 0-0 nan; a roundoff-scale denominator
+# -> a huge, FINITE, silently-propagating garbage ratio. The floor sits ~8 orders below any physical
+# normalized coefficient (real insect-wing body-frame CF peaks are O(0.1-10)) and ~4 orders above
+# rotation roundoff, so it fires only on genuine degeneracy and never on a real run. Tolerance-based
+# (cf. the module's atol=1e-8 rotation check), NOT an exact ==0.0 that would miss a roundoff-scale
+# peak and leave its guard branch untestable.
 _DEGENERATE_CF_FLOOR = 1e-9
 
 
 def _body_frame_rms_share(
     added_body: NDArray[np.floating], ib_body: NDArray[np.floating]
 ) -> float:
-    """Body-frame added-mass RMS share ``rms(added_body)/rms(ib_body)`` (reported, not gated).
+    """Body-frame internal-fluid RMS share ``rms(added_body)/rms(ib_body)`` (reported, not gated).
 
     The body-frame analog of the lab-frame :func:`added_mass_fraction` (``rms(added)/rms(ib)``),
-    exposed as a seam so the definition can be pinned on synthetic arrays. NOT ``rms(subtracted)`` and
-    NOT a peak ratio. Inputs are the already-windowed body-frame component series.
+    exposed as a seam so the definition can be pinned on synthetic arrays. NOT a ratio of the 6-DOF
+    force and NOT a peak ratio. Inputs are the already-windowed body-frame component series.
     """
     added = np.asarray(added_body, dtype=float)
     ib = np.asarray(ib_body, dtype=float)
@@ -577,21 +586,24 @@ def body_frame_added_mass_subtracted(
     rho_f: float = RHO,
     window_t0: float = STEADY_WINDOW_T0,
 ) -> dict:
-    """Reported #40 cheap interim: body-frame peaks for ``ib_force`` vs ``ib_force - rho_f*SumU``.
+    """Reported #40 interim: body-frame peaks of the 6-DOF force and of the IB force on the wing.
 
-    Subtracts the logged added-mass ``rho_f*SumU`` (via :func:`added_mass_force`, #36) from the total
-    lab-frame ``ib_force``, rotates **both** the total and the subtracted force into the wing body frame
-    with the analytic ``R(t)`` from :mod:`mosquito_cfd.benchmarks.wing_kinematics` and
-    :func:`body_frame_coefficients` (the same composition T2a applies — reused, not re-derived), and
-    reports, over the pinned steady window, peak ``|CF_chord|``/``|CF_normal|`` for total and subtracted,
-    the **signed** peak-to-peak drop fraction, and the body-frame added-mass RMS share per component.
+    The name is historical. ``ib_w = −ib_force`` (via ``force_on_wing``) is the IB force on the wing;
+    the 6-DOF force is the solver's free-body balance ``rho_f·(SumU − ib_force) = rho_f·SumU +
+    rho_f·ib_w`` applied to the wing's columns, where ``rho_f·SumU`` comes from
+    :func:`added_mass_force` (#36). Both are rotated into the wing body frame with the analytic ``R(t)``
+    from :mod:`mosquito_cfd.benchmarks.wing_kinematics` and :func:`body_frame_coefficients` (the same
+    composition T2a applies — reused, not re-derived). Over the pinned steady window it reports peak
+    ``|CF_chord|``/``|CF_normal|`` for both, the **signed** peak-to-peak drop fraction, and the
+    body-frame RMS share of the internal-fluid term per component. Which of the two forces van Veen
+    should be compared with is open (#135).
 
-    Because the total and subtracted peaks can fall at **different phases**, each ``peak_*`` is the
-    independent window argmax of ``|series|`` (the subtracted peak is NOT the subtracted value at the
-    total's argmax). ``*_drop_frac = 1 - peak_subtracted/peak_total`` is therefore a peak-to-peak ratio,
-    **signed** (negative if subtraction raises a peak) — not a per-instant reduction. This is **reported,
-    not graded**: the return dict carries NO ``*_match``/``pass`` verdict field (CC-V2), and the existing
-    graders (:func:`plausibility_gate`, :func:`body_frame_overall_match`) are untouched.
+    Because the two peaks can fall at **different phases**, each ``peak_*`` is the independent window
+    argmax of ``|series|``. ``*_drop_frac = 1 - peak_ib/peak_6dof`` is therefore a peak-to-peak ratio,
+    **signed** (negative when ``ib_w``'s peak is the larger) — not a per-instant reduction. This is
+    **reported, not graded**: the return dict carries NO ``*_match``/``pass`` verdict field (CC-V2),
+    and the existing graders (:func:`plausibility_gate`, :func:`body_frame_overall_match`) are
+    untouched.
 
     Args:
         csv_path: Committed IB-particle CSV; must carry ``time, Fx, Fy, Fz, SumU{x,y,z}``.
@@ -599,22 +611,23 @@ def body_frame_added_mass_subtracted(
         phi_amp_deg: Stroke amplitude [deg].
         pitch_amp_deg: Pitch amplitude [deg].
         deviation_amp_deg: Deviation amplitude [deg]; default 0.
-        rho_f: Fluid density for the added-mass term (``rho_f*SumU``); default ``RHO``. Passed through
-            to :func:`added_mass_force` unvalidated (a physical parameter, linear in the result).
+        rho_f: Fluid density in the 6-DOF balance (scales both its terms); default ``RHO``. Passed
+            through unvalidated (a physical parameter, linear in the 6-DOF force).
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
 
     Returns:
-        Dict of reported (never graded) quantities: ``peak_cf_{chord,normal}_{total,subtracted}``,
+        Dict of reported (never graded) quantities: ``peak_cf_{chord,normal}_{6dof,ib}``,
         ``{chord,normal}_drop_frac``, ``am_rms_share_{chord,normal}``, ``window_t0``.
 
     Raises:
         ValueError: if a required column is missing; the CSV has no rows; a force/``SumU`` row is
             non-finite **anywhere in the series** (checked over the whole record, not just the window,
             so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
-            not finite and positive; ``window_t0`` selects no timesteps; or a **total** body-frame peak
-            (``|CF_chord|``/``|CF_normal|``) falls below the numerical degeneracy floor
-            (``_DEGENERATE_CF_FLOOR``) over the window (the drop fraction and RMS share are undefined for
-            a (near-)zero component — never returned as a silent ``nan``/``inf`` or huge finite garbage).
+            not finite and positive; ``window_t0`` selects no timesteps; or a 6-DOF or ``ib_w``
+            body-frame peak (``|CF_chord|``/``|CF_normal|``) falls below the numerical degeneracy floor
+            (``_DEGENERATE_CF_FLOOR``) over the window. Each denominator has its own named error; the
+            drop fraction and RMS share are never returned as a silent ``nan``/``inf`` or huge finite
+            garbage.
     """
     df = pd.read_csv(csv_path)
     missing = [c for c in _REQUIRED_SUBTRACTED_CSV_COLUMNS if c not in df.columns]
@@ -622,7 +635,7 @@ def body_frame_added_mass_subtracted(
         raise ValueError(
             f"IB-particle CSV {csv_path} is missing required column(s) {missing}; the "
             f"added-mass-subtracted diagnostic needs {list(_REQUIRED_SUBTRACTED_CSV_COLUMNS)} "
-            "(it rotates the full 3-D force and added-mass vectors)"
+            "(it rotates the full 3-D force and internal-fluid vectors)"
         )
     f_ref = compute_force_reference(
         f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
@@ -641,7 +654,9 @@ def body_frame_added_mass_subtracted(
             f"[{time.min():.4g}, {time.max():.4g}]"
         )
     ib = np.column_stack(
-        [df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)]
+        force_on_wing(
+            df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)
+        )
     )
     sum_u = np.column_stack(
         [
@@ -651,7 +666,7 @@ def body_frame_added_mass_subtracted(
         ]
     )
     added = added_mass_force(sum_u, rho_f)  # rho_f * SumU (#36); reused, not re-derived
-    subtracted = ib - added
+    six_dof = added + rho_f * ib  # rho_f*(SumU - ib_force), the free-body balance
     rots = np.stack(
         [
             rotation_matrix(
@@ -670,38 +685,40 @@ def body_frame_added_mass_subtracted(
     # surfaces here rather than as a silent coefficient.
     cf_ib = body_frame_coefficients(ib, rots, f_ref)
     cf_added = body_frame_coefficients(added, rots, f_ref)
-    cf_sub = body_frame_coefficients(subtracted, rots, f_ref)
+    cf_6dof = body_frame_coefficients(six_dof, rots, f_ref)
 
     def peak(cf: dict[str, NDArray[np.floating]], key: str) -> float:
         return float(np.abs(cf[key][mask]).max())
 
-    peak_chord_total = peak(cf_ib, "cf_chord")
-    peak_normal_total = peak(cf_ib, "cf_normal")
-    peak_chord_sub = peak(cf_sub, "cf_chord")
-    peak_normal_sub = peak(cf_sub, "cf_normal")
-    # Guard the ratio denominators: a total-component peak that is zero — or a roundoff-scale
-    # residual below _DEGENERATE_CF_FLOOR — makes the drop fraction (1 - sub/total) and the RMS
-    # share (rms(added)/rms(ib)) ill-conditioned (a ZeroDivisionError, a silent nan, or huge finite
-    # garbage). Raise the module's loud, named ValueError instead. A peak above the floor also
-    # guarantees rms(ib) > 0 for that component (both taken over the same window).
-    for _name, _peak_total in (
-        ("chord", peak_chord_total),
-        ("normal", peak_normal_total),
-    ):
-        if _peak_total < _DEGENERATE_CF_FLOOR:
-            raise ValueError(
-                f"peak |CF_{_name}| of the total ib_force is {_peak_total:.3g}, below the numerical "
-                f"degeneracy floor {_DEGENERATE_CF_FLOOR:g}; the {_name} drop fraction and RMS share "
-                "are undefined for a (near-)zero degenerate component (check the input run)"
-            )
+    peaks = {
+        (comp, name): peak(cf, f"cf_{comp}")
+        for comp in ("chord", "normal")
+        for name, cf in (("6dof", cf_6dof), ("ib", cf_ib))
+    }
+    # Guard both denominators: the 6-DOF peak (drop fraction) and the ib_w peak (a peak above the
+    # floor also guarantees rms(ib_w) > 0 over the same window, for the RMS share). A zero or
+    # roundoff-scale denominator raises the module's loud, named ValueError instead of a
+    # ZeroDivisionError, a silent nan, or huge finite garbage.
+    for comp in ("chord", "normal"):
+        for name, label, use in (
+            ("6dof", "the 6-DOF force", "drop fraction"),
+            ("ib", "ib_w (the IB force on the wing)", "drop fraction and RMS share"),
+        ):
+            value = peaks[(comp, name)]
+            if value < _DEGENERATE_CF_FLOOR:
+                raise ValueError(
+                    f"peak |CF_{comp}| of {label} is {value:.3g}, below the numerical degeneracy "
+                    f"floor {_DEGENERATE_CF_FLOOR:g}; the {comp} {use} are undefined for a "
+                    "(near-)zero degenerate component (check the input run)"
+                )
     return {
-        "peak_cf_chord_total": peak_chord_total,
-        "peak_cf_normal_total": peak_normal_total,
-        "peak_cf_chord_subtracted": peak_chord_sub,
-        "peak_cf_normal_subtracted": peak_normal_sub,
+        "peak_cf_chord_6dof": peaks[("chord", "6dof")],
+        "peak_cf_normal_6dof": peaks[("normal", "6dof")],
+        "peak_cf_chord_ib": peaks[("chord", "ib")],
+        "peak_cf_normal_ib": peaks[("normal", "ib")],
         # Signed peak-to-peak fraction (peaks may fall at different phases); NOT per-instant.
-        "chord_drop_frac": 1.0 - peak_chord_sub / peak_chord_total,
-        "normal_drop_frac": 1.0 - peak_normal_sub / peak_normal_total,
+        "chord_drop_frac": 1.0 - peaks[("chord", "ib")] / peaks[("chord", "6dof")],
+        "normal_drop_frac": 1.0 - peaks[("normal", "ib")] / peaks[("normal", "6dof")],
         "am_rms_share_chord": _body_frame_rms_share(
             cf_added["cf_chord"][mask], cf_ib["cf_chord"][mask]
         ),

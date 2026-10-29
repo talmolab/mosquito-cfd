@@ -30,7 +30,7 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     reconstruct_wing_forces,
 )
 from mosquito_cfd.benchmarks.van_veen_model import compute_wing_area_moments
-from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate import compute_force_reference, force_on_wing
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, R_TIP, RHO, SPAN
 from mosquito_cfd.force_surrogate.train import _r2
 
@@ -45,7 +45,8 @@ def fig_v1_three_convention(out_dir: Path) -> dict:
     f_vanveen = compute_force_reference(1.0, 70.0, R_GYRATION, SPAN, CHORD, RHO).f_ref
     f_mean = f_current * (2.0 / np.pi) ** 2  # mean-wingtip (issue's original proposal)
     df = pd.read_csv(_HERE / "forces.csv")
-    t, fx, fz = (df[c].to_numpy(float) for c in ("time", "Fx", "Fz"))
+    t = df["time"].to_numpy(float)
+    fx, fz = force_on_wing(df["Fx"].to_numpy(float), df["Fz"].to_numpy(float))
     m = t >= STEADY_WINDOW_T0
     refs = {
         "current (peak tip)": (f_current, "#888888"),
@@ -143,7 +144,7 @@ def fig_v3_scale_invariance(out_dir: Path) -> dict:
 
 
 def fig_v4_added_mass(out_dir: Path) -> dict:
-    """V4: ib_force vs added-mass decomposition over the cycle (added-mass NOT gated)."""
+    """V4: the IB force on the wing vs the internal-fluid term rho_f*SumU (term NOT gated)."""
     d = reconstruct_wing_forces(_HERE / "forces.csv", f_star=1.0, phi_amp_deg=70.0)
     frac = added_mass_fraction(d)
     m = d.time >= STEADY_WINDOW_T0
@@ -152,16 +153,16 @@ def fig_v4_added_mass(out_dir: Path) -> dict:
         (axx, d.cf_x_ib, d.cf_x_added, d.cf_x_hydro, "CF_x"),
         (axz, d.cf_z_ib, d.cf_z_added, d.cf_z_hydro, "CF_z"),
     ):
-        ax.plot(d.time[m], ib[m], color="#1f77b4", lw=1.6, label="ib_force (gated)")
-        ax.plot(d.time[m], am[m], color="#E69F00", lw=1.4, label="added-mass (rho*SumU)")
+        ax.plot(d.time[m], ib[m], color="#1f77b4", lw=1.6, label="IB force on wing (gated)")
+        ax.plot(d.time[m], am[m], color="#E69F00", lw=1.4, label="internal-fluid term ρ_f·SumU")
         ax.plot(d.time[m], fh[m], color="#d62728", lw=1.2, ls="--", label="6-DOF F_hydro")
         ax.axhline(0, color="gray", lw=0.5, ls="--")
         ax.set_ylabel(lab)
         ax.legend(fontsize=8)
         ax.grid(alpha=0.25)
     axz.set_xlabel("time (wingbeats)")
-    axx.set_title(f"V4  Added-mass decomposition (reported, NOT gated)\n"
-                  f"RMS fraction of ib_force: stroke {frac['stroke']:.0%}, lift {frac['lift']:.0%}")
+    axx.set_title(f"V4  Internal-fluid term ρ_f·SumU (reported, NOT gated)\n"
+                  f"RMS fraction of the IB force: stroke {frac['stroke']:.0%}, lift {frac['lift']:.0%}")
     fig.tight_layout()
     fig.savefig(out_dir / "V4_added_mass.png", dpi=130)
     plt.close(fig)

@@ -163,17 +163,42 @@ def test_missing_csv_column_raises_descriptive_error(tmp_path):
 # --- E.3: decomposition is the 6-DOF momentum balance, self-consistent ---
 
 
-def test_decomposition_is_six_dof_momentum_balance():
-    """F_hydro = rho_f*(SumU - ib_force); added-mass is a positive non-trivial fraction.
+def test_ib_series_are_the_ib_force_on_the_wing():
+    """``cf_*_ib`` is the IB force on the wing, ``−ib_force/F_ref``, exactly (issue #109).
+
+    ``ib_force`` acts on the fluid (docs/coordinate-convention.md#force-and-moment-sign), so the wing's
+    series is its negation, applied once through ``force_on_wing``.
+    """
+    df = pd.read_csv(_CSV)
+    d = _decomp()
+    np.testing.assert_array_equal(d.cf_x_ib, -df["Fx"].to_numpy(float) / d.f_ref)
+    np.testing.assert_array_equal(d.cf_z_ib, -df["Fz"].to_numpy(float) / d.f_ref)
+
+
+@pytest.mark.parametrize("rho_f", [1.0, 2.0])
+def test_decomposition_is_six_dof_momentum_balance(rho_f):
+    """F_hydro = rho_f*(SumU - ib_force) = added + rho_f*ib_w; added-mass is a positive fraction.
 
     Scenario: Decomposition is reported and self-consistent. Per WriteIBForceAndMoment the net
-    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force) (NOT a naive ib+added sum).
+    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force). With the on-wing ``ib_w =
+    −ib_force`` that is ``cf_hydro = cf_added + rho_f*cf_ib``. ``rho_f = 2`` pins where the density
+    enters, which ``rho_f = 1`` cannot.
     """
-    d = _decomp()
-    # f_hydro == added_mass - rho_f*ib (rho_f = 1): cf_hydro == cf_added - cf_ib
-    np.testing.assert_allclose(d.cf_x_hydro, d.cf_x_added - d.cf_x_ib, rtol=1e-9)
-    np.testing.assert_allclose(d.cf_z_hydro, d.cf_z_added - d.cf_z_ib, rtol=1e-9)
-    frac = added_mass_fraction(d)
+    df = pd.read_csv(_CSV)
+    d = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    np.testing.assert_allclose(
+        d.cf_x_hydro, d.cf_x_added + rho_f * d.cf_x_ib, rtol=1e-12, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        d.cf_z_hydro, d.cf_z_added + rho_f * d.cf_z_ib, rtol=1e-12, atol=1e-12
+    )
+    # The raw identity, independent of the coefficient algebra above.
+    for axis in ("x", "z"):
+        raw = rho_f * (df[f"SumU{axis}"] - df[f"F{axis}"]).to_numpy(float)
+        np.testing.assert_allclose(
+            getattr(d, f"cf_{axis}_hydro") * d.f_ref, raw, rtol=1e-12, atol=1e-9
+        )
+    frac = added_mass_fraction(reconstruct_wing_forces(_CSV, **_KIN))
     for key in ("stroke", "lift"):
         assert 0.0 < frac[key] < 1.0  # positive, non-trivial, not hard-coded
     # added-mass is a larger fraction of lift than of stroke (reported, not asserted exact)

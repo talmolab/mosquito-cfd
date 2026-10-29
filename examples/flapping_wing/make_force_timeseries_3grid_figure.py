@@ -77,7 +77,7 @@ def make_figure(
     # Styling — draw legend AFTER all artists are added
     for ax, ylabel, title in [
         (ax_chord,  "CF_chord  (tangential)",  "CF_chord — body-frame tangential force"),
-        (ax_normal, "CF_normal  (lift)",        "CF_normal — body-frame lift force  (signed)"),
+        (ax_normal, "CF_normal  (lift)",        "CF_normal — wing-normal force  (signed)"),
     ]:
         ax.set_ylabel(ylabel, fontsize=10)
         ax.set_title(title, fontsize=11, fontweight="bold")

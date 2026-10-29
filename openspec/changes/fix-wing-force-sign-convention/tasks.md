@@ -234,15 +234,15 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 17. [x] Re-derive task 0's PR2a list, and put it in the PR body. **Done on `08824e8`: 8 failures, all on the list or task 27; no other test breaks.**
 18. [x] File the follow-up issue "which CFD force should the van Veen comparison use: the 6-DOF force or
     `ib_w`?" first. **Filed as #135.**
-19. [ ] **Test first:**
+19. [x] **Test first:**
     - `reconstruct_wing_forces` gives `cf_*_ib == −ib/f_ref` and `cf_hydro == cf_added + ρ_f·cf_ib`.
     - The raw identity `cf_hydro·f_ref == ρ_f·(SumU − ib_force)` holds.
     - Rewrite `test_flapping_wing_validation.py:166`.
-20. [ ] **Test first:**
+20. [x] **Test first:**
     - `reconstruct_wing_body_forces` rotates `−F`.
     - The existing graded literals in `test_wing_body_frame.py` and the T4 tests stay green with no
       edit to them. This is the independent pin.
-21. [ ] **Test first, the identity spy at use sites** (design D1). With the spy in place, across
+21. [x] **Test first, the identity spy at use sites** (design D1). With the spy in place, across
     `reconstruct_wing_forces`, `reconstruct_wing_body_forces`, `body_frame_added_mass_subtracted`,
     `plot_f1_forces` and `fig_v1_three_convention`:
     - series that *are* the IB force equal the pre-change on-fluid series bitwise;
@@ -251,7 +251,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
       (`test_flapping_condition_flips_with_the_code_path`) with a monkeypatch of `force_on_wing` at
       the `flapping_wing` use site (PR1 implementation notes, task 12);
     - across all calls, the multiset of arrays passed equals the expected set, each once.
-22. [ ] **Test first, the relabelled diagnostic:**
+22. [x] **Test first, the relabelled diagnostic:**
     - Keys `peak_cf_*_{6dof,ib}`, and `drop_frac = 1 − ib/6dof`.
     - Values (design D5): chord 0.6517 / 0.9231 / −0.4165; normal 2.2851 / 2.6060 / −0.1404; shares
       0.8392 / 0.1278.
@@ -260,10 +260,10 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - **Two-sided degeneracy:** a zero 6-DOF case and a zero `ib_w` case each raise their own
       `ValueError`. Mutants with the floor on only one denominator each fail.
     - Redesign `test_wing_body_frame.py:404` and `:605`. Rewrite `:443`, `:494` and `:664`.
-23. [ ] Implement 19–22 through `force_on_wing`, including `plot_f1_forces` and
+23. [x] Implement 19–22 through `force_on_wing`, including `plot_f1_forces` and
     `fig_v1_three_convention`. Fix the `flapping_wing.py` comments, docstrings and error messages listed
     in design D5.
-24. [ ] **Test first**, in `test_results_reproducibility.py`. Every RESULTS.md edit in design D5 gets a
+24. [x] **Test first**, in `test_results_reproducibility.py`. Every RESULTS.md edit in design D5 gets a
     pinned assertion:
     - the lab ranges;
     - the phase table: raw `Fz` labelled; `CF_z (lab)` `= −Fz/F_ref`; the caption;
@@ -275,13 +275,13 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - the #133 pointer at `:279`.
 
     All enumeration guards stay green.
-25. [ ] Edit RESULTS.md only after 24 is red against it, then make it green. Update the labels in design
+25. [x] Edit RESULTS.md only after 24 is red against it, then make it green. Update the labels in design
     D5, with `test_flapping_wing_validation_figures.py:52` in the same commit as its label. Add the
     links for RESULTS.md, `figures/README.md` and `docs/aerodynamics_validation/roadmap.md`, and extend
     the link-list test.
-26. [ ] **Test first:** the `visualize.py` subparser set is `{velocity, vorticity}` (red now). Then
+26. [x] **Test first:** the `visualize.py` subparser set is `{velocity, vorticity}` (red now). Then
     remove the `forces` subcommand.
-27. [ ] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
+27. [x] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
     commit as 23.
 28. [ ] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
 29. [ ] **HUMAN CHECKPOINT before committing binaries.**
@@ -293,6 +293,35 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - Record the generating commit and blob sizes in the PR body.
 30. [ ] Add the CHANGELOG entry. Run the suite and ruff. Check one blob per path. **Stop for approval
     before pushing.** Open PR2a with "advances #109".
+
+### PR2a implementation notes (deviations recorded, not silent)
+
+- **Two tests outside task 0's list needed edits** (user-approved, 2026-10-29). The task-17 sim kept
+  the diagnostic's old return keys, so it could not show what the planned key rename breaks:
+  - `test_wing_body_frame.py:550` `test_diagnostic_is_reported_not_graded`: only the exact key set
+    changes.
+  - `test_wing_body_frame.py:642` `test_window_t0_and_rho_f_plumbing`: the 6-DOF force is
+    `rho_f·SumU + rho_f·ib_w`, the same formula as the lab-frame `cf_hydro`, so `rho_f = 0` now
+    raises the 6-DOF degeneracy error, and `rho_f = 2` exactly doubles `peak_cf_*_6dof` while
+    leaving `peak_cf_*_ib` unchanged.
+- **The slab wording.** Design D5's RESULTS.md sentence says "a one-cell slab"; the design's own
+  "What inside means" says about two cells, and PR1 softened the doc to "a thin layer whose width is
+  set by the grid". RESULTS.md uses the PR1 wording.
+- **Task 21.** PR1's injected-reconstruction test is retired. Its half-flip check (negating only one
+  of the two components is never on-wing) moved into the use-site monkeypatch test, so no coverage
+  is lost.
+- **Figure-script spies** read the plotted data back by capturing the figures each script closes.
+  The test's own cleanup bypasses the capture: a first version looped forever because cleanup
+  called the captured `close`.
+- **Reflow-proof doc checks.** `test_results_reproducibility.py` gains a `_flat` helper (whitespace
+  collapsed, blockquote markers dropped) for the new phrase checks, as PR1 did for the sign section.
+  The changed RESULTS.md paragraphs were reflowed to 100 characters.
+- **Kill table:** 20/20 on saved-bytes copies after a green baseline. `flapping_wing.py` 11/11
+  (sign bypassed or doubled in the lab path; the hydro sign and its `rho_f`; the body path bypassed;
+  the 6-DOF sign and `rho_f`; each degeneracy floor alone; `drop_frac` inverted; the RMS share
+  against the wrong force), F1 1/1, V1 1/1, RESULTS.md 6/6, `visualize.py` 1/1.
+- **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
+  two figure scripts carry only the sign and label edits.
 
 ---
 

@@ -205,11 +205,7 @@ are flagged by the pending notes below.
 
 Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
 
-Pending #109: the flapping-wing series still carry the solver's on-fluid sign.
-
-The corpus note also covers the committed surrogates and evidence figures built from it. The
-flapping-wing note covers the lab-frame, body-frame and T4 CFD series alike, and the figures drawn
-from them.
+The corpus note also covers the committed surrogates and evidence figures built from it.
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
 reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body

@@ -48,7 +48,7 @@ def test_fig_force_decomposition_regenerates(tmp_path):
             model_total.get_ydata(), result["series"]["model_normal"]
         )
         cfd_total = next(
-            ln for ln in normal_ax.lines if ln.get_label() == "CFD total (ib_force)"
+            ln for ln in normal_ax.lines if ln.get_label() == "CFD IB force on wing"
         )
         np.testing.assert_allclose(
             cfd_total.get_ydata(), result["series"]["cfd_normal"]
