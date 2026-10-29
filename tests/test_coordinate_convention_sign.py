@@ -16,7 +16,6 @@ Spec: coordinate-convention "The canonical convention page states the force and 
 
 from __future__ import annotations
 
-import ast
 import re
 import subprocess
 from pathlib import Path
@@ -39,8 +38,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 _DOC = _ROOT / "docs" / "coordinate-convention.md"
 _HEADING = "## Force and moment sign"
 _ANCHOR = "coordinate-convention.md#force-and-moment-sign"
-_EVIDENCE_TOKENS = ("work from rest", "work-from-rest", "M_hinge · Ω")
-_EXEMPT_PREFIXES = ("openspec/", "tests/")
+# Any spelling of the evidence: case, hyphens, and the dot operator's spacing or code point.
+_EVIDENCE = re.compile(r"(?i)work[\s-]+from[\s-]+rest|M_hinge\s*[·⋅]\s*Ω")
 _EXEMPT_FILES = {"docs/CHANGELOG.md"}
 
 CORPUS_PHRASE = "Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign."
@@ -74,8 +73,9 @@ def _flat(text: str) -> str:
 
 
 def _sign_section() -> str:
+    """The section, with HTML comments removed (a commented-out phrase is not on the page)."""
     section, _ = _section(_DOC.read_text(encoding="utf-8"), _HEADING)
-    return _flat(section)
+    return _flat(re.sub(r"(?s)<!--.*?-->", " ", section))
 
 
 def _github_slug(heading: str) -> str:
@@ -83,18 +83,34 @@ def _github_slug(heading: str) -> str:
     return re.sub(r"\s+", "-", re.sub(r"[^\w\s-]", "", text))
 
 
+def _on_wing(coefficients, raw, f_ref) -> bool:
+    """Whether every coefficient component is ``−raw/f_ref``; all-zero raw data is not evidence."""
+    for c, r in zip(coefficients, raw, strict=True):
+        assert np.abs(r).max() > 0, (
+            "all-zero raw component: the condition would be vacuous"
+        )
+        if not np.allclose(c, -r / f_ref, rtol=1e-9, atol=1e-12):
+            return False
+    return True
+
+
 def _parquet_on_wing(parquet: Path) -> bool:
-    """Whether one corpus's ``CF_x`` is the on-wing ``−Fx/f_ref``."""
+    """Whether one corpus's ``CF_x..CF_z`` are the on-wing ``−F/f_ref``."""
+    cf, raw = ["CF_x", "CF_y", "CF_z"], ["Fx", "Fy", "Fz"]
     df = pd.read_parquet(
-        parquet, columns=["stroke_amp_deg", "frequency_fstar", "Fx", "CF_x"]
+        parquet, columns=["stroke_amp_deg", "frequency_fstar", *raw, *cf]
     )
+    pairs = df[["frequency_fstar", "stroke_amp_deg"]].itertuples(index=False, name=None)
+    refs = {
+        p: compute_force_reference(*p, R_GYRATION, SPAN, CHORD, RHO).f_ref
+        for p in set(pairs)
+    }
     f_ref = np.array(
-        [
-            compute_force_reference(f, s, R_GYRATION, SPAN, CHORD, RHO).f_ref
-            for s, f in zip(df["stroke_amp_deg"], df["frequency_fstar"], strict=True)
-        ]
+        [refs[p] for p in zip(df["frequency_fstar"], df["stroke_amp_deg"], strict=True)]
     )
-    return bool(np.allclose(df["CF_x"], -df["Fx"] / f_ref, rtol=1e-9, atol=1e-12))
+    return _on_wing(
+        [df[c].to_numpy() for c in cf], [df[r].to_numpy() for r in raw], f_ref
+    )
 
 
 def corpus_coefficients_on_wing(parquets: tuple[Path, ...] = _CORPUS_PARQUETS) -> bool:
@@ -109,10 +125,14 @@ def corpus_coefficients_on_wing(parquets: tuple[Path, ...] = _CORPUS_PARQUETS) -
 def flapping_series_on_wing(
     reconstruct=flapping_wing.reconstruct_wing_forces,
 ) -> bool:
-    """Whether the flapping-wing ``cf_x_ib`` is the on-wing ``−Fx/f_ref`` (tied to the code path)."""
+    """Whether the flapping-wing ``cf_x_ib``/``cf_z_ib`` are the on-wing ``−F/f_ref`` (code path)."""
     decomp = reconstruct(_T2A_CSV, f_star=1.0, phi_amp_deg=70.0)
-    fx = pd.read_csv(_T2A_CSV)["Fx"].to_numpy(float)
-    return bool(np.allclose(decomp.cf_x_ib, -fx / decomp.f_ref, rtol=1e-9, atol=1e-12))
+    raw = pd.read_csv(_T2A_CSV)
+    return _on_wing(
+        [decomp.cf_x_ib, decomp.cf_z_ib],
+        [raw["Fx"].to_numpy(float), raw["Fz"].to_numpy(float)],
+        decomp.f_ref,
+    )
 
 
 def surrogates_stale(readmes: tuple[Path, ...] = _CORPUS_READMES) -> bool:
@@ -138,19 +158,26 @@ def test_sign_section_exists_once_and_states_the_convention():
         "`tests/test_ib_force_sign_convention.py`",
         "(#moments)",
         "force_on_wing",
+        # The coefficient list: every derived wing series the convention covers.
+        "- the lab-frame `CF_x..CF_z`;",
+        "- the hinge-referenced moment coefficients `CF_mx..CF_mz`;",
+        "- the flapping-wing lab-frame series;",
+        "- the body-frame `CF_chord`/`CF_normal`;",
+        "- the T4 CFD series.",
     ):
         assert required in section, required
 
 
 def test_work_inequality_evidence_lives_only_in_the_sign_section():
-    """The evidence tokens appear in the section, and nowhere else in the prose or src docstrings.
+    """The evidence appears in the section, and nowhere else in the prose or src docstrings.
 
     The search set is every tracked ``*.md`` under ``docs/``, ``examples/`` and the repository root,
-    plus every ``.py`` file under ``src/`` (docstrings and comments). ``openspec/``, ``tests/`` and the
-    CHANGELOG are exempt. The negative check shares this test with the positive one.
+    plus every ``.py`` file under ``src/`` (docstrings and comments); ``openspec/`` and ``tests/`` are
+    outside it, and the CHANGELOG is exempt. The negative check shares this test, and its pattern,
+    with the positive one.
     """
     section = _sign_section()
-    assert any(tok in section for tok in _EVIDENCE_TOKENS)
+    assert _EVIDENCE.search(section)
     # -z: NUL-separated, so a non-ASCII path is not C-quoted; skip tracked-but-deleted paths.
     tracked = [
         p
@@ -174,7 +201,6 @@ def test_work_inequality_evidence_lives_only_in_the_sign_section():
             )
             or (p.startswith("src/") and p.endswith(".py"))
         )
-        and not p.startswith(_EXEMPT_PREFIXES)
         and p not in _EXEMPT_FILES
     ]
     assert len(candidates) > 20  # the search set is not empty by accident
@@ -183,8 +209,7 @@ def test_work_inequality_evidence_lives_only_in_the_sign_section():
         text = (_ROOT / rel).read_text(encoding="utf-8")
         if rel == "docs/coordinate-convention.md":
             _, text = _section(text, _HEADING)
-        text = _flat(text)
-        hits += [f"{rel}: {tok!r}" for tok in _EVIDENCE_TOKENS if tok in text]
+        hits += [f"{rel}: {m.group()!r}" for m in _EVIDENCE.finditer(text)]
     assert not hits, "evidence restated outside the sign section:\n" + "\n".join(hits)
 
 
@@ -207,39 +232,77 @@ def test_each_pending_phrase_tracks_its_condition():
         assert section.count(phrase) == (1 if needed else 0), (phrase, needed)
 
 
-def test_corpus_condition_flips_on_negated_coefficient_copies(tmp_path):
-    """Both directions of the corpus phrase's condition, on copies with only ``CF_*`` negated.
+def _parquet_copy(src: Path, dst: Path, negate: list[str]) -> Path:
+    cols = [
+        "stroke_amp_deg",
+        "frequency_fstar",
+        "Fx",
+        "Fy",
+        "Fz",
+        "CF_x",
+        "CF_y",
+        "CF_z",
+    ]
+    df = pd.read_parquet(src, columns=cols)
+    df[negate] = -df[negate]
+    df.to_parquet(dst, index=False)
+    return dst
 
-    Only both corpora flipped satisfies it; one flipped alone does not.
+
+def test_corpus_condition_flips_on_negated_coefficient_copies(tmp_path):
+    """Both directions of the corpus phrase's condition, whichever sign the committed corpus has.
+
+    Each corpus and its ``CF_*``-negated copy disagree. Only both on-wing versions satisfy the
+    condition: one corpus on-wing alone, or an on-wing copy with a single component re-negated, does
+    not. All-zero raw forces raise rather than satisfy it vacuously.
     """
-    assert corpus_coefficients_on_wing() is False
-    flipped = []
+    cf = ["CF_x", "CF_y", "CF_z"]
+    on_wing, on_fluid = [], []
     for i, src in enumerate(_CORPUS_PARQUETS):
-        df = pd.read_parquet(src)
-        cf = [c for c in df.columns if c.startswith("CF_")]
-        df[cf] = -df[cf]
-        dst = tmp_path / f"dataset_{i}.parquet"
-        df.to_parquet(dst, index=False)
-        flipped.append(dst)
-    assert corpus_coefficients_on_wing(tuple(flipped)) is True
-    assert corpus_coefficients_on_wing((flipped[0], _CORPUS_PARQUETS[1])) is False
-    assert corpus_coefficients_on_wing((_CORPUS_PARQUETS[0], flipped[1])) is False
+        kept = _parquet_copy(src, tmp_path / f"kept_{i}.parquet", [])
+        flipped = _parquet_copy(src, tmp_path / f"flipped_{i}.parquet", cf)
+        assert _parquet_on_wing(kept) != _parquet_on_wing(flipped), src
+        wing, fluid = (kept, flipped) if _parquet_on_wing(kept) else (flipped, kept)
+        on_wing.append(wing)
+        on_fluid.append(fluid)
+    assert corpus_coefficients_on_wing(tuple(on_wing)) is True
+    assert corpus_coefficients_on_wing((on_wing[0], on_fluid[1])) is False
+    assert corpus_coefficients_on_wing((on_fluid[0], on_wing[1])) is False
+    for i, column in enumerate(cf):
+        half = _parquet_copy(on_wing[0], tmp_path / f"half_{i}.parquet", [column])
+        assert corpus_coefficients_on_wing((half, on_wing[1])) is False, column
+    zeroed = pd.read_parquet(on_wing[0])
+    zeroed[["Fx", "Fy", "Fz", *cf]] = 0.0
+    zeroed.to_parquet(tmp_path / "zeroed.parquet", index=False)
+    with pytest.raises(AssertionError, match="vacuous"):
+        corpus_coefficients_on_wing((tmp_path / "zeroed.parquet", on_wing[1]))
 
 
 def test_flapping_condition_flips_with_the_code_path():
     """The flapping-wing condition depends on the code path, not the data.
 
     Negating the CSV would negate both sides, so the direction is exercised by swapping the
-    reconstruction instead. Once PR2a routes ``reconstruct_wing_forces`` through ``force_on_wing``,
-    this is tested by monkeypatching ``force_on_wing`` at that use site.
+    reconstruction instead, whichever sign the committed path has: the path and its negation
+    disagree, and negating only one of ``cf_x_ib``/``cf_z_ib`` is never on-wing. Once PR2a routes
+    ``reconstruct_wing_forces`` through ``force_on_wing``, this is tested by monkeypatching
+    ``force_on_wing`` at that use site.
     """
-    assert flapping_series_on_wing() is False
 
-    def negated(*args, **kwargs):
+    def both(*args, **kwargs):
         d = flapping_wing.reconstruct_wing_forces(*args, **kwargs)
-        return type(d)(**{**d.__dict__, "cf_x_ib": -d.cf_x_ib})
+        return type(d)(**{**d.__dict__, "cf_x_ib": -d.cf_x_ib, "cf_z_ib": -d.cf_z_ib})
 
-    assert flapping_series_on_wing(negated) is True
+    assert flapping_series_on_wing() != flapping_series_on_wing(both)
+    wing = (
+        both if flapping_series_on_wing(both) else flapping_wing.reconstruct_wing_forces
+    )
+    for field in ("cf_x_ib", "cf_z_ib"):
+
+        def half(*args, _field=field, **kwargs):
+            d = wing(*args, **kwargs)
+            return type(d)(**{**d.__dict__, _field: -getattr(d, _field)})
+
+        assert flapping_series_on_wing(half) is False, field
 
 
 def test_surrogate_condition_needs_the_banner_in_both_readmes(tmp_path):
@@ -249,13 +312,12 @@ def test_surrogate_condition_needs_the_banner_in_both_readmes(tmp_path):
     without.write_text("No banner.\n", encoding="utf-8")
     assert surrogates_stale((with_banner, with_banner)) is True
     assert surrogates_stale((with_banner, without)) is False
-    assert surrogates_stale() is False
+    assert surrogates_stale((without, with_banner)) is False
 
 
 @pytest.mark.parametrize("phrase", [CORPUS_PHRASE, FLAPPING_PHRASE, SURROGATE_PHRASE])
 def test_pending_phrases_are_single_sentences_naming_109(phrase):
     assert phrase.startswith("Pending #109: ") and phrase.endswith(".")
-    assert ast.literal_eval(repr(phrase)) == phrase
 
 
 def test_flapping_wing_no_longer_calls_ib_force_the_total_hydrodynamic_force():

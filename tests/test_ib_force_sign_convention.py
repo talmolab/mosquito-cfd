@@ -2,10 +2,10 @@
 
 IAMReX's ``ib_force``/``ib_moment`` (the IB-particle CSV's ``Fx..Mz``) are what the wing exerts on the
 **fluid**. The evidence is the second law: for a rigid wing rotating about a fixed hinge,
-``M_hinge · Ω`` is the power the IB forcing delivers to the fluid. Starting from rest, the cumulative
-work ``W(t) = ∫ M_hinge · Ω dt`` should never go negative. This is an empirical check with measured
-margins, not a theorem, because the domain has open outflow boundaries
-(``docs/coordinate-convention.md#force-and-moment-sign``).
+``M_hinge · Ω`` is the power the IB forcing delivers to the fluid plus a non-negative slip term.
+Starting from rest, the cumulative work ``W(t) = ∫ M_hinge · Ω dt`` should never go negative. This is
+an empirical check with measured margins, not a theorem, because the domain has open outflow
+boundaries (``docs/coordinate-convention.md#force-and-moment-sign``).
 
 These tests recompute that inequality from committed data, so the convention is pinned by physics
 rather than by re-running the extractor's algebra:
@@ -30,9 +30,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mosquito_cfd.benchmarks.flapping_wing import STEADY_WINDOW_T0
 from mosquito_cfd.benchmarks.wing_kinematics import angular_velocity
-from mosquito_cfd.force_surrogate import shift_moment_reference
+from mosquito_cfd.force_surrogate import (
+    compute_force_reference,
+    compute_moment_reference,
+    shift_moment_reference,
+)
+from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +52,9 @@ _VALIDATION_RUNS = {
 _HINGE = np.array([4.0, 0.5, 4.0])
 _N_CORPUS_CONFIGS = 54
 _N_RUNS = _N_CORPUS_CONFIGS + len(_VALIDATION_RUNS)
+# End of the impulsive-start transient (first ~8 steps, t <= 0.004; see the comment on
+# flapping_wing.STEADY_WINDOW_T0). The late increment is measured from here.
+_TRANSIENT_END = 0.005
 
 
 class CoefficientsOnFluid(AssertionError):
@@ -64,6 +71,14 @@ class _Run:
     moment_hinge: np.ndarray  # (n, 3) raw moments shifted to the hinge
     cf: np.ndarray | None  # (n, 3) committed CF_x..CF_z (corpus runs only)
     cf_m: np.ndarray | None  # (n, 3) committed CF_mx..CF_mz (corpus runs only)
+    f_ref: float | None = None  # corpus runs only
+    m_ref: float | None = None  # corpus runs only
+
+    def __post_init__(self):
+        # The runs are cached across tests, so a test must not be able to mutate them.
+        for value in vars(self).values():
+            if isinstance(value, np.ndarray):
+                value.setflags(write=False)
 
 
 def _deck_values(text: str, keys: tuple[str, ...]) -> np.ndarray:
@@ -106,8 +121,20 @@ def _corpus_runs() -> tuple[_Run, ...]:
             hinge = _deck_values(deck, ("hinge_x", "hinge_y", "hinge_z"))
             sub = df[df["config_name"] == config["name"]].sort_values("time")
             t = sub["time"].to_numpy(float)
+            assert t.size and t[0] == 0.0, f"{config['name']}: does not start at rest"
+            assert np.all(np.diff(t) > 0), (
+                f"{config['name']}: time not strictly increasing"
+            )
             force = sub[["Fx", "Fy", "Fz"]].to_numpy(float)
             moment = sub[["Mx", "My", "Mz"]].to_numpy(float)
+            ref = (
+                sub["frequency_fstar"].iloc[0],
+                sub["stroke_amp_deg"].iloc[0],
+                R_GYRATION,
+                SPAN,
+                CHORD,
+                RHO,
+            )
             runs.append(
                 _Run(
                     name=f"{corpus}/{config['name']}",
@@ -118,6 +145,8 @@ def _corpus_runs() -> tuple[_Run, ...]:
                     moment_hinge=_shift(moment, force, origin - hinge),
                     cf=sub[["CF_x", "CF_y", "CF_z"]].to_numpy(float),
                     cf_m=sub[["CF_mx", "CF_my", "CF_mz"]].to_numpy(float),
+                    f_ref=compute_force_reference(*ref).f_ref,
+                    m_ref=compute_moment_reference(*ref).m_ref,
                 )
             )
     return tuple(runs)
@@ -170,7 +199,7 @@ def _work(time: np.ndarray, moment: np.ndarray, omega: np.ndarray) -> np.ndarray
 
 
 def _late(time: np.ndarray) -> np.ndarray:
-    return time >= STEADY_WINDOW_T0
+    return time >= _TRANSIENT_END
 
 
 def _assert_runs_are_usable(runs: tuple[_Run, ...], expected: int) -> None:
@@ -206,9 +235,12 @@ def _work_violations(name: str, time, moment, omega, *, sign: int) -> list[str]:
 def test_raw_ib_force_does_net_positive_work_on_the_fluid():
     """Raw ``ib_force``/``ib_moment`` are on the fluid: ``W ≥ 0`` at every row, with no tolerance.
 
-    The late increment ``W(t) − W₀`` (``W₀`` at the first row with ``t ≥ STEADY_WINDOW_T0``) is also
-    ``≥ 0``, so the verdict does not rest on the impulsive start. Measured at a2e8f64: the minimum is
-    exactly 0 (at ``t = 0``) in all 57 runs.
+    ``W`` is also strictly positive after the first row (``W[0] = 0`` by construction), with margin
+    ``min W[1:] / max|W| = 0.0059`` over the 57 runs at a2e8f64, which is why no tolerance is needed.
+    The increment ``W(t) − W₀``, with ``W₀`` at the first row after the impulsive-start transient
+    (``t ≥ 0.005``), is ``≥ 0`` too, so the verdict does not rest on the transient alone. Increments
+    over arbitrary later windows can be negative: the power dips below zero within a beat, on up to
+    23 % of rows.
     """
     runs = _corpus_runs() + _validation_runs()
     _assert_runs_are_usable(runs, _N_RUNS)
@@ -253,11 +285,21 @@ def test_coefficients_are_the_ib_force_on_the_wing():
     """Coefficients are on the wing: ``W_wing = ∫ CF_m · Ω dt ≤ 0`` and ``corr(CF_mz, −CF_x) > 0``.
 
     The correlation check catches a half-flip inside extraction (only the force or only the moment
-    coefficients negated). Only the sign predicates raise :class:`CoefficientsOnFluid`; the
-    non-vacuity checks are plain assertions, so a broken run set fails even under the xfail.
+    coefficients negated). Only the sign predicates raise :class:`CoefficientsOnFluid`. The
+    non-vacuity checks are plain assertions, so broken coefficients fail even under the xfail:
+    ``CF_*`` must be finite and equal ``|F|/f_ref``, ``|M_hinge|/m_ref`` in magnitude (sign-agnostic).
     """
     runs = _corpus_runs()
     _assert_runs_are_usable(runs, _N_CORPUS_CONFIGS)
+    for run in runs:
+        for cf, raw, ref in (
+            (run.cf, run.force, run.f_ref),
+            (run.cf_m, run.moment_hinge, run.m_ref),
+        ):
+            assert np.isfinite(cf).all(), f"{run.name}: non-finite coefficients"
+            np.testing.assert_allclose(
+                np.abs(cf), np.abs(raw) / ref, rtol=1e-12, atol=0, err_msg=run.name
+            )
     problems = []
     for run in runs:
         problems += _work_violations(run.name, run.time, run.cf_m, run.omega, sign=-1)

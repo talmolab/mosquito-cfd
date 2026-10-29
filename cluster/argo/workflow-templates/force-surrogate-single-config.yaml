@@ -30,7 +30,7 @@ spec:
     - name: timestamp        # caller-supplied ISO-8601, recorded for reproducibility
     - name: threshold
       value: "0.99"
-    - name: csv-name         # force-CSV name escape hatch (verified against the A40 corpus (PR #18))
+    - name: csv-name         # force-CSV name escape hatch; name verified against the A40 corpus (PR #18)
       value: "IB_Particle_1.csv"
     # Host RAM (K8s memory, distinct from GPU VRAM) — parameterized (not hardcoded) so a future
     # coarse-grid re-run isn't silently stuck with the fine-grid-sized request, and vice versa.

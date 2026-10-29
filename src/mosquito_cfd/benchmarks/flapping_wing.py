@@ -59,7 +59,7 @@ VAN_VEEN_BAND = (0.5, 1.5)
 # translational coefficient follows a least-squares sine fit C_Fz,transl(alpha) ~ 3.4*sin(alpha)
 # (peak ~3.4 at alpha=90 deg, ~2.4 at the alpha=45 deg pitch amplitude); the chord-wise tangential
 # coefficient is small (~0.2-0.3 peak). CAVEAT (applies to BOTH components): our IB force is the
-# total over aerodynamic mechanisms, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
+# sum of all mechanisms, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
 # (van Veen decomposes F into translational + added-mass + Wagner, eqs 3.1-3.8). So the comparison is
 # total (ours) vs translational (target): our CF_normal ~ van Veen's normal because the added-mass (+)
 # and Wagner (-) contributions roughly cancel in the wing-normal at this condition; our CF_chord runs

@@ -127,7 +127,7 @@ def angular_velocity(
         deviation_amp_rad: Deviation amplitude [rad]; default 0.
 
     Returns:
-        ``Ω`` in rad/time, shape ``(3,)`` for a scalar ``time`` or ``(n, 3)`` for an array.
+        ``Ω`` in rad/time, with shape ``time.shape + (3,)``: ``(3,)`` for a scalar ``time``.
     """
     t = np.asarray(time, dtype=float)
     w = 2.0 * np.pi * frequency

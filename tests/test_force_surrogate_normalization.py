@@ -496,6 +496,23 @@ def test_force_on_wing_negates_every_component():
     assert len(force_on_wing(1.0, 2.0, 3.0)) == 3
 
 
+def test_force_on_wing_rejects_non_float_and_keeps_masks():
+    """Negating an unsigned or bool array wraps or fails silently, so only floats are accepted.
+
+    A masked array stays masked, rather than exposing the values under its mask.
+    """
+    from mosquito_cfd.force_surrogate import force_on_wing
+
+    for bad in (np.array([1, 2], dtype=np.uint8), np.array([True]), np.array([1, 2])):
+        with pytest.raises(TypeError, match="floating"):
+            force_on_wing(np.array([1.0]), bad)
+    masked = np.ma.masked_array([1.0, 2.0], mask=[False, True])
+    (out,) = force_on_wing(masked)
+    assert isinstance(out, np.ma.MaskedArray)
+    np.testing.assert_array_equal(out.mask, [False, True])
+    assert out[0] == -1.0
+
+
 def test_ib_force_acts_on_the_fluid_constant():
     from mosquito_cfd.force_surrogate import IB_FORCE_ACTS_ON
 

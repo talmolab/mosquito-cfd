@@ -230,7 +230,9 @@ def test_angular_velocity_matches_finite_difference_of_rotation():
     """Lab-frame Omega equals the skew part of R_dot R^T (issue #109's work oracle).
 
     Lab axes need ``R_dot R^T``; ``R^T R_dot`` would give body axes. Nonzero stroke, pitch and
-    deviation amplitudes so every term, its sign and the composition order are exercised.
+    deviation amplitudes so every term, its sign and the composition order are exercised. The
+    module's own ``rotation_matrix(*euler_angles(t))`` must equal the independent ``R(t)``, so
+    ``angular_velocity``'s copy of the angle laws cannot drift from ``euler_angles``'.
     """
     f_star = 1.15
     amps = dict(stroke_amp_rad=np.radians(55.0), pitch_amp_rad=np.radians(60.0))
@@ -242,6 +244,10 @@ def test_angular_velocity_matches_finite_difference_of_rotation():
     for t, omega in zip(times, got, strict=True):
         args = (f_star, amps["stroke_amp_rad"], amps["pitch_amp_rad"], theta_amp)
         r = _independent_rotation(t, *args)
+        module_r = rotation_matrix(
+            *euler_angles(t, frequency=f_star, deviation_amp_rad=theta_amp, **amps)
+        )
+        np.testing.assert_allclose(module_r, r, atol=1e-14)
         r_dot = (
             _independent_rotation(t + h, *args) - _independent_rotation(t - h, *args)
         ) / (2 * h)

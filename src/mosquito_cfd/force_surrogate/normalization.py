@@ -10,13 +10,14 @@ helpers rather than re-deriving the formula inline (roadmap cross-cutting concer
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 # What IAMReX's ``kernel.ib_force`` / ``kernel.ib_moment`` (the IB-particle CSV's ``Fx..Mz``) act
 # on. See docs/coordinate-convention.md#force-and-moment-sign.
-IB_FORCE_ACTS_ON = "fluid"
+IB_FORCE_ACTS_ON: Final = "fluid"
 
 
 def force_on_wing(*components: ArrayLike) -> tuple[NDArray[np.floating], ...]:
@@ -27,12 +28,21 @@ def force_on_wing(*components: ArrayLike) -> tuple[NDArray[np.floating], ...]:
     ``docs/coordinate-convention.md#force-and-moment-sign``.
 
     Args:
-        *components: Solver force or moment components, scalar or array-like.
+        *components: Solver force or moment components, floating scalar or array-like. A masked
+            array stays masked.
 
     Returns:
         One negated array per component, with shape and dtype preserved.
+
+    Raises:
+        TypeError: If a component is not floating point (negating an unsigned or bool array would
+            wrap or fail rather than give the reaction).
     """
-    return tuple(np.negative(np.asarray(c)) for c in components)
+    arrays = [np.asanyarray(c) for c in components]
+    for a in arrays:
+        if not np.issubdtype(a.dtype, np.floating):
+            raise TypeError(f"force_on_wing needs floating components, got {a.dtype}")
+    return tuple(np.negative(a) for a in arrays)
 
 
 @dataclass(frozen=True)
