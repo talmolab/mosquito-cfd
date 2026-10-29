@@ -184,6 +184,46 @@ gives an arm of 1.5, while the committed geometry's own half-span is 1.475 (root
 therefore ~1.7% larger than the geometric root arm — say "the deck's declared pivot", not "the wing
 root".
 
+## Force and moment sign
+
+IAMReX's `ib_force` and `ib_moment` (the `Fx..Mz` columns of `IB_Particle_*.csv`) are the force
+and moment the wing exerts **on the fluid**. Each marker's force `(U_wing − u*)/dt · dv` is added to
+the fluid's forcing field, and `ib_force` is their sum.
+
+Every derived wing coefficient is the **IB force and moment on the wing**, their negation by Newton's
+third law. That covers:
+- the lab-frame `CF_x..CF_z`;
+- the hinge-referenced moment coefficients `CF_mx..CF_mz`;
+- the flapping-wing lab-frame series;
+- the body-frame `CF_chord`/`CF_normal`;
+- the T4 CFD series.
+
+The negation is applied in one place, `mosquito_cfd.force_surrogate.force_on_wing`. The raw columns
+keep the solver's values ([raw vs derived](#moments)).
+
+Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
+
+Pending #109: the flapping-wing series still carry the solver's on-fluid sign.
+
+No coefficient includes the internal-fluid term `ρ_f·SumU`. The solver's free-body 6-DOF balance
+would add it, but the solver never evaluates that balance for the prescribed-motion wing. For this
+zero-thickness wing the term is the momentum change of fluid within about one grid cell of the
+sheet, so it depends on the grid. Its physical status is an open follow-up question.
+
+The sphere and heaving-ellipsoid analyses already report the force on the body.
+
+**Evidence.** For a rigid wing turning about a fixed hinge, `M_hinge · Ω` is the power the IB
+forcing delivers to the fluid. So the cumulative work from rest, `W(t) = ∫ M_hinge · Ω dt`, should
+not go negative. This is an empirical check, not a theorem, because the domain has open outflow
+boundaries.
+- On the solver's moments, `W ≥ 0` at every row of all 57 committed runs: the 54 corpus
+  configurations and the T2a, medium and fine validation CSVs.
+- Its increment after `t = 0.05` is also non-negative.
+- Under the opposite sign, every run would be non-positive.
+
+`tests/test_ib_force_sign_convention.py` pins this, along with two further checks: the raw force and
+moment share one convention, and the coefficients satisfy the mirror inequality.
+
 ## Simulation deck mapping
 
 `examples/flapping_wing/inputs.3d.validation` places the wing in this convention: **x = chord**

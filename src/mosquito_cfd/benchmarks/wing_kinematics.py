@@ -116,8 +116,8 @@ def angular_velocity(
     """Lab-frame wing angular velocity ``Ω`` for ``R = Rz(φ)·Ry(α)·Rx(θ)`` (issue #109).
 
     ``Ω = φ̇·ẑ + α̇·Rz(φ)·ŷ + θ̇·Rz(φ)·Ry(α)·x̂`` — the axial vector of ``Ṙ·Rᵀ`` (lab axes, not the
-    body-axis ``Rᵀ·Ṙ``), with the angles of :func:`euler_angles`. With the hinge fixed, the power the
-    wing delivers is ``M_hinge · Ω``, which is what the force-sign work oracle integrates.
+    body-axis ``Rᵀ·Ṙ``), with the angles of :func:`euler_angles`. The force-sign oracle uses it
+    (``docs/coordinate-convention.md#force-and-moment-sign``).
 
     Args:
         time: Simulation time [dimensionless]; a scalar or an array.
