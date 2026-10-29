@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from mosquito_cfd.benchmarks.wing_kinematics import (
+    angular_velocity,
     euler_angles,
     rotation_matrix,
     rotation_matrix_legacy,
@@ -214,3 +215,59 @@ def test_new_stroke_span_tip_has_horizontal_velocity_old_does_not():
     assert new_horiz_speed == pytest.approx(expected, rel=1e-3)
     # Old span-tip lies ON the stroke (z) axis under pure stroke → Rz(φ) never moves it: ~zero speed.
     assert old_horiz_speed < 1e-6 * expected
+
+
+def _independent_rotation(t, f_star, phi_amp, alpha_amp, theta_amp):
+    """R(t) built from the hand-written primitives above, not from the module under test."""
+    w = 2 * np.pi * f_star
+    phi = phi_amp * np.sin(w * t)
+    alpha = alpha_amp * np.cos(w * t)
+    theta = theta_amp * np.sin(2 * w * t)
+    return _Rz(phi) @ _Ry(alpha) @ _Rx(theta)
+
+
+def test_angular_velocity_matches_finite_difference_of_rotation():
+    """Lab-frame Omega equals the skew part of R_dot R^T (issue #109's work oracle).
+
+    Lab axes need ``R_dot R^T``; ``R^T R_dot`` would give body axes. Nonzero stroke, pitch and
+    deviation amplitudes so every term, its sign and the composition order are exercised. The
+    module's own ``rotation_matrix(*euler_angles(t))`` must equal the independent ``R(t)``, so
+    ``angular_velocity``'s copy of the angle laws cannot drift from ``euler_angles``'.
+    """
+    f_star = 1.15
+    amps = dict(stroke_amp_rad=np.radians(55.0), pitch_amp_rad=np.radians(60.0))
+    theta_amp = np.radians(12.0)
+    h = 1e-6
+    times = np.linspace(0.013, 1.9, 23)
+    got = angular_velocity(times, frequency=f_star, deviation_amp_rad=theta_amp, **amps)
+    assert got.shape == (times.size, 3)
+    for t, omega in zip(times, got, strict=True):
+        args = (f_star, amps["stroke_amp_rad"], amps["pitch_amp_rad"], theta_amp)
+        r = _independent_rotation(t, *args)
+        module_r = rotation_matrix(
+            *euler_angles(t, frequency=f_star, deviation_amp_rad=theta_amp, **amps)
+        )
+        np.testing.assert_allclose(module_r, r, atol=1e-14)
+        r_dot = (
+            _independent_rotation(t + h, *args) - _independent_rotation(t - h, *args)
+        ) / (2 * h)
+        skew = r_dot @ r.T
+        expected = np.array([skew[2, 1], skew[0, 2], skew[1, 0]])
+        np.testing.assert_allclose(
+            omega, expected, rtol=1e-6, atol=1e-9 * np.abs(expected).max()
+        )
+
+
+def test_angular_velocity_known_answers():
+    """Midstroke Omega is pure stroke rate about lab z; at the quarter beat the stroke term vanishes."""
+    f_star, phi_amp, alpha_amp = 1.0, np.radians(70.0), np.radians(45.0)
+    w = 2 * np.pi * f_star
+    kw = dict(frequency=f_star, stroke_amp_rad=phi_amp, pitch_amp_rad=alpha_amp)
+    np.testing.assert_allclose(
+        angular_velocity(0.0, **kw), [0.0, 0.0, phi_amp * w], atol=1e-15
+    )
+    # t = T/4: phi = phi_amp, phi_dot = 0, alpha_dot = -alpha_amp*w about Rz(phi_amp) y.
+    quarter = angular_velocity(0.25, **kw)
+    expected = -alpha_amp * w * np.array([-np.sin(phi_amp), np.cos(phi_amp), 0.0])
+    np.testing.assert_allclose(quarter, expected, atol=1e-12)
+    assert angular_velocity(0.0, **kw).shape == (3,)

@@ -184,6 +184,63 @@ gives an arm of 1.5, while the committed geometry's own half-span is 1.475 (root
 therefore ~1.7% larger than the geometric root arm — say "the deck's declared pivot", not "the wing
 root".
 
+## Force and moment sign
+
+IAMReX's `ib_force` and `ib_moment` (the `Fx..Mz` columns of `IB_Particle_*.csv`) are the force
+and moment the wing exerts **on the fluid**. Each marker's force `(U_wing − u*)/dt · dv` is added to
+the fluid's forcing field, and `ib_force` is their sum. Strictly, `ib_force` is force per unit fluid
+density; it equals the force here only because `ρ_f = 1`.
+
+Every derived wing coefficient is defined as the **IB force and moment on the wing**, their negation
+by Newton's third law. That covers:
+- the lab-frame `CF_x..CF_z`;
+- the hinge-referenced moment coefficients `CF_mx..CF_mz`;
+- the flapping-wing lab-frame series;
+- the body-frame `CF_chord`/`CF_normal`;
+- the T4 CFD series.
+
+The wing paths apply the negation only through `mosquito_cfd.force_surrogate.force_on_wing`, and
+the raw columns keep the solver's values ([raw vs derived](#moments)). The paths not yet converted
+are flagged by the pending notes below.
+
+Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
+
+Pending #109: the flapping-wing series still carry the solver's on-fluid sign.
+
+The corpus note also covers the committed surrogates and evidence figures built from it. The
+flapping-wing note covers the lab-frame, body-frame and T4 CFD series alike, and the figures drawn
+from them.
+
+No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
+reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body
+6-DOF balance would add the term's time difference, with its angular counterpart from `SumT`
+(`DiffusedIB.cpp:1082-1087` and `:1108-1111` at IAMReX `f93dc794`), but the solver never evaluates
+that balance for the prescribed-motion wing. For this zero-thickness wing the term is the momentum
+change of fluid in a thin layer around the sheet, whose width is set by the grid, so the term
+depends on the grid. Its physical status is an open follow-up question.
+
+The sphere and heaving-ellipsoid analyses already report the force on the body.
+
+**Evidence.** For a rigid wing turning about a fixed hinge, `M_hinge · Ω` is the power the IB
+forcing delivers to the fluid at the markers plus a non-negative slip term. So the cumulative work
+from rest, `W(t) = ∫ M_hinge · Ω dt`, should not go negative. This is an empirical check, not a
+theorem, because the domain has open outflow boundaries.
+- On the solver's moments, `W ≥ 0` at every row of all 57 committed runs: the 54 corpus
+  configurations and the T2a, medium and fine validation CSVs. The old-convention `forces.csv`
+  contrast baseline is not among them, because `Ω` here follows the current kinematics.
+- `W` is strictly positive after the first row of every run, with
+  `min W[1:] / max|W| = 0.0059` across the runs. So under the opposite sign `W` would go negative in
+  every run, and the check tells the two signs apart.
+- Its increment from the end of the impulsive-start transient (`t = 0.005`) is also non-negative, so
+  the verdict does not rest on the transient alone. Increments over later windows can be negative:
+  the power dips below zero within a beat, on up to 23 % of rows.
+- Measured, not asserted: the verdict is unchanged with `Ω` shifted one step either way, so a
+  one-step offset between the recorded force and the kinematics would not change it.
+
+`tests/test_ib_force_sign_convention.py` pins the inequalities above (the margin, the 23 % and the
+shift are measurements), along with two further checks: the raw force and moment share one
+convention, and the coefficients satisfy the mirror inequality.
+
 ## Simulation deck mapping
 
 `examples/flapping_wing/inputs.3d.validation` places the wing in this convention: **x = chord**

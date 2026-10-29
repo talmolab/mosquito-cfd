@@ -44,11 +44,10 @@ DEFAULT_CONTAINER_WORKSPACE = "/workspace"
 DEFAULT_RUNS_SUBDIR = "runs"
 DEFAULT_IAMREX_BINARY = "/opt/cfd/IAMReX/Tutorials/FlowPastSphere/amr3d.gnu.MPI.CUDA.ex"
 DEFAULT_WING_VERTEX = "/workspace/wing.vertex"
-# Default per-run IB-particle CSV name — PR4's extract_forces.py driver contract. This is the
-# **assumed** force-CSV name and is **not yet verified against a real IAMReX run** (the repo
-# .gitignore hints forces may instead land in forces.csv); both run_sweep and the driver expose a
-# ``csv_name`` / ``--csv-name`` override, mirroring extract_forces.py, so a wrong guess costs a flag
-# rather than a wasted A40 corpus.
+# Default per-run IB-particle CSV name — PR4's extract_forces.py driver contract, verified against
+# the A40 corpus (PR #18); see issue #19. Both run_sweep and the driver keep a ``csv_name`` /
+# ``--csv-name`` override, mirroring extract_forces.py, as an escape hatch should a future solver
+# build write forces under another name.
 IB_PARTICLE_CSV = "IB_Particle_1.csv"
 # Per-run solver-output log (stdout+stderr) written next to the CSV, so a failed/anomalous run on
 # an unattended corpus is diagnosable from the solver's own output (the runs/ tree is gitignored).

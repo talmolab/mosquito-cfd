@@ -6,6 +6,9 @@ convention (``F_ref = 0.5*rho*omega**2*S_yy`` via the single-source helper). The
 6-DOF momentum-balance force are reported **separately**, with their formula locked to the
 IAMReX ``WriteIBForceAndMoment`` definition (not tuned to make the gate pass).
 
+Sign: ``ib_force`` acts on the fluid. The coefficient sign convention is stated in
+``docs/coordinate-convention.md#force-and-moment-sign``.
+
 IAMReX force semantics (``IAMReX-fork/Source/DiffusedIB.cpp``):
   - ``Fx/Fy/Fz`` columns are ``kernel.ib_force`` (the accumulated immersed-boundary force).
   - ``SumU{x,y,z}`` columns are written as ``(sum_u_new - sum_u_old)/dt`` (line ~1261) — i.e.
@@ -55,8 +58,8 @@ VAN_VEEN_BAND = (0.5, 1.5)
 # PDF Fig 4a/4b/4e + eqs 3.1-3.8, in our F_ref = 0.5*rho*omega^2*S_yy normalization). The wing-normal
 # translational coefficient follows a least-squares sine fit C_Fz,transl(alpha) ~ 3.4*sin(alpha)
 # (peak ~3.4 at alpha=90 deg, ~2.4 at the alpha=45 deg pitch amplitude); the chord-wise tangential
-# coefficient is small (~0.2-0.3 peak). CAVEAT (applies to BOTH components): our ib_force is the
-# TOTAL hydrodynamic force, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
+# coefficient is small (~0.2-0.3 peak). CAVEAT (applies to BOTH components): our IB force is the
+# sum of all mechanisms, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
 # (van Veen decomposes F into translational + added-mass + Wagner, eqs 3.1-3.8). So the comparison is
 # total (ours) vs translational (target): our CF_normal ~ van Veen's normal because the added-mass (+)
 # and Wagner (-) contributions roughly cancel in the wing-normal at this condition; our CF_chord runs

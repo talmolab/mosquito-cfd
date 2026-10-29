@@ -105,6 +105,50 @@ def euler_angles(
     return float(phi), float(alpha), float(theta)
 
 
+def angular_velocity(
+    time: float | NDArray[np.floating],
+    *,
+    frequency: float,
+    stroke_amp_rad: float,
+    pitch_amp_rad: float,
+    deviation_amp_rad: float = 0.0,
+) -> NDArray[np.float64]:
+    """Lab-frame wing angular velocity ``Ω`` for ``R = Rz(φ)·Ry(α)·Rx(θ)`` (issue #109).
+
+    ``Ω = φ̇·ẑ + α̇·Rz(φ)·ŷ + θ̇·Rz(φ)·Ry(α)·x̂`` — the axial vector of ``Ṙ·Rᵀ`` (lab axes, not the
+    body-axis ``Rᵀ·Ṙ``), with the angles of :func:`euler_angles`. The force-sign oracle uses it
+    (``docs/coordinate-convention.md#force-and-moment-sign``).
+
+    Args:
+        time: Simulation time [dimensionless]; a scalar or an array.
+        frequency: Flap frequency ``f*`` (wingbeats per time unit).
+        stroke_amp_rad: Stroke amplitude [rad].
+        pitch_amp_rad: Pitch amplitude [rad].
+        deviation_amp_rad: Deviation amplitude [rad]; default 0.
+
+    Returns:
+        ``Ω`` in rad/time, with shape ``time.shape + (3,)``: ``(3,)`` for a scalar ``time``.
+    """
+    t = np.asarray(time, dtype=float)
+    w = 2.0 * np.pi * frequency
+    phi = stroke_amp_rad * np.sin(w * t)
+    alpha = pitch_amp_rad * np.cos(w * t)
+    phi_dot = stroke_amp_rad * w * np.cos(w * t)
+    alpha_dot = -pitch_amp_rad * w * np.sin(w * t)
+    theta_dot = 2.0 * deviation_amp_rad * w * np.cos(2.0 * w * t)
+    cp, sp = np.cos(phi), np.sin(phi)
+    ca, sa = np.cos(alpha), np.sin(alpha)
+    # Rz(φ)·ŷ = (−sin φ, cos φ, 0); Rz(φ)·Ry(α)·x̂ = (cos φ cos α, sin φ cos α, −sin α).
+    return np.stack(
+        [
+            -alpha_dot * sp + theta_dot * cp * ca,
+            alpha_dot * cp + theta_dot * sp * ca,
+            phi_dot - theta_dot * sa,
+        ],
+        axis=-1,
+    )
+
+
 def stroke_rate(
     time: float,
     *,
