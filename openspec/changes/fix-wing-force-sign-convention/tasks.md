@@ -85,46 +85,46 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR1 — evidence and groundwork (no binaries; "advances #109")
 
-1. [ ] Commit the approved change directory: `chore(openspec): add approved proposal …`.
+1. [x] Commit the approved change directory: `chore(openspec): add approved proposal …`.
 
 ## 1. Canonical angular velocity
 
-2. [ ] **Test first:** `angular_velocity` equals the skew part of `Ṙ Rᵀ` from a central finite
+2. [x] **Test first:** `angular_velocity` equals the skew part of `Ṙ Rᵀ` from a central finite
    difference of `rotation_matrix`.
    - Tolerances: `h=1e-6`, `rtol=1e-6`, `atol=1e-9·max|Ω|`.
    - Check ≥ 20 times, with nonzero stroke, pitch and deviation amplitudes.
    - Known answers with `deviation_amp=0`: `t=0` gives `(0, 0, φ_amp·2πf)`, and the stroke term is zero
      at the quarter beat.
-3. [ ] Implement `wing_kinematics.angular_velocity`. Mutants that must fail test 2: `α̇` sign flipped,
+3. [x] Implement `wing_kinematics.angular_velocity`. Mutants that must fail test 2: `α̇` sign flipped,
    `Rz(φ)` dropped on the pitch axis, deviation term dropped, `RᵀṘ` used.
 
 ## 2. Physics guards (`tests/test_ib_force_sign_convention.py`)
 
-4. [ ] **Test first, raw work (never xfail).** Over 57 runs:
+4. [x] **Test first, raw work (never xfail).** Over 57 runs:
    - `W ≥ 0` at every row, and `W(t) − W₀ ≥ 0` after `W₀` (the first row with `t ≥ STEADY_WINDOW_T0`).
    - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails.
    - Keep-last dedup.
    - **Deck mapping by sha256** against `run_metadata_t2a/t3b/t3c.json` `inputs.hash`, with the hinge
      literal `(4.0, 0.5, 4.0)`. `X,Y,Z` is a sanity check only (design D3).
-5. [ ] **Test first, raw consistency (never xfail):** `corr(Mz, −Fx) > 0` and `corr(Mx, Fz) > 0` on the
+5. [x] **Test first, raw consistency (never xfail):** `corr(Mz, −Fx) > 0` and `corr(Mx, Fz) > 0` on the
    unshifted columns, per run.
-6. [ ] **Test first, coefficient side.** Over 54 configs:
+6. [x] **Test first, coefficient side.** Over 54 configs:
    - `W_wing ≤ 0` (rows and late increment) and `corr(CF_mz, −CF_x) > 0`.
    - The sign predicates raise `CoefficientsOnFluid(AssertionError)`; the non-vacuity checks are plain
      asserts.
    - Mark `xfail(strict=True, raises=CoefficientsOnFluid, reason="#109: the committed corpus coefficients carry the solver's on-fluid sign until re-extraction")`.
-7. [ ] Run every row of the design D3 mutation table on saved-bytes copies, including "one config
+7. [x] Run every row of the design D3 mutation table on saved-bytes copies, including "one config
    dropped under the xfail → FAIL". Record the measured counts. A row that differs from the design is a
    finding to reconcile.
 
 ## 3. Helper and docstrings
 
-8. [ ] **Test first:** `force_on_wing(a, b, c) == (−a, −b, −c)`. Dtype and shape are kept;
+8. [x] **Test first:** `force_on_wing(a, b, c) == (−a, −b, −c)`. Dtype and shape are kept;
    `−0.0`/NaN/inf propagate; empty in gives empty out; a scalar works. Also
    `IB_FORCE_ACTS_ON == "fluid"`.
-9. [ ] Implement `force_on_wing` and `IB_FORCE_ACTS_ON` in `normalization.py`. No caller yet. The
+9. [x] Implement `force_on_wing` and `IB_FORCE_ACTS_ON` in `normalization.py`. No caller yet. The
    docstring links the section.
-10. [ ] **Test first:** the `ForceCoefficients` / `MomentCoefficients` docstrings, and the
+10. [x] **Test first:** the `ForceCoefficients` / `MomentCoefficients` docstrings, and the
     `compute_force_coefficients` docstring (`normalization.py:356`):
     - say the container is sign-agnostic;
     - link `docs/coordinate-convention.md#force-and-moment-sign`;
@@ -135,7 +135,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 ## 4. Canonical section, guards, #19, docstring fix
 
-11. [ ] **Test first**, in `tests/test_coordinate_convention_sign.py` using helpers in
+11. [x] **Test first**, in `tests/test_coordinate_convention_sign.py` using helpers in
     `tests/_readme_guards.py`:
     - There is exactly one `## Force and moment sign` section, with slug `force-and-moment-sign`.
     - It names `ib_force`/`ib_moment` on the fluid and the coefficients as the IB force on the wing.
@@ -146,23 +146,47 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
       requirement. This negative check shares a test with the positive one.
     - The **link list** test for PR1's entries: the two coefficient docstrings, `force_on_wing`, and
       `flapping_wing.py`.
-12. [ ] **Test first — pending phrases track their conditions.** Each phrase is its exact pinned
+12. [x] **Test first — pending phrases track their conditions.** Each phrase is its exact pinned
     literal (CC requirement), and occurs once iff its condition holds, else not at all (design D4).
     Test both directions:
     - **corpus:** a saved-bytes parquet copy with only `CF_*` negated;
     - **flapping-wing:** `force_on_wing` monkeypatched at the `flapping_wing` use site (identity vs
       negation). A negated CSV cannot test this condition;
     - **surrogate:** README copies with and without the banner, on both corpora.
-13. [ ] Write the section in the present tense, with the corpus and flapping-wing phrases. There is no
+13. [x] Write the section in the present tense, with the corpus and flapping-wing phrases. There is no
     banner yet, so no surrogate phrase.
-14. [ ] **Test first, then fix:** `flapping_wing.py`'s module docstring no longer calls `ib_force` "the
+14. [x] **Test first, then fix:** `flapping_wing.py`'s module docstring no longer calls `ib_force` "the
     TOTAL hydrodynamic force" (`:58-62`), and it links the section.
-15. [ ] **Test first, then fix (#19):** none of `runner.py`, `run_one_config.py` and the argo template
+15. [x] **Test first, then fix (#19):** none of `runner.py`, `run_one_config.py` and the argo template
     contains `assum` or `not yet verified` **anywhere** (case-insensitive). Each contains "verified
     against the A40 corpus (PR #18)".
 16. [ ] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
     approval before pushing.** Open PR1 with "advances #109", mentioning #19 without a keyword; close
     #19 by hand after merge.
+
+### PR1 implementation notes (deviations recorded, not silent)
+
+- **Task 11.** The section guards and condition helpers live in
+  `tests/test_coordinate_convention_sign.py`; only `_section` is reused from
+  `tests/_readme_guards.py`. They check the section, its slug, the evidence scan, the PR1 link list
+  and the TOTAL-claim removal.
+  - The evidence scan covers whole `src/**/*.py` files, comments as well as docstrings, which is
+    stricter than the design's "docstrings".
+  - Every check collapses whitespace first, so a reflowed line cannot hide a phrase or token, nor break
+    one.
+- **Task 12.** In PR1, `flapping_wing` does not call `force_on_wing` yet. So the flapping-wing
+  condition's direction is tested by injecting a negating reconstruction, not by monkeypatching
+  `force_on_wing` at the use site. **PR2a task 21 replaces that test with the use-site monkeypatch**
+  that the CC scenario specifies.
+- **Task 14.** The false "TOTAL hydrodynamic force" text was a code comment (`flapping_wing.py:58-59`),
+  not the module docstring. The guard scans the module source, and the module docstring gains the
+  section link.
+- **Task 15.** The guard is `tests/test_ib_particle_csv_name_verified.py`. It strips only line-leading
+  comment markers before matching, so the `#` in "PR #18" survives.
+- **`angular_velocity` docstring.** It initially contained the evidence token `M_hinge · Ω`, which the
+  task-11 scan flagged. It now links the section instead.
+- **Kill tables.** 6/6 (`angular_velocity`), the design-D3 table reproduced row for row (sign guards),
+  7/7 (helper and docstrings), 13/13 (section guards), 3/3 (#19). They are recorded for the PR1 body.
 
 ---
 
@@ -184,6 +208,9 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     `plot_f1_forces` and `fig_v1_three_convention`:
     - series that *are* the IB force equal the pre-change on-fluid series bitwise;
     - composites equal their formula on the spied output (`cf_hydro`, `peak_cf_*_6dof`);
+    - replace PR1's injected-reconstruction test of the flapping-wing phrase condition
+      (`test_flapping_condition_flips_with_the_code_path`) with a monkeypatch of `force_on_wing` at
+      the `flapping_wing` use site (PR1 implementation notes, task 12);
     - across all calls, the multiset of arrays passed equals the expected set, each once.
 22. [ ] **Test first, the relabelled diagnostic:**
     - Keys `peak_cf_*_{6dof,ib}`, and `drop_frac = 1 − ib/6dof`.
