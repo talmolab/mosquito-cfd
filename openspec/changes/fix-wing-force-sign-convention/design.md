@@ -57,6 +57,12 @@ before pre-registration are marked.
    - With `W₀` the value at the first row with `t ≥ 0.05`, the late increment `W(t) − W₀` is never
      negative.
    - The impulsive start supplies 31–65 % of `W₀`, which is why the late form is guarded too.
+   - **Revised in the PR1 review (`/review-pr 134`).** The late form is start-specific: it holds
+     for every `t₀` in [0.001, 0.05] but fails 14/57 runs from `t₀ = 0.1` and 45/57 from 0.2,
+     because the power is negative within a beat on up to 23 % of rows. The guard therefore
+     starts it at the end of the impulsive-start transient (`t ≥ 0.005`, the bound in the
+     `STEADY_WINDOW_T0` comment), where it holds 57/57. The margin that lets `W ≥ 0` go untoleranced is `min W[1:] / max|W| = 0.0059`. Shifting
+     `Ω` one step either way changes nothing (57/57 both ways).
    - On coefficient-scaled moments, `min W` over `t ≥ 0.05` is +0.961 (fine corpus) and +2.10 (coarse
      corpus).
    - Under the opposite convention every run would be ≤ 0.
@@ -138,9 +144,10 @@ returns lab-frame `Ω = φ̇ ẑ + α̇ Rz(φ) ŷ + θ̇ Rz(φ)Ry(α) x̂`. It i
 Guards in `tests/test_ib_force_sign_convention.py`:
 
 - **Raw, on-fluid, 57 runs.**
-  - Assertions: `W ≥ 0` at every row, and `W(t) − W₀ ≥ 0` after `W₀` (the first row with
-    `t ≥ STEADY_WINDOW_T0`).
-  - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails.
+  - Assertions: `W ≥ 0` at every row, `W > 0` after the first, and `W(t) − W₀ ≥ 0` after `W₀` (the
+    first row with `t ≥ 0.005`, the end of the impulsive-start transient).
+  - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails. Corpus
+    runs start at `t = 0` with strictly increasing time.
   - Keep-last `iStep` dedup.
   - **Deck mapping by sha256.** Each validation CSV's deck sha equals the `inputs.hash` in its run
     metadata: `forces_t2a_newconv.csv` → `inputs.3d.validation` (`run_metadata_t2a.json`, `f9b69d98…`),
@@ -153,7 +160,8 @@ Guards in `tests/test_ib_force_sign_convention.py`:
 - **Coefficients, on-wing, 54 corpus configurations.**
   - Assertions: `W_wing ≤ 0` (rows and late increment) and `corr(CF_mz, −CF_x) > 0`.
   - The sign predicates raise a dedicated `CoefficientsOnFluid(AssertionError)`; the non-vacuity checks
-    use plain `assert`.
+    use plain `assert`. They include `CF_*` finite and equal to `|F|/f_ref`, `|M_hinge|/m_ref` in
+    magnitude, so zeroed, NaN or rescaled coefficients FAIL rather than XFAIL.
   - In PR1 the test is `xfail(strict=True, raises=CoefficientsOnFluid)`. A non-vacuity break therefore
     FAILs rather than XFAILs, and task 7 includes that mutant.
   - The raw-side checks live in separate, never-xfail tests.

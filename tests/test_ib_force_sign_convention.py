@@ -167,6 +167,7 @@ def _validation_runs() -> tuple[_Run, ...]:
         raw = pd.read_csv(_FLAPPING / csv_name)
         raw = raw.drop_duplicates(subset="iStep", keep="last")  # ns.init_iter rows
         t = raw["time"].to_numpy(float)
+        assert t.size and t[0] == 0.0, f"{csv_name}: does not start at rest"
         assert np.all(np.diff(t) > 0), f"{csv_name}: time not strictly increasing"
         origin = raw[["X", "Y", "Z"]].to_numpy(float)
         # Sanity only: every flapping-wing deck shares this particle origin.

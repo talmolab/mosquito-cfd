@@ -51,8 +51,9 @@ difference of `rotation_matrix`.
   - Duplicate `iStep` rows are kept last, as the extractor does.
 - **When** `W(t) = ∫₀ᵗ M_hinge · Ω dt` is integrated (trapezoidal) from the first row
 - **Then** `W(t) ≥ 0` at every row, with no tolerance, in every run
-- **And** with `W₀` the value at the first row with `t ≥ STEADY_WINDOW_T0`, the late increment `W(t) − W₀ ≥ 0` for every later row. The verdict therefore does not rest on the impulsive start, which supplies 31–65 % of `W₀`.
-- **And** the check covers exactly 57 runs, each with at least 2 rows at `t ≥ STEADY_WINDOW_T0`. A NaN anywhere in `W`, a zero-row run or a too-short run fails rather than passing.
+- **And** `W(t) > 0` at every row after the first, so the opposite sign would fail every run (measured margin `min W[1:] / max|W| = 0.0059`)
+- **And** with `W₀` the value at the first row after the impulsive-start transient (`t ≥ 0.005`, per the comment on `STEADY_WINDOW_T0`), the increment `W(t) − W₀ ≥ 0` for every later row, so the verdict does not rest on the transient alone. Increments over arbitrary later windows are not asserted: the power dips below zero within a beat.
+- **And** the check covers exactly 57 runs, each starting at `t = 0` (from rest) with strictly increasing time and at least 2 rows at `t ≥ 0.005`. A NaN anywhere in `W`, a zero-row run or a too-short run fails rather than passing.
 
 #### Scenario: Raw force and moment share one convention
 
@@ -67,7 +68,7 @@ difference of `rotation_matrix`.
 - **When** `W_wing(t) = ∫₀ᵗ CF_m · Ω dt` is integrated and `CF_mz` is compared with `CF_x`
 - **Then** `W_wing(t) ≤ 0` at every row and its late increment is `≤ 0`, so the fluid does net negative work on the wing
 - **And** `corr(CF_mz, −CF_x) > 0` in every configuration, so a half-flip inside extraction (only the force or only the moment coefficients negated) fails
-- **And** the sign predicates signal failure with a dedicated `CoefficientsOnFluid` error, so a corpus carrying on-fluid coefficients fails with exactly that error. The non-vacuity checks use plain assertions.
+- **And** the sign predicates signal failure with a dedicated `CoefficientsOnFluid` error, so a corpus carrying on-fluid coefficients fails with exactly that error. The non-vacuity checks use plain assertions: every `CF_*` is finite and equals `|F|/f_ref` or `|M_hinge|/m_ref` in magnitude, so zeroed, NaN or rescaled coefficients fail even under the xfail.
 
 ### Requirement: Sign re-extraction and retrain pass pre-registered gates
 

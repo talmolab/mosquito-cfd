@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Force/moment sign groundwork (PR1 of four for #109; no data or behaviour change yet).
   - `docs/coordinate-convention.md` gains a `## Force and moment sign` section. It states that IAMReX's `ib_force`/`ib_moment` act on the fluid and that derived wing coefficients are to be the IB force and moment on the wing. Pinned pending notes record that the committed corpus coefficients and flapping-wing series still carry the on-fluid sign; a guard ties each note to its data or code path.
-  - `tests/test_ib_force_sign_convention.py` pins the convention by physics. Over all 57 committed runs, the work the solver's hinge-referenced moments do from rest is non-negative at every row and in its increment after `t = 0.05`, and raw force and moment share one convention. The coefficient-side mirror is a strict xfail until the corpora are re-extracted.
+  - `tests/test_ib_force_sign_convention.py` pins the convention by physics. Over all 57 committed runs, the work the solver's hinge-referenced moments do from rest is non-negative at every row and in its increment after the impulsive-start transient (`t = 0.005`), and raw force and moment share one convention. The coefficient-side mirror is a strict xfail until the corpora are re-extracted.
   - New helpers: `wing_kinematics.angular_velocity` (the lab-frame `Ω` of `R = Rz(φ)·Ry(α)·Rx(θ)`), and `force_surrogate.force_on_wing` and `IB_FORCE_ACTS_ON`, which nothing calls yet.
   - `ForceCoefficients`/`MomentCoefficients` are documented as sign-agnostic, and `cf_z` as the lab vertical rather than "span-normal".
   - The force-CSV name `IB_Particle_1.csv` is recorded as verified against the A40 corpus (#19).

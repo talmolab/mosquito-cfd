@@ -101,7 +101,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 ## 2. Physics guards (`tests/test_ib_force_sign_convention.py`)
 
 4. [x] **Test first, raw work (never xfail).** Over 57 runs:
-   - `W ≥ 0` at every row, and `W(t) − W₀ ≥ 0` after `W₀` (the first row with `t ≥ STEADY_WINDOW_T0`).
+   - `W ≥ 0` at every row, and `W(t) − W₀ ≥ 0` after `W₀` (the first row with `t ≥ 0.005`; see the
+     PR1 review-fix notes).
    - Non-vacuity: exactly 57 runs, ≥ 2 late rows each; a NaN, zero-row or too-short run fails.
    - Keep-last dedup.
    - **Deck mapping by sha256** against `run_metadata_t2a/t3b/t3c.json` `inputs.hash`, with the hinge
@@ -189,6 +190,33 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   task-11 scan flagged. It now links the section instead.
 - **Kill tables.** 6/6 (`angular_velocity`), the design-D3 table reproduced row for row (sign guards),
   7/7 (helper and docstrings), 13/13 (section guards), 3/3 (#19). They are recorded for the PR1 body.
+
+### PR1 review-fix notes (`/review-pr 134`, deviations recorded)
+
+- **Late increment starts at `t = 0.005`, not `STEADY_WINDOW_T0` (0.05).** Why 0.005 instead of
+  0.05: the late form is start-specific (it fails 14/57 runs from 0.1 and 45/57 from 0.2, because
+  the power dips below zero within a beat), so the claim it supports is "the verdict does not rest on the
+  impulsive transient alone". The transient's documented end is the right start for that claim. The
+  form holds 57/57 from any start in [0.001, 0.05]. Design D3 Evidence records the measurement.
+- **Coefficient guard non-vacuity.** `CF_*` must be finite and equal `|F|/f_ref`,
+  `|M_hinge|/m_ref` in magnitude, as plain asserts. Zeroed, NaN or 1e-12-rescaled coefficients now FAIL, not XFAIL.
+- **Pending-phrase conditions** check every force component (`CF_x..CF_z`; `cf_x_ib`,
+  `cf_z_ib`), and an all-zero raw component fails the guard rather than satisfying it. The moment coefficients are
+  covered by the coefficient guard's `corr(CF_mz, −CF_x)` check once PR2b lifts its xfail.
+- **Direction tests are state-independent.** They build both signs from copies, so the corpus
+  and surrogate tests need no edit in PR2a, PR2b or PR3; no task had planned one. The flapping
+  test is state-independent too, but PR2a task 21 still replaces it with the use-site
+  monkeypatch the CC scenario specifies.
+- **Evidence scan** uses one regex for both directions; HTML comments are stripped before counting
+  phrases; the section test also requires the coefficient list.
+- **#19 guard** matches only the stale phrasings and pins the escape-hatch code in each file.
+- **`angular_velocity`** is tied to `rotation_matrix(*euler_angles(t))` in the finite-difference
+  test.
+- **`force_on_wing`** accepts floating components only (an unsigned or bool negation wraps or
+  fails) and keeps masked arrays masked; `IB_FORCE_ACTS_ON` is typed `Final`.
+- **Validation CSVs** must also start at `t = 0` (fresh docs review).
+- **Kill tables (round 1 fixes):** 21/21 guard mutants killed, 6 baselines as expected, and the
+  unrelated "assume" control passes; `force_on_wing` 3/3.
 
 ---
 
