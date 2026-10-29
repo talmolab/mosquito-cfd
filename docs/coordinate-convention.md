@@ -198,15 +198,20 @@ third law. That covers:
 - the body-frame `CF_chord`/`CF_normal`;
 - the T4 CFD series.
 
-The negation is applied in one place, `mosquito_cfd.force_surrogate.force_on_wing`. The raw columns
-keep the solver's values ([raw vs derived](#moments)).
+The wing paths apply the negation only through `mosquito_cfd.force_surrogate.force_on_wing`, and
+the raw columns keep the solver's values ([raw vs derived](#moments)). The paths not yet converted
+are flagged by the pending notes below.
 
 Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
 
 Pending #109: the flapping-wing series still carry the solver's on-fluid sign.
 
-No coefficient includes the internal-fluid term `ρ_f·SumU`. The solver's free-body 6-DOF balance
-would add it, but the solver never evaluates that balance for the prescribed-motion wing. For this
+The flapping-wing note covers the lab-frame, body-frame and T4 CFD series alike.
+
+No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
+reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body
+6-DOF balance would add the term, but the solver never evaluates that balance for the
+prescribed-motion wing. For this
 zero-thickness wing the term is the momentum change of fluid within about one grid cell of the
 sheet, so it depends on the grid. Its physical status is an open follow-up question.
 
@@ -219,7 +224,8 @@ boundaries.
 - On the solver's moments, `W ≥ 0` at every row of all 57 committed runs: the 54 corpus
   configurations and the T2a, medium and fine validation CSVs.
 - Its increment after `t = 0.05` is also non-negative.
-- Under the opposite sign, every run would be non-positive.
+- `W` is strictly positive after the first row of every run, so under the opposite sign `W` would go
+  negative in every run. The check tells the two signs apart.
 
 `tests/test_ib_force_sign_convention.py` pins this, along with two further checks: the raw force and
 moment share one convention, and the coefficients satisfy the mirror inequality.

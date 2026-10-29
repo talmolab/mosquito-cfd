@@ -191,6 +191,11 @@ def _work_violations(name: str, time, moment, omega, *, sign: int) -> list[str]:
     late = _late(time)
     increment = work[late] - work[np.argmax(late)]
     problems = []
+    if not (work[1:] > 0).all():
+        # Non-vacuity: all-zero moments (e.g. a broken parquet) would satisfy W >= 0 trivially.
+        problems.append(
+            f"{name}: {sign:+d}·W not strictly positive after the first row"
+        )
     if (work < 0).any():
         problems.append(f"{name}: min {sign:+d}·W = {work.min():.4g}")
     if (increment < 0).any():

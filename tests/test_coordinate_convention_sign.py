@@ -52,7 +52,10 @@ SURROGATE_PHRASE = (
     "negate their outputs."
 )
 _BANNER = "are stale against `dataset.parquet`"
-_COARSE_PARQUET = _ROOT / "examples" / "prelim_sweep" / "dataset.parquet"
+_CORPUS_PARQUETS = (
+    _ROOT / "examples" / "prelim_sweep" / "dataset.parquet",
+    _ROOT / "examples" / "prelim_sweep_fine" / "dataset.parquet",
+)
 _T2A_CSV = _ROOT / "examples" / "flapping_wing" / "forces_t2a_newconv.csv"
 _CORPUS_READMES = (
     _ROOT / "examples" / "prelim_sweep" / "README.md",
@@ -80,8 +83,8 @@ def _github_slug(heading: str) -> str:
     return re.sub(r"\s+", "-", re.sub(r"[^\w\s-]", "", text))
 
 
-def corpus_coefficients_on_wing(parquet: Path = _COARSE_PARQUET) -> bool:
-    """Whether the corpus ``CF_x`` is the on-wing ``−Fx/f_ref`` (the corpus phrase's condition)."""
+def _parquet_on_wing(parquet: Path) -> bool:
+    """Whether one corpus's ``CF_x`` is the on-wing ``−Fx/f_ref``."""
     df = pd.read_parquet(
         parquet, columns=["stroke_amp_deg", "frequency_fstar", "Fx", "CF_x"]
     )
@@ -92,6 +95,15 @@ def corpus_coefficients_on_wing(parquet: Path = _COARSE_PARQUET) -> bool:
         ]
     )
     return bool(np.allclose(df["CF_x"], -df["Fx"] / f_ref, rtol=1e-9, atol=1e-12))
+
+
+def corpus_coefficients_on_wing(parquets: tuple[Path, ...] = _CORPUS_PARQUETS) -> bool:
+    """The corpus phrase's condition: **both** corpora carry the on-wing sign.
+
+    One corpus flipped without the other must keep the phrase, so the page cannot run ahead of
+    either corpus.
+    """
+    return all(_parquet_on_wing(p) for p in parquets)
 
 
 def flapping_series_on_wing(
@@ -139,9 +151,19 @@ def test_work_inequality_evidence_lives_only_in_the_sign_section():
     """
     section = _sign_section()
     assert any(tok in section for tok in _EVIDENCE_TOKENS)
-    tracked = subprocess.run(
-        ["git", "ls-files"], cwd=_ROOT, capture_output=True, text=True, check=True
-    ).stdout.splitlines()
+    # -z: NUL-separated, so a non-ASCII path is not C-quoted; skip tracked-but-deleted paths.
+    tracked = [
+        p
+        for p in subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout.split("\0")
+        if p and (_ROOT / p).is_file()
+    ]
     candidates = [
         p
         for p in tracked
@@ -185,15 +207,23 @@ def test_each_pending_phrase_tracks_its_condition():
         assert section.count(phrase) == (1 if needed else 0), (phrase, needed)
 
 
-def test_corpus_condition_flips_on_a_negated_coefficient_copy(tmp_path):
-    """Both directions of the corpus phrase's condition, on a saved copy with only ``CF_*`` negated."""
+def test_corpus_condition_flips_on_negated_coefficient_copies(tmp_path):
+    """Both directions of the corpus phrase's condition, on copies with only ``CF_*`` negated.
+
+    Only both corpora flipped satisfies it; one flipped alone does not.
+    """
     assert corpus_coefficients_on_wing() is False
-    df = pd.read_parquet(_COARSE_PARQUET)
-    cf = [c for c in df.columns if c.startswith("CF_")]
-    df[cf] = -df[cf]
-    flipped = tmp_path / "dataset.parquet"
-    df.to_parquet(flipped, index=False)
-    assert corpus_coefficients_on_wing(flipped) is True
+    flipped = []
+    for i, src in enumerate(_CORPUS_PARQUETS):
+        df = pd.read_parquet(src)
+        cf = [c for c in df.columns if c.startswith("CF_")]
+        df[cf] = -df[cf]
+        dst = tmp_path / f"dataset_{i}.parquet"
+        df.to_parquet(dst, index=False)
+        flipped.append(dst)
+    assert corpus_coefficients_on_wing(tuple(flipped)) is True
+    assert corpus_coefficients_on_wing((flipped[0], _CORPUS_PARQUETS[1])) is False
+    assert corpus_coefficients_on_wing((_CORPUS_PARQUETS[0], flipped[1])) is False
 
 
 def test_flapping_condition_flips_with_the_code_path():

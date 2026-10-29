@@ -161,8 +161,10 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     contains `assum` or `not yet verified` **anywhere** (case-insensitive). Each contains "verified
     against the A40 corpus (PR #18)".
 16. [ ] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
-    approval before pushing.** Open PR1 with "advances #109", mentioning #19 without a keyword; close
-    #19 by hand after merge.
+    approval before pushing.** Open PR1 with "advances #109", mentioning #19 without a keyword. #19
+    stays open until the OpenSpec archive after PR3: its list includes the live spec text
+    (`force-surrogate/spec.md:775`), which changes only when the delta is archived. Close #19 by hand
+    then.
 
 ### PR1 implementation notes (deviations recorded, not silent)
 
@@ -384,4 +386,5 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     "Closes #109." on its own line. Then commit the PR number into `sweep_provenance.json` and its test.
     Add the stale T4 literals to #115.
 53. [ ] After merge: `/cleanup-merged`, including the OpenSpec archive (a separate `chore(openspec):
-    archive …` commit on `main`) and the roadmap update.
+    archive …` commit on `main`) and the roadmap update. After the archive, confirm the live spec no
+    longer says "not yet verified", and close #19 by hand.
