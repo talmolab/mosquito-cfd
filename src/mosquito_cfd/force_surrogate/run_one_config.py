@@ -328,8 +328,8 @@ def main(argv: list[str] | None = None, *, mpi_runner: MpiRunner | None = None) 
     parser.add_argument("--wing-vertex", default=DEFAULT_WING_VERTEX)
     parser.add_argument("--deck-path", default=None)
     parser.add_argument("--iamrex-binary", default=DEFAULT_IAMREX_BINARY)
-    # Escape hatch (mirrors PR3's run_sweep --csv-name): IB_Particle_1.csv is the assumed force-CSV
-    # name and is not yet verified against a real IAMReX run; a wrong guess costs a flag, not a corpus.
+    # Escape hatch (mirrors PR3's run_sweep --csv-name): IB_Particle_1.csv is the force-CSV name,
+    # verified against the A40 corpus (PR #18); kept overridable for a future solver build.
     parser.add_argument("--csv-name", default=IB_PARTICLE_CSV)
     parser.add_argument("--threshold", type=float, default=DEFAULT_COMPLETION_THRESHOLD)
     # Argo orchestrator provenance (optional; recorded under run_metadata "orchestration").
