@@ -40,6 +40,10 @@ _VV_BANDS = {
 }
 
 
+# Where each band's label sits (axes fraction): where no grid's curve crosses the band.
+_BAND_LABEL_X = {"cf_chord": 0.5, "cf_normal": 0.66}
+
+
 def make_figure(
     out: Path = _HERE / "figures" / "fig_force_timeseries_3grid.png",
 ) -> Path:
@@ -61,9 +65,9 @@ def make_figure(
         # Direct text annotation at right edge of band
         ax.annotate(
             lbl,
-            xy=(0.99, (ymin + ymax) / 2),
+            xy=(_BAND_LABEL_X[comp], (ymin + ymax) / 2),
             xycoords=("axes fraction", "data"),
-            ha="right", va="center", fontsize=8, color=color,
+            ha="left", va="center", fontsize=8, color=color,
             bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7),
         )
 
@@ -88,7 +92,8 @@ def make_figure(
         grid_handles = [(h, lb) for h, lb in zip(handles, labels) if "van Veen" not in lb]
         if grid_handles:
             hs, ls = zip(*grid_handles)
-            ax.legend(hs, ls, fontsize=9, loc="upper right", framealpha=0.85)
+            loc = "lower right" if ax is ax_chord else "upper left"
+            ax.legend(hs, ls, fontsize=9, loc=loc, framealpha=0.85)
 
     ax_normal.set_xlabel("Time  (wingbeats)", fontsize=10)
     ax_normal.set_xlim(_WINDOW_T0, 1.0)

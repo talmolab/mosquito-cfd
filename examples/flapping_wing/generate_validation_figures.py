@@ -62,7 +62,7 @@ def fig_v1_three_convention(out_dir: Path) -> dict:
             ax.axhspan(s * _BAND[0], s * _BAND[1], color="green", alpha=0.08)
         ax.axhline(0, color="gray", lw=0.5, ls="--")
         ax.set_ylabel(lab)
-        ax.legend(fontsize=8, loc="upper right")
+        ax.legend(fontsize=8, loc="lower left" if ax is axx else "upper right")
         ax.grid(alpha=0.25)
     axz.set_xlabel("time (wingbeats)")
     axx.set_title("V1  Three normalization conventions vs van Veen band [0.5,1.5]\n"
@@ -158,7 +158,7 @@ def fig_v4_added_mass(out_dir: Path) -> dict:
         ax.plot(d.time[m], fh[m], color="#d62728", lw=1.2, ls="--", label="6-DOF F_hydro")
         ax.axhline(0, color="gray", lw=0.5, ls="--")
         ax.set_ylabel(lab)
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc="lower left" if ax is axx else "lower right")
         ax.grid(alpha=0.25)
     axz.set_xlabel("time (wingbeats)")
     axx.set_title(f"V4  Internal-fluid term ρ_f·SumU (reported, NOT gated)\n"

@@ -83,14 +83,14 @@ def make_figure(
     # The model's return-stroke lobe has the opposite sign to the CFD's: T4 feeds the model our
     # signed pitch rather than van Veen's angle of attack (#133). The graded check uses |peak|.
     ax_normal.text(
-        0.98,
-        0.03,
+        1.0,
+        -0.24,
         "graded on |peak|. The model's return-stroke lobe is\n"
         "inverted: it uses the signed pitch, not the angle\n"
         "of attack (#133)",
         transform=ax_normal.transAxes,
         ha="right",
-        va="bottom",
+        va="top",
         fontsize=7.5,
         color="#444444",
     )

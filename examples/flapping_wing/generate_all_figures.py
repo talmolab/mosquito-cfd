@@ -313,7 +313,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax2.plot(t_s, CF_y, color=GREEN, lw=1.5, alpha=0.8, ls="--", label="CF_y (span)")
     ax2.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
     ax2.set_ylabel("CF (lab frame)", fontsize=9)
-    ax2.legend(fontsize=8, loc="upper right")
+    ax2.legend(fontsize=8, loc="lower right")
     plt.setp(ax2.get_xticklabels(), visible=False)
 
     # Panel 3: CF_z (lift / lab vertical force)
@@ -324,7 +324,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax3.axhline(-0.5, color=RED, lw=0.8, ls=":", alpha=0.5)
     ax3.set_ylabel("CF_z (lift)", fontsize=9)
     ax3.set_xlabel("Time t/T", fontsize=9)
-    ax3.legend(fontsize=8, loc="upper right")
+    ax3.legend(fontsize=8, loc="upper left")
 
     # Common x-axis label
     ax3.set_xlabel("Dimensionless time t/T", fontsize=10)
