@@ -283,7 +283,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     remove the `forces` subcommand.
 27. [x] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
     commit as 23.
-28. [ ] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
+28. [x] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
 29. [ ] **HUMAN CHECKPOINT before committing binaries.**
     - Render only the five functions (design D5), with PDF `CreationDate=None`. Render twice and `cmp`.
     - `git status --porcelain` lists exactly the 8 files, and `validation_figures_summary.json` is
@@ -320,6 +320,25 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   (sign bypassed or doubled in the lab path; the hydro sign and its `rho_f`; the body path bypassed;
   the 6-DOF sign and `rho_f`; each degeneracy floor alone; `drop_frac` inverted; the RMS share
   against the wrong force), F1 1/1, V1 1/1, RESULTS.md 6/6, `visualize.py` 1/1.
+- **Task 28 (pre-render review): no blocker; findings taken.**
+  - **T4 normal panel.** With the IB force on the wing, the CFD normal is positive on both
+    half-strokes, as hovering needs, while the model's return-stroke lobe is inverted. The cause is
+    in the model as T4 applies it: it is fed our signed pitch, not van Veen's angle of attack. Folding
+    the stroke direction in (`α·sign ω`, `|ω|`, `ω̇·sign ω`) on `forces_fine.csv` gives
+    correlation +0.99 and RMSE 0.16 against the CFD, versus −0.11 and 1.84 now. The fix is #133's own
+    change (user decision, 2026-11-02); the diagnosis is posted on #133. PR2a keeps the signed
+    curves and adds a panel note, a suptitle pointer, and a pending note at the top of RESULTS.md's
+    T4 section. The legend moves to lower left.
+  - **3-grid figure.** The mirrored negative normal band is dropped (user decision), with its
+    comment and the "±" label.
+  - **Wording.** The RMSE sentence names the sign mismatch, not the phase offset; "subtract the term"
+    and "84 % of chord RMS" are reworded for the relabelled diagnostic; leftover "lift" labels and
+    `ib_force` docstrings are fixed.
+  - **Reproducible PDFs.** The three PDF writers in the render set gain `metadata={"CreationDate":
+    None}`, which design D5 requires for the render-twice `cmp` gate.
+  - **Guards.** The T4 note and the positive-only band are pinned in
+    `test_flapping_wing_validation_figures.py` (both red against the pre-fix scripts), and the T4
+    pending note in `test_results_reproducibility.py` (mutant killed).
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 

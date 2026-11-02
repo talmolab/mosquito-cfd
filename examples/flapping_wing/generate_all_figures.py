@@ -334,7 +334,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     fig.text(0.5, -0.01, note, ha="center", fontsize=7, color="gray")
 
     out = figures_dir / "fig_forces.pdf"
-    fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out, bbox_inches="tight", dpi=150, metadata={"CreationDate": None})
     fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
     print(f"F1: {out} + .png")

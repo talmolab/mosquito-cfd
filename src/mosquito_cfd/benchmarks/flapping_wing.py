@@ -2,9 +2,9 @@
 
 Reconstructs force coefficients from the committed IB-particle CSV under the van Veen
 convention (``F_ref = 0.5*rho*omega**2*S_yy`` via the single-source helper). The
-**plausibility gate is graded on ``ib_force`` alone**; the added-mass term and the full
-6-DOF momentum-balance force are reported **separately**, with their formula locked to the
-IAMReX ``WriteIBForceAndMoment`` definition (not tuned to make the gate pass).
+**plausibility gate is graded on the IB force on the wing ``ib_w`` alone**; the added-mass term
+and the full 6-DOF momentum-balance force are reported **separately**, with their formula locked
+to the IAMReX ``WriteIBForceAndMoment`` definition (not tuned to make the gate pass).
 
 Sign: ``ib_force`` acts on the fluid, so every coefficient here is built from the IB force on the
 wing, ``ib_w = −ib_force``, applied once through ``force_on_wing``. The convention is stated in
@@ -23,7 +23,7 @@ IAMReX force semantics (``IAMReX-fork/Source/DiffusedIB.cpp``):
 Frame note (issue #1 / T2a): :func:`plausibility_gate` grades **lab-frame** coefficients as an
 O(1) **magnitude plausibility** check. The faithful **body-frame** per-component van Veen
 comparison is **delivered** by :func:`reconstruct_wing_body_forces` /
-:func:`body_frame_overall_match` (rotating ``ib_force`` into the wing frame by the analytic
+:func:`body_frame_overall_match` (rotating ``ib_w`` into the wing frame by the analytic
 ``R(t)``). The **per-component decomposition** against van Veen's quasi-steady model (translational +
 added-mass + Wagner) is **delivered** by :func:`decompose_wing_force` (Tier T4): the model is built
 from van Veen's published coefficients and replotted at our kinematics (Fig 4 = the coefficient-vs-α
@@ -203,7 +203,7 @@ def reconstruct_wing_forces(
 def plausibility_gate(
     decomp: WingForceDecomposition, window_t0: float = STEADY_WINDOW_T0
 ) -> dict:
-    """Grade the O(1) magnitude plausibility gate on ``ib_force`` ALONE over the steady window.
+    """Grade the O(1) magnitude plausibility gate on ``ib_w`` ALONE over the steady window.
 
     The ``VAN_VEEN_BAND`` ``(0.5, 1.5)`` is graded as a **lower-bound O(1) sanity floor** (T2b):
     the graded verdict is ``floor_pass`` — each peak ``|CF|`` clears the floor ``0.5`` (this caught
@@ -213,7 +213,7 @@ def plausibility_gate(
     a failure. The band *value* is unchanged — this is a grading-role change, not a loosening. The
     faithful per-component van Veen comparison is the body-frame decomposition, not this lab band.
 
-    The verdict is a function of ``ib_force`` only — the added-mass term cannot flip it. The
+    The verdict is a function of ``ib_w`` only — the added-mass term cannot flip it. The
     rotation-invariant resultant ``|CF| = sqrt(CF_x^2 + CF_z^2)`` is reported as the frame-honest
     companion.
     """
@@ -245,7 +245,7 @@ def plausibility_gate(
 def added_mass_fraction(
     decomp: WingForceDecomposition, window_t0: float = STEADY_WINDOW_T0
 ) -> dict:
-    """RMS fraction of the added-mass term relative to ``ib_force`` over the steady window."""
+    """RMS fraction of the added-mass term relative to ``ib_w`` over the steady window."""
     m = _steady_mask(decomp, window_t0)
 
     def frac(added, ib):
@@ -261,8 +261,8 @@ def added_mass_fraction(
 #
 # #36 graded a LAB-frame O(1) magnitude gate and deferred the faithful body-frame per-component
 # comparison to T2a (see the module frame caveat above). Here the lab-frame IB force on the wing
-# (ib_w = -ib_force) is rotated into the instantaneous WING body frame by the analytic R(t) from the kinematics mirror (the same
-# composition the solver applies), giving chord-wise CF_chord and wing-normal CF_normal in van
+# (ib_w = -ib_force) is rotated into the instantaneous WING body frame by the analytic R(t) from
+# the kinematics mirror (the same composition the solver applies), giving chord-wise CF_chord and wing-normal CF_normal in van
 # Veen's convention F = (F_x chord, F_z normal). The spanwise F_y is carried as a diagnostic
 # (cf_span) but van Veen ignores it. Rotation axes are passed EXPLICITLY (no hard-coded streamwise
 # axis) so the analysis layer cannot re-introduce a #1-style mislabel.
@@ -389,8 +389,8 @@ def reconstruct_wing_body_forces(
     """Body-frame CF_chord/CF_normal series from an IB-particle CSV via the analytic ``R(t)``.
 
     For each timestep the lab-frame IB force on the wing, ``ib_w = −(Fx,Fy,Fz)`` (via
-    ``force_on_wing``), is rotated into the wing body frame by ``R(t)`` from the kinematics mirror (:mod:`mosquito_cfd.benchmarks.wing_kinematics`), the same
-    composition the solver applies. ``F_ref`` comes from the single-source ``compute_force_reference``.
+    ``force_on_wing``), is rotated into the wing body frame by ``R(t)`` from the kinematics mirror
+    (:mod:`mosquito_cfd.benchmarks.wing_kinematics`), the same composition the solver applies. ``F_ref`` comes from the single-source ``compute_force_reference``.
 
     Args:
         csv_path: Path to the committed ``forces.csv`` (IB-particle output; must carry ``Fy``).
@@ -733,7 +733,7 @@ def body_frame_added_mass_subtracted(
 #
 # Builds van Veen's (2022) quasi-steady 3-component model (translational + added-mass + Wagner) on
 # OUR measured wing kinematics, normalizes each by the SAME single-source F_ref as the CFD CF, and
-# compares the model total (and components) to the CFD ib_force body-frame CF. Because both sides
+# compares the model total (and components) to the body-frame CF of the CFD ib_w. Because both sides
 # share the same kinematics and F_ref, the graded claim is "consistent with / validated AGAINST van
 # Veen's QS model at matched kinematics — in peak MAGNITUDE" (a plausibility result, NOT an
 # independent measurement of the per-component split; the CFD gives only the total).
@@ -797,7 +797,7 @@ def decompose_wing_force(
     window_t0: float = STEADY_WINDOW_T0,
     rho: float = RHO,
 ) -> dict:
-    """Grade the per-component van Veen decomposition against the CFD ``ib_force`` (Tier T4).
+    """Grade the per-component van Veen decomposition against the CFD ``ib_w`` (Tier T4).
 
     Reconstructs the CFD body-frame ``CF_chord``/``CF_normal`` from ``csv_path`` via the reused
     :func:`reconstruct_wing_body_forces` (not re-derived), builds van Veen's model total + components

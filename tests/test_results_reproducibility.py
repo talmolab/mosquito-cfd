@@ -307,7 +307,7 @@ def test_interim_framing_is_honest_and_disambiguated():
     assert "1094" in section and "39 %" in section and "47 %" not in section
     assert "added mass dominates" not in section
     # The IB-only residual is ~3x van Veen's 0.3; the 6-DOF 0.652 is ~2x.
-    assert "even ib-only, cf_chord ≈ 0.923" in section and "~3×" in section
+    assert "neither candidate does" in section and "~3×" in section
     assert "#135" in section
     # Disambiguation: body-frame shares vs lab-frame fractions — different frame + axis pairing.
     assert "stroke 37" in section and "lift 29" in section
@@ -552,5 +552,7 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert "#135" in flat and "#133" in flat
     assert "is the **total** hydrodynamic force" not in flat
     assert "coordinate-convention.md#force-and-moment-sign" in flat
+    # The T4 section flags that its normal-force numbers await the #133 model-sign fix.
+    assert "Pending [#133](" in flat and "should not be relied on until then" in flat
     t4 = doc[doc.index("**Reported (not gated):** the normal **peak-phase gap**") :]
     assert "#133" in t4[: t4.index("\n\n")]

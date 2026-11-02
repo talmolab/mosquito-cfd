@@ -29,13 +29,14 @@ _GRIDS = [
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _WINDOW_T0 = STEADY_WINDOW_T0
 
-# Van Veen reference bands — show on the dominant (positive-peak) half of each stroke.
-# CF_chord: translational→QS model peak range (0.30–0.43).
-# CF_normal: Richardson→van Veen QS target range (2.16–2.48); negative mirror added for
-# the return stroke so the band is visible on both sides.
+# Van Veen reference bands, drawn on the positive side as peak-magnitude ranges.
+# CF_chord: translational→QS model peak range (0.30–0.43); the CFD chord is near-symmetric, so
+# its |peak| can fall on either side.
+# CF_normal: Richardson→van Veen QS target range (2.16–2.48). The IB force on the wing keeps
+# the normal positive on both half-strokes, so no negative mirror is drawn.
 _VV_BANDS = {
     "cf_chord":  ("van Veen QS 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
-    "cf_normal": ("van Veen target ±[2.16–2.48]", 2.16, 2.48, "#2ca02c", 0.15),
+    "cf_normal": ("van Veen target 2.16–2.48", 2.16, 2.48, "#2ca02c", 0.15),
 }
 
 
@@ -57,9 +58,6 @@ def make_figure(
     for ax, comp in [(ax_chord, "cf_chord"), (ax_normal, "cf_normal")]:
         lbl, ymin, ymax, color, alpha = _VV_BANDS[comp]
         ax.axhspan(ymin, ymax, color=color, alpha=alpha, zorder=1)
-        if comp == "cf_normal":
-            # Mirror band for the return stroke (negative side)
-            ax.axhspan(-ymax, -ymin, color=color, alpha=alpha, zorder=1)
         # Direct text annotation at right edge of band
         ax.annotate(
             lbl,
@@ -77,7 +75,7 @@ def make_figure(
     # Styling — draw legend AFTER all artists are added
     for ax, ylabel, title in [
         (ax_chord,  "CF_chord  (tangential)",  "CF_chord — body-frame tangential force"),
-        (ax_normal, "CF_normal  (lift)",        "CF_normal — wing-normal force  (signed)"),
+        (ax_normal, "CF_normal  (wing-normal)",        "CF_normal — wing-normal force  (signed)"),
     ]:
         ax.set_ylabel(ylabel, fontsize=10)
         ax.set_title(title, fontsize=11, fontweight="bold")
@@ -103,7 +101,7 @@ def make_figure(
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     out.parent.mkdir(exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight", metadata={"CreationDate": None})
     plt.close(fig)
     return out
 
