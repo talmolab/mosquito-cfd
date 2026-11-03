@@ -291,8 +291,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - Check the 3-grid band side; add a structural test if it moves.
     - The PR2a figure scope is clean since rendering.
     - Record the generating commit and blob sizes in the PR body.
-30. [ ] Add the CHANGELOG entry. Run the suite and ruff. Check one blob per path. **Stop for approval
-    before pushing.** Open PR2a with "advances #109".
+30. [x] Add the CHANGELOG entry. Run the suite and ruff. Check one blob per path. **Stop for approval
+    before pushing.** Open PR2a with "advances #109". (Opened as #136.)
 
 ### PR2a implementation notes (deviations recorded, not silent)
 
