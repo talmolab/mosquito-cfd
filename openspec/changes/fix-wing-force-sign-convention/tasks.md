@@ -284,7 +284,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 27. [x] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
     commit as 23.
 28. [x] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
-29. [ ] **HUMAN CHECKPOINT before committing binaries.**
+29. [x] **HUMAN CHECKPOINT before committing binaries.**
     - Render only the five functions (design D5), with PDF `CreationDate=None`. Render twice and `cmp`.
     - `git status --porcelain` lists exactly the 8 files, and `validation_figures_summary.json` is
       unchanged.
