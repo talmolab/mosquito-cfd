@@ -189,7 +189,9 @@ root".
 IAMReX's `ib_force` and `ib_moment` (the `Fx..Mz` columns of `IB_Particle_*.csv`) are the force
 and moment the wing exerts **on the fluid**. Each marker's force `(U_wing − u*)/dt · dv` is added to
 the fluid's forcing field, and `ib_force` is their sum. Strictly, `ib_force` is force per unit fluid
-density; it equals the force here only because `ρ_f = 1`.
+density; it equals the force here only because `ρ_f = 1`. The flapping-wing analysis multiplies
+it by `ρ_f` and builds `F_ref = ½·ρ_f·ω²·S_yy` with the same `ρ_f`, so the density cancels from
+every coefficient.
 
 Every derived wing coefficient is defined as the **IB force and moment on the wing**, their negation
 by Newton's third law. That covers:

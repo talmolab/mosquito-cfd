@@ -384,6 +384,29 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     difference" double-counted (`SumU` is already a time difference) and is corrected.
   - **Kill table:** 17/17 on saved-bytes copies after a green baseline, including the validation
     placed after the read, which survived round 2's review.
+- **PR review round 3 (#136, narrow review of the round-2 code fix): no blocker.** Round 2 put
+  `ρ_f` on the force but left `F_ref` at `RHO`, so at `ρ_f ≠ 1` the lab coefficients scaled with
+  the density and the gate's floor check failed on `forces.csv` at `ρ_f = 0.5`. Latent: no caller
+  passes `rho_f`. Tasks:
+  - [x] R3.1 Spec deltas: `F_ref` is built with the same `ρ_f`, so every coefficient, ratio and the
+    gate verdict are density-independent; the density scenario becomes "the density cancels";
+    "same peaks" holds at any `ρ_f`; `numbers.Real`, `10**400` and the `float64` result named.
+  - [x] R3.2 Test first: invariance at `ρ_f = 0.5, 2, 1.3` (lab series, `f_ref = ρ_f·F_ref(1)`,
+    `added_mass_fraction`, every `plausibility_gate` field; every diagnostic value); "same peaks"
+    at `ρ_f = 2`; the diagnostic spy test's `F_ref` pinned as `2·F_ref(1)` rather than read from
+    the code; `Fraction(1, 2)` and `np.float32(2)` give the same `float64` results as the equal
+    float; `10**400` raises the named error. These replace round 2's doubling assertions.
+  - [x] R3.3 Implement: `compute_force_reference(..., rho=rho_f)` in `reconstruct_wing_forces` and
+    `body_frame_added_mass_subtracted` (`reconstruct_wing_body_forces` takes no density and stays
+    at `RHO`); `_validated_density` maps `OverflowError` to the named error.
+  - [x] R3.4 Docs: docstrings, CHANGELOG, convention doc.
+  - [x] R3.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 7/8 on saved-bytes copies after a green baseline (each `F_ref` back at `RHO`,
+    each force unscaled, the validator returning the raw object, the lab path discarding its
+    result, `OverflowError` uncaught). The survivor, the diagnostic discarding the validator's
+    result, is equivalent: `compute_force_reference` returns a `float` for every accepted type and
+    `body_frame_coefficients` casts the forces to `float64`, so no output differs. Full suite: 1590
+    passed, 14 skipped, 1 xfailed.
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 
