@@ -141,7 +141,8 @@ def test_reconstruct_wing_body_forces_signs_only_through_force_on_wing(spy):
 
 def test_added_mass_diagnostic_signs_only_through_force_on_wing(spy):
     """With the identity, the 6-DOF peaks are ``rho_f·SumU + rho_f·(spied ib)``, the IB peaks
-    ``rho_f·(spied ib)``: both sides of the comparison carry the density (review of #136).
+    ``rho_f·(spied ib)``: both sides of the comparison carry the density, and so does ``F_ref``
+    (reviews of #136).
     """
     out = flapping_wing.body_frame_added_mass_subtracted(
         _NEWCONV, rho_f=2.0, **_BODY_KIN
@@ -166,7 +167,8 @@ def test_added_mass_diagnostic_signs_only_through_force_on_wing(spy):
     )
     ib = 2.0 * np.column_stack([fx, fy, fz])
     six_dof = 2.0 * np.column_stack([sx, sy, sz]) + ib
-    f_ref = flapping_wing.reconstruct_wing_forces(_NEWCONV, **_KIN).f_ref
+    # F_ref carries the density too: 2x the rho_f = 1 reference, not read back from the code.
+    f_ref = 2.0 * flapping_wing.reconstruct_wing_forces(_NEWCONV, **_KIN).f_ref
     m = time >= flapping_wing.STEADY_WINDOW_T0
     for name, force in (("6dof", six_dof), ("ib", ib)):
         cf = flapping_wing.body_frame_coefficients(force, rots, f_ref)

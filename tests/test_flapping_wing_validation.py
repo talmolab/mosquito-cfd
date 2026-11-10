@@ -6,6 +6,8 @@ source (NOT tuned to make the gate pass). See openspec/changes/standardize-force
 (Task E; capability flapping-wing-validation).
 """
 
+from fractions import Fraction
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -210,31 +212,76 @@ def test_decomposition_is_six_dof_momentum_balance(rho_f):
     assert frac["lift"] > frac["stroke"]
 
 
-def test_density_scales_both_terms_so_the_added_mass_fraction_does_not_depend_on_it():
-    """At ``rho_f = 2`` every lab coefficient doubles and ``added_mass_fraction`` is unchanged.
+_LAB_SERIES = [
+    f"cf_{axis}_{key}" for key in ("ib", "added", "hydro") for axis in ("x", "z")
+]
 
-    Scenario: The density scales both forces, so their ratios do not depend on it (review of #136).
+
+@pytest.mark.parametrize("rho_f", [0.5, 2.0, 1.3])
+def test_density_cancels_so_no_lab_coefficient_or_gate_verdict_depends_on_it(rho_f):
+    """``F_ref`` carries the same ``rho_f`` as the forces, so every coefficient is density-free.
+
+    Scenario: The density cancels, so no coefficient or verdict depends on it (review round 3
+    of #136). Before the fix ``F_ref`` stayed at ``RHO``: at ``rho_f = 0.5`` the gate's floor
+    check failed on this CSV. The powers of two are exact in floating point; 1.3 is not.
     """
     one = reconstruct_wing_forces(_CSV, **_KIN)
-    two = reconstruct_wing_forces(_CSV, rho_f=2.0, **_KIN)
-    for key in ("ib", "added", "hydro"):
-        for axis in ("x", "z"):
-            name = f"cf_{axis}_{key}"
-            np.testing.assert_array_equal(getattr(two, name), 2.0 * getattr(one, name))
-    frac_one, frac_two = added_mass_fraction(one), added_mass_fraction(two)
+    other = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    assert other.f_ref == pytest.approx(rho_f * one.f_ref, rel=1e-15)
+    exact = rho_f in (0.5, 2.0)
+    for name in _LAB_SERIES:
+        if exact:
+            np.testing.assert_array_equal(getattr(other, name), getattr(one, name))
+        else:
+            np.testing.assert_allclose(
+                getattr(other, name), getattr(one, name), rtol=1e-12, atol=1e-15
+            )
+    frac_one, frac_other = added_mass_fraction(one), added_mass_fraction(other)
     for key in ("stroke", "lift"):
-        assert frac_two[key] == pytest.approx(frac_one[key], rel=1e-12)
+        assert frac_other[key] == pytest.approx(frac_one[key], rel=1e-12)
+    gate_one, gate_other = plausibility_gate(one), plausibility_gate(other)
+    assert gate_other.keys() == gate_one.keys()
+    for key, value in gate_one.items():
+        if isinstance(value, bool):
+            assert gate_other[key] is value, key
+        else:
+            assert gate_other[key] == pytest.approx(value, rel=1e-12, abs=1e-15), key
 
 
-_BAD_DENSITIES = [0.0, -1.0, float("nan"), float("inf"), True, None, "1.0"]
+@pytest.mark.parametrize("rho_f", [Fraction(1, 2), np.float32(2.0)], ids=repr)
+def test_density_of_another_real_type_gives_the_same_float64_coefficients(rho_f):
+    """A ``Fraction`` or ``np.float32`` density is converted to ``float`` before it is used.
+
+    Scenario: The density cancels (review round 3 of #136). Unconverted, ``Fraction * float64
+    array`` is an object-dtype array, and float32 arithmetic would differ from the float path.
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    got = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    want = reconstruct_wing_forces(_CSV, rho_f=float(rho_f), **_KIN)
+    assert type(got.f_ref) is float
+    for name in _LAB_SERIES:
+        assert getattr(got, name).dtype == np.float64, name
+        np.testing.assert_array_equal(getattr(got, name), getattr(want, name))
+    kin = dict(pitch_amp_deg=45.0, **_KIN)
+    got_d = body_frame_added_mass_subtracted(_CSV, rho_f=rho_f, **kin)
+    want_d = body_frame_added_mass_subtracted(_CSV, rho_f=float(rho_f), **kin)
+    for key, value in want_d.items():
+        assert type(got_d[key]) is type(value), key
+        assert got_d[key] == value, key
 
 
-@pytest.mark.parametrize("bad", _BAD_DENSITIES, ids=repr)
+_BAD_DENSITIES = [0.0, -1.0, float("nan"), float("inf"), True, None, "1.0", 10**400]
+
+
+@pytest.mark.parametrize(
+    "bad", _BAD_DENSITIES, ids=lambda b: repr(b) if b != 10**400 else "10**400"
+)
 @pytest.mark.parametrize("csv", [_CSV, "no/such/forces.csv"])
 def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, csv):
     """A bad ``rho_f`` is a named parameter error, raised before the CSV is opened.
 
-    Scenario: The density scales both forces (review of #136). The missing path proves the check
+    Scenario: The density cancels (review of #136). The missing path proves the check
     runs before any I/O: a FileNotFoundError would mean the file was read first.
     """
     from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted

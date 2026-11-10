@@ -120,16 +120,20 @@ def _steady_mask(decomp: WingForceDecomposition, window_t0: float) -> NDArray[np
 def _validated_density(rho_f: object) -> float:
     """``rho_f`` as a float, or a ``ValueError`` naming it if it is not a finite, positive real.
 
-    Only real numbers are accepted (Python or numpy scalars). Booleans are rejected rather than read
-    as 0/1, and ``None``, strings and sequences get the same named error instead of a numpy or
-    operator TypeError.
+    Only real numbers are accepted (``numbers.Real``: Python or numpy scalars, ``Fraction``).
+    Booleans are rejected rather than read as 0/1, and ``None``, strings and sequences get the same
+    named error instead of a numpy or operator TypeError, as does an integer too large for a float.
+    The value is returned as a Python ``float`` so the coefficients stay ``float64``.
     """
     is_real = isinstance(rho_f, numbers.Real) and not isinstance(rho_f, bool)
-    value = float(rho_f) if is_real else float("nan")  # type: ignore[arg-type]  # Real -> float
+    try:
+        value = float(rho_f) if is_real else float("nan")  # type: ignore[arg-type]  # Real -> float
+    except OverflowError:  # e.g. 10**400
+        value = float("nan")
     if not (np.isfinite(value) and value > 0):
         raise ValueError(
             f"rho_f must be a finite, positive real number (got {rho_f!r}); it is the fluid "
-            "density, which scales both the internal-fluid term and the IB force on the wing"
+            "density, which scales the internal-fluid term, the IB force on the wing and F_ref"
         )
     return value
 
@@ -153,6 +157,7 @@ class WingForceDecomposition:
     Each ``cf_*`` is a per-timestep array. ``ib`` is the IB force on the wing ``rho_f*ib_w`` (IAMReX's
     ``ib_force`` is per unit density) and is the gated quantity; ``added`` (``rho_f*SumU``) and
     ``hydro`` (the 6-DOF balance ``rho_f*(SumU - ib_force) = added + ib``) are reported, not gated.
+    ``f_ref`` is built with the same ``rho_f``, so no ``cf_*`` depends on the density.
     """
 
     time: NDArray[np.floating]
@@ -180,9 +185,9 @@ def reconstruct_wing_forces(
             run and schema, a separate write-out agreeing to ~1e-3).
         f_star: Dimensionless flap frequency.
         phi_amp_deg: Stroke amplitude [deg].
-        rho_f: Fluid density (``euler_fluid_rho``; 1.0 dimensionless here). It scales both the IB
-            force on the wing and the internal-fluid term, so ratios of the two do not depend on it.
-            Must be a finite, positive real number.
+        rho_f: Fluid density (``euler_fluid_rho``; 1.0 dimensionless here). It scales the IB force
+            on the wing, the internal-fluid term and ``f_ref`` alike, so it cancels from every
+            coefficient and from the gate. Must be a finite, positive real number.
 
     Returns:
         A :class:`WingForceDecomposition` with ib / added-mass / 6-DOF hydrodynamic CF series.
@@ -200,7 +205,7 @@ def reconstruct_wing_forces(
             f"expected the IAMReX schema columns {list(_REQUIRED_CSV_COLUMNS)}"
         )
     f_ref = compute_force_reference(
-        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=rho_f
     ).f_ref
     if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(
@@ -620,8 +625,8 @@ def body_frame_added_mass_subtracted(
     wing per unit fluid density (IAMReX's ``ib_force`` is multiplied by ``euler_fluid_rho``), so
     the force compared is ``rho_f·ib_w``. The 6-DOF force is the solver's free-body balance
     ``rho_f·(SumU − ib_force) = rho_f·SumU + rho_f·ib_w`` applied to the wing's columns, where
-    ``rho_f·SumU`` comes from :func:`added_mass_force` (#36). Both carry ``rho_f``, so the drop
-    fractions and RMS shares do not depend on it. Both are rotated into the wing body frame with the analytic ``R(t)``
+    ``rho_f·SumU`` comes from :func:`added_mass_force` (#36). Both carry ``rho_f``, and so does
+    ``F_ref``, so no reported value depends on it. Both are rotated into the wing body frame with the analytic ``R(t)``
     from :mod:`mosquito_cfd.benchmarks.wing_kinematics` and :func:`body_frame_coefficients` (the same
     composition T2a applies — reused, not re-derived). Over the pinned steady window it reports peak
     ``|CF_chord|``/``|CF_normal|`` for both, the **signed** peak-to-peak drop fraction, and the
@@ -641,9 +646,9 @@ def body_frame_added_mass_subtracted(
         phi_amp_deg: Stroke amplitude [deg].
         pitch_amp_deg: Pitch amplitude [deg].
         deviation_amp_deg: Deviation amplitude [deg]; default 0.
-        rho_f: Fluid density; scales both forces (every reported peak is linear in it, the
-            ratios are independent of it); default ``RHO``. Must be a finite, positive real number,
-            checked before the CSV is read.
+        rho_f: Fluid density; scales both forces and ``F_ref``, so it cancels from every reported
+            value; default ``RHO``. Must be a finite, positive real number, checked before the
+            CSV is read.
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
 
     Returns:
@@ -671,7 +676,7 @@ def body_frame_added_mass_subtracted(
             "(it rotates the full 3-D force and internal-fluid vectors)"
         )
     f_ref = compute_force_reference(
-        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=rho_f
     ).f_ref
     if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(

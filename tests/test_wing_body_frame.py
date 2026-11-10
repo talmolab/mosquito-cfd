@@ -536,11 +536,20 @@ def test_added_mass_subtracted_reproduces_interim():
         assert round(out[key], 4) == value, (key, out[key])
     # "Same peaks" identity: the ib peaks are the existing grader's peaks to machine precision
     # (both traverse the identical body_frame_coefficients path at identical kinematics/window).
+    # It holds at any density because F_ref carries the same rho_f as the force (review of #136).
     grader = body_frame_overall_match(
         reconstruct_wing_body_forces(_NEWCONV_CSV, **_SUBTRACTED_KIN)
     )
-    assert out["peak_cf_chord_ib"] == pytest.approx(grader["peak_cf_chord"], abs=1e-9)
-    assert out["peak_cf_normal_ib"] == pytest.approx(grader["peak_cf_normal"], abs=1e-9)
+    for rho_f in (RHO, 2.0):
+        at = body_frame_added_mass_subtracted(
+            _NEWCONV_CSV, rho_f=rho_f, **_SUBTRACTED_KIN
+        )
+        assert at["peak_cf_chord_ib"] == pytest.approx(
+            grader["peak_cf_chord"], abs=1e-9
+        )
+        assert at["peak_cf_normal_ib"] == pytest.approx(
+            grader["peak_cf_normal"], abs=1e-9
+        )
 
 
 @pytest.mark.skipif(
@@ -689,13 +698,13 @@ def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
     not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
 )
 def test_window_t0_and_rho_f_plumbing():
-    """`window_t0` echoes + changes the window; `rho_f` scales both forces, so the ratios stay put.
+    """`window_t0` echoes + changes the window; `rho_f` cancels, so no reported value moves.
 
     IAMReX's ``ib_force`` is per unit density (``DiffusedIB.cpp`` multiplies it by
     ``euler_fluid_rho``), so the force on the wing is ``rho_f·ib_w`` and the 6-DOF force
-    ``rho_f·SumU + rho_f·ib_w``. ``rho_f = 2`` therefore doubles every peak and leaves the drop
-    fractions and RMS shares unchanged; a density that is not finite and positive is rejected as
-    a parameter error (review of #136).
+    ``rho_f·SumU + rho_f·ib_w``. ``F_ref`` is built with the same density, so ``rho_f = 2``
+    leaves every peak, drop fraction and RMS share unchanged; a density that is not finite and
+    positive is rejected as a parameter error (reviews of #136).
     """
     default = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
     assert default["window_t0"] == STEADY_WINDOW_T0
@@ -705,16 +714,14 @@ def test_window_t0_and_rho_f_plumbing():
     )
     assert later["window_t0"] == 0.9
     assert later["peak_cf_chord_ib"] != pytest.approx(default["peak_cf_chord_ib"])
-    doubled = body_frame_added_mass_subtracted(
-        _NEWCONV_CSV, rho_f=2.0, **_SUBTRACTED_KIN
-    )
-    for comp in ("chord", "normal"):
-        for name in ("6dof", "ib"):
-            assert doubled[f"peak_cf_{comp}_{name}"] == pytest.approx(
-                2 * default[f"peak_cf_{comp}_{name}"], rel=1e-12
-            )
-        for key in (f"{comp}_drop_frac", f"am_rms_share_{comp}"):
-            assert doubled[key] == pytest.approx(default[key], rel=1e-12, abs=1e-12)
+    for rho_f in (0.5, 2.0):
+        other = body_frame_added_mass_subtracted(
+            _NEWCONV_CSV, rho_f=rho_f, **_SUBTRACTED_KIN
+        )
+        assert other == default, rho_f  # exact: the powers of two cancel bitwise
+    other = body_frame_added_mass_subtracted(_NEWCONV_CSV, rho_f=1.3, **_SUBTRACTED_KIN)
+    for key, value in default.items():
+        assert other[key] == pytest.approx(value, rel=1e-12, abs=1e-15), key
     for bad in (0.0, -1.0, float("nan"), float("inf")):
         with pytest.raises(
             ValueError, match=r"rho_f must be a finite, positive real number"
