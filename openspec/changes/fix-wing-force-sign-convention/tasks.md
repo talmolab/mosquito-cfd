@@ -432,7 +432,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     `f_ref` error no longer naming `rho_f`. The round-4 reviewers' three survivors, including round
     3's, are among them. T4 discarding its validated `rho` first survived; it was killed by adding
     the `PreciseReal` case to T4's invariance test. Full suite: 1612 passed, 14 skipped, 1 xfailed.
-  - **Deferred** to a follow-up issue: `heaving_ellipsoid.ellipsoid_added_mass_fraction` divides
+  - **Deferred** to #139: `heaving_ellipsoid.ellipsoid_added_mass_fraction` divides
     `|rho_f·SumU|` by an unscaled `ib_force` and accepts a negative `rho_f` (on main; a different
     benchmark).
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
