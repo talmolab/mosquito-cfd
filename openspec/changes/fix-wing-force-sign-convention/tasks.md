@@ -303,7 +303,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - `test_wing_body_frame.py:642` `test_window_t0_and_rho_f_plumbing`: the 6-DOF force is
     `rho_f·SumU + rho_f·ib_w`, the same formula as the lab-frame `cf_hydro`, so `rho_f = 0` now
     raises the 6-DOF degeneracy error, and `rho_f = 2` exactly doubles `peak_cf_*_6dof` while
-    leaving `peak_cf_*_ib` unchanged.
+    leaving `peak_cf_*_ib` unchanged. (Superseded by review rounds 2 and 3: every reported
+    value is now unchanged at `rho_f = 2`.)
 - **The slab wording.** Design D5's RESULTS.md sentence says "a one-cell slab"; the design's own
   "What inside means" says about two cells, and PR1 softened the doc to "a thin layer whose width is
   set by the grid". RESULTS.md uses the PR1 wording.
@@ -344,7 +345,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     multiplies it by `euler_fluid_rho`), so the diagnostic now compares the 6-DOF force with
     `ρ_f·ib_w`, not `ib_w`, and rejects a `rho_f` that is not finite and positive. This
     reverses part of the `:642` test approved on 2026-10-29: `ρ_f = 2` now doubles both peaks
-    and leaves the ratios unchanged (user-approved, 2026-11-10). Every committed run uses
+    and leaves the ratios unchanged (user-approved, 2026-11-10; superseded by round 3, where
+    `F_ref` also carries `ρ_f` and nothing changes at `ρ_f = 2`). Every committed run uses
     `ρ_f = 1`, so no number changes. Round 1 left the lab path's `cf_ib` unscaled, calling
     it "a sum, not a ratio"; that was wrong (`added_mass_fraction` is a ratio). Round 2 fixes it.
   - **Unpinned signs.** A spy test now pins T4's CFD series; F1's `CF_y` and every V1 curve
@@ -403,10 +405,36 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - [x] R3.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
   - **Kill table:** 7/8 on saved-bytes copies after a green baseline (each `F_ref` back at `RHO`,
     each force unscaled, the validator returning the raw object, the lab path discarding its
-    result, `OverflowError` uncaught). The survivor, the diagnostic discarding the validator's
-    result, is equivalent: `compute_force_reference` returns a `float` for every accepted type and
-    `body_frame_coefficients` casts the forces to `float64`, so no output differs. Full suite: 1590
-    passed, 14 skipped, 1 xfailed.
+    result, `OverflowError` uncaught). The survivor was the diagnostic discarding the validator's
+    result. It was recorded here as equivalent, which was wrong: round 4 showed that a
+    `sympy.Float` density changes the outputs in the last place. Full suite: 1590 passed, 14
+    skipped, 1 xfailed.
+- **PR review round 4 (#136, two focused reviewers on the round-3 fix): no blocker.** Tasks:
+  - [x] R4.1 Spec deltas: T4's requirement (MODIFIED, full text) builds the model's `F_ref` at
+    `rho` and validates `rho`, with a new scenario that no T4 number or verdict depends on it;
+    the density scenario adds arbitrary-precision reals, `Decimal`, 0-d arrays, subnormals and
+    `1e308`.
+  - [x] R4.2 Test first: T4 invariance at `rho = 0.5, 2, 1.3` over every returned number,
+    verdict and series, and a bad `rho` raising before reading; a registered `numbers.Real` stub
+    (`tests/_density_helpers.py::PreciseReal`) standing in for `sympy.Float`, since sympy is not
+    a declared dependency, used in both the lab/diagnostic and the T4 type tests; `Decimal("1")`, `np.array(1.0)`, `1e-320` and `5e-324` in the bad list;
+    `1e308` naming `rho_f`; the lab spy test builds `F_ref` at `rho = 2` itself.
+  - [x] R4.3 Implement: `decompose_wing_force` normalizes the model by
+    `compute_force_reference(..., rho=rho)` and validates `rho`; `_validated_density` takes the
+    parameter name and rejects values below `np.finfo(float).tiny`; both `f_ref` errors name
+    `rho_f`.
+  - [x] R4.4 Docs: CHANGELOG; stale doubling notes above tagged as superseded; the round-3
+    equivalence claim corrected.
+  - [x] R4.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 12/12 on saved-bytes copies after a green baseline. These cover T4's `F_ref` at
+    the CFD's or at `RHO`, `rho` unvalidated, validated after the read or its result discarded, the
+    validator ignoring its name, accepting subnormals, `Decimal` or duck-typed input, and either
+    `f_ref` error no longer naming `rho_f`. The round-4 reviewers' three survivors, including round
+    3's, are among them. T4 discarding its validated `rho` first survived; it was killed by adding
+    the `PreciseReal` case to T4's invariance test. Full suite: 1612 passed, 14 skipped, 1 xfailed.
+  - **Deferred** to a follow-up issue: `heaving_ellipsoid.ellipsoid_added_mass_fraction` divides
+    `|rho_f·SumU|` by an unscaled `ib_force` and accepts a negative `rho_f` (on main; a different
+    benchmark).
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 
