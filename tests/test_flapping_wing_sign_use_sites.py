@@ -71,6 +71,23 @@ def _columns(csv: Path, *names: str) -> list[np.ndarray]:
     return [df[n].to_numpy(float) for n in names]
 
 
+def _rots(time: np.ndarray) -> np.ndarray:
+    """``R(t)`` at the benchmark kinematics, built independently of the module."""
+    return np.stack(
+        [
+            rotation_matrix(
+                *euler_angles(
+                    t,
+                    frequency=1.0,
+                    stroke_amp_rad=np.radians(70.0),
+                    pitch_amp_rad=np.radians(45.0),
+                )
+            )
+            for t in time
+        ]
+    )
+
+
 def _load(name: str):
     spec = importlib.util.spec_from_file_location(
         f"{name}_under_test", _FW / f"{name}.py"
@@ -122,7 +139,9 @@ def test_reconstruct_wing_body_forces_signs_only_through_force_on_wing(spy):
 
 
 def test_added_mass_diagnostic_signs_only_through_force_on_wing(spy):
-    """With the identity, the 6-DOF peaks are the formula ``rho_f·SumU + rho_f·(spied ib)``."""
+    """With the identity, the 6-DOF peaks are ``rho_f·SumU + rho_f·(spied ib)``, the IB peaks
+    ``rho_f·(spied ib)``: both sides of the comparison carry the density (review of #136).
+    """
     out = flapping_wing.body_frame_added_mass_subtracted(
         _NEWCONV, rho_f=2.0, **_BODY_KIN
     )
@@ -144,14 +163,36 @@ def test_added_mass_diagnostic_signs_only_through_force_on_wing(spy):
             for t in time
         ]
     )
-    six_dof = 2.0 * np.column_stack([sx, sy, sz]) + 2.0 * np.column_stack([fx, fy, fz])
+    ib = 2.0 * np.column_stack([fx, fy, fz])
+    six_dof = 2.0 * np.column_stack([sx, sy, sz]) + ib
     f_ref = flapping_wing.reconstruct_wing_forces(_NEWCONV, **_KIN).f_ref
-    cf = flapping_wing.body_frame_coefficients(six_dof, rots, f_ref)
     m = time >= flapping_wing.STEADY_WINDOW_T0
+    for name, force in (("6dof", six_dof), ("ib", ib)):
+        cf = flapping_wing.body_frame_coefficients(force, rots, f_ref)
+        for comp in ("chord", "normal"):
+            assert out[f"peak_cf_{comp}_{name}"] == pytest.approx(
+                float(np.abs(cf[f"cf_{comp}"][m]).max()), rel=1e-12
+            ), (name, comp)
+
+
+def test_t4_cfd_series_signs_only_through_force_on_wing(spy):
+    """T4's CFD body-frame series carry the sign only through ``force_on_wing`` (review of #136).
+
+    The graded T4 checks use ``|·|``, so without this a re-negated CFD series would pass.
+    """
+    out = flapping_wing.decompose_wing_force(_NEWCONV, **_BODY_KIN)
+    fx, fy, fz = _columns(_NEWCONV, "Fx", "Fy", "Fz")
+    spy.assert_passed_once_each([fx, fy, fz])
+    time = _columns(_NEWCONV, "time")[0]
+    m = time >= flapping_wing.STEADY_WINDOW_T0
+    f_ref = flapping_wing.reconstruct_wing_forces(_NEWCONV, **_KIN).f_ref
+    on_fluid = flapping_wing.body_frame_coefficients(
+        np.column_stack([fx, fy, fz]), _rots(time), f_ref
+    )
+    series = out["series"]
+    np.testing.assert_array_equal(series["time"], time[m])
     for comp in ("chord", "normal"):
-        assert out[f"peak_cf_{comp}_6dof"] == pytest.approx(
-            float(np.abs(cf[f"cf_{comp}"][m]).max()), rel=1e-12
-        )
+        np.testing.assert_array_equal(series[f"cfd_{comp}"], on_fluid[f"cf_{comp}"][m])
 
 
 _REAL_CLOSE = (
@@ -172,19 +213,20 @@ def test_plot_f1_forces_signs_only_through_force_on_wing(tmp_path, monkeypatch):
     monkeypatch.setattr(gaf, "force_on_wing", s)
     figures = _capture_figures(gaf, monkeypatch)
     gaf.plot_f1_forces(tmp_path, _OLD)
-    fx, fy, fz = _columns(_OLD, "Fx", "Fy", "Fz")
-    s.assert_passed_once_each([fx, fy, fz])
-    t = _columns(_OLD, "time")[0]
-    m = t >= 0.05
-    f_ref = gaf.compute_force_reference(
-        gaf.F_STAR, gaf.PHI_AMP_DEG, gaf.R_GYRATION, gaf.SPAN, gaf.CHORD, rho=1.0
-    ).f_ref
     try:
+        fx, fy, fz = _columns(_OLD, "Fx", "Fy", "Fz")
+        s.assert_passed_once_each([fx, fy, fz])
+        t = _columns(_OLD, "time")[0]
+        m = t >= 0.05  # F1's own window (generate_all_figures.plot_f1_forces)
+        f_ref = gaf.compute_force_reference(
+            gaf.F_STAR, gaf.PHI_AMP_DEG, gaf.R_GYRATION, gaf.SPAN, gaf.CHORD, rho=1.0
+        ).f_ref
         lines = [ln for ax in figures[0].axes for ln in ax.lines]
         plotted = {ln.get_label(): ln.get_ydata() for ln in lines}
         np.testing.assert_array_equal(
             plotted["CF_x (chord / streamwise)"], fx[m] / f_ref
         )
+        np.testing.assert_array_equal(plotted["CF_y (span)"], fy[m] / f_ref)
         np.testing.assert_array_equal(plotted["CF_z (vertical / lift)"], fz[m] / f_ref)
     finally:
         for fig in figures:
@@ -197,20 +239,23 @@ def test_fig_v1_signs_only_through_force_on_wing(tmp_path, monkeypatch):
     monkeypatch.setattr(gvf, "force_on_wing", s)
     figures = _capture_figures(gvf, monkeypatch)
     nums = gvf.fig_v1_three_convention(tmp_path)
-    fx, fz = _columns(_OLD, "Fx", "Fz")
-    s.assert_passed_once_each([fx, fz])
-    t = _columns(_OLD, "time")[0]
-    m = t >= flapping_wing.STEADY_WINDOW_T0
     try:
+        fx, fz = _columns(_OLD, "Fx", "Fz")
+        s.assert_passed_once_each([fx, fz])
+        t = _columns(_OLD, "time")[0]
+        m = t >= flapping_wing.STEADY_WINDOW_T0
+        refs = {
+            "current (peak tip)": nums["f_current"],
+            "mean tip": nums["f_mean"],
+            "van Veen": nums["f_vanveen"],
+        }
         axx, axz = figures[0].axes
-        van_veen_x = next(
-            ln for ln in axx.lines if ln.get_label().startswith("van Veen")
-        )
-        van_veen_z = next(
-            ln for ln in axz.lines if ln.get_label().startswith("van Veen")
-        )
-        np.testing.assert_array_equal(van_veen_x.get_ydata(), fx[m] / nums["f_vanveen"])
-        np.testing.assert_array_equal(van_veen_z.get_ydata(), fz[m] / nums["f_vanveen"])
+        for ax, force in ((axx, fx), (axz, fz)):
+            curves = [ln for ln in ax.lines if not ln.get_label().startswith("_")]
+            assert len(curves) == len(refs)
+            for name, f_ref in refs.items():
+                (line,) = [ln for ln in curves if ln.get_label().startswith(name)]
+                np.testing.assert_array_equal(line.get_ydata(), force[m] / f_ref)
     finally:
         for fig in figures:
             _REAL_CLOSE(fig)

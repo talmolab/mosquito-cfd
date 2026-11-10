@@ -339,10 +339,11 @@ def test_body_frame_reports_dropped_spanwise():
 
 # --- Added-mass-subtracted body-frame diagnostic (#40 cheap interim) -------------------------
 #
-# Reported (not graded) diagnostic: subtract the logged added-mass rho_f*SumU from ib_force, rotate
-# the remainder into the wing body frame with the SAME R(t)/body_frame_coefficients as T2a, and report
-# peak |CF_chord|/|CF_normal| for total vs subtracted plus the body-frame added-mass RMS shares. These
-# tests reuse the module-level path constants and mirror the existing body-frame test conventions.
+# Reported (not graded) diagnostic: the 6-DOF free-body force rho_f*SumU + rho_f*ib_w and the IB
+# force on the wing rho_f*ib_w, rotated into the wing body frame with the SAME R(t) /
+# body_frame_coefficients as T2a; reports both peak |CF_chord|/|CF_normal|, the signed drop
+# fractions and the body-frame RMS shares of the internal-fluid term. These tests reuse the
+# module-level path constants and mirror the existing body-frame test conventions.
 
 _SUBTRACTED_KIN = {"f_star": 1.0, "phi_amp_deg": 70.0, "pitch_amp_deg": 45.0}
 
@@ -643,23 +644,40 @@ def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
     six_dof_zero = _write_body_frame_csv(
         tmp_path / "six_dof_zero.csv", times, body, body
     )
-    with pytest.raises(ValueError, match=r"CF_chord\| of the 6-DOF force .*degenerate"):
+    with pytest.raises(
+        ValueError,
+        match=r"CF_chord\| of the 6-DOF force .*the chord drop fraction is undefined",
+    ):
         body_frame_added_mass_subtracted(six_dof_zero, **_SUBTRACTED_KIN)
     # (b) zero ib_w: no IB force at all, while the added mass keeps the 6-DOF healthy -> only the
     # ib_w floor can fire.
     ib_zero = _write_body_frame_csv(
         tmp_path / "ib_zero.csv", times, np.zeros_like(body), body
     )
-    with pytest.raises(ValueError, match=r"CF_chord\| of ib_w .*degenerate"):
+    # ib_w is the drop fraction's numerator, so its floor protects only the RMS share.
+    with pytest.raises(
+        ValueError, match=r"CF_chord\| of ib_w .*the chord RMS share is undefined"
+    ) as caught:
         body_frame_added_mass_subtracted(ib_zero, **_SUBTRACTED_KIN)
+    assert "drop fraction" not in str(caught.value)
     # (c) normal branch, roundoff-scale: a pure-chord wing -> both normal peaks are ~1e-13, below the
     # floor, which an exact ==0.0 check could never reach.
     pure_chord = np.tile([150.0, 0.0, 0.0], (times.size, 1))
     chord_csv = _write_body_frame_csv(
         tmp_path / "pure_chord.csv", times, pure_chord, np.zeros((times.size, 3))
     )
-    with pytest.raises(ValueError, match=r"CF_normal.*degenerate"):
+    with pytest.raises(
+        ValueError, match=r"CF_normal\| of the 6-DOF force .*degenerate"
+    ):
         body_frame_added_mass_subtracted(chord_csv, **_SUBTRACTED_KIN)
+    # (d) normal ib_w alone: a pure-chord IB force with a normal internal-fluid term keeps both
+    # chord peaks and the 6-DOF normal healthy -> only the normal ib_w floor can fire.
+    normal_am = np.tile([0.0, 0.0, 400.0], (times.size, 1))
+    ib_normal_zero = _write_body_frame_csv(
+        tmp_path / "ib_normal_zero.csv", times, pure_chord, normal_am
+    )
+    with pytest.raises(ValueError, match=r"CF_normal\| of ib_w .*degenerate"):
+        body_frame_added_mass_subtracted(ib_normal_zero, **_SUBTRACTED_KIN)
     # (c) empty (header-only) CSV -> clear "no data rows", not a cryptic numpy reduction error.
     empty = tmp_path / "empty.csv"
     pd.DataFrame({col: [] for col in cols}).to_csv(empty, index=False)
@@ -671,11 +689,13 @@ def test_added_mass_subtracted_degenerate_and_empty_raise(tmp_path):
     not _NEWCONV_CSV.exists(), reason="new-convention forces CSV not present"
 )
 def test_window_t0_and_rho_f_plumbing():
-    """`window_t0` echoes + changes the window; `rho_f` scales the 6-DOF force and nothing else.
+    """`window_t0` echoes + changes the window; `rho_f` scales both forces, so the ratios stay put.
 
-    The 6-DOF force is ``rho_f·SumU + rho_f·ib_w`` (the solver's balance), so ``rho_f = 2`` doubles its
-    peaks exactly and leaves ``ib_w``'s alone, and ``rho_f = 0`` zeroes it, which the 6-DOF floor turns
-    into a named ValueError.
+    IAMReX's ``ib_force`` is per unit density (``DiffusedIB.cpp`` multiplies it by
+    ``euler_fluid_rho``), so the force on the wing is ``rho_f·ib_w`` and the 6-DOF force
+    ``rho_f·SumU + rho_f·ib_w``. ``rho_f = 2`` therefore doubles every peak and leaves the drop
+    fractions and RMS shares unchanged; a density that is not finite and positive is rejected as
+    a parameter error (review of #136).
     """
     default = body_frame_added_mass_subtracted(_NEWCONV_CSV, **_SUBTRACTED_KIN)
     assert default["window_t0"] == STEADY_WINDOW_T0
@@ -689,12 +709,15 @@ def test_window_t0_and_rho_f_plumbing():
         _NEWCONV_CSV, rho_f=2.0, **_SUBTRACTED_KIN
     )
     for comp in ("chord", "normal"):
-        assert doubled[f"peak_cf_{comp}_6dof"] == pytest.approx(
-            2 * default[f"peak_cf_{comp}_6dof"], rel=1e-12
-        )
-        assert doubled[f"peak_cf_{comp}_ib"] == default[f"peak_cf_{comp}_ib"]
-    with pytest.raises(ValueError, match=r"of the 6-DOF force .*degenerate"):
-        body_frame_added_mass_subtracted(_NEWCONV_CSV, rho_f=0.0, **_SUBTRACTED_KIN)
+        for name in ("6dof", "ib"):
+            assert doubled[f"peak_cf_{comp}_{name}"] == pytest.approx(
+                2 * default[f"peak_cf_{comp}_{name}"], rel=1e-12
+            )
+        for key in (f"{comp}_drop_frac", f"am_rms_share_{comp}"):
+            assert doubled[key] == pytest.approx(default[key], rel=1e-12, abs=1e-12)
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match=r"rho_f must be finite and positive"):
+            body_frame_added_mass_subtracted(_NEWCONV_CSV, rho_f=bad, **_SUBTRACTED_KIN)
 
 
 @pytest.mark.skipif(

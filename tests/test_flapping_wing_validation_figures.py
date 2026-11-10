@@ -110,7 +110,7 @@ def test_t4_normal_panel_names_the_model_sign_issue(tmp_path):
 
 
 def test_3grid_normal_band_is_positive_only(tmp_path, monkeypatch):
-    """With the IB force on the wing the CFD normal is positive on both half-strokes, so the 3-grid
+    """With the IB force on the wing the CFD normal has a positive lobe on each half-stroke, so the 3-grid
     figure draws the van Veen normal band on the positive side only (no mirrored band)."""
     mod = _load(
         REPO / "examples" / "flapping_wing" / "make_force_timeseries_3grid_figure.py",
