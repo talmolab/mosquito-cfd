@@ -39,8 +39,8 @@ difference of `rotation_matrix`.
 - **And** `force_on_wing` returns the elementwise negation of every array it is given (dtype and shape preserved; `−0.0`, NaN and infinity propagate; empty in, empty out)
 - **And** `force_on_wing` is replaced at each use site by an identity spy. With the spy in place:
   - `build_dataset` emits exactly `+F/f_ref` and `+(M + d × F)/m_ref`;
-  - every series that is the IB force itself equals the pre-change on-fluid series bitwise. These are `cf_*_ib`, the body-frame `CF_chord`/`CF_normal`, the T4 CFD series, `peak_cf_*_ib`, and the coefficients plotted by `plot_f1_forces` and `fig_v1_three_convention`;
-  - every composite equals its formula evaluated on the spied output: `cf_hydro == cf_added + ρ_f·cf_ib_spied`, and `peak_cf_*_6dof` is the peak of `|CF(ρ_f·SumU + ρ_f·ib_spied)|`.
+  - every series that is the IB force itself equals the pre-change on-fluid series bitwise, times `ρ_f` where the function takes a density. These are `cf_*_ib` (`ρ_f·ib_spied/f_ref`), the body-frame `CF_chord`/`CF_normal`, the T4 CFD series, `peak_cf_*_ib` (the peak of `|CF(ρ_f·ib_spied)|`), and the coefficients plotted by `plot_f1_forces` and `fig_v1_three_convention`;
+  - every composite equals its formula evaluated on the spied output: `cf_hydro == cf_added + cf_ib`, and `peak_cf_*_6dof` is the peak of `|CF(ρ_f·SumU + ρ_f·ib_spied)|`.
 - **And** across all calls, the multiset of arrays passed to the spy equals the expected set of force (and moment) arrays, each passed exactly once (identity-compared, not counted per call). So no wing-path function applies the sign by other means.
 
 #### Scenario: Raw columns satisfy the on-fluid work inequality

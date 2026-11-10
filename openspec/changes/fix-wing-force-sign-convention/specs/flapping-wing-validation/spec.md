@@ -59,8 +59,13 @@ expression matches that definition on a known row of the committed `forces.csv` 
 formula to the **source**, not to the band. The analysis MAY additionally report the net 6-DOF
 hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's momentum balance, with
 `ib_force` the solver's on-fluid column) — written with the on-wing IB force `ib_w = −ib_force` as
-`F_hydro = ρ_f·(SumU + ib_w)`, i.e. `CF_hydro = CF_added + ρ_f·CF_ib` (`ρ_f = 1` in every committed
-run) — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
+`F_hydro = ρ_f·(SumU + ib_w)` — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
+IAMReX's `ib_force` is per unit fluid density (`DiffusedIB.cpp` multiplies it by `euler_fluid_rho`),
+so the IB force on the wing is `ρ_f·ib_w` and `CF_ib = ρ_f·ib_w/F_ref`. The density therefore enters
+both terms, `CF_hydro = CF_added + CF_ib`, and every ratio of the two (`added_mass_fraction`) is
+independent of `ρ_f`. `ρ_f = 1` in every committed run, so no committed coefficient changes. A `ρ_f`
+that is not a finite, positive real number SHALL raise `ValueError` naming `rho_f`, before any file
+is read.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
 
@@ -72,9 +77,19 @@ run) — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
 
 - **Given** the `ib_force`, added-mass (`ρ_f·SumU`), and net hydrodynamic coefficients
 - **When** they are computed over the pinned steady window
-- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `CF_ib` the **on-wing** IB coefficient `−ib_force/F_ref`, `CF_hydro = CF_added + ρ_f·CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
+- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `CF_ib` the **on-wing** IB coefficient `−ρ_f·ib_force/F_ref`, `CF_hydro = CF_added + CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
 
 > **Why 6-DOF balance, not `ib + added` (implementation deviation):** the proposal's scenario assumed `combined = ib_only + added_mass_only`. Reading the IAMReX source (`DiffusedIB.cpp`) showed the `SumU` columns are already `(sum_u_new − sum_u_old)/dt` and the particle equation of motion combines them as `ρ_f·(SumU − ib_force)`. The gate is unaffected (it is graded on `ib_force` alone); only the *reported* decomposition formula changed to match the solver. `fix-wing-force-sign-convention` (#109) later established that `ib_force` is the force on the fluid and moved the analysis to on-wing coefficients, where the same balance reads `F_hydro = ρ_f·(SumU + ib_w)`.
+
+#### Scenario: The density scales both forces, so their ratios do not depend on it
+
+- **Given** a committed force CSV and `ρ_f = 2`
+- **When** `reconstruct_wing_forces` and `body_frame_added_mass_subtracted` run at `ρ_f = 2` and at
+  `ρ_f = 1`
+- **Then** `CF_ib`, `CF_added`, `CF_hydro` and every reported peak at `ρ_f = 2` are exactly twice their
+  `ρ_f = 1` values, while `added_mass_fraction`, `*_drop_frac` and `am_rms_share_*` are unchanged
+- **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None` or a string raises
+  `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
 
 #### Scenario: Added-mass does not decide the gate
 
@@ -179,14 +194,16 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 ### Requirement: Added-mass-subtracted body-frame CF diagnostic (reported; #40 cheap interim)
 
 The flapping-wing analysis SHALL provide a **reported** diagnostic that compares the **6-DOF
-force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ib_w = −ib_force`. `F_6dof` is the
+force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ρ_f·ib_w` (`ib_w = −ib_force`;
+`ib_force` is per unit density, so both sides carry `ρ_f` and the diagnostic's ratios do not depend
+on it). `F_6dof` is the
 solver's free-body momentum balance `ρ_f·(SumU − ib_force)` applied to the wing's columns; the solver
 itself never evaluates that balance for the prescribed-motion wing. The difference between the two is
 the solver's **internal-fluid momentum term** `ρ_f·SumU` (via the existing `added_mass_force`, #36). For
 the zero-thickness vertex-file wing, that term is the momentum change of fluid within about one grid
 cell of the sheet, so it depends on the grid. This code calls the term "added mass", but it is **not**
 van Veen's added-mass component; which CFD force corresponds to van Veen's model is a follow-up issue. The
-requirement's name is historical: `ib_w` is the 6-DOF force minus `ρ_f·SumU`. The diagnostic rotates
+requirement's name is historical: `ρ_f·ib_w` is the 6-DOF force minus `ρ_f·SumU`. The diagnostic rotates
 both forces into the instantaneous wing body frame with the **same** analytic `R(t)` and
 `body_frame_coefficients` the T2a body-frame decomposition uses (CC-V4 — the rotation and the added-mass
 magnitude are **reused, not re-derived**), and reports, over the pinned steady window
@@ -228,19 +245,20 @@ the existing decomposition guards (never a silent NaN coefficient).
 
 - **Given** `forces_t2a_newconv.csv` (29-col, with `SumUx/SumUy/SumUz`), `ρ_f = RHO = 1.0`, the analytic
   `R(t)` from the wing kinematics, and `F_ref` from `compute_force_reference`
-- **When** the diagnostic forms `F_6dof = ρ_f·(SumU + ib_w)` and `ib_w`, and rotates both into the wing body frame over `t ≥ 0.05`
+- **When** the diagnostic forms `F_6dof = ρ_f·(SumU + ib_w)` and `ρ_f·ib_w`, and rotates both into the wing body frame over `t ≥ 0.05`
 - **Then** the 6-DOF peaks are `|CF_chord| ≈ 0.652` and `|CF_normal| ≈ 2.285` and the `ib_w` peaks
   `0.923` and `2.606`, so `chord_drop_frac ≈ −0.42` and `normal_drop_frac ≈ −0.14` (removing the
   internal-fluid term raises both peaks), reproduced from the committed CSV; the `ib_w` peaks
   `0.923`/`2.606` are the **same peaks** as the body-frame comparison's `0.92`/`2.61` shown to an extra
-  significant figure, because the `ib_w` series is exactly the graded force (a test SHALL assert the
-  `ib_w` peaks equal `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot
-  drift), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
+  significant figure, because at `ρ_f = RHO = 1` the `ρ_f·ib_w` series is exactly the graded force (a
+  test SHALL assert, at `ρ_f = RHO`, that the `ib_w` peaks equal `body_frame_overall_match`'s
+  `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot drift; at another density both of the
+  diagnostic's peaks scale by `ρ_f` and the grader's do not), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
   different results
 
 #### Scenario: Body-frame added-mass RMS shares are reported
 
-- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame on-wing IB force `ib_w` over the
+- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame on-wing IB force `Rᵀ·ρ_f·ib_w` over the
   pinned steady window
 - **When** the RMS share is formed as `rms(added-mass component)/rms(ib component)` per body axis (the
   body-frame analog of the lab-frame `added_mass_fraction`, not a peak ratio and not `rms(6dof)`)
