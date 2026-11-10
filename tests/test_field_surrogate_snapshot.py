@@ -394,6 +394,24 @@ def test_read_passes_the_requested_halo_to_the_region_helper(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("point", "expected"),
+    [
+        (2.0, (1, 1, 1)),
+        (6.0, (0, 0, 0)),
+        (_INF, (0, 0, 0)),
+        (-_INF, (0, 0, 0)),
+    ],
+    ids=["interior", "upper_edge", "plus_inf", "minus_inf"],
+)
+def test_zero_width_request_is_not_inverted(point, expected):
+    # lo == hi is the documented point query, not an inverted request: the inversion check is a
+    # strict lo > hi (harden-field-corpus-requests D1), so a `>=` check fails here first. Recorded
+    # from the reader before the rejection existed.
+    snap = read_field_snapshot(FIXTURE, lo=(point,) * 3, hi=(point,) * 3)
+    assert (snap.x.size, snap.y.size, snap.z.size) == expected
+
+
+@pytest.mark.parametrize(
     ("lo", "hi", "halo", "legacy_expected", "expected"),
     [c[1:] for c in DIVERGENCE_CASES],
     ids=[c[0] for c in DIVERGENCE_CASES],
