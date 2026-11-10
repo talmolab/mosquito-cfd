@@ -61,11 +61,14 @@ hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's mom
 `ib_force` the solver's on-fluid column) — written with the on-wing IB force `ib_w = −ib_force` as
 `F_hydro = ρ_f·(SumU + ib_w)` — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
 IAMReX's `ib_force` is per unit fluid density (`DiffusedIB.cpp` multiplies it by `euler_fluid_rho`),
-so the IB force on the wing is `ρ_f·ib_w` and `CF_ib = ρ_f·ib_w/F_ref`. The density therefore enters
-both terms, `CF_hydro = CF_added + CF_ib`, and every ratio of the two (`added_mass_fraction`) is
-independent of `ρ_f`. `ρ_f = 1` in every committed run, so no committed coefficient changes. A `ρ_f`
-that is not a finite, positive real number SHALL raise `ValueError` naming `rho_f`, before any file
-is read.
+so the IB force on the wing is `ρ_f·ib_w`, and `F_ref = ½·ρ_f·ω²·S_yy` SHALL be built with the same
+`ρ_f` (`compute_force_reference(..., rho=rho_f)`). The density therefore cancels:
+`CF_ib = ρ_f·ib_w/F_ref(ρ_f)`, `CF_added` and `CF_hydro = CF_added + CF_ib` are independent of `ρ_f`, and
+so are every ratio (`added_mass_fraction`) and the gate verdict. `ρ_f = 1` in every committed run, so
+no committed coefficient changes. A `ρ_f` that is not a finite, positive real number (a
+`numbers.Real` other than a boolean) SHALL raise `ValueError` naming `rho_f`, before any file is read;
+so SHALL an integer too large to convert to a float. The accepted value is converted to a Python
+`float`, so every coefficient is `float64`.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
 
@@ -77,19 +80,23 @@ is read.
 
 - **Given** the `ib_force`, added-mass (`ρ_f·SumU`), and net hydrodynamic coefficients
 - **When** they are computed over the pinned steady window
-- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `CF_ib` the **on-wing** IB coefficient `−ρ_f·ib_force/F_ref`, `CF_hydro = CF_added + CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
+- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `F_ref` built at the same `ρ_f` and `CF_ib` the **on-wing** IB coefficient `−ρ_f·ib_force/F_ref`, `CF_hydro = CF_added + CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
 
 > **Why 6-DOF balance, not `ib + added` (implementation deviation):** the proposal's scenario assumed `combined = ib_only + added_mass_only`. Reading the IAMReX source (`DiffusedIB.cpp`) showed the `SumU` columns are already `(sum_u_new − sum_u_old)/dt` and the particle equation of motion combines them as `ρ_f·(SumU − ib_force)`. The gate is unaffected (it is graded on `ib_force` alone); only the *reported* decomposition formula changed to match the solver. `fix-wing-force-sign-convention` (#109) later established that `ib_force` is the force on the fluid and moved the analysis to on-wing coefficients, where the same balance reads `F_hydro = ρ_f·(SumU + ib_w)`.
 
-#### Scenario: The density scales both forces, so their ratios do not depend on it
+#### Scenario: The density cancels, so no coefficient or verdict depends on it
 
-- **Given** a committed force CSV and `ρ_f = 2`
-- **When** `reconstruct_wing_forces` and `body_frame_added_mass_subtracted` run at `ρ_f = 2` and at
-  `ρ_f = 1`
-- **Then** `CF_ib`, `CF_added`, `CF_hydro` and every reported peak at `ρ_f = 2` are exactly twice their
-  `ρ_f = 1` values, while `added_mass_fraction`, `*_drop_frac` and `am_rms_share_*` are unchanged
-- **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None` or a string raises
-  `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
+- **Given** a committed force CSV
+- **When** `reconstruct_wing_forces` and `body_frame_added_mass_subtracted` run at `ρ_f = 0.5`, `2` and
+  `1.3`, and at `ρ_f = 1`
+- **Then** `f_ref` is `ρ_f` times its `ρ_f = 1` value, while `CF_ib`, `CF_added`, `CF_hydro`, every
+  reported peak, `added_mass_fraction`, `*_drop_frac` and `am_rms_share_*` equal their `ρ_f = 1`
+  values (exactly at the powers of two, to `1e-12` relative at `1.3`)
+- **And** `plausibility_gate` gives the same verdict and the same peaks at every one of those densities
+- **And** a `ρ_f` of `Fraction(1, 2)` or `np.float32(2)` gives the same `float64` coefficients as the
+  equal `float`
+- **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string or `10**400`
+  raises `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
 
 #### Scenario: Added-mass does not decide the gate
 
@@ -195,8 +202,8 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 
 The flapping-wing analysis SHALL provide a **reported** diagnostic that compares the **6-DOF
 force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ρ_f·ib_w` (`ib_w = −ib_force`;
-`ib_force` is per unit density, so both sides carry `ρ_f` and the diagnostic's ratios do not depend
-on it). `F_6dof` is the
+`ib_force` is per unit density, so both sides carry `ρ_f`; `F_ref` is built with the same `ρ_f`, so
+the diagnostic's peaks and ratios do not depend on it). `F_6dof` is the
 solver's free-body momentum balance `ρ_f·(SumU − ib_force)` applied to the wing's columns; the solver
 itself never evaluates that balance for the prescribed-motion wing. The difference between the two is
 the solver's **internal-fluid momentum term** `ρ_f·SumU` (via the existing `added_mass_force`, #36). For
@@ -251,9 +258,9 @@ the existing decomposition guards (never a silent NaN coefficient).
   internal-fluid term raises both peaks), reproduced from the committed CSV; the `ib_w` peaks
   `0.923`/`2.606` are the **same peaks** as the body-frame comparison's `0.92`/`2.61` shown to an extra
   significant figure, because at `ρ_f = RHO = 1` the `ρ_f·ib_w` series is exactly the graded force (a
-  test SHALL assert, at `ρ_f = RHO`, that the `ib_w` peaks equal `body_frame_overall_match`'s
-  `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot drift; at another density both of the
-  diagnostic's peaks scale by `ρ_f` and the grader's do not), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
+  test SHALL assert, at `ρ_f = RHO` and at `ρ_f = 2`, that the `ib_w` peaks equal
+  `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot drift;
+  the identity holds at any density because `F_ref` carries the same `ρ_f`), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
   different results
 
 #### Scenario: Body-frame added-mass RMS shares are reported
