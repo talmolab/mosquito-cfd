@@ -74,7 +74,7 @@ Tier **T3c** ([#50](https://github.com/talmolab/mosquito-cfd/issues/50)): 3-grid
 
 | File | Shows |
 |------|-------|
-| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal vs grid spacing (Δx), for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded) + van Veen reference lines. CF_chord: converging toward van Veen target range (0.3–0.43), GCI_fine=27.6 %. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
+| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal vs grid spacing (Δx), for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded) + van Veen reference lines. CF_chord: converging toward van Veen target range (0.3–0.43; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133): the upper end is the uncorrected T4 model), GCI_fine=27.6 %. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
 | `fig_force_timeseries_3grid` | Body-frame CF_chord and signed CF_normal time series over one wingbeat, all 3 grids overlaid. Shows where grids agree (normal waveform shape) and where they differ (chord magnitude and late-cycle asymmetry at coarse). Van Veen target bands shaded. |
 
 ## Regenerate

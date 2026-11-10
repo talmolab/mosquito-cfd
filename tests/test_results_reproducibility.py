@@ -571,9 +571,15 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     roadmap = (root / "docs/aerodynamics_validation/roadmap.md").read_text(
         encoding="utf-8"
     )
+    # #40 is the chord question, so the roadmap must not call it resolved "for the normal".
+    assert "#40's chord question is pending [#133](" in _flat(roadmap)
+    assert "the graded normal magnitude passes" in _flat(roadmap)
+    assert "#40 resolved for the normal force" not in _flat(roadmap)
+    # The T4 figure's note covers the normal only; the CHANGELOG must not claim more.
+    changelog = _flat((root / "docs/CHANGELOG.md").read_text(encoding="utf-8"))
+    assert "The T4 figure flags the normal" in changelog
     assert (
-        "#40 resolved for the normal force; the chord comparison is pending [#133]("
-        in _flat(roadmap)
+        "The figure and RESULTS.md flag this, for the chord comparison" not in changelog
     )
     readme = (root / "examples/flapping_wing/figures/README.md").read_text(
         encoding="utf-8"
@@ -581,3 +587,38 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert "the #40 CF_chord resolution, is pending [#133](" in _flat(readme)
     t4 = doc[doc.index("**Reported (not gated):** the normal **peak-phase gap**") :]
     assert "#133" in t4[: t4.index("\n\n")]
+
+
+# Every claim that T4 resolved the chord question (#40) must cite #133, which found that T4's chord
+# model is fed the signed pitch and radians (review of #136). Checked per paragraph, and per row in a
+# table, across the three documents that make the claim, so a new unflagged claim fails here too.
+_CHORD_RESOLUTION_CLAIM = re.compile(
+    r"resolved by the (?:\"?T4|T4)|resolves the CF_chord|resolved the CF_chord"
+    r"|Resolves the (?:T2a |#40 )?CF_chord|#40 closed|#40 resolved|0\.3–0\.43"
+    r"|validated against van Veen's quasi-steady model|full QS model total"
+)
+_CHORD_CLAIM_DOCS = (
+    "examples/flapping_wing/RESULTS.md",
+    "docs/aerodynamics_validation/roadmap.md",
+    "examples/flapping_wing/figures/README.md",
+)
+
+
+def _blocks(text: str):
+    """Paragraphs of ``text``; a table yields one block per row."""
+    for para in re.split(r"\n\s*\n", text):
+        lines = para.splitlines()
+        if lines and all(ln.lstrip().startswith("|") for ln in lines):
+            yield from lines
+        else:
+            yield para
+
+
+@pytest.mark.parametrize("rel", _CHORD_CLAIM_DOCS)
+def test_every_chord_resolution_claim_cites_133(rel):
+    """No paragraph or table row says the chord is resolved without pointing at #133."""
+    text = (Path(__file__).resolve().parents[1] / rel).read_text(encoding="utf-8")
+    claims = [b for b in _blocks(text) if _CHORD_RESOLUTION_CLAIM.search(b)]
+    assert claims, f"{rel}: no chord-resolution claim found; the guard would be vacuous"
+    unflagged = [" ".join(b.split())[:160] for b in claims if "#133" not in b]
+    assert not unflagged, (rel, unflagged)

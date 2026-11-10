@@ -345,8 +345,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     `ρ_f·ib_w`, not `ib_w`, and rejects a `rho_f` that is not finite and positive. This
     reverses part of the `:642` test approved on 2026-10-29: `ρ_f = 2` now doubles both peaks
     and leaves the ratios unchanged (user-approved, 2026-11-10). Every committed run uses
-    `ρ_f = 1`, so no number changes. The lab path's `cf_hydro = cf_added + ρ_f·cf_ib` is a
-    sum, not a ratio, and is unchanged.
+    `ρ_f = 1`, so no number changes. Round 1 left the lab path's `cf_ib` unscaled, calling
+    it "a sum, not a ratio"; that was wrong (`added_mass_fraction` is a ratio). Round 2 fixes it.
   - **Unpinned signs.** A spy test now pins T4's CFD series; F1's `CF_y` and every V1 curve
     are asserted. Before, re-negating T4's CFD series or F1's `CF_y` passed the suite.
   - **Degeneracy floors.** The `ib_w` error names only the RMS share (it is the drop
@@ -354,8 +354,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - **#133 scope in the docs.** The T4 pending note, the T4 chord row, the status row, the
     roadmap's "#40 resolved" and the figures README now mark the chord comparison pending.
   - **Wording.** `*_drop_frac`'s redefinition is in the CHANGELOG; "positive on both
-    half-strokes" becomes "a positive lobe on each half-stroke" (the normal dips to about
-    −0.1 near the reversals); `ρ_f·SumU` is the rate of change of momentum; the phase-table
+    half-strokes" becomes "a positive lobe on each half-stroke" (the normal dips near the
+    reversals, by up to about −0.1 on the coarse grid); `ρ_f·SumU` is the rate of change of momentum; the phase-table
     header names each sign; the interim phrase checks are reflow-proof.
   - **Kill table:** 17/17 on saved-bytes copies after a green baseline (one survivor first,
     fixed by pinning the pending note's chord sentence).
@@ -363,6 +363,27 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     the render set (#137), and the lab-frame plausibility gate passes a CSV containing `inf`
     (#138). Both predate this PR. The "(lift)" labels in the grid-convergence figures are left for #133,
     which re-renders them.
+- **PR review round 2 (#136, focused review of the round-1 fixes): no blocker.** Tasks:
+  - [x] R2.1 Spec deltas: the IB force on the wing is `ρ_f·ib_w` in the lab path and the diagnostic;
+    `CF_hydro = CF_added + CF_ib`; ratios are density-independent; `rho_f` is validated before I/O;
+    the "same peaks" scenario holds at `ρ_f = RHO`.
+  - [x] R2.2 Test first: the lab path at `ρ_f = 2` (spy, 6-DOF balance, `added_mass_fraction`
+    unchanged); `rho_f` validation in both functions, including bool, `None`, string and a missing
+    CSV path; doc guards for every remaining chord "resolved"/"#40 closed" claim, the roadmap's #40
+    framing, and the CHANGELOG's figure claim.
+  - [x] R2.3 Implement: a shared `_validated_density`; `reconstruct_wing_forces` scales `cf_ib` by `ρ_f`.
+  - [x] R2.4 Docs: pending markers; roadmap #40 wording; CHANGELOG and squash-message figure claim;
+    momentum wording aligned; "dips of up to about −0.1 (coarse grid)"; Fig. 4's degree axis cited.
+  - [x] R2.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Outcome.** The lab path now carries `ρ_f` on `cf_ib`, so `added_mass_fraction` no longer depends on
+    it (user chose this over deferring, 2026-11-10); this changes two tests approved earlier, the lab
+    spy test and the 6-DOF balance test at `ρ_f = 2`. A shared `_validated_density` accepts only real
+    numbers and runs before any file is read. A per-paragraph guard
+    (`test_every_chord_resolution_claim_cites_133`) found 12 unflagged chord-resolution claims, two
+    beyond the review's list; each now cites #133. The convention doc's "would add the term's time
+    difference" double-counted (`SumU` is already a time difference) and is corrected.
+  - **Kill table:** 17/17 on saved-bytes copies after a green baseline, including the validation
+    placed after the read, which survived round 2's review.
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 

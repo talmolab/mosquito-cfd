@@ -195,7 +195,7 @@ analytic `R(t)`:
 | Component | T2a run, coarse 64³ (**total** force) | van Veen (**translational-only**, Fig 4) | note |
 |---|---|---|---|
 | **CF_normal** (wing-normal / lift) | **2.61** | ~2.4 (`C_Fz,transl`, α≈45°) | gap +0.21 (within tol 0.6) |
-| **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above the **translational-only** target — resolved by the T4 decomposition below |
+| **CF_chord** (chord-wise) | 0.92 | ~0.3 (`C_Fx,transl`) | above the **translational-only** target — resolved by the T4 decomposition below (pending #133) |
 | cycle-mean \|CF_normal\| / \|CF_chord\| | 1.06 / 0.52 | — | reported (peaks graded) |
 
 Both compare our **total** (the IB force on the wing `ib_w`) to van Veen's **translational-only**
@@ -208,7 +208,10 @@ per-component verdict was **PARTIAL** — because it compares our **total** chor
 decomposition" below**: van Veen's *own* quasi-steady model (translational + added-mass + Wagner),
 applied to our kinematics, has a translational-chord peak of only ~0.42 (≪ our total 0.92) and a
 normal that agrees in magnitude — so the total-chord should never have been compared to the
-translational-only 0.3. The gate grades the **peaks**; cycle-means are reported.
+translational-only 0.3. That reading is pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133): T4 evaluates van Veen's chord
+polynomial with α in radians, where it takes degrees, and with degrees and the stroke direction
+folded in, the translational chord peak is about 0.06, not 0.42. The gate grades the **peaks**;
+cycle-means are reported.
 
 ### Added-mass decomposition (reported, not gated)
 
@@ -254,15 +257,16 @@ correction of them; neither supersedes the other.
 `ib_w`'s), and **does not resolve** the CF_chord PARTIAL; neither candidate does: `ib_w`'s 0.923
 is **~3×** van Veen's translational **~0.3**, and the 6-DOF 0.652 is **~2×** (0.652 / 0.3 ≈
 2.17). The residual is **resolved by the T4 per-component decomposition below** (van Veen's own
-translational + added-mass + Wagner model — **#40 closed**; the chord's remaining *grid* sensitivity
+translational + added-mass + Wagner model — **#40 closed**, pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133) for the chord; the
+chord's remaining *grid* sensitivity
 is tracked by **[#50](https://github.com/talmolab/mosquito-cfd/issues/50)**). The `ib_w` peaks
 `0.923` / `2.606` are the **same peaks** as the body-frame table's `0.92` / `2.61` above, shown to
 an extra significant figure.
 
-### T4 per-component decomposition — validated against van Veen's quasi-steady model (magnitude)
+### T4 per-component decomposition — validated against van Veen's quasi-steady model (magnitude; pending #133)
 
 Tier **T4** ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)) resolves the CF_chord
-PARTIAL by building van Veen's *own* quasi-steady model — **translational + added-mass + Wagner**
+PARTIAL (pending #133; see the note below) by building van Veen's *own* quasi-steady model — **translational + added-mass + Wagner**
 (van Veen 2022 eq 2.7; the paper's *"rotational"* means rotational **stroke acceleration**, i.e. the
 added-mass + Wagner terms — there is no separate rotational-drag term) — from its published
 coefficients, applying it to **our** measured wing kinematics, and comparing the model total (and
@@ -279,7 +283,8 @@ the CFD gives only the total).
 > return stroke. The normal-force numbers in this section are those of the current implementation;
 > the fix will change them, and the reading of the gap below as a quasi-steady-vs-unsteady residual
 > should not be relied on until then. The chord comparison is affected too: the chord model has the
-> same stroke-direction problem, and T4 feeds van Veen's eq. 3.12 radians where it takes degrees.
+> same stroke-direction problem, and T4 feeds van Veen's eq. 3.12 radians where it takes degrees
+> (the equation names no unit, but the paper's Fig. 4 plots its fits against α in degrees, 0–90°).
 > Corrected, the model's chord peak is about 0.18 against the CFD's 0.41, so the chord agreement
 > below, the "#40 resolved" reading and the VALIDATED row of the status table are pending too.
 
@@ -420,7 +425,9 @@ correct order of magnitude.
 
 CF_chord converges monotonically coarse → medium → fine toward the Richardson extrapolant (0.321).
 The extrapolant sits between van Veen's translational-only (~0.3) and the full QS model total (~0.43),
-consistent with the CFD approaching the physical chord target under refinement.  The GCI_fine (27.6 %)
+consistent with the CFD approaching the physical chord target under refinement. Both reference
+values are pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133): ~0.43 is the uncorrected T4 model, and ~0.3 needs rechecking against the
+degrees reading of van Veen's eq. 3.12.  The GCI_fine (27.6 %)
 is large — the chord is not yet tightly converged at 256³ — but the direction is unambiguous.
 
 **Note on `forces_fine.csv` provenance**: the original `IB_Particle_1.csv` from the local A5000 run
@@ -431,7 +438,7 @@ iStep 0–3999.  The contamination did **not** affect CF_normal (the diverged se
 below the clean run's value).
 
 **Summary**: both CF_normal (GCI ~4 %) and CF_chord (GCI ~28 %) converge monotonically at the 256³
-fine grid.  The chord extrapolant (0.321) approaches the van Veen target (~0.3–0.43); further
+fine grid.  The chord extrapolant (0.321) approaches the van Veen target (~0.3–0.43; pending #133); further
 refinement (512³+) is deferred to H100 / grant hardware.  These numbers recompute from the committed
 triple (`forces_t2a_newconv.csv`, `forces_medium.csv`, `forces_fine.csv`) via
 `tests/test_results_reproducibility.py::test_3grid_convergence_recomputes_from_committed_csvs`.
@@ -515,7 +522,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
 | Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133)) | T4 (fine 256³ grid): CF_normal 2.23 vs model 2.48 → magnitude consistent (graded, rel gap ~11 % < 16 % tol); CF_chord 0.41 vs model 0.43 explained by van Veen's transl + AM + Wagner, grid-limited (GCI_fine 27.6 %) → **#50**. The T2a total-vs-translational **PARTIAL** (coarse-grid CF_chord 0.92 vs the translational-only ~0.3) is **resolved by the T4 decomposition** (see "T4 per-component decomposition"); the peak-phase gap (~0.055 cycle) is reported, not gated |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
-| Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 % (extrapolant 0.321 approaches van Veen ~0.3–0.43). Further refinement deferred to H100. Closes #50 |
+| Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 % (extrapolant 0.321 approaches van Veen ~0.3–0.43, pending #133). Further refinement deferred to H100. Closes #50 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
 | LEV structure | REPORTED (T3b) | Resolved on both grids at mid-stroke; medium sharper (resolution-fair ∫Q⁺ +9 %, peak vorticity ~×1.8) — see the "Grid convergence (T3b)" section + `fig_lev_coarse_vs_medium` |
 
@@ -530,7 +537,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Re (midspan) | ~100 | 100–500 | MATCH |
 | Peak-lift phase | mid-stroke (t≈0.5, φ̇ max) | mid-stroke | MATCH |
 | **Body-frame CF_normal** | **2.61** | ~2.4 (`C_Fz,transl`) | within tol (gap +0.21) |
-| Body-frame CF_chord | 0.92 | ~0.3 (`C_Fx,transl`) | total-vs-translational — resolved by the T4 decomposition (#40) |
+| Body-frame CF_chord | 0.92 | ~0.3 (`C_Fx,transl`) | total-vs-translational — resolved by the T4 decomposition (#40; pending #133) |
 
 The faithful **body-frame per-component** comparison (issue #1 / T2a) is **delivered**: `CF_normal`
 matches van Veen's normal coefficient within tolerance, and the peak-lift phase is now at mid-stroke
@@ -538,7 +545,8 @@ matches van Veen's normal coefficient within tolerance, and the peak-lift phase 
 because our `CF_chord` is the **total** and van Veen's ~0.3 is translational-only — **resolved by
 the T4 per-component decomposition** (see "T4 per-component decomposition"): van Veen's own
 translational + added-mass + Wagner model, applied to our kinematics, has a translational-chord peak
-of only ~0.42 and a normal that agrees in magnitude (**#40 closed**). The #40 *cheap interim* —
+of only ~0.42 and a normal that agrees in magnitude (**#40 closed**; the chord reading is pending
+[#133](https://github.com/talmolab/mosquito-cfd/issues/133)). The #40 *cheap interim* —
 comparing the 6-DOF force with `ib_w` — is delivered in the [added-mass-subtracted diagnostic
 subsection](#added-mass-subtracted-body-frame-diagnostic-40-cheap-interim) above (it isolates the
 size of the internal-fluid term; the residual is resolved by T4). The chord's remaining **grid**
