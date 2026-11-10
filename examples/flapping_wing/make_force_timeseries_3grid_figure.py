@@ -33,7 +33,8 @@ _WINDOW_T0 = STEADY_WINDOW_T0
 # CF_chord: translational→QS model peak range (0.30–0.43); the CFD chord is near-symmetric, so
 # its |peak| can fall on either side.
 # CF_normal: Richardson→van Veen QS target range (2.16–2.48). The IB force on the wing keeps
-# the normal positive on both half-strokes, so no negative mirror is drawn.
+# a positive normal lobe on each half-stroke (brief dips to about -0.1 near the reversals), so
+# no negative mirror is drawn.
 _VV_BANDS = {
     "cf_chord":  ("van Veen QS 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
     "cf_normal": ("van Veen target 2.16–2.48", 2.16, 2.48, "#2ca02c", 0.15),

@@ -265,7 +265,7 @@ def test_added_mass_subtracted_interim_recomputes():
     for lit in ("0.923", "0.652", "2.606", "2.285"):
         assert lit in doc, f"interim literal {lit!r} missing from RESULTS.md"
     assert "chord 84" in doc and "normal 13" in doc
-    section = _interim_section(doc)
+    section = _flat(_interim_section(doc))
     assert (
         "6-DOF `ρ_f·(SumU + ib_w)`" in section and "IB force on wing `ib_w`" in section
     )
@@ -293,7 +293,7 @@ def test_interim_framing_is_honest_and_disambiguated():
     still reads PARTIAL + references #40.
     """
     doc = _doc()
-    section = _interim_section(doc).lower()
+    section = _flat(_interim_section(doc)).lower()
     # Honest framing: isolates a share, does NOT resolve; residual ~2x van Veen's 0.3; deferred to T4.
     assert "isolat" in section
     assert "does not resolve" in section or "not resolve" in section
@@ -319,7 +319,8 @@ def test_interim_framing_is_honest_and_disambiguated():
     # validated-against-model; the interim is not the edit that changed the verdict (T4's is).
     assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
     assert (
-        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) |" in doc
+        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133)) |"
+        in doc
     )
 
 
@@ -554,5 +555,29 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert "coordinate-convention.md#force-and-moment-sign" in flat
     # The T4 section flags that its normal-force numbers await the #133 model-sign fix.
     assert "Pending [#133](" in flat and "should not be relied on until then" in flat
+    # The pending note also covers the chord: same stroke-direction cause, plus eq 3.12's degrees.
+    note = flat[flat.index("Pending [#133](") :]
+    note = note[: note.index("| body-frame peak |")]
+    for phrase in (
+        "The chord comparison is affected too",
+        "degrees",
+        "0.18",
+        "#40 resolved",
+        "status table",
+    ):
+        assert phrase in note, phrase
+    assert "close agreement, grid-limited (#50), pending #133" in flat
+    root = Path(__file__).resolve().parents[1]
+    roadmap = (root / "docs/aerodynamics_validation/roadmap.md").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "#40 resolved for the normal force; the chord comparison is pending [#133]("
+        in _flat(roadmap)
+    )
+    readme = (root / "examples/flapping_wing/figures/README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "the #40 CF_chord resolution, is pending [#133](" in _flat(readme)
     t4 = doc[doc.index("**Reported (not gated):** the normal **peak-phase gap**") :]
     assert "#133" in t4[: t4.index("\n\n")]

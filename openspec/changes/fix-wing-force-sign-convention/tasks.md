@@ -339,6 +339,30 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - **Guards.** The T4 note and the positive-only band are pinned in
     `test_flapping_wing_validation_figures.py` (both red against the pre-fix scripts), and the T4
     pending note in `test_results_reproducibility.py` (mutant killed).
+- **PR review round 1 (#136, `/review-pr`, five reviewers): no blocker; important items fixed.**
+  - **Density on both sides.** IAMReX's `ib_force` is per unit density (`DiffusedIB.cpp`
+    multiplies it by `euler_fluid_rho`), so the diagnostic now compares the 6-DOF force with
+    `ρ_f·ib_w`, not `ib_w`, and rejects a `rho_f` that is not finite and positive. This
+    reverses part of the `:642` test approved on 2026-10-29: `ρ_f = 2` now doubles both peaks
+    and leaves the ratios unchanged (user-approved, 2026-11-10). Every committed run uses
+    `ρ_f = 1`, so no number changes. The lab path's `cf_hydro = cf_added + ρ_f·cf_ib` is a
+    sum, not a ratio, and is unchanged.
+  - **Unpinned signs.** A spy test now pins T4's CFD series; F1's `CF_y` and every V1 curve
+    are asserted. Before, re-negating T4's CFD series or F1's `CF_y` passed the suite.
+  - **Degeneracy floors.** The `ib_w` error names only the RMS share (it is the drop
+    fraction's numerator), the grammar is fixed, and the normal `ib_w` floor has its own case.
+  - **#133 scope in the docs.** The T4 pending note, the T4 chord row, the status row, the
+    roadmap's "#40 resolved" and the figures README now mark the chord comparison pending.
+  - **Wording.** `*_drop_frac`'s redefinition is in the CHANGELOG; "positive on both
+    half-strokes" becomes "a positive lobe on each half-stroke" (the normal dips to about
+    −0.1 near the reversals); `ρ_f·SumU` is the rate of change of momentum; the phase-table
+    header names each sign; the interim phrase checks are reflow-proof.
+  - **Kill table:** 17/17 on saved-bytes copies after a green baseline (one survivor first,
+    fixed by pinning the pending note's chord sentence).
+  - **Deferred** to follow-up issues: the README regeneration commands rewrite files outside
+    the render set, and the lab-frame plausibility gate passes a CSV containing `inf`. Both
+    predate this PR. The "(lift)" labels in the grid-convergence figures are left for #133,
+    which re-renders them.
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 

@@ -201,7 +201,7 @@ by Newton's third law. That covers:
 
 The wing paths apply the negation only through `mosquito_cfd.force_surrogate.force_on_wing`, and
 the raw columns keep the solver's values ([raw vs derived](#moments)). The paths not yet converted
-are flagged by the pending notes below.
+are flagged by the pending note below.
 
 Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
 
