@@ -716,7 +716,9 @@ def test_window_t0_and_rho_f_plumbing():
         for key in (f"{comp}_drop_frac", f"am_rms_share_{comp}"):
             assert doubled[key] == pytest.approx(default[key], rel=1e-12, abs=1e-12)
     for bad in (0.0, -1.0, float("nan"), float("inf")):
-        with pytest.raises(ValueError, match=r"rho_f must be finite and positive"):
+        with pytest.raises(
+            ValueError, match=r"rho_f must be a finite, positive real number"
+        ):
             body_frame_added_mass_subtracted(_NEWCONV_CSV, rho_f=bad, **_SUBTRACTED_KIN)
 
 

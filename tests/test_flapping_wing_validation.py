@@ -180,17 +180,22 @@ def test_decomposition_is_six_dof_momentum_balance(rho_f):
     """F_hydro = rho_f*(SumU - ib_force) = added + rho_f*ib_w; added-mass is a positive fraction.
 
     Scenario: Decomposition is reported and self-consistent. Per WriteIBForceAndMoment the net
-    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force). With the on-wing ``ib_w =
-    −ib_force`` that is ``cf_hydro = cf_added + rho_f*cf_ib``. ``rho_f = 2`` pins where the density
-    enters, which ``rho_f = 1`` cannot.
+    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force). ``ib_force`` is per unit
+    density, so the IB force on the wing is ``rho_f*ib_w`` and ``cf_hydro = cf_added + cf_ib``.
+    ``rho_f = 2`` pins where the density enters, which ``rho_f = 1`` cannot.
     """
     df = pd.read_csv(_CSV)
     d = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    for axis in ("x", "z"):
+        np.testing.assert_array_equal(
+            getattr(d, f"cf_{axis}_ib"),
+            rho_f * -df[f"F{axis}"].to_numpy(float) / d.f_ref,
+        )
     np.testing.assert_allclose(
-        d.cf_x_hydro, d.cf_x_added + rho_f * d.cf_x_ib, rtol=1e-12, atol=1e-12
+        d.cf_x_hydro, d.cf_x_added + d.cf_x_ib, rtol=1e-12, atol=1e-12
     )
     np.testing.assert_allclose(
-        d.cf_z_hydro, d.cf_z_added + rho_f * d.cf_z_ib, rtol=1e-12, atol=1e-12
+        d.cf_z_hydro, d.cf_z_added + d.cf_z_ib, rtol=1e-12, atol=1e-12
     )
     # The raw identity, independent of the coefficient algebra above.
     for axis in ("x", "z"):
@@ -203,6 +208,45 @@ def test_decomposition_is_six_dof_momentum_balance(rho_f):
         assert 0.0 < frac[key] < 1.0  # positive, non-trivial, not hard-coded
     # added-mass is a larger fraction of lift than of stroke (reported, not asserted exact)
     assert frac["lift"] > frac["stroke"]
+
+
+def test_density_scales_both_terms_so_the_added_mass_fraction_does_not_depend_on_it():
+    """At ``rho_f = 2`` every lab coefficient doubles and ``added_mass_fraction`` is unchanged.
+
+    Scenario: The density scales both forces, so their ratios do not depend on it (review of #136).
+    """
+    one = reconstruct_wing_forces(_CSV, **_KIN)
+    two = reconstruct_wing_forces(_CSV, rho_f=2.0, **_KIN)
+    for key in ("ib", "added", "hydro"):
+        for axis in ("x", "z"):
+            name = f"cf_{axis}_{key}"
+            np.testing.assert_array_equal(getattr(two, name), 2.0 * getattr(one, name))
+    frac_one, frac_two = added_mass_fraction(one), added_mass_fraction(two)
+    for key in ("stroke", "lift"):
+        assert frac_two[key] == pytest.approx(frac_one[key], rel=1e-12)
+
+
+_BAD_DENSITIES = [0.0, -1.0, float("nan"), float("inf"), True, None, "1.0"]
+
+
+@pytest.mark.parametrize("bad", _BAD_DENSITIES, ids=repr)
+@pytest.mark.parametrize("csv", [_CSV, "no/such/forces.csv"])
+def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, csv):
+    """A bad ``rho_f`` is a named parameter error, raised before the CSV is opened.
+
+    Scenario: The density scales both forces (review of #136). The missing path proves the check
+    runs before any I/O: a FileNotFoundError would mean the file was read first.
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    with pytest.raises(
+        ValueError, match=r"rho_f must be a finite, positive real number"
+    ):
+        reconstruct_wing_forces(csv, rho_f=bad, **_KIN)
+    with pytest.raises(
+        ValueError, match=r"rho_f must be a finite, positive real number"
+    ):
+        body_frame_added_mass_subtracted(csv, rho_f=bad, pitch_amp_deg=45.0, **_KIN)
 
 
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---

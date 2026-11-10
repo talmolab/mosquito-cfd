@@ -33,6 +33,7 @@ polars; Fig 13 = van Veen's time-resolved mosquito curves — no digitization), 
 
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -116,6 +117,23 @@ def _steady_mask(decomp: WingForceDecomposition, window_t0: float) -> NDArray[np
     return mask
 
 
+def _validated_density(rho_f: object) -> float:
+    """``rho_f`` as a float, or a ``ValueError`` naming it if it is not a finite, positive real.
+
+    Only real numbers are accepted (Python or numpy scalars). Booleans are rejected rather than read
+    as 0/1, and ``None``, strings and sequences get the same named error instead of a numpy or
+    operator TypeError.
+    """
+    is_real = isinstance(rho_f, numbers.Real) and not isinstance(rho_f, bool)
+    value = float(rho_f) if is_real else float("nan")  # type: ignore[arg-type]  # Real -> float
+    if not (np.isfinite(value) and value > 0):
+        raise ValueError(
+            f"rho_f must be a finite, positive real number (got {rho_f!r}); it is the fluid "
+            "density, which scales both the internal-fluid term and the IB force on the wing"
+        )
+    return value
+
+
 def added_mass_force(
     sum_u: NDArray[np.floating], rho_f: float = RHO
 ) -> NDArray[np.floating]:
@@ -132,9 +150,9 @@ def added_mass_force(
 class WingForceDecomposition:
     """Lab-frame van Veen force coefficients for the flapping wing, decomposed.
 
-    Each ``cf_*`` is a per-timestep array. ``ib`` is the IB force on the wing ``ib_w`` and is the
-    gated quantity; ``added`` (``rho_f*SumU``) and ``hydro`` (the 6-DOF balance
-    ``rho_f*(SumU - ib_force) = added + rho_f*ib_w``) are reported, not gated.
+    Each ``cf_*`` is a per-timestep array. ``ib`` is the IB force on the wing ``rho_f*ib_w`` (IAMReX's
+    ``ib_force`` is per unit density) and is the gated quantity; ``added`` (``rho_f*SumU``) and
+    ``hydro`` (the 6-DOF balance ``rho_f*(SumU - ib_force) = added + ib``) are reported, not gated.
     """
 
     time: NDArray[np.floating]
@@ -162,11 +180,18 @@ def reconstruct_wing_forces(
             run and schema, a separate write-out agreeing to ~1e-3).
         f_star: Dimensionless flap frequency.
         phi_amp_deg: Stroke amplitude [deg].
-        rho_f: Fluid density (``euler_fluid_rho``; 1.0 dimensionless here).
+        rho_f: Fluid density (``euler_fluid_rho``; 1.0 dimensionless here). It scales both the IB
+            force on the wing and the internal-fluid term, so ratios of the two do not depend on it.
+            Must be a finite, positive real number.
 
     Returns:
         A :class:`WingForceDecomposition` with ib / added-mass / 6-DOF hydrodynamic CF series.
+
+    Raises:
+        ValueError: if ``rho_f`` is not a finite, positive real number (checked before the CSV is
+            read), a required column is missing, or ``f_ref`` is degenerate.
     """
+    rho_f = _validated_density(rho_f)
     df = pd.read_csv(csv_path)
     missing = [c for c in _REQUIRED_CSV_COLUMNS if c not in df.columns]
     if missing:
@@ -183,11 +208,13 @@ def reconstruct_wing_forces(
             "degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0)."
         )
     ib_x, ib_z = force_on_wing(df["Fx"].to_numpy(float), df["Fz"].to_numpy(float))
+    # ib_force is per unit density, so the IB force on the wing is rho_f * ib_w.
+    ib_x, ib_z = rho_f * ib_x, rho_f * ib_z
     am_x = added_mass_force(df["SumUx"].to_numpy(float), rho_f)
     am_z = added_mass_force(df["SumUz"].to_numpy(float), rho_f)
     # 6-DOF balance: F_hydro = rho_f*(SumU - ib_force) = added_mass + rho_f*ib_w.
-    fh_x = am_x + rho_f * ib_x
-    fh_z = am_z + rho_f * ib_z
+    fh_x = am_x + ib_x
+    fh_z = am_z + ib_z
     return WingForceDecomposition(
         time=df["time"].to_numpy(float),
         f_ref=f_ref,
@@ -615,7 +642,8 @@ def body_frame_added_mass_subtracted(
         pitch_amp_deg: Pitch amplitude [deg].
         deviation_amp_deg: Deviation amplitude [deg]; default 0.
         rho_f: Fluid density; scales both forces (every reported peak is linear in it, the
-            ratios are independent of it); default ``RHO``. Must be finite and positive.
+            ratios are independent of it); default ``RHO``. Must be a finite, positive real number,
+            checked before the CSV is read.
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
 
     Returns:
@@ -623,7 +651,7 @@ def body_frame_added_mass_subtracted(
         ``{chord,normal}_drop_frac``, ``am_rms_share_{chord,normal}``, ``window_t0``.
 
     Raises:
-        ValueError: if ``rho_f`` is not finite and positive; a required column is missing; the
+        ValueError: if ``rho_f`` is not a finite, positive real number; a required column is missing; the
             CSV has no rows; a force/``SumU`` row is
             non-finite **anywhere in the series** (checked over the whole record, not just the window,
             so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
@@ -633,11 +661,7 @@ def body_frame_added_mass_subtracted(
             drop fraction and RMS share are never returned as a silent ``nan``/``inf`` or huge finite
             garbage.
     """
-    if not (np.isfinite(rho_f) and rho_f > 0):
-        raise ValueError(
-            f"rho_f must be finite and positive (got {rho_f}); it is the fluid density that "
-            "scales both the 6-DOF force and the IB force on the wing"
-        )
+    rho_f = _validated_density(rho_f)
     df = pd.read_csv(csv_path)
     missing = [c for c in _REQUIRED_SUBTRACTED_CSV_COLUMNS if c not in df.columns]
     if missing:
