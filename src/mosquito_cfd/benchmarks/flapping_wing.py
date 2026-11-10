@@ -117,23 +117,26 @@ def _steady_mask(decomp: WingForceDecomposition, window_t0: float) -> NDArray[np
     return mask
 
 
-def _validated_density(rho_f: object) -> float:
+def _validated_density(rho_f: object, name: str = "rho_f") -> float:
     """``rho_f`` as a float, or a ``ValueError`` naming it if it is not a finite, positive real.
 
-    Only real numbers are accepted (``numbers.Real``: Python or numpy scalars, ``Fraction``).
-    Booleans are rejected rather than read as 0/1, and ``None``, strings and sequences get the same
-    named error instead of a numpy or operator TypeError, as does an integer too large for a float.
-    The value is returned as a Python ``float`` so the coefficients stay ``float64``.
+    Only real numbers are accepted (``numbers.Real``: Python or numpy scalars, ``Fraction``; not
+    ``Decimal`` or a 0-d array). Booleans are rejected rather than read as 0/1, and ``None``,
+    strings and sequences get the same named error instead of a numpy or operator TypeError, as
+    does an integer too large for a float. Subnormal values are rejected too: below
+    ``np.finfo(float).tiny`` the density no longer cancels exactly from the coefficients. The value
+    is returned as a Python ``float`` so the coefficients stay ``float64``. ``name`` is the
+    parameter name the error reports.
     """
     is_real = isinstance(rho_f, numbers.Real) and not isinstance(rho_f, bool)
     try:
         value = float(rho_f) if is_real else float("nan")  # type: ignore[arg-type]  # Real -> float
     except OverflowError:  # e.g. 10**400
         value = float("nan")
-    if not (np.isfinite(value) and value > 0):
+    if not (np.isfinite(value) and value >= np.finfo(float).tiny):
         raise ValueError(
-            f"rho_f must be a finite, positive real number (got {rho_f!r}); it is the fluid "
-            "density, which scales the internal-fluid term, the IB force on the wing and F_ref"
+            f"{name} must be a finite, positive real number, at least the smallest normal float "
+            f"(got {rho_f!r}); it is the fluid density, which scales the forces and F_ref alike"
         )
     return value
 
@@ -210,7 +213,8 @@ def reconstruct_wing_forces(
     if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(
             f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg for "
-            "degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0)."
+            f"degenerate kinematics (e.g. f_star=0 or phi_amp_deg=0), or rho_f={rho_f!r} for "
+            "overflow."
         )
     ib_x, ib_z = force_on_wing(df["Fx"].to_numpy(float), df["Fz"].to_numpy(float))
     # ib_force is per unit density, so the IB force on the wing is rho_f * ib_w.
@@ -680,7 +684,8 @@ def body_frame_added_mass_subtracted(
     ).f_ref
     if not (np.isfinite(f_ref) and f_ref > 0):
         raise ValueError(
-            f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg"
+            f"f_ref must be finite and positive (got {f_ref}); check f_star / phi_amp_deg, "
+            f"or rho_f={rho_f!r} for overflow"
         )
     time = df["time"].to_numpy(float)
     if time.size == 0:
@@ -866,7 +871,9 @@ def decompose_wing_force(
             ``wing_grid_convergence_from_body_forces(..., fine_csv=...)`` instead for a 3-grid
             comparison.
         window_t0: Steady-window start; default ``STEADY_WINDOW_T0``.
-        rho: Fluid density for the model; default ``RHO``.
+        rho: Fluid density for the model; default ``RHO``. The model is normalized by ``F_ref``
+            built at the same ``rho``, so it cancels from every returned number. Must be a finite,
+            positive, normal real number, checked before the CSV is read.
 
     Returns:
         A dict whose keys are exactly ``_EXPECTED_DECOMP_KEYS``: graded ``normal_mag_pass`` /
@@ -874,9 +881,11 @@ def decompose_wing_force(
         verdict), and a ``series`` sub-dict for the figure. There is NO chord/phase/RMSE ``*_pass``.
 
     Raises:
-        ValueError: propagated from :func:`reconstruct_wing_body_forces` (missing ``time``/``Fx``/
+        ValueError: if ``rho`` is not a finite, positive, normal real number; or propagated from
+            :func:`reconstruct_wing_body_forces` (missing ``time``/``Fx``/
             ``Fy``/``Fz`` column, non-finite force row, or an empty steady window) — never a silent NaN.
     """
+    rho = _validated_density(rho, name="rho")
     cfd = reconstruct_wing_body_forces(
         csv_path, f_star=f_star, phi_amp_deg=phi_amp_deg, pitch_amp_deg=pitch_amp_deg
     )
@@ -888,8 +897,16 @@ def decompose_wing_force(
     cfd_chord = cfd.cf_chord[mask]
     cfd_normal = cfd.cf_normal[mask]
 
-    # van Veen model on OUR kinematics at the CFD time grid.
-    f_ref = cfd.f_ref
+    # van Veen model on OUR kinematics at the CFD time grid, normalized by F_ref at the model's own
+    # density so rho cancels (the CFD side, ib_w / F_ref(RHO), is density-free already).
+    f_ref = compute_force_reference(
+        f_star, phi_amp_deg, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=rho
+    ).f_ref
+    if not (np.isfinite(f_ref) and f_ref > 0):
+        raise ValueError(
+            f"model f_ref must be finite and positive (got {f_ref}); check f_star / "
+            f"phi_amp_deg, or rho={rho!r} for overflow"
+        )
     stroke_rad = np.radians(phi_amp_deg)
     pitch_rad = np.radians(pitch_amp_deg)
     alpha = np.array(

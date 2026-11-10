@@ -6,11 +6,13 @@ source (NOT tuned to make the gate pass). See openspec/changes/standardize-force
 (Task E; capability flapping-wing-validation).
 """
 
+from decimal import Decimal
 from fractions import Fraction
 
 import numpy as np
 import pandas as pd
 import pytest
+from _density_helpers import PreciseReal
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     STEADY_WINDOW_T0,
@@ -248,12 +250,15 @@ def test_density_cancels_so_no_lab_coefficient_or_gate_verdict_depends_on_it(rho
             assert gate_other[key] == pytest.approx(value, rel=1e-12, abs=1e-15), key
 
 
-@pytest.mark.parametrize("rho_f", [Fraction(1, 2), np.float32(2.0)], ids=repr)
+@pytest.mark.parametrize(
+    "rho_f", [Fraction(1, 2), np.float32(2.0), PreciseReal(1.3)], ids=repr
+)
 def test_density_of_another_real_type_gives_the_same_float64_coefficients(rho_f):
-    """A ``Fraction`` or ``np.float32`` density is converted to ``float`` before it is used.
+    """A ``Fraction``, ``np.float32`` or arbitrary-precision density is converted to ``float``.
 
-    Scenario: The density cancels (review round 3 of #136). Unconverted, ``Fraction * float64
-    array`` is an object-dtype array, and float32 arithmetic would differ from the float path.
+    Scenario: The density cancels (review rounds 3 and 4 of #136). Unconverted, ``Fraction *
+    float64 array`` is an object-dtype array, and a higher-precision real gives coefficients
+    that differ from the float path in the last place.
     """
     from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
 
@@ -271,12 +276,24 @@ def test_density_of_another_real_type_gives_the_same_float64_coefficients(rho_f)
         assert got_d[key] == value, key
 
 
-_BAD_DENSITIES = [0.0, -1.0, float("nan"), float("inf"), True, None, "1.0", 10**400]
+# Decimal and a 0-d array are not numbers.Real; 1e-320 and 5e-324 are subnormal floats.
+_BAD_DENSITIES = {
+    "0.0": 0.0,
+    "-1.0": -1.0,
+    "nan": float("nan"),
+    "inf": float("inf"),
+    "True": True,
+    "None": None,
+    "'1.0'": "1.0",
+    "10**400": 10**400,
+    "Decimal(1)": Decimal("1"),
+    "array(1.0)": np.array(1.0),
+    "1e-320": 1e-320,
+    "5e-324": 5e-324,
+}
 
 
-@pytest.mark.parametrize(
-    "bad", _BAD_DENSITIES, ids=lambda b: repr(b) if b != 10**400 else "10**400"
-)
+@pytest.mark.parametrize("bad", list(_BAD_DENSITIES.values()), ids=list(_BAD_DENSITIES))
 @pytest.mark.parametrize("csv", [_CSV, "no/such/forces.csv"])
 def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, csv):
     """A bad ``rho_f`` is a named parameter error, raised before the CSV is opened.
@@ -294,6 +311,19 @@ def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, c
         ValueError, match=r"rho_f must be a finite, positive real number"
     ):
         body_frame_added_mass_subtracted(csv, rho_f=bad, pitch_amp_deg=45.0, **_KIN)
+
+
+def test_density_so_large_that_f_ref_overflows_names_rho_f():
+    """``rho_f = 1e308`` overflows ``F_ref``; the error names ``rho_f``, not only the kinematics.
+
+    Scenario: The density cancels (review round 4 of #136).
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    with pytest.raises(ValueError, match=r"f_ref must be finite and positive.*rho_f"):
+        reconstruct_wing_forces(_CSV, rho_f=1e308, **_KIN)
+    with pytest.raises(ValueError, match=r"f_ref must be finite and positive.*rho_f"):
+        body_frame_added_mass_subtracted(_CSV, rho_f=1e308, pitch_amp_deg=45.0, **_KIN)
 
 
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---

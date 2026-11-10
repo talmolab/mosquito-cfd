@@ -107,9 +107,18 @@ def spy(monkeypatch):
 def test_reconstruct_wing_forces_signs_only_through_force_on_wing(spy):
     d = flapping_wing.reconstruct_wing_forces(_NEWCONV, rho_f=2.0, **_KIN)
     fx, fz = _columns(_NEWCONV, "Fx", "Fz")
-    # ib_force is per unit density, so the IB force on the wing carries rho_f.
-    np.testing.assert_array_equal(d.cf_x_ib, 2.0 * fx / d.f_ref)
-    np.testing.assert_array_equal(d.cf_z_ib, 2.0 * fz / d.f_ref)
+    # ib_force is per unit density, so the IB force on the wing carries rho_f, and so does
+    # F_ref, built here at rho = 2 rather than read back from the code (review round 4).
+    f_ref = flapping_wing.compute_force_reference(
+        1.0,
+        70.0,
+        r_gyr=flapping_wing.R_GYRATION,
+        span=flapping_wing.SPAN,
+        chord=flapping_wing.CHORD,
+        rho=2.0,
+    ).f_ref
+    np.testing.assert_array_equal(d.cf_x_ib, 2.0 * fx / f_ref)
+    np.testing.assert_array_equal(d.cf_z_ib, 2.0 * fz / f_ref)
     np.testing.assert_allclose(d.cf_x_hydro, d.cf_x_added + d.cf_x_ib, rtol=1e-12)
     np.testing.assert_allclose(d.cf_z_hydro, d.cf_z_added + d.cf_z_ib, rtol=1e-12)
     spy.assert_passed_once_each([fx, fz])
