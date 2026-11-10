@@ -656,14 +656,22 @@ def test_velocity_slice_slices_at_the_hinge_height_not_domain_center(
         np.testing.assert_allclose(field, 2.0)
 
 
-def test_rejects_non_positive_fps(tmp_path):
+def _plotfile_io_tripwire(plotfile_dir):
+    raise AssertionError("plotfile I/O before argument validation")
+
+
+def test_rejects_non_positive_fps(tmp_path, monkeypatch):
     """fps=0 must raise before any matplotlib Figure is created, not leak one via an unguarded
     ZeroDivisionError from `int(1000 / fps)` deep inside FuncAnimation construction.
     """
+    # Match the guard's own message and trip on plotfile discovery. A bare match="fps" also
+    # matched the "no plotfiles found under <tmp_path>" error, because tmp_path is named after this
+    # test -- so the test passed with the fps guard deleted.
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
     nonexistent_plotfile_dir = tmp_path / "does-not-exist"
     open_before = len(plt.get_fignums())
 
-    with pytest.raises(ValueError, match="fps"):
+    with pytest.raises(ValueError, match=r"fps must be positive, got 0"):
         build_flow_video(
             plotfile_dir=nonexistent_plotfile_dir,
             field_mode="wake-slice",

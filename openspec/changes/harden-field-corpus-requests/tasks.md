@@ -82,7 +82,7 @@
 
 ## 2. #122: `build_flow_video` validates `box_margin` (`flow_video.py`)
 
-2.1 [ ] **Fix the template test first** (its own commit). Change `test_rejects_non_positive_fps` to
+2.1 [x] **Fix the template test first** (its own commit). Change `test_rejects_non_positive_fps` to
     assert `match=r"fps must be positive, got 0"` and to monkeypatch `flow_video._plotfile_frames`
     with a function that raises `AssertionError("plotfile I/O before fps check")`. Then show that the
     test now fails with the fps guard deleted. It passes as written today even with the guard gone,
