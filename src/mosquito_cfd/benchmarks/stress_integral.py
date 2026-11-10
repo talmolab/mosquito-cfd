@@ -485,7 +485,17 @@ def sphere_cv_steadiness_fraction(
 
     Returns:
         Dict with ``unsteady``, ``drag``, ``fraction`` (``|unsteady| / |drag|``).
+
+    Raises:
+        ValueError: If ``x_inlet >= x_outlet``, checked before any plotfile is read, so the
+            error names this function's arguments rather than the reader's ``lo``/``hi``
+            (``harden-field-corpus-requests`` D1); and anything :func:`sphere_cv_drag_cd` or
+            :func:`extract_eulerian_box` raises.
     """
+    if x_inlet >= x_outlet:
+        raise ValueError(
+            f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
+        )
     box_old = extract_eulerian_box(
         plotfile_old, lo=(x_inlet, -np.inf, -np.inf), hi=(x_outlet, np.inf, np.inf)
     )

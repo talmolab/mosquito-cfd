@@ -627,3 +627,26 @@ def test_sphere_cv_steadiness_fraction_rejects_a_slab_outside_the_domain():
         sphere_cv_steadiness_fraction(
             str(_LEV_FIXTURE), str(_LEV_FIXTURE), x_inlet=-5.0, x_outlet=-3.0, dt=0.1
         )
+
+
+@pytest.mark.parametrize(("x_inlet", "x_outlet"), [(4.0, 2.0), (3.0, 3.0)])
+def test_sphere_cv_steadiness_fraction_rejects_inlet_not_upstream_before_reading(
+    monkeypatch, x_inlet, x_outlet
+):
+    # Same guard as sphere_cv_drag_cd, checked BEFORE any plotfile read: otherwise an inverted
+    # slab reaches extract_eulerian_box first and the error names lo/hi, values this caller never
+    # passed (harden-field-corpus-requests D1).
+    def tripwire(*args, **kwargs):
+        raise AssertionError("plotfile read before the x_inlet/x_outlet check")
+
+    monkeypatch.setattr(si, "extract_eulerian_box", tripwire)
+    with pytest.raises(
+        ValueError, match=r"x_inlet \(.*\) must be strictly upstream of x_outlet"
+    ):
+        sphere_cv_steadiness_fraction(
+            str(_LEV_FIXTURE),
+            str(_LEV_FIXTURE),
+            x_inlet=x_inlet,
+            x_outlet=x_outlet,
+            dt=0.1,
+        )

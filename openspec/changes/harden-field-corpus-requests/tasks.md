@@ -73,7 +73,7 @@
     - `openspec/project.md:364`: append "and its `lo > hi` rejection (`harden-field-corpus-requests`
       D1)".
 
-1.7 [ ] **`sphere_cv_steadiness_fraction` guard** (separate commit, red then green):
+1.7 [x] **`sphere_cv_steadiness_fraction` guard** (separate commit, red then green):
     - Red: a test in `tests/test_stress_integral.py` with `x_inlet > x_outlet` and
       `extract_eulerian_box` monkeypatched to fail the test if called. It asserts
       `match=r"x_inlet .* must be strictly upstream of x_outlet"`. This fails today: the box read
