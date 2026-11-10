@@ -360,8 +360,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - **Kill table:** 17/17 on saved-bytes copies after a green baseline (one survivor first,
     fixed by pinning the pending note's chord sentence).
   - **Deferred** to follow-up issues: the README regeneration commands rewrite files outside
-    the render set, and the lab-frame plausibility gate passes a CSV containing `inf`. Both
-    predate this PR. The "(lift)" labels in the grid-convergence figures are left for #133,
+    the render set (#137), and the lab-frame plausibility gate passes a CSV containing `inf`
+    (#138). Both predate this PR. The "(lift)" labels in the grid-convergence figures are left for #133,
     which re-renders them.
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
