@@ -205,10 +205,13 @@ def extract_eulerian_box(
     ``add-field-surrogate-reader`` (D1, D3, D10).
 
     Signature, returned keys, value types and array writeability match the pre-refactor function,
-    and so does the region whenever ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on
-    every axis. Elsewhere the region follows the reader's "halo is reach" rule and never holds
-    more cells than before: a request beyond ``halo`` cells of the domain now returns zero cells
-    on that axis, where the pre-refactor function returned edge cells.
+    and so does the region whenever ``lo <= hi``, ``lo <= domain_right_edge`` and
+    ``hi > domain_left_edge`` on every axis. An inverted request (``lo > hi`` on any axis) now
+    raises, where the pre-refactor function returned a small region built from the padded indices
+    (``harden-field-corpus-requests`` D1). Elsewhere the region follows the reader's "halo is
+    reach" rule and never holds more cells than before: a request beyond ``halo`` cells of the
+    domain now returns zero cells on that axis, where the pre-refactor function returned edge
+    cells.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt10000``).
@@ -223,7 +226,8 @@ def extract_eulerian_box(
         ``current_time`` (the plotfile's physical time).
 
     Raises:
-        ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN; if ``halo`` is
+        ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN; if ``lo > hi`` on
+            any axis; if ``halo`` is
             negative or not of an integer type (``bool``, integral floats such as ``2.0`` and
             0-d arrays included); if the plotfile's on-disk precision is not fp64, or cannot be
             determined because yt no longer exposes the private ``ds.index._dtype``; if it is
@@ -377,7 +381,7 @@ def check_field_capture_velocity(
             region is exactly zero, or if any value in ``x_velocity``, ``y_velocity``, or
             ``z_velocity`` is NaN or Inf (a NaN/Inf-contaminated field must never be reported as
             a passing, genuinely non-zero result, regardless of which component carries the
-            contamination).
+            contamination); or, from :func:`extract_eulerian_box`, if ``lo > hi`` on any axis.
     """
     box = extract_eulerian_box(plotfile_path, lo=lo, hi=hi)
     x_velocity = box["u"]

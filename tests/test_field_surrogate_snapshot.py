@@ -284,9 +284,11 @@ _INF = np.inf
 #: of design.md D1, plus three edge points outside it that agree anyway (lower_edge,
 #: lower_edge_halo2, just_below_halo1). (id, lo, hi, halo, expected cells per axis). Expected counts are literals derived once from the
 #: reference arithmetic, not recomputed with the same formula the reader uses -- that would be
-#: tautological. PR B's differential test against the frozen oracle iterates THIS matrix, so every
-#: entry here must be one where the two implementations agree; divergences go in
-#: DIVERGENCE_CASES below.
+#: tautological. test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle and
+#: scripts/verify_eulerian_box_ab.py both iterate THIS matrix, so every entry here must be one where
+#: the two implementations agree; divergences go in DIVERGENCE_CASES below. Inverted requests
+#: (lo > hi) are rejected by the reader (harden-field-corpus-requests D1) and tested separately in
+#: INVERTED_REQUESTS and NARROWED_REQUESTS.
 REGION_CASES = [
     ("full", (-_INF, -_INF, -_INF), (_INF, _INF, _INF), 0, (6, 6, 6)),
     ("interior_unaligned", (1.2, 1.2, 1.2), (4.7, 4.7, 4.7), 0, (4, 4, 4)),
@@ -310,9 +312,6 @@ REGION_CASES = [
     ("upper_edge_halo2", (6.0, 6.0, 6.0), (6.0, 6.0, 6.0), 2, (2, 2, 2)),
     # Less than one cell below the domain, with halo 1: the pad reaches cell 0.
     ("just_below_halo1", (-0.5, -0.5, -0.5), (-0.2, -0.2, -0.2), 1, (1, 1, 1)),
-    ("inverted", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 0, (1, 1, 1)),
-    # Inverted WITH a halo: both pad from floor(lo) and ceil(hi) and then force one cell.
-    ("inverted_halo1", (4.0, 4.0, 4.0), (2.0, 2.0, 2.0), 1, (1, 1, 1)),
 ]
 
 #: DIVERGENCE cases: requests lying outside the domain on some axis (hi <= dle or lo > dre), where
@@ -409,6 +408,71 @@ def test_zero_width_request_is_not_inverted(point, expected):
     # from the reader before the rejection existed.
     snap = read_field_snapshot(FIXTURE, lo=(point,) * 3, hi=(point,) * 3)
     assert (snap.x.size, snap.y.size, snap.z.size) == expected
+
+
+#: Inverted requests (lo > hi on some axis). Legacy and the region helper return a small region for
+#: each -- one cell, up to 2*halo + 1 cells, or none -- so none of these ever errored before
+#: (harden-field-corpus-requests D1). Two have a NON-EMPTY padded range, so a check on the padded
+#: indices instead of the raw corners would let them through. (id, lo, hi, halo).
+INVERTED_REQUESTS = [
+    ("all_axes_h0", (4.0,) * 3, (2.0,) * 3, 0),
+    ("all_axes_h1", (4.0,) * 3, (2.0,) * 3, 1),
+    ("outside_domain", (9.0,) * 3, (-9.0,) * 3, 0),
+    ("within_one_cell", (2.6,) * 3, (2.4,) * 3, 0),
+    ("padded_range_nonempty_h2", (4.0,) * 3, (3.0,) * 3, 2),
+    ("y_only", (1.0, 4.0, 1.0), (5.0, 2.0, 5.0), 0),
+    ("infinite_x", (_INF, 0.0, 0.0), (-_INF, 6.0, 6.0), 0),
+]
+
+
+def _inversion_pattern(lo, hi) -> tuple[list[str], list[str]]:
+    """Return (message fragments that must appear, axis labels that must not)."""
+    present, absent = [], []
+    for i, axis in enumerate(("x", "y", "z")):
+        if lo[i] > hi[i]:
+            present.append(f"axis {axis}: lo={float(lo[i])} > hi={float(hi[i])}")
+        else:
+            absent.append(f"axis {axis}:")
+    return present, absent
+
+
+def _assert_inversion_error(excinfo, lo, hi) -> None:
+    msg = str(excinfo.value)
+    assert msg.startswith("inverted region request (lo > hi): "), msg
+    present, absent = _inversion_pattern(lo, hi)
+    for fragment in present:
+        assert fragment in msg, (fragment, msg)
+    for label in absent:
+        assert label not in msg, (label, msg)
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:] for c in INVERTED_REQUESTS],
+    ids=[c[0] for c in INVERTED_REQUESTS],
+)
+def test_inverted_request_is_rejected(lo, hi, halo):
+    with pytest.raises(ValueError, match=r"inverted region request") as excinfo:
+        read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
+    _assert_inversion_error(excinfo, lo, hi)
+
+
+def test_inverted_request_is_rejected_before_the_plotfile_is_opened(tmp_path):
+    # A path that does not exist: if the check ran after yt.load, this would be a load error.
+    lo, hi = (4.0,) * 3, (2.0,) * 3
+    with pytest.raises(ValueError, match=r"inverted region request") as excinfo:
+        read_field_snapshot(tmp_path / "no_such_plotfile", lo=lo, hi=hi)
+    _assert_inversion_error(excinfo, lo, hi)
+
+
+def test_inverted_request_is_rejected_before_yt_is_imported(monkeypatch):
+    # sys.modules[name] = None makes `import yt` raise ImportError, so a check placed between the
+    # import and yt.load surfaces as ImportError rather than the inversion error.
+    monkeypatch.setitem(sys.modules, "yt", None)
+    lo, hi = (4.0,) * 3, (2.0,) * 3
+    with pytest.raises(ValueError, match=r"inverted region request") as excinfo:
+        read_field_snapshot(FIXTURE, lo=lo, hi=hi)
+    _assert_inversion_error(excinfo, lo, hi)
 
 
 @pytest.mark.parametrize(
@@ -529,9 +593,10 @@ def _sweep(dle, dre, n, halos):
 def test_region_arithmetic_matches_legacy_wherever_the_request_meets_the_domain(
     dle, dre, n, halos
 ):
-    # The parity region stated in the spec: identical to legacy whenever lo <= dre and hi > dle.
-    # Every pair of the swept values, so a divergence cannot hide between the hand-picked
-    # REGION_CASES.
+    # The spec's parity region is lo <= hi, lo <= dre and hi > dle; the public reader rejects
+    # lo > hi before reaching this helper. The helper itself is unchanged, so it is held to the
+    # SUPERSET lo <= dre and hi > dle here, inverted pairs included. Every pair of the swept
+    # values, so a divergence cannot hide between the hand-picked REGION_CASES.
     for lo, hi, halo, (n_lo, n_hi), (o_lo, o_hi) in _sweep(dle, dre, n, halos):
         parity = (lo <= dre) & (hi > dle)
         new_count = np.maximum(n_hi - n_lo, 0)
@@ -886,6 +951,13 @@ NARROWED_REQUESTS = [
     # The scalar message must name the remedy: legacy broadcast `lo=-np.inf` as "full extent".
     ("scalar_lo", {"lo": 0.0, "hi": (6.0,) * 3}, r"3-vector.*\(-inf,\)\*3"),
     ("scalar_hi", {"lo": (0.0,) * 3, "hi": 6.0}, r"3-vector.*\(inf,\)\*3"),
+    # Legacy returned one cell here; the wrapper inherits the reader's rejection
+    # (harden-field-corpus-requests D1).
+    (
+        "inverted",
+        {"lo": (4.0,) * 3, "hi": (2.0,) * 3},
+        r"inverted region request \(lo > hi\)",
+    ),
     ("negative_halo", {**FULL, "halo": -1}, "non-negative"),
     ("fractional_halo", {**FULL, "halo": 1.9}, "integer"),
     ("bool_halo", {**FULL, "halo": True}, "integer"),

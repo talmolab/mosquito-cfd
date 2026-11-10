@@ -158,6 +158,23 @@ def _corner(value, name: str) -> np.ndarray:
     return arr
 
 
+def _check_not_inverted(lo: np.ndarray, hi: np.ndarray) -> None:
+    # Compared on the RAW corners, not the padded indices: with halo >= 1 a slightly inverted
+    # request pads back into a non-empty range, which an index check would let through. Strict
+    # `>`: lo == hi is the documented zero-width point query. NaN never reaches here (_corner).
+    # Values go through float() -- numpy 2's repr would print np.float64(4.0).
+    inverted = [
+        f"axis {axis}: lo={float(lo[i])} > hi={float(hi[i])}"
+        for i, axis in enumerate(("x", "y", "z"))
+        if lo[i] > hi[i]
+    ]
+    if inverted:
+        # The legacy adapter returned a small region here (one cell at halo 0, up to 2*halo + 1
+        # otherwise), hiding swapped corners or a negative margin in centre +/- margin
+        # (harden-field-corpus-requests D1).
+        raise ValueError("inverted region request (lo > hi): " + "; ".join(inverted))
+
+
 def _region_bounds(
     lo: np.ndarray,
     hi: np.ndarray,
@@ -181,7 +198,11 @@ def _region_bounds(
     i_lo = np.floor((lo_c - dle) / dx).astype(np.int64) - halo
     i_hi = np.ceil((hi_c - dle) / dx).astype(np.int64) + halo
     # An empty or inverted padded range becomes the single cell at its start. Applied BEFORE the
-    # domain intersection, so it can never add a cell outside the padded request.
+    # domain intersection, so it can never add a cell outside the padded request. Through the
+    # public reader only a zero-width request (lo == hi, e.g. a point on a cell face, where floor
+    # and ceil agree) reaches this floor -- inverted requests are rejected upstream
+    # (harden-field-corpus-requests D1). The parity sweep still feeds this helper inverted
+    # triples, so the floor is load-bearing for legacy parity too: do not remove it.
     i_hi = np.maximum(i_hi, i_lo + 1)
     i_lo = np.clip(i_lo, 0, ddims)
     i_hi = np.clip(i_hi, i_lo, ddims)
@@ -212,10 +233,12 @@ def read_field_snapshot(
 
     This matches the pre-refactor ``benchmarks.stress_integral.extract_eulerian_box`` (frozen
     in ``tests/fixtures/legacy_extract_eulerian_box.py``; the current one delegates here)
-    whenever ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every axis. Outside
-    that, the pre-refactor adapter clamps the corners onto the domain edge *before* padding and
-    so returns edge cells however far away the request is; this reader never returns more cells
-    there, and for a non-inverted request returns a sub-range of the pre-refactor cells.
+    whenever ``lo <= hi``, ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every
+    axis. Outside that, the pre-refactor adapter clamps the corners onto the domain edge
+    *before* padding and so returns edge cells however far away the request is; this reader
+    never returns more cells there, and returns a sub-range of the pre-refactor cells. An
+    inverted request (``lo > hi`` on any axis) raises, where the pre-refactor adapter returned a
+    small region built from the padded indices.
 
     Args:
         plotfile_path: Path to the plotfile directory (e.g. ``.../plt00100``).
@@ -229,14 +252,16 @@ def read_field_snapshot(
 
     Raises:
         ValueError: If a field name is unknown or absent from the plotfile, if a corner contains
-            NaN, if the plotfile is multi-level (the open CC-F3 decision), or if a field is not
-            FP64 (the fp32-build guard).
+            NaN, if ``lo > hi`` on any axis (checked before ``yt`` is imported), if the plotfile
+            is multi-level (the open CC-F3 decision), or if a field is not FP64 (the fp32-build
+            guard).
     """
     fields = tuple(fields)
     _validate_fields(fields)
     halo = _validate_halo(halo)
     lo_v = _corner(lo, "lo")
     hi_v = _corner(hi, "hi")
+    _check_not_inverted(lo_v, hi_v)
 
     import yt
 

@@ -21,14 +21,14 @@
 
 ## 1. #122: reject inverted region requests (`snapshot.py`, `stress_integral.py`)
 
-1.1 [ ] Caller audit. Re-grep the `read_field_snapshot` and `extract_eulerian_box` callers and check
+1.1 [x] Caller audit. Re-grep the `read_field_snapshot` and `extract_eulerian_box` callers and check
     them against the design D1 table. Record the result in the PR body.
 
-1.2 [ ] **Anchor** (commit separately, before 1.3). `test_zero_width_request_is_not_inverted`
+1.2 [x] **Anchor** (commit separately, before 1.3). `test_zero_width_request_is_not_inverted`
     (snapshot tests): `lo == hi` at an interior point gives `(1,1,1)`, at the upper edge `(0,0,0)`,
     at `(+inf,)*3` `(0,0,0)`, and at `(-inf,)*3` `(0,0,0)`. This kills a `>` → `>=` mutant.
 
-1.3 [ ] **Red tests**, in `tests/test_field_surrogate_snapshot.py`:
+1.3 [x] **Red tests**, in `tests/test_field_surrogate_snapshot.py`:
     - (a) `test_inverted_request_is_rejected`, parametrized over the seven requests in the spec
       scenario, including `(2.6→2.4, halo 0)` and `(4→3, halo 2)`, which have non-empty padded
       ranges. It asserts
@@ -43,7 +43,7 @@
       `NARROWED_REQUESTS`. `test_wrapper_argument_narrowing_is_pinned` then checks that the frozen
       copy accepts it and the wrapper raises. The wrapper half fails today.
 
-1.4 [ ] In the same commit as 1.3:
+1.4 [x] In the same commit as 1.3:
     - Remove `inverted` and `inverted_halo1` from `REGION_CASES`. No count literal depends on its
       length; the script uses `len()` at run time.
     - Rewrite the comment above `REGION_CASES` (lines 282–289). The oracle test and
@@ -51,7 +51,7 @@
       (`harden-field-corpus-requests` D1) and tested separately.
     - Fix the comment at line 510 to state the parity region including `lo <= hi`.
 
-1.5 [ ] **Implement** in the same commit: `_check_not_inverted(lo_v, hi_v)` in `read_field_snapshot`,
+1.5 [x] **Implement** in the same commit: `_check_not_inverted(lo_v, hi_v)` in `read_field_snapshot`,
     called right after the two `_corner` calls and before `import yt`. The message format is
     `inverted region request (lo > hi): axis y: lo=4.0 > hi=2.0`; when several axes are inverted they
     are joined with `"; "`, and values go through `float()`. Leave `_region_bounds` unchanged.
@@ -59,7 +59,7 @@
     `lo == hi` (for example, a point on a cell face), while the parity sweep still feeds it inverted
     triples. Without that explanation the floor looks removable.
 
-1.6 [ ] **Docstrings and docs**, in the same commit:
+1.6 [x] **Docstrings and docs**, in the same commit:
     - `read_field_snapshot`:
       - add `lo <= hi` to the parity condition;
       - drop "for a non-inverted request";
