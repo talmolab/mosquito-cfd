@@ -408,3 +408,37 @@ def test_noncanonical_step_resolves_with_one_listing(tmp_path, monkeypatch):
     spy = _IoSpy(monkeypatch)
     assert corpus.plotfile("s35_f085_p30", 7) == run / "plt7"
     assert spy.count("iterdir:") == 1, spy.calls
+
+
+def test_canonical_plotfile_resolves_without_listing(tmp_path, monkeypatch):
+    # AMReX names plotfiles plt{step:05d} (at least five digits, so plt100000 for step 100000).
+    # That name is tried with one is_dir() before any listing of the run directory -- on cluster
+    # NFS each per-entry stat of a listing is a round trip (harden-field-corpus-requests D2). Step
+    # 100 kills a `:05d` -> `:d` mutant (plt100 does not exist here).
+    root, run = _bare_corpus(tmp_path, ["plt00100", "plt100000"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+    assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
+    assert corpus.plotfile("s35_f085_p30", 100000) == run / "plt100000"
+    assert spy.count("iterdir:") == 0, spy.calls
+    assert spy.calls.count("is_dir:plt00100") == 1, spy.calls
+
+
+def test_unknown_config_is_rejected_before_the_fast_path(tmp_path):
+    # Anchor: a canonical-looking directory on disk for a config the manifest does not list must
+    # not be served -- manifest membership is checked first, on both paths.
+    root, _ = _bare_corpus(tmp_path, ["plt00100"])
+    (root / "runs" / "ghost" / "plt00100").mkdir(parents=True)
+    with pytest.raises(ValueError, match=r"config 'ghost' is not in manifest"):
+        FieldCorpus(root).plotfile("ghost", 100)
+
+
+def test_fast_path_does_not_see_a_noncanonical_twin(tmp_path):
+    # The documented trade-off (harden-field-corpus-requests D2), pinned so changing it is a
+    # deliberate decision: a fast-path hit never lists the run directory, so it cannot see that
+    # plt100 duplicates plt00100. Only the listing operations report the ambiguity.
+    root, run = _bare_corpus(tmp_path, ["plt100", "plt00100"])
+    corpus = FieldCorpus(root)
+    assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
+    with pytest.raises(ValueError, match=r"two plotfile directories parse to step 100"):
+        corpus.steps("s35_f085_p30")

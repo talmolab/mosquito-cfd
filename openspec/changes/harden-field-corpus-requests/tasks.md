@@ -157,18 +157,18 @@
 
 ## 5. #121: canonical fast path (`corpus.py`)
 
-5.1 [ ] **Red**: `test_canonical_plotfile_resolves_without_listing`. Directories `plt00100` and
+5.1 [x] **Red**: `test_canonical_plotfile_resolves_without_listing`. Directories `plt00100` and
     `plt100000`, with an `iterdir` spy. `plotfile(c, 100)` and `plotfile(c, 100000)` each return the
     canonical path with zero listings. Fails today: one listing each.
 
-5.2 [ ] **Anchor**: an unknown config with `runs/ghost/plt00100` present on disk still raises the
+5.2 [x] **Anchor**: an unknown config with `runs/ghost/plt00100` present on disk still raises the
     manifest error. Passes today; kills a mutant that puts `_config` after the fast path.
 
-5.3 [ ] **Red**: `test_fast_path_does_not_see_a_noncanonical_twin`. With directories `plt100` and
+5.3 [x] **Red**: `test_fast_path_does_not_see_a_noncanonical_twin`. With directories `plt100` and
     `plt00100`, `plotfile(c, 100)` returns `plt00100`, and `steps(c)` raises. This fails after
     section 4 and before 5.4, because the scan raises; it is the D2 trade-off pinned.
 
-5.4 [ ] **Implement** in the same commit:
+5.4 [x] **Implement** in the same commit:
     - `plotfile()`: validate the step, then `_config`, then `is_dir()` on the canonical path and return
       it if that is True; otherwise `run_dir` plus `_scan`.
     - Update the module and class docstrings. Today they say `steps()`/`plotfile()` "list `plt*`

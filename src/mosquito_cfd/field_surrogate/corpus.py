@@ -5,7 +5,9 @@ repository -- ``openspec/project.md`` documents its three mount points (the ``Z:
 Windows, ``/mnt/hpi_dev/users/eberrigan/...`` under WSL, and
 ``/hpi/hpi_dev/users/eberrigan/...`` on the cluster). Steps are discovered from the ``plt*``
 directories actually present on disk rather than assumed from a deck's ``plot_int`` -- a run
-can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``.
+can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``. ``plotfile()`` first tries the
+canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the run directory
+only when that name is not a directory.
 """
 
 from __future__ import annotations
@@ -71,9 +73,10 @@ GLOBAL_PARAM_KEYS: tuple[str, ...] = (
 class FieldCorpus:
     """Address a field-capture corpus by config id and timestep.
 
-    The manifest is parsed once per instance and cached; ``steps()``/``plotfile()`` still list
-    ``plt*`` directories live on every call, since which plotfiles exist can change while a run
-    is in progress. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    The manifest is parsed once per instance and cached. Plotfile presence is never cached, since
+    which plotfiles exist can change while a run is in progress: ``steps()`` lists the ``plt*``
+    directories on every call, and ``plotfile()`` stats the canonical ``plt{step:05d}`` first and
+    lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
     """
 
     def __init__(
@@ -191,6 +194,12 @@ class FieldCorpus:
     def plotfile(self, config_id: str, step: int) -> Path:
         """Return the plotfile directory for one ``(config_id, step)``.
 
+        The canonical AMReX name ``plt{step:05d}`` is tried first with one ``is_dir()``; only if
+        it is not a directory is the run directory listed. The fast path therefore trusts the
+        canonical name: with both ``plt100`` and ``plt00100`` present it returns ``plt00100``
+        without reporting the ambiguity, which ``steps()`` and this method's scan do report
+        (``harden-field-corpus-requests`` D2).
+
         Args:
             config_id: Config name as listed in the manifest.
             step: Non-negative integer timestep (``int`` or ``np.integer``, not ``bool``), as
@@ -206,6 +215,10 @@ class FieldCorpus:
                 that step exists.
         """
         step = _validate_step(step)
+        self._config(config_id)  # manifest membership first, on both paths
+        canonical = self.runs_dir / config_id / f"plt{step:05d}"
+        if canonical.is_dir():
+            return canonical
         run = self.run_dir(config_id)
         found = _scan(run)
         if step in found:
