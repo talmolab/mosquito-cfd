@@ -511,14 +511,54 @@ def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_datase
         dataset[["config_name", "time", *_TARGETS]], on=["config_name", "time"]
     )
     assert len(joined) == len(holdout)  # every holdout row is a dataset row
-    stale = not all(
+    check_banner(
+        (base / "README.md").read_text(encoding="utf-8"),
+        stale=surrogate_is_stale(joined),
+    )
+
+
+def surrogate_is_stale(joined: pd.DataFrame) -> bool:
+    """Whether any of the six holdout ``<target>_true`` columns disagrees with the dataset."""
+    return not all(
         np.allclose(joined[f"{c}_true"], joined[c], rtol=1e-9, atol=1e-12)
         for c in _TARGETS
     )
-    paragraph = banner_paragraph((base / "README.md").read_text(encoding="utf-8"))
-    assert (paragraph is not None) == stale, (corpus, stale)
+
+
+def check_banner(readme: str, *, stale: bool) -> None:
+    """The banner is present exactly while stale, and then says what a reader must do."""
+    paragraph = banner_paragraph(readme)
+    assert (paragraph is not None) == stale, stale
     if stale:
         assert "force on the fluid" in paragraph and "negate" in paragraph, paragraph
+
+
+@pytest.mark.parametrize("target", _TARGETS)
+def test_one_disagreeing_target_makes_the_surrogate_stale(target):
+    """A retrain that left any single target behind is still stale."""
+    rng = np.random.default_rng(0)
+    joined = pd.DataFrame({c: rng.normal(size=8) for c in _TARGETS})
+    for c in _TARGETS:
+        joined[f"{c}_true"] = joined[c]
+    assert surrogate_is_stale(joined) is False
+    joined[f"{target}_true"] = -joined[target]
+    assert surrogate_is_stale(joined) is True
+
+
+def test_check_banner_needs_the_wording_and_tracks_staleness():
+    good = "# T\n\n> Surrogate outputs are stale against `dataset.parquet`: they predict the force on the fluid, so negate them.\n"
+    check_banner(good, stale=True)
+    check_banner("# T\n\nNo banner.\n", stale=False)
+    with pytest.raises(AssertionError):
+        check_banner(good, stale=False)  # left behind after the retrain
+    with pytest.raises(AssertionError):
+        check_banner("# T\n\nNo banner.\n", stale=True)  # forgotten while stale
+    for vague in (
+        "> They are stale against `dataset.parquet`: negate them.",
+        "> They are stale against `dataset.parquet`: they predict the force on the fluid.",
+    ):
+        with pytest.raises(AssertionError):
+            check_banner(f"# T\n\n{vague}\n", stale=True)
 
 
 def test_banner_paragraph_finds_a_reflowed_banner_and_only_that_paragraph():
