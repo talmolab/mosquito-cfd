@@ -308,8 +308,9 @@ _BAD_STEPS = ["100", 100.0, True, np.bool_(True), -1, np.int64(-1), None]
 
 
 def _shown(step):
-    # numpy scalars are shown as their plain Python value, as _validate_halo and
-    # _validate_box_margin do -- never numpy 2's "np.int64(-1)" repr.
+    # numpy scalars are shown as their plain Python value, as in the halo and box_margin
+    # messages -- never numpy 2's "np.int64(-1)" repr. Written out rather than imported from
+    # mosquito_cfd._messages, so the test does not trust the code it checks.
     return repr(step.item() if isinstance(step, np.generic) else step)
 
 

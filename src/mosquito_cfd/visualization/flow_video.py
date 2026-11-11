@@ -26,6 +26,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.benchmarks.lev import q_criterion, vorticity_magnitude
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
@@ -110,10 +111,9 @@ def _validate_box_margin(box_margin: Any) -> float:
     if margin is None or not (math.isfinite(margin) and margin > 0):
         # The accepted types are named because some rejected values (Decimal("3"), 10**400) are
         # finite and positive: "must be a finite number > 0" would be false for them.
-        shown = box_margin.item() if isinstance(box_margin, np.generic) else box_margin
         raise ValueError(
             "box_margin must be an int, float, Fraction or numpy real scalar that converts to a "
-            f"finite float > 0, got {shown!r}"
+            f"finite float > 0, got {plain_repr(box_margin)}"
         )
     return margin
 

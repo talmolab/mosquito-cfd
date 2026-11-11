@@ -16,6 +16,8 @@ from types import MappingProxyType
 
 import numpy as np
 
+from mosquito_cfd._messages import plain_repr
+
 #: Short name -> the ``('boxlib', <name>)`` tuple the plotfile stores it under. Covers all eight
 #: components a real wing plotfile writes.
 CANONICAL_FIELDS: Mapping[str, tuple[str, str]] = MappingProxyType(
@@ -133,7 +135,7 @@ def _validate_halo(halo: int) -> int:
         # Each face truncates independently (int() of i_lo - halo and i_hi + halo), so a
         # fractional halo pads ASYMMETRICALLY -- halo=1.9 gives 2 cells low and 1 high, a
         # wrong answer for anything that differentiates across the pad.
-        raise ValueError(f"halo must be an integer, got {halo!r}")
+        raise ValueError(f"halo must be an integer, got {plain_repr(halo)}")
     if halo < 0:
         # A negative halo erodes rather than pads, and can silently yield a zero-cell region
         # indistinguishable from an out-of-domain request.

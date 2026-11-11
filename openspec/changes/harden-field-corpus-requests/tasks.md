@@ -288,7 +288,7 @@
     message are red first. Implementation: `numbers.Real` plus `float()`, returning the `float`.
     Re-run the four surviving mutants (`np.integer`/`np.floating` dropped, `> 1e-3`, `>= 1`); all
     must be killed.
-8.3 [ ] **Red then green (`halo` message):** `halo=np.float64(1.9)` is reported as `got 1.9`. Add
+8.3 [x] **Red then green (`halo` message):** `halo=np.float64(1.9)` is reported as `got 1.9`. Add
     `mosquito_cfd._messages.plain_repr` and use it for `step`, `halo` and `box_margin`; correct the
     three comments that claimed `_validate_halo` already did this.
 8.4 [ ] **Refactor under green tests:** one `_require_upstream(x_inlet, x_outlet)` used by both

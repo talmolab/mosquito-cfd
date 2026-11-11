@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
 
 #: Plotfile directory names are ``plt`` followed by digits only. ``plt00300.old`` and ``pltXXXXX``
@@ -31,10 +32,9 @@ def _validate_step(step: Any) -> int:
     # manifest read or filesystem access, so a bad step is reported as a bad step
     # (harden-field-corpus-requests D4). repr() so the string '100' is distinguishable from 100.
     if isinstance(step, bool) or not isinstance(step, (int, np.integer)) or step < 0:
-        # numpy scalars are shown as their plain value, as _validate_halo and
-        # flow_video._validate_box_margin do -- never numpy 2's "np.int64(-1)" repr.
-        shown = step.item() if isinstance(step, np.generic) else step
-        raise ValueError(f"step must be a non-negative integer, got {shown!r}")
+        # plain_repr: numpy scalars are shown as their plain value, as in the halo and
+        # box_margin messages -- never numpy 2's "np.int64(-1)" repr.
+        raise ValueError(f"step must be a non-negative integer, got {plain_repr(step)}")
     return int(step)
 
 

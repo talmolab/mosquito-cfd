@@ -836,6 +836,19 @@ def test_invalid_halo_is_rejected(halo, match):
         read_field_snapshot(FIXTURE, lo=(2.2,) * 3, hi=(3.4,) * 3, halo=halo)
 
 
+@pytest.mark.parametrize(
+    ("halo", "shown"),
+    [(np.float64(1.9), "1.9"), (np.bool_(True), "True"), (1.9, "1.9"), ("2", "'2'")],
+    ids=["np_float64", "np_bool", "float", "str"],
+)
+def test_invalid_halo_message_shows_the_plain_value(halo, shown):
+    # numpy scalars are shown as their plain Python value, never numpy 2's "np.float64(1.9)" repr,
+    # the same as the step and box_margin messages (harden-field-corpus-requests, #140 review).
+    with pytest.raises(ValueError, match=r"^halo must be an integer, got ") as excinfo:
+        read_field_snapshot(FIXTURE, lo=(2.2,) * 3, hi=(3.4,) * 3, halo=halo)
+    assert str(excinfo.value).endswith(f"got {shown}"), str(excinfo.value)
+
+
 _PACKAGE_ONLY_PROBE = """
 import sys
 
