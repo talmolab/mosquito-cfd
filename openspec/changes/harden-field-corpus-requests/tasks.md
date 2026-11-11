@@ -88,7 +88,7 @@
     test now fails with the fps guard deleted. It passes as written today even with the guard gone,
     because the `tmp_path` in the I/O error message contains "fps".
 
-2.2 [ ] **Red**: `test_rejects_invalid_box_margin`, parametrized over `box_margin ∈ {-1.0, 0, 0.0,
+2.2 [x] **Red**: `test_rejects_invalid_box_margin`, parametrized over `box_margin ∈ {-1.0, 0, 0.0,
     nan, inf, -inf, np.float64(-1.0), True, "3"}` × all four `FIELD_MODES`. It:
     - asserts `match=r"box_margin must be a finite number > 0, got"`;
     - asserts the value's text appears in the message;
@@ -97,7 +97,7 @@
 
     It fails today: every case reaches the tripwire.
 
-2.3 [ ] **Implement** in the same commit as 2.2:
+2.3 [x] **Implement** in the same commit as 2.2:
     - Add `_validate_box_margin` right after the `fps` check. It accepts `int`/`float`/`np.integer`/
       `np.floating`, rejects `bool`, requires `math.isfinite(x) and x > 0`, and raises `ValueError`
       for everything else.

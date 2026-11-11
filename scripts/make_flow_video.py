@@ -137,7 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         default=DEFAULT_BOX_MARGIN,
         help="Isotropic half-width of the near-field extraction box around --center "
-        "(lev-3d only).",
+        "(used by lev-3d only; validated in every mode: must be finite and > 0).",
     )
     parser.add_argument("--fps", type=int, default=DEFAULT_FPS)
 

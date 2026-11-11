@@ -660,6 +660,56 @@ def _plotfile_io_tripwire(plotfile_dir):
     raise AssertionError("plotfile I/O before argument validation")
 
 
+_BAD_BOX_MARGINS = [
+    (-1.0, "-1.0"),
+    (0, "0"),
+    (0.0, "0.0"),
+    (float("nan"), "nan"),
+    (float("inf"), "inf"),
+    (float("-inf"), "-inf"),
+    (np.float64(-1.0), "-1.0"),
+    (True, "True"),
+    ("3", "'3'"),
+]
+
+
+@pytest.mark.parametrize("field_mode", FIELD_MODES)
+@pytest.mark.parametrize(
+    ("box_margin", "shown"),
+    _BAD_BOX_MARGINS,
+    ids=[s for _, s in _BAD_BOX_MARGINS],
+)
+def test_rejects_invalid_box_margin(
+    tmp_path, monkeypatch, field_mode, box_margin, shown
+):
+    """box_margin is validated in every mode, before any plotfile I/O or Figure creation.
+
+    A non-positive margin turns lev-3d's center +/- box_margin request into an inverted or
+    zero-width region; without this check the caller sees the reader's lo > hi error instead
+    (harden-field-corpus-requests D3).
+    """
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
+    open_before = len(plt.get_fignums())
+
+    with pytest.raises(
+        ValueError, match=r"box_margin must be a finite number > 0, got "
+    ) as excinfo:
+        build_flow_video(
+            plotfile_dir=tmp_path / "does-not-exist",
+            field_mode=field_mode,
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            box_margin=box_margin,
+            **_KINEMATICS_KWARGS,
+        )
+
+    assert str(excinfo.value).endswith(f"got {shown}"), str(excinfo.value)
+    assert len(plt.get_fignums()) == open_before
+
+
 def test_rejects_non_positive_fps(tmp_path, monkeypatch):
     """fps=0 must raise before any matplotlib Figure is created, not leak one via an unguarded
     ZeroDivisionError from `int(1000 / fps)` deep inside FuncAnimation construction.
