@@ -207,6 +207,8 @@ are flagged by the pending note below.
 
 Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
 
+Pending #109: the committed surrogates still predict the solver's on-fluid sign; negate their outputs.
+
 The corpus note also covers the committed surrogates and evidence figures built from it.
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis

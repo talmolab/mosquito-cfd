@@ -1,9 +1,9 @@
 {
-  "run_id": "811b635e-957b-4adb-aa41-2dea6452c395",
-  "timestamp": "2026-10-15T21:51:42+00:00",
+  "run_id": "25a0f882-fc80-4cc0-bf9c-ca6a660c84d5",
+  "timestamp": "2026-11-11T18:31:08+00:00",
   "git": {
-    "commit": "84acc3c11ff03aeec9c10954cb16f365ce0c017b",
-    "branch": "fix-moment-reference-hinge-pr2",
+    "commit": "f848df6c775967e00203e4d3a527b6f65446fbb4",
+    "branch": "fix-wing-force-sign-pr2b-extract",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
@@ -610,5 +610,19 @@
       "s55_f115_p45": "c81e822c4591cb802c4d77dd88f411e8529564b7d5034915a443d5c56e970711",
       "s55_f115_p60": "4df52afe843338183ee80e9f52a0b6154cfd452c5ad1b78af959e8fa28e395cf"
     }
+  },
+  "force_sign_convention": {
+    "coefficients": "on_wing",
+    "raw_columns": "on_fluid",
+    "raw_source": "IAMReX kernel.ib_force / kernel.ib_moment",
+    "applies_to": [
+      "CF_x",
+      "CF_y",
+      "CF_z",
+      "CF_mx",
+      "CF_my",
+      "CF_mz"
+    ],
+    "definition": "docs/coordinate-convention.md#force-and-moment-sign"
   }
 }
