@@ -435,6 +435,30 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - **Deferred** to #139: `heaving_ellipsoid.ellipsoid_added_mass_fraction` divides
     `|rho_f·SumU|` by an unscaled `ib_force` and accepts a negative `rho_f` (on main; a different
     benchmark).
+- **PR review round 5 (#136, narrow review of the round-4 T4 fix): no blocker.** Between about
+  3e305 and 9e305, `F_ref` is finite but the density-scaled forces overflow, so T4 returned
+  `inf`/NaN numbers (and `normal_mag_pass = False`) with no error, and `reconstruct_wing_forces`
+  returned an `inf` `cf_z_hydro`. Tasks:
+  - [x] R5.1 Spec deltas: an overflowing force or coefficient computed from finite input raises
+    `ValueError` naming the density, in all three functions; T4's bad-`rho` scenario lists the
+    same values as the lab one.
+  - [x] R5.2 Test first: `5e305` and `1e308` raise naming `rho_f` (lab and diagnostic, on two
+    CSVs) and `rho` (T4); a NaN input row is not reported as an overflow; T4's bad-`rho` test
+    uses the shared `BAD_DENSITIES` (`tests/_density_helpers.py`). numpy's overflow and
+    invalid-value warnings are filtered on the overflow tests only, where they are expected.
+  - [x] R5.3 Implement: `_raise_if_density_overflowed` checks the forces over `F_ref` in
+    `reconstruct_wing_forces`, `body_frame_added_mass_subtracted` and T4's model, counting only
+    rows whose input is finite. Non-finite input keeps its existing handling: the lab path
+    passes it through (#138) and the diagnostic raises its own error.
+  - [x] R5.4 Docs: docstrings, CHANGELOG, the PR body's tables.
+  - [x] R5.5 Mutation-test on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 6/7 on saved-bytes copies after a green baseline. Killed: each of the three
+    overflow checks removed, the finite-input mask ignored or inverted, and the error dropping
+    the density's name. The survivor, T4's own model-`F_ref` finiteness check removed, is
+    equivalent and kept for its clearer message. Degenerate kinematics are caught first by
+    `reconstruct_wing_body_forces`' check on the same `F_ref` arguments, and any `rho` that
+    overflows `F_ref` also overflows the model forces (about 2.5·`F_ref`), which the new check
+    catches. Full suite: 1634 passed, 14 skipped, 1 xfailed.
 - **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
   two figure scripts carry only the sign and label edits.
 
