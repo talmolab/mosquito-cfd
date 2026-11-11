@@ -4,8 +4,8 @@ Thin driver over :mod:`mosquito_cfd.force_surrogate.dataset` (all logic lives in
 library). It resolves each config's IB-particle CSV from a configurable ``--input-dir`` +
 filename template (default ``<input-dir>/<config name>/IB_Particle_1.csv`` — IAMReX's actual
 per-run output name), builds the dataset, and writes the parquet, the ``dataset.units.json``
-sidecar, and a ``run_metadata.json`` provenance file (including the moment reference point and
-the sha256 of every consumed CSV). Force-only (CC-6): the inputs are the IB-particle CSVs plus
+sidecar, and a ``run_metadata.json`` provenance file (including the moment reference point, the
+force sign convention and the sha256 of every consumed CSV). Force-only (CC-6): the inputs are the IB-particle CSVs plus
 each config's deck (named by the manifest's ``input_file``, read for its declared hinge); no
 plotfiles.
 
@@ -44,6 +44,7 @@ from pathlib import Path
 from mosquito_cfd.force_surrogate import (
     build_dataset,
     build_run_metadata,
+    force_sign_provenance,
     load_manifest_configs,
     moment_reference_provenance,
     write_dataset,
@@ -196,9 +197,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         timestamp=args.timestamp,
         dropped_configs=dropped,
         inputs_file=args.manifest,
-        extra=moment_reference_provenance(
-            provenance, input_dir=args.input_dir, csv_name=args.csv_name
-        ),
+        extra={
+            **moment_reference_provenance(
+                provenance, input_dir=args.input_dir, csv_name=args.csv_name
+            ),
+            **force_sign_provenance(),
+        },
     )
     # Write every output in full to a temporary first: a failure here changes nothing.
     temporaries = {target: _temporary(target) for target in outputs}

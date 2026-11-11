@@ -656,6 +656,28 @@ def moment_reference_provenance(
     }
 
 
+def force_sign_provenance() -> dict[str, dict[str, Any]]:
+    """The corpus ``run_metadata.json`` entry recording the coefficients' force sign.
+
+    The ``CF_*`` coefficients are the IB force and moment on the wing; the raw ``Fx..Mz``
+    columns are IAMReX's ``ib_force``/``ib_moment``, which act on the fluid. Pass the result in
+    :func:`build_run_metadata`'s ``extra``. Like the moment frame it is provenance, not a unit,
+    so it is not written to ``dataset.units.json``.
+
+    Returns:
+        ``{"force_sign_convention": {...}}``, a fresh copy on every call.
+    """
+    return {
+        "force_sign_convention": {
+            "coefficients": "on_wing",
+            "raw_columns": "on_fluid",
+            "raw_source": "IAMReX kernel.ib_force / kernel.ib_moment",
+            "applies_to": ["CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"],
+            "definition": "docs/coordinate-convention.md#force-and-moment-sign",
+        }
+    }
+
+
 def write_dataset(
     df: pd.DataFrame,
     parquet_path: Path | str,

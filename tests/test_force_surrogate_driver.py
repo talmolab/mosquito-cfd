@@ -204,6 +204,52 @@ def test_driver_records_moment_reference_and_extraction_inputs(tmp_path):
     assert not {"moment_reference", "extraction_inputs"} & set(sidecar)
 
 
+def test_driver_records_the_force_sign_convention(tmp_path):
+    """The corpus run_metadata.json carries ``force_sign_convention`` with the spec's literal
+    value, at the top level; dataset.units.json does not (it is provenance, not a unit).
+
+    Spec: Force sign convention travels with the corpus (fix-wing-force-sign-convention, #109).
+    """
+    manifest, input_dir = _make_run_tree(tmp_path, ["a"])
+    out = tmp_path / "dataset.parquet"
+    units = tmp_path / "dataset.units.json"
+    metadata = tmp_path / "run_metadata.json"
+    rc = _load_driver().main(
+        [
+            "--manifest", str(manifest),
+            "--input-dir", str(input_dir),
+            "--out", str(out),
+            "--units", str(units),
+            "--metadata", str(metadata),
+            "--docker-digest", SENTINEL_DIGEST,
+            "--timestamp", TS,
+        ]
+    )  # fmt: skip
+    assert rc == 0
+    meta = json.loads(metadata.read_text(encoding="utf-8"))
+    assert meta["force_sign_convention"] == {
+        "coefficients": "on_wing",
+        "raw_columns": "on_fluid",
+        "raw_source": "IAMReX kernel.ib_force / kernel.ib_moment",
+        "applies_to": ["CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"],
+        "definition": "docs/coordinate-convention.md#force-and-moment-sign",
+    }
+    sidecar = json.loads(units.read_text(encoding="utf-8"))
+    assert "force_sign_convention" not in sidecar
+    assert all(isinstance(v, str) for v in sidecar.values())
+
+
+def test_force_sign_provenance_returns_a_fresh_copy():
+    """Mutating one record cannot leak into the next corpus's metadata."""
+    from mosquito_cfd.force_surrogate import force_sign_provenance
+
+    first = force_sign_provenance()
+    first["force_sign_convention"]["applies_to"].append("CF_q")
+    first["force_sign_convention"]["coefficients"] = "on_fluid"
+    assert force_sign_provenance()["force_sign_convention"]["applies_to"][-1] == "CF_mz"
+    assert force_sign_provenance()["force_sign_convention"]["coefficients"] == "on_wing"
+
+
 def test_driver_records_no_extraction_inputs_for_a_dropped_config(tmp_path):
     """A config skipped under --allow-missing consumed no CSV, so it has no hash or offset."""
     manifest, input_dir = _make_run_tree(tmp_path, ["a", "b"], omit=["b"])
