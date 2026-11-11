@@ -85,11 +85,12 @@ _FROZEN_RAW_FORCE_SHA = (
 
 
 def test_committed_corpus_cf_is_van_veen_consistent():
-    """Every distinct config's CF_* equals raw force / per-config van Veen f_ref.
+    """Every distinct config's CF_* equals -raw force / per-config van Veen f_ref.
 
     Scenario: Raw corpus stays frozen; only derived coefficients move. Covers ALL distinct
     (stroke, freq) keys (f_ref ∝ stroke², so a stroke-dependent bug must not slip through),
-    using a vectorized per-config check.
+    using a vectorized per-config check. The coefficients are the IB force on the wing, the
+    negation of the solver's on-fluid raw columns (fix-wing-force-sign-convention, #109).
     """
     import hashlib
 
@@ -108,9 +109,12 @@ def test_committed_corpus_cf_is_van_veen_consistent():
         m_ref = compute_moment_reference(
             freq, stroke, R_GYRATION, SPAN, CHORD, RHO
         ).m_ref
-        np.testing.assert_allclose(sub["CF_x"], sub["Fx"] / f_ref, rtol=1e-9)
-        np.testing.assert_allclose(sub["CF_z"], sub["Fz"] / f_ref, rtol=1e-9)
-        np.testing.assert_allclose(sub["CF_my"], sub["My"] / m_ref, rtol=1e-9)
+        np.testing.assert_allclose(sub["CF_x"], -sub["Fx"] / f_ref, rtol=1e-9)
+        np.testing.assert_allclose(sub["CF_z"], -sub["Fz"] / f_ref, rtol=1e-9)
+        np.testing.assert_allclose(sub["CF_my"], -sub["My"] / m_ref, rtol=1e-9)
+        # Non-vacuous: the solver's own (on-fluid) sign fails.
+        assert not np.allclose(sub["CF_x"], sub["Fx"] / f_ref, rtol=1e-9)
+        assert not np.allclose(sub["CF_z"], sub["Fz"] / f_ref, rtol=1e-9)
 
     # Raw force/moment columns are frozen (only derived CF columns were re-derived).
     raw = df[["Fx", "Fy", "Fz", "Mx", "My", "Mz"]]
@@ -211,6 +215,12 @@ def _committed_decks(corpus: str) -> dict[str, dict[str, np.ndarray]]:
     return decks
 
 
+def _f_ref(sub: pd.DataFrame) -> float:
+    (stroke,) = sub["stroke_amp_deg"].unique()
+    (freq,) = sub["frequency_fstar"].unique()
+    return compute_force_reference(freq, stroke, R_GYRATION, SPAN, CHORD, RHO).f_ref
+
+
 def _m_ref(sub: pd.DataFrame) -> float:
     from mosquito_cfd.force_surrogate import compute_moment_reference
 
@@ -222,8 +232,10 @@ def _m_ref(sub: pd.DataFrame) -> float:
 @pytest.mark.parametrize("corpus", _CORPORA)
 def test_committed_moment_coefficients_are_hinge_referenced(corpus):
     """Per config (not per (stroke, freq) key, which groups 3 configs and can mask one):
-    CF_m* equal the raw moments shifted by (particle - hinge) x F, over m_ref; and CF_mx is
-    NOT the unshifted Mx/m_ref, so a zero offset or a dropped shift cannot pass vacuously.
+    CF_m* equal the negated raw moments shifted by (particle - hinge) x F, over m_ref (the shift
+    on the solver's own on-fluid quantities, then the on-wing sign, #109); and CF_mx is neither
+    the unshifted -Mx/m_ref nor the unnegated shifted moment, so a dropped shift or a dropped
+    sign cannot pass vacuously.
 
     Scenario: Committed corpora reconcile against their declared offset (design D8.4).
     """
@@ -237,24 +249,28 @@ def test_committed_moment_coefficients_are_hinge_referenced(corpus):
         m_ref = _m_ref(sub)
         fx, fy, fz = (sub[c].to_numpy() for c in ("Fx", "Fy", "Fz"))
         mx, my, mz = (sub[c].to_numpy() for c in ("Mx", "My", "Mz"))
-        expected = {
+        shifted = {
             "CF_mx": (mx + d[1] * fz - d[2] * fy) / m_ref,
             "CF_my": (my + d[2] * fx - d[0] * fz) / m_ref,
             "CF_mz": (mz + d[0] * fy - d[1] * fx) / m_ref,
         }
-        for col, want in expected.items():
-            if not np.allclose(sub[col].to_numpy(), want, rtol=1e-9, atol=1e-12):
-                failures.append(f"{name}: {col} != (M + (particle - hinge) x F)/m_ref")
-        if np.allclose(sub["CF_mx"].to_numpy(), mx / m_ref, rtol=1e-9, atol=1e-12):
-            failures.append(f"{name}: CF_mx equals the unshifted Mx/m_ref")
+        for col, want in shifted.items():
+            if not np.allclose(sub[col].to_numpy(), -want, rtol=1e-9, atol=1e-12):
+                failures.append(f"{name}: {col} != -(M + (particle - hinge) x F)/m_ref")
+        if np.allclose(sub["CF_mx"].to_numpy(), -mx / m_ref, rtol=1e-9, atol=1e-12):
+            failures.append(f"{name}: CF_mx equals the unshifted -Mx/m_ref")
+        if np.allclose(
+            sub["CF_mx"].to_numpy(), shifted["CF_mx"], rtol=1e-9, atol=1e-12
+        ):
+            failures.append(f"{name}: CF_mx carries the solver's on-fluid sign")
         # d_x = d_z = 0 makes the y-term of d x F exactly zero for finite forces, so CF_my
-        # must COMPARE EQUAL to My/m_ref on real data, not merely be close (design D8.2).
+        # must COMPARE EQUAL to -My/m_ref on real data, not merely be close (design D8.2).
         if (
             d[0] == 0
             and d[2] == 0
-            and not (sub["CF_my"].to_numpy() == my / m_ref).all()
+            and not (sub["CF_my"].to_numpy() == -my / m_ref).all()
         ):
-            failures.append(f"{name}: CF_my != My/m_ref exactly despite d_x = d_z = 0")
+            failures.append(f"{name}: CF_my != -My/m_ref exactly despite d_x = d_z = 0")
     assert not failures, f"{corpus}: {len(failures)} failure(s):\n" + "\n".join(
         failures
     )
@@ -283,8 +299,11 @@ def test_committed_moments_put_the_ib_part_arm_on_the_wing(corpus):
     """Empirical sign discriminator (design D8.6) -- the one check that leaves our bookkeeping.
 
     The force-weighted spanwise arm from the hinge, ``b = M_hinge_x / F_z``, should fall
-    inside the wing, ``(0, tip_arm]``, for most settled-beat rows. Measured with the correct
-    sign: 96.8% (coarse) / 98.1% (fine); with a sign-flipped shift: 0.9% / 0.5%. The gate is
+    inside the wing, ``(0, tip_arm]``, for most settled-beat rows. It is computed from the
+    committed coefficients scaled back, ``b = CF_mx·m_ref / (CF_z·f_ref)``: like-signed, so the
+    on-wing sign (#109) cancels, while a half-flip (only the force or only the moment
+    coefficients negated) puts ``b`` off the wing. Measured with the correct sign: 96.8%
+    (coarse) / 98.1% (fine); with a sign-flipped shift: 0.9% / 0.5%. The gate is
     a calibrated fraction (>= 0.90), NOT a bound on every row: ``b`` is a mixed-sign-weighted
     mean (f_z changes sign across the wing), so it is not bounded by the wing's extent; it
     also omits the ``-(z_i - z_h) F_y`` term of M_x. ``F``/``M`` are the spread IB force and
@@ -302,7 +321,9 @@ def test_committed_moments_put_the_ib_part_arm_on_the_wing(corpus):
     for name, deck in _committed_decks(corpus).items():
         sub = settled[settled["config_name"] == name]
         tip_arm = deck["particle"][1] + half_span - deck["hinge"][1]
-        b = sub["CF_mx"].to_numpy() * _m_ref(sub) / sub["Fz"].to_numpy()
+        b = (sub["CF_mx"].to_numpy() * _m_ref(sub)) / (
+            sub["CF_z"].to_numpy() * _f_ref(sub)
+        )
         in_band += int(((b > 0) & (b <= tip_arm)).sum())
         # Calibration: the same rows with the shift's sign reversed, from the raw columns.
         a = deck["particle"][1] - deck["hinge"][1]
@@ -356,8 +377,13 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
       network path), and the digest of the image the CFD ran under, not whatever host
       re-extracted it.
 
+    - the force sign convention (``force_sign_convention``, fix-wing-force-sign-convention
+      #109) with its spec literal, and ``dataset.units.json`` pinned key for key (the sign is
+      provenance, not a unit, so it is not declared there).
+
     Scenarios: Moment reference point travels with the corpus; Re-extraction preserves the
-    CFD digest; A deck edited since its run is rejected.
+    CFD digest; A deck edited since its run is rejected; Force sign convention travels with the
+    corpus.
     """
     import hashlib
     import json
@@ -407,6 +433,35 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
 
     (cfd_digest,) = _cfd_digests(corpus)
     assert meta["docker_image"].split("@", 1)[1] == cfd_digest
+
+    assert meta["force_sign_convention"] == {
+        "coefficients": "on_wing",
+        "raw_columns": "on_fluid",
+        "raw_source": "IAMReX kernel.ib_force / kernel.ib_moment",
+        "applies_to": ["CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"],
+        "definition": "docs/coordinate-convention.md#force-and-moment-sign",
+    }
+    units = json.loads((root / "dataset.units.json").read_text(encoding="utf-8"))
+    assert units == {
+        "time": "dimensionless",
+        "phase": "dimensionless",
+        "stroke_amp_deg": "deg",
+        "frequency_fstar": "dimensionless (f*)",
+        "pitch_amp_deg": "deg",
+        "reynolds": "dimensionless",
+        "Fx": "dimensionless",
+        "Fy": "dimensionless",
+        "Fz": "dimensionless",
+        "Mx": "dimensionless",
+        "My": "dimensionless",
+        "Mz": "dimensionless",
+        "CF_x": "dimensionless",
+        "CF_y": "dimensionless",
+        "CF_z": "dimensionless",
+        "CF_mx": "dimensionless",
+        "CF_my": "dimensionless",
+        "CF_mz": "dimensionless",
+    }
 
 
 _REPO = Path(__file__).resolve().parents[1]
