@@ -291,7 +291,7 @@
 8.3 [x] **Red then green (`halo` message):** `halo=np.float64(1.9)` is reported as `got 1.9`. Add
     `mosquito_cfd._messages.plain_repr` and use it for `step`, `halo` and `box_margin`; correct the
     three comments that claimed `_validate_halo` already did this.
-8.4 [ ] **Refactor under green tests:** one `_require_upstream(x_inlet, x_outlet)` used by both
+8.4 [x] **Refactor under green tests:** one `_require_upstream(x_inlet, x_outlet)` used by both
     `sphere_cv_*` functions; both `Raises:` docstrings say "not strictly less than (NaN included)".
     The NaN drag cases match the guard's own message and use the reader tripwire, like the
     steadiness test. Mutant: the helper reverted to `>=` must be killed in both functions.

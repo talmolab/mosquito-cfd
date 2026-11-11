@@ -227,9 +227,8 @@ def extract_eulerian_box(
 
     Raises:
         ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN; if ``lo > hi`` on
-            any axis; if ``halo`` is
-            negative or not of an integer type (``bool``, integral floats such as ``2.0`` and
-            0-d arrays included); if the plotfile's on-disk precision is not fp64, or cannot be
+            any axis; if ``halo`` is negative or not of an integer type (``bool``, integral
+            floats such as ``2.0`` and 0-d arrays included); if the plotfile's on-disk precision is not fp64, or cannot be
             determined because yt no longer exposes the private ``ds.index._dtype``; if it is
             multi-level; or if a required field is missing. The pre-refactor function raised only
             for the last two. It accepted the others, an fp32 plotfile silently as upcast
@@ -263,6 +262,20 @@ def extract_eulerian_box(
         value.setflags(write=True)
     out["current_time"] = float(snap.time)
     return out
+
+
+def _require_upstream(x_inlet: float, x_outlet: float) -> None:
+    """Raise unless the inlet plane is strictly upstream of the outlet plane.
+
+    Called before any plotfile is read, so a misordered slab is reported in the caller's terms
+    rather than as the reader's ``lo``/``hi`` error (``harden-field-corpus-requests`` D1). The
+    test is ``not (x_inlet < x_outlet)``, not ``x_inlet >= x_outlet``: NaN compares False both
+    ways, and must not reach the reader.
+    """
+    if not (x_inlet < x_outlet):
+        raise ValueError(
+            f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
+        )
 
 
 def _require_slab_cells(xc: np.ndarray, x_inlet: float, x_outlet: float) -> None:
@@ -302,18 +315,15 @@ def sphere_cv_drag_cd(
         diameter: Sphere diameter.
 
     Raises:
-        ValueError: if ``x_inlet >= x_outlet`` (the inlet must be upstream of the outlet, else
-            the momentum term would be sign-flipped), or if the two locations resolve to the
-            same grid cell (a degenerate zero-thickness control volume).
+        ValueError: if ``x_inlet`` is not strictly less than ``x_outlet`` (NaN in either
+            included), checked before any plotfile is read: the inlet must be upstream of the
+            outlet, else the momentum term would be sign-flipped. Also if the two locations
+            resolve to the same grid cell (a degenerate zero-thickness control volume).
 
     Returns:
         Dict with ``cd``, ``drag``, ``x_inlet``, ``x_outlet`` (actual cell-center positions).
     """
-    # `not <`, not `>=`: NaN compares False both ways and must not reach the reader.
-    if not (x_inlet < x_outlet):
-        raise ValueError(
-            f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
-        )
+    _require_upstream(x_inlet, x_outlet)
     box = extract_eulerian_box(
         plotfile_path,
         lo=(x_inlet, -np.inf, -np.inf),
@@ -488,16 +498,13 @@ def sphere_cv_steadiness_fraction(
         Dict with ``unsteady``, ``drag``, ``fraction`` (``|unsteady| / |drag|``).
 
     Raises:
-        ValueError: If ``x_inlet >= x_outlet``, checked before any plotfile is read, so the
-            error names this function's arguments rather than the reader's ``lo``/``hi``
+        ValueError: If ``x_inlet`` is not strictly less than ``x_outlet`` (NaN in either
+            included), checked before any plotfile is read, so the error names this
+            function's arguments rather than the reader's ``lo``/``hi``
             (``harden-field-corpus-requests`` D1); and anything :func:`sphere_cv_drag_cd` or
             :func:`extract_eulerian_box` raises.
     """
-    # `not <`, not `>=`: NaN compares False both ways and must not reach the reader.
-    if not (x_inlet < x_outlet):
-        raise ValueError(
-            f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
-        )
+    _require_upstream(x_inlet, x_outlet)
     box_old = extract_eulerian_box(
         plotfile_old, lo=(x_inlet, -np.inf, -np.inf), hi=(x_outlet, np.inf, np.inf)
     )
