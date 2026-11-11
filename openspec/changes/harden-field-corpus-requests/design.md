@@ -158,7 +158,7 @@ before `_config`, so a bad `step` is reported as a bad `step` even when the mani
 `plt100` beside a directory `plt00100` is not a duplicate.
 
 On a duplicate it raises, naming both directory basenames in sorted order:
-`two plotfile directories parse to step 100: plt00100, plt100`.
+`ambiguous plotfiles under <run>: two plotfile directories parse to step 100: plt00100, plt100`.
 
 A duplicate anywhere in the run directory makes the fallback raise, even when the duplicate is a
 different step from the one requested. Every listing operation gives the same verdict on the same
@@ -167,3 +167,24 @@ directory.
 The miss error ("no plotfile for step N …; available steps: […]") takes its list from the same `_scan`
 result. Today `plotfile()` lists the directory once, then calls `steps()`, which repeats the manifest
 lookup and the run-directory stat and lists the directory again. After this change, a miss lists once.
+
+## Implementation notes (reconciled after implementation)
+
+### Why the duplicate-step message names the run directory
+
+D5 originally showed only `two plotfile directories parse to step 100: plt00100, plt100`. The
+implemented message prefixes `ambiguous plotfiles under <run>: `, matching the existing "no plotfile
+for step N … under <run>" error. A duplicate is a property of one run directory, and the corpus
+has 27 of them. Tests anchor on the sorted-name suffix with `$`, so the path cannot satisfy them.
+
+### Why task 4.3's test forces the listing order
+
+As first written, the non-directory test left the listing order to the filesystem. The mutant
+"duplicate check before the `is_dir` filter" fires only when the directory is listed before the
+same-step file, so that mutant is only caught when the order is pinned. The test now forces the adverse
+order with the same `Path.iterdir` patch used for the duplicate test.
+
+### Why the mutation table gained a row
+
+"`is_dir` filter dropped" was added beside "duplicate check before the `is_dir` filter". The two fail
+differently: the first lets files count as steps, the second only mis-orders the checks.

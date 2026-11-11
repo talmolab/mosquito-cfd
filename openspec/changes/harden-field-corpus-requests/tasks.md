@@ -74,7 +74,8 @@
       D1)".
 
 1.7 [x] **`sphere_cv_steadiness_fraction` guard** (separate commit, red then green):
-    - Red: a test in `tests/test_stress_integral.py` with `x_inlet > x_outlet` and
+    - Red: a test in `tests/test_stress_integral.py` with `x_inlet > x_outlet` (and
+      `x_inlet == x_outlet`, which kills `>=` → `>`) and
       `extract_eulerian_box` monkeypatched to fail the test if called. It asserts
       `match=r"x_inlet .* must be strictly upstream of x_outlet"`. This fails today: the box read
       runs first.
@@ -142,7 +143,9 @@
 4.3 [x] **Red**: `test_non_directory_entries_never_duplicate`. A regular file `plt100` beside a
     directory `plt00100`: `steps()` returns `[100]`. A regular file `plt00100` beside a directory
     `plt100`: `steps()` returns `[100]` and `plotfile(c, 100)` returns `plt100`. This half is an
-    anchor today; it kills a duplicate check placed before the `is_dir` filter.
+    anchor today; it kills a duplicate check placed before the `is_dir` filter **only if the
+    directory lists before the file**, so the listing order is forced (design.md, Implementation
+    notes). Implemented as `test_non_directory_entries_never_duplicate_or_resolve`.
 
 4.4 [x] **Red**: `test_missing_step_lists_the_run_directory_once`, with an `iterdir` spy and a missing
     step. Assert exactly 1 listing (today: 2) and the literal `available steps: [7]`.
@@ -213,7 +216,8 @@
     - duplicate raise removed: 4.2
     - duplicates detected only in `steps()`: 4.2 (`plotfile(c, 200)`)
     - `sorted` dropped from the message: 4.2
-    - duplicate check before the `is_dir` filter: 4.3
+    - duplicate check before the `is_dir` filter: 4.3 (with the forced listing order)
+    - `is_dir` filter dropped: 4.3
     - miss path still calls `steps()`: 4.4
 
     **Fast path**
