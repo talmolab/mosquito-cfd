@@ -282,7 +282,7 @@
 8.1 [x] **Spec first:** the `visualization-tooling` delta gains the valid-margin scenario and the
     `numbers.Real` rule; a `force-extraction` delta adds the inlet-upstream scenario; D3 and the
     proposal are updated. `openspec validate --strict` passes.
-8.2 [ ] **Anchors, then red then green (`box_margin`):** `1e-9`, `0.5`, `2`, `np.int64(2)` and
+8.2 [x] **Anchors, then red then green (`box_margin`):** `1e-9`, `0.5`, `2`, `np.int64(2)` and
     `np.float32(0.5)` reach the plotfile tripwire in every mode (anchors: they pass today).
     `Fraction(1, 2)` reaching it, `Decimal("3")` and `np.bool_(True)` being rejected, and the new
     message are red first. Implementation: `numbers.Real` plus `float()`, returning the `float`.

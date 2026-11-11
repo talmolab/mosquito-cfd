@@ -6,6 +6,8 @@ The real-plotfile-adapter tests live in ``tests/test_flow_video_plotfile.py`` (`
 
 from __future__ import annotations
 
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 import matplotlib
@@ -660,8 +662,15 @@ def _plotfile_io_tripwire(plotfile_dir):
     raise AssertionError("plotfile I/O before argument validation")
 
 
+#: The box_margin validator's own message, up to the value it shows.
+_BOX_MARGIN_MESSAGE = (
+    r"box_margin must be an int, float, Fraction or numpy real scalar that converts to a finite "
+    r"float > 0, got "
+)
+
 #: (id, value, the value as the message must show it). Ints beyond float64 range must still be a
-#: ValueError: np.isfinite raises TypeError on them.
+#: ValueError: float() raises OverflowError on them. Decimal("3") and 10**400 are finite and
+#: positive, so the message must say why they are rejected (harden-field-corpus-requests D3).
 _BAD_BOX_MARGINS = [
     ("neg_float", -1.0, "-1.0"),
     ("zero_int", 0, "0"),
@@ -671,7 +680,9 @@ _BAD_BOX_MARGINS = [
     ("neg_inf", float("-inf"), "-inf"),
     ("np_float64_neg", np.float64(-1.0), "-1.0"),
     ("bool", True, "True"),
+    ("np_bool", np.bool_(True), "True"),
     ("str", "3", "'3'"),
+    ("decimal", Decimal("3"), "Decimal('3')"),
     ("huge_int", 10**400, repr(10**400)),
     ("huge_neg_int", -(10**400), repr(-(10**400))),
 ]
@@ -695,9 +706,7 @@ def test_rejects_invalid_box_margin(
     monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
     open_before = len(plt.get_fignums())
 
-    with pytest.raises(
-        ValueError, match=r"box_margin must be a finite number > 0, got "
-    ) as excinfo:
+    with pytest.raises(ValueError, match=_BOX_MARGIN_MESSAGE) as excinfo:
         build_flow_video(
             plotfile_dir=tmp_path / "does-not-exist",
             field_mode=field_mode,
@@ -712,6 +721,59 @@ def test_rejects_invalid_box_margin(
 
     assert str(excinfo.value).endswith(f"got {shown}"), str(excinfo.value)
     assert len(plt.get_fignums()) == open_before
+
+
+#: Valid margins: the smallest and ordinary positive floats, an int, numpy integer and float32
+#: scalars, and a Fraction (a numbers.Real). Each must pass validation in every mode.
+_GOOD_BOX_MARGINS = [
+    ("tiny", 1e-9),
+    ("half", 0.5),
+    ("int", 2),
+    ("np_int64", np.int64(2)),
+    ("np_float32", np.float32(0.5)),
+    ("fraction", Fraction(1, 2)),
+]
+
+
+@pytest.mark.parametrize("field_mode", FIELD_MODES)
+@pytest.mark.parametrize(
+    "box_margin",
+    [c[1] for c in _GOOD_BOX_MARGINS],
+    ids=[c[0] for c in _GOOD_BOX_MARGINS],
+)
+def test_accepts_valid_box_margin(tmp_path, monkeypatch, field_mode, box_margin):
+    """A valid box_margin passes validation and the call reaches plotfile discovery.
+
+    Without these, dropping np.integer or np.floating from the accepted types, or tightening
+    "> 0" to "> 1e-3" or ">= 1", left the whole suite green: every other test passes either an
+    invalid margin or the default.
+    """
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
+
+    with pytest.raises(AssertionError, match="plotfile I/O before argument validation"):
+        build_flow_video(
+            plotfile_dir=tmp_path / "does-not-exist",
+            field_mode=field_mode,
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            box_margin=box_margin,
+            **_KINEMATICS_KWARGS,
+        )
+
+
+@pytest.mark.parametrize(
+    ("box_margin", "expected"),
+    [(Fraction(1, 2), 0.5), (np.float32(0.5), 0.5), (np.int64(2), 2.0), (2, 2.0)],
+    ids=["fraction", "np_float32", "np_int64", "int"],
+)
+def test_validated_box_margin_is_a_plain_float(box_margin, expected):
+    """The validator returns the margin as a plain float, which is what the caller then uses."""
+    validated = flow_video._validate_box_margin(box_margin)
+    assert type(validated) is float
+    assert validated == expected
 
 
 def test_rejects_non_positive_fps(tmp_path, monkeypatch):
