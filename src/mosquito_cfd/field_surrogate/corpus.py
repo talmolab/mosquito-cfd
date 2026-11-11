@@ -33,6 +33,33 @@ def _validate_step(step: Any) -> int:
     return int(step)
 
 
+def _scan(run: Path) -> dict[int, Path]:
+    """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
+
+    The shared listing behind ``steps()`` and ``plotfile()``'s fallback, so both give the same
+    verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
+    stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
+
+    Raises:
+        ValueError: If two directories parse to the same step, naming both in sorted order so the
+            message does not depend on the filesystem's listing order.
+    """
+    found: dict[int, Path] = {}
+    for entry in run.iterdir():
+        match = _PLT_PATTERN.match(entry.name)
+        if not (match and entry.is_dir()):
+            continue
+        step = int(match.group(1))
+        if step in found:
+            names = ", ".join(sorted((found[step].name, entry.name)))
+            raise ValueError(
+                f"ambiguous plotfiles under {run}: "
+                f"two plotfile directories parse to step {step}: {names}"
+            )
+        found[step] = entry
+    return found
+
+
 #: Kinematic parameters carried per config in the sweep manifest.
 GLOBAL_PARAM_KEYS: tuple[str, ...] = (
     "stroke_amp_deg",
@@ -134,13 +161,12 @@ class FieldCorpus:
 
         Returns:
             The available steps, sorted ascending.
+
+        Raises:
+            ValueError: If the config is not in the manifest, its run directory is absent, or
+                two directories parse to the same step (e.g. ``plt100`` and ``plt00100``).
         """
-        found = []
-        for entry in self.run_dir(config_id).iterdir():
-            match = _PLT_PATTERN.match(entry.name)
-            if match and entry.is_dir():
-                found.append(int(match.group(1)))
-        return sorted(found)
+        return sorted(_scan(self.run_dir(config_id)))
 
     def global_params(self, config_id: str) -> dict[str, Any]:
         """Return this config's kinematic parameters from the manifest.
@@ -175,19 +201,21 @@ class FieldCorpus:
 
         Raises:
             ValueError: If ``step`` is not a non-negative integer (checked before any I/O), if
-                the config is not in the manifest or its run directory is absent, or if no
-                plotfile for that step exists.
+                the config is not in the manifest or its run directory is absent, if two
+                directories in the run directory parse to the same step, or if no plotfile for
+                that step exists.
         """
         step = _validate_step(step)
         run = self.run_dir(config_id)
-        for candidate in run.iterdir():
-            match = _PLT_PATTERN.match(candidate.name)
-            if match and candidate.is_dir() and int(match.group(1)) == step:
-                return candidate
+        found = _scan(run)
+        if step in found:
+            return found[step]
+        # Available steps come from the scan already done: calling steps() here re-ran the
+        # manifest lookup, the run-directory stat and a second listing.
         raise ValueError(
             f"no plotfile for step {step} of config {config_id!r} under {run} "
             f"(no 'plt<digits>' directory parses to step {step}); "
-            f"available steps: {self.steps(config_id)}"
+            f"available steps: {sorted(found)}"
         )
 
     def snapshot(

@@ -130,25 +130,25 @@
 
 ## 4. #121: one shared scan with duplicate detection (`corpus.py`)
 
-4.1 [ ] Audit: confirm that no committed fixture or test builds a run directory with two names for
+4.1 [x] Audit: confirm that no committed fixture or test builds a run directory with two names for
     the same step. (`test_missing_step_message_does_not_claim_a_fixed_digit_width` renames a
     directory; it does not copy one.) Record the grep in the PR body.
 
-4.2 [ ] **Red**: `test_duplicate_step_directories_raise`. Directories `plt100`, `plt00100` and
+4.2 [x] **Red**: `test_duplicate_step_directories_raise`. Directories `plt100`, `plt00100` and
     `plt200`; `Path.iterdir` is patched to list `plt100` first. Assert that both `steps()` and
     `plotfile(c, 200)` raise with `match=r"two plotfile directories parse to step 100: plt00100,
     plt100"`. Fails today: `[100, 100, 200]`, and `plotfile` returns `plt200`.
 
-4.3 [ ] **Red**: `test_non_directory_entries_never_duplicate`. A regular file `plt100` beside a
+4.3 [x] **Red**: `test_non_directory_entries_never_duplicate`. A regular file `plt100` beside a
     directory `plt00100`: `steps()` returns `[100]`. A regular file `plt00100` beside a directory
     `plt100`: `steps()` returns `[100]` and `plotfile(c, 100)` returns `plt100`. This half is an
     anchor today; it kills a duplicate check placed before the `is_dir` filter.
 
-4.4 [ ] **Red**: `test_missing_step_lists_the_run_directory_once`, with an `iterdir` spy and a missing
+4.4 [x] **Red**: `test_missing_step_lists_the_run_directory_once`, with an `iterdir` spy and a missing
     step. Assert exactly 1 listing (today: 2) and the literal `available steps: [7]`.
     **Anchor**: a step present only as `plt7` resolves with exactly 1 listing (today: 1).
 
-4.5 [ ] **Implement** in the same commit:
+4.5 [x] **Implement** in the same commit:
     - `_scan(run) -> dict[int, Path]`: regex, then `is_dir()`, then the duplicate check, with sorted
       basenames in the message.
     - `steps()` returns `sorted(_scan(...))`.

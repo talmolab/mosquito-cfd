@@ -335,3 +335,76 @@ def test_io_spy_sees_a_real_plotfile_lookup(tmp_path, monkeypatch):
     corpus.plotfile("s35_f085_p30", 100)
     assert spy.count("load_manifest") == 1
     assert spy.count("is_dir:") >= 1
+
+
+def _listing_order(monkeypatch, names_first: list[str]) -> None:
+    """Force ``Path.iterdir`` to yield ``names_first`` (in that order) before anything else.
+
+    NTFS already lists names sorted and ext4 lists them hash-ordered, so a check that depends on
+    the order it sees must be pinned to an adverse one, not left to the filesystem.
+    """
+    real_iterdir = Path.iterdir
+
+    def ordered(path):
+        entries = list(real_iterdir(path))
+        rank = {name: i for i, name in enumerate(names_first)}
+        return iter(sorted(entries, key=lambda q: rank.get(q.name, len(rank))))
+
+    monkeypatch.setattr(Path, "iterdir", ordered)
+
+
+def test_duplicate_step_directories_raise(tmp_path, monkeypatch):
+    # plt100 and plt00100 both parse to step 100. steps() used to return [100, 100, 200] and
+    # plotfile() returned whichever directory the filesystem listed first. Every operation that
+    # lists the run directory now raises, naming both directories in SORTED order -- the listing is
+    # forced to put plt100 first, so a message built in listing order fails
+    # (harden-field-corpus-requests D5). plt200 is non-canonical, so plotfile(c, 200) cannot take
+    # the canonical fast path and must scan.
+    root, _ = _bare_corpus(tmp_path, ["plt100", "plt00100", "plt200"])
+    _listing_order(monkeypatch, ["plt100", "plt200", "plt00100"])
+    corpus = FieldCorpus(root)
+    expected = r"two plotfile directories parse to step 100: plt00100, plt100$"
+
+    with pytest.raises(ValueError, match=expected):
+        corpus.steps("s35_f085_p30")
+    with pytest.raises(ValueError, match=expected):
+        corpus.plotfile("s35_f085_p30", 200)
+
+
+def test_non_directory_entries_never_duplicate_or_resolve(tmp_path, monkeypatch):
+    # A regular FILE with a plotfile name is ignored both by the duplicate check (it runs after
+    # the is_dir filter) and by plotfile() (a file named plt00100 is not a canonical hit). The
+    # directory is forced to list BEFORE the same-step file: a duplicate check placed ahead of the
+    # is_dir filter only fires in that order.
+    _listing_order(monkeypatch, ["plt00100", "plt100"])
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    (run / "plt100").write_text("not a plotfile")
+    assert FieldCorpus(root).steps("s35_f085_p30") == [100]
+
+    root2, run2 = _bare_corpus(tmp_path / "second", ["plt100"])
+    (run2 / "plt00100").write_text("not a plotfile")
+    corpus2 = FieldCorpus(root2)
+    assert corpus2.steps("s35_f085_p30") == [100]
+    assert corpus2.plotfile("s35_f085_p30", 100) == run2 / "plt100"
+
+
+def test_missing_step_lists_the_run_directory_once(tmp_path, monkeypatch):
+    # The miss path used to list the run directory, then call steps(), which re-ran the manifest
+    # lookup, the run-directory stat and a second listing. It now reports the available steps
+    # from the one scan it already did.
+    root, _ = _bare_corpus(tmp_path, ["plt7"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+    with pytest.raises(ValueError, match=r"available steps: \[7\]$"):
+        corpus.plotfile("s35_f085_p30", 8)
+    assert spy.count("iterdir:") == 1, spy.calls
+
+
+def test_noncanonical_step_resolves_with_one_listing(tmp_path, monkeypatch):
+    # Anchor (passes before the change): a step present only under a non-canonical name is found
+    # by the scan, which lists the run directory exactly once.
+    root, run = _bare_corpus(tmp_path, ["plt7"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+    assert corpus.plotfile("s35_f085_p30", 7) == run / "plt7"
+    assert spy.count("iterdir:") == 1, spy.calls
