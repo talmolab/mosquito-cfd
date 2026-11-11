@@ -409,11 +409,32 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
     assert meta["docker_image"].split("@", 1)[1] == cfd_digest
 
 
-def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_dataset():
-    """The coarse README carries a staleness banner exactly while the committed surrogate's
-    CF_mx/CF_mz targets disagree with the committed dataset (fix-moment-reference-hinge
-    re-extracted the dataset in PR2 and retrains in PR3). Both directions are pinned: the
-    banner cannot be forgotten while stale, and the retrain cannot leave it behind.
+_REPO = Path(__file__).resolve().parents[1]
+_STALE_BANNER = "are stale against `dataset.parquet`"
+_TARGETS = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
+
+
+def banner_paragraph(readme: str) -> str | None:
+    """The README paragraph carrying the staleness banner, whitespace-collapsed, or ``None``."""
+    for paragraph in readme.split("\n\n"):
+        # Strip blockquote markers, so a banner reflowed inside a quote still matches.
+        lines = [line.strip().removeprefix(">") for line in paragraph.splitlines()]
+        flat = " ".join(" ".join(lines).split())
+        if _STALE_BANNER in flat:
+            return flat
+    return None
+
+
+@pytest.mark.parametrize("corpus", ["prelim_sweep", "prelim_sweep_fine"])
+def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_dataset(
+    corpus,
+):
+    """Each corpus README carries a staleness banner exactly while its committed surrogate's
+    targets disagree with its committed dataset, in any of the six targets. Both directions are
+    pinned: the banner cannot be forgotten while stale, and a retrain cannot leave it behind.
+    fix-wing-force-sign-convention (#109) re-extracts both corpora before retraining (design D6),
+    so while stale the banner must also tell a reader that the surrogate predicts the force on
+    the fluid and that its outputs must be negated.
 
     The predicate reads holdout_predictions.parquet, and the evidence figure is chained to it:
     this test ties metrics.json's CF_mx/CF_mz R2 to those predictions, and
@@ -422,22 +443,35 @@ def test_readme_staleness_banner_tracks_whether_the_surrogate_matches_the_datase
     """
     import json
 
-    base = Path("examples/prelim_sweep")
+    base = _REPO / "examples" / corpus
     holdout = pd.read_parquet(base / "surrogate" / "holdout_predictions.parquet")
     metrics = json.loads((base / "surrogate" / "metrics.json").read_text())
     for c in ("CF_mx", "CF_mz"):
         assert _r2(
             holdout[f"{c}_true"].to_numpy(float), holdout[f"{c}_pred"].to_numpy(float)
-        ) == pytest.approx(metrics["per_target"][c]["r2"], abs=1e-9)
+        ) == pytest.approx(metrics["per_target"][c]["r2"], abs=1e-9), c
 
     dataset = pd.read_parquet(base / "dataset.parquet")
     joined = holdout.merge(
-        dataset[["config_name", "time", "CF_mx", "CF_mz"]], on=["config_name", "time"]
+        dataset[["config_name", "time", *_TARGETS]], on=["config_name", "time"]
     )
     assert len(joined) == len(holdout)  # every holdout row is a dataset row
     stale = not all(
         np.allclose(joined[f"{c}_true"], joined[c], rtol=1e-9, atol=1e-12)
-        for c in ("CF_mx", "CF_mz")
+        for c in _TARGETS
     )
-    readme = (base / "README.md").read_text(encoding="utf-8")
-    assert ("are stale against `dataset.parquet`" in readme) == stale
+    paragraph = banner_paragraph((base / "README.md").read_text(encoding="utf-8"))
+    assert (paragraph is not None) == stale, (corpus, stale)
+    if stale:
+        assert "force on the fluid" in paragraph and "negate" in paragraph, paragraph
+
+
+def test_banner_paragraph_finds_a_reflowed_banner_and_only_that_paragraph():
+    readme = (
+        "# Title\n\nIntro.\n\n> The surrogate artifacts are stale\n> against "
+        "`dataset.parquet`: negate.\n\nOther."
+    )
+    assert banner_paragraph(readme) == (
+        "The surrogate artifacts are stale against `dataset.parquet`: negate."
+    )
+    assert banner_paragraph("# Title\n\nNo banner here.\n") is None

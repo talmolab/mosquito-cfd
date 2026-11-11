@@ -15,6 +15,13 @@ the files they were produced from, unconditionally -- no state passes with a mis
   README's 5-seed table is that record's min/max (coarse only: the record exists only there);
 - the fine README's tables and disclosures agree with the committed JSON and cited sources.
 
+One pinned state is accepted (fix-wing-force-sign-convention design D6, #109): between that
+change's corpus re-extraction and its retrain, the committed surrogates were trained on the
+pre-change, on-fluid coefficients. While a corpus README carries the staleness banner, its
+holdout targets must be exactly the negated dataset, its ``inputs.hash`` the pinned pre-change
+sha, and its phase-baseline skill must recompute against the negated dataset. Without the banner
+the unconditional reconciliation applies, so the banner can be neither forgotten nor left behind.
+
 The README checks live in ``_readme_guards`` and are also exercised on synthetic inputs below,
 so their logic is tested independently of the committed READMEs.
 
@@ -27,8 +34,11 @@ import copy
 import hashlib
 import json
 import re
+import shutil
+import warnings
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from _readme_guards import (
@@ -87,6 +97,66 @@ def _readme(corpus: Path) -> str:
     return (corpus / "README.md").read_text(encoding="utf-8")
 
 
+# The D6 staleness banner, and the sha256 of each corpus's pre-change (a2e8f64) dataset.parquet,
+# which is the committed surrogate's inputs.hash and the coarse seed record's dataset sha.
+_BANNER = "are stale against `dataset.parquet`"
+_PRE_SIGN_CHANGE_SHA = {
+    COARSE: "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
+    FINE: "2092f0fd05a60e706667b22848c46f7ce6608309b2021b02940c606856bd26a9",
+}
+
+
+def _stale(corpus: Path) -> bool:
+    """Whether the corpus README carries the D6 staleness banner (the pinned state)."""
+    return _BANNER in _readme(corpus)
+
+
+def check_holdout_targets(corpus: Path, *, stale: bool) -> None:
+    """Every holdout ``<target>_true`` is the dataset's value, or exactly its negation (stale).
+
+    In the stale state a column must also not be ``allclose`` to the dataset, so a surrogate that
+    is in fact current cannot pass under a forgotten banner. An all-zero column is excepted from
+    that clause and reported; none is expected.
+    """
+    holdout = pd.read_parquet(corpus / "surrogate" / "holdout_predictions.parquet")
+    dataset = pd.read_parquet(
+        corpus / "dataset.parquet", columns=["config_name", "time", *TARGET_COLUMNS]
+    )
+    joined = holdout.merge(
+        dataset, on=["config_name", "time"], how="left", validate="one_to_one"
+    )
+    assert len(joined) == len(holdout)
+    for c in TARGET_COLUMNS:
+        assert joined[c].notna().all(), f"{c}: holdout rows absent from dataset.parquet"
+        want = -joined[c] if stale else joined[c]
+        mismatched = int((joined[f"{c}_true"] != want).sum())
+        assert mismatched == 0, f"{c}: {mismatched} holdout rows differ from " + (
+            "the negated dataset.parquet" if stale else "dataset.parquet"
+        )
+        if stale:
+            if (joined[c] == 0).all():
+                warnings.warn(f"{c}: all-zero column; the allclose clause is skipped")
+                continue
+            assert not np.allclose(joined[f"{c}_true"], joined[c]), (
+                f"{c}: the holdout targets equal dataset.parquet, but the README says stale"
+            )
+
+
+def check_surrogate_inputs_hash(corpus: Path, *, stale: bool, pinned: str) -> None:
+    """``inputs.hash`` is the dataset's sha256, or the pinned pre-change sha (stale)."""
+    inputs = _meta(corpus / "surrogate" / "run_metadata.json").get("inputs")
+    assert inputs, "surrogate run_metadata.json records no training dataset"
+    assert Path(inputs["file"].replace("\\", "/")).name == "dataset.parquet", inputs
+    current = _sha256(corpus / "dataset.parquet")
+    if stale:
+        assert inputs["hash"] == pinned, inputs
+        assert inputs["hash"] != current, (
+            "stale banner, but the surrogate hashes this dataset"
+        )
+    else:
+        assert inputs["hash"] == current
+
+
 @pytest.mark.parametrize(
     "record",
     [
@@ -119,31 +189,19 @@ def test_surrogate_holdout_targets_equal_the_committed_dataset(corpus):
     """Every holdout ``<target>_true``, for all six targets, is the committed dataset's value.
 
     A surrogate trained on any other corpus -- including the pre-#108 parquet, which differs only
-    in CF_mx/CF_mz -- fails, naming the target.
+    in CF_mx/CF_mz -- fails, naming the target. Under the D6 staleness banner the targets must be
+    exactly the negated dataset instead (a surrogate trained before the #109 sign change).
     """
-    holdout = pd.read_parquet(corpus / "surrogate" / "holdout_predictions.parquet")
-    dataset = pd.read_parquet(
-        corpus / "dataset.parquet", columns=["config_name", "time", *TARGET_COLUMNS]
-    )
-    joined = holdout.merge(
-        dataset, on=["config_name", "time"], how="left", validate="one_to_one"
-    )
-    assert len(joined) == len(holdout)
-    for c in TARGET_COLUMNS:
-        assert joined[c].notna().all(), f"{c}: holdout rows absent from dataset.parquet"
-        mismatched = int((joined[f"{c}_true"] != joined[c]).sum())
-        assert mismatched == 0, (
-            f"{c}: {mismatched} holdout rows differ from dataset.parquet"
-        )
+    check_holdout_targets(corpus, stale=_stale(corpus))
 
 
 @_corpora()
 def test_surrogate_metadata_names_the_committed_dataset(corpus):
-    """The surrogate's provenance hashes the exact committed dataset it was trained on."""
-    inputs = _meta(corpus / "surrogate" / "run_metadata.json").get("inputs")
-    assert inputs, "surrogate run_metadata.json records no training dataset"
-    assert Path(inputs["file"].replace("\\", "/")).name == "dataset.parquet", inputs
-    assert inputs["hash"] == _sha256(corpus / "dataset.parquet")
+    """The surrogate's provenance hashes the exact committed dataset it was trained on, or,
+    under the D6 staleness banner, the pinned pre-change dataset (and not the current one)."""
+    check_surrogate_inputs_hash(
+        corpus, stale=_stale(corpus), pinned=_PRE_SIGN_CHANGE_SHA[corpus]
+    )
 
 
 @_corpora()
@@ -210,7 +268,11 @@ def test_seed_variation_record_matches_the_committed_surrogate():
             ]
             assert r["epochs"] == 2000 and set(r["config_mean_r2"]) == set(targets)
 
-    assert new["dataset_sha256"] == _sha256(COARSE / "dataset.parquet")
+    if _stale(COARSE):  # D6: trained before the #109 sign change
+        assert new["dataset_sha256"] == _PRE_SIGN_CHANGE_SHA[COARSE]
+        assert new["dataset_sha256"] != _sha256(COARSE / "dataset.parquet")
+    else:
+        assert new["dataset_sha256"] == _sha256(COARSE / "dataset.parquet")
     (committed,) = [r for r in new["runs"] if r["seed"] == 1234]
     metrics = _meta(SURROGATE / "metrics.json")
     assert committed["config_mean_r2"] == {
@@ -295,11 +357,19 @@ def test_committed_phase_baseline_skill_recomputes(corpus):
     """phase_baseline_skill recomputed from the committed dataset and predictions matches.
 
     Catches a row misalignment inside run_training: the baseline is rebuilt at the committed
-    predictions' phases and scored against their true and predicted columns.
+    predictions' phases and scored against their true and predicted columns. Under the D6
+    staleness banner it is recomputed against the negated dataset.
     """
+    check_phase_baseline_skill(corpus, stale=_stale(corpus))
+
+
+def check_phase_baseline_skill(corpus: Path, *, stale: bool) -> None:
+    """The committed phase-baseline skill recomputes (against ``-dataset`` when stale)."""
     metrics = _meta(corpus / "surrogate" / "metrics.json")["phase_baseline_skill"]
     holdout = pd.read_parquet(corpus / "surrogate" / "holdout_predictions.parquet")
     dataset = _dataset(corpus)
+    if stale:
+        dataset[TARGET_COLUMNS] = -dataset[TARGET_COLUMNS]
     y_baseline, definition = build_phase_only_baseline(
         dataset, holdout["phase"].to_numpy(dtype=float), list(TARGET_COLUMNS)
     )
@@ -326,6 +396,64 @@ _SKILL_ROW = re.compile(
     re.M,
 )
 _SKILL_HEADER = SKILL_HEADER
+
+
+def _tmp_corpus(tmp_path: Path, corpus: Path, *, stale: bool) -> Path:
+    """A copy of ``corpus``'s surrogate outputs beside a dataset that agrees with them, or that is
+    their exact negation with the staleness banner in its README (``stale``).
+
+    Built from whichever state is committed, so both D6 branches keep CI coverage before the #109
+    re-extraction, in the stale interval and after the retrain. The copied surrogate record's
+    ``inputs.hash`` is set to the copy's dataset when they agree; when stale it keeps the value the
+    surrogate was trained on, which plays the pinned pre-change sha.
+    """
+    out = tmp_path / f"{corpus.name}_{'stale' if stale else 'current'}"
+    (out / "surrogate").mkdir(parents=True)
+    for name in ("holdout_predictions.parquet", "metrics.json", "run_metadata.json"):
+        shutil.copy(corpus / "surrogate" / name, out / "surrogate" / name)
+    dataset = pd.read_parquet(corpus / "dataset.parquet")
+    if _stale(corpus) != stale:
+        dataset[TARGET_COLUMNS] = -dataset[TARGET_COLUMNS]
+    dataset.to_parquet(out / "dataset.parquet", index=False)
+    banner = f"> The surrogate artifacts {_BANNER}.\n\n" if stale else ""
+    (out / "README.md").write_text(f"# Corpus\n\n{banner}Body.\n", encoding="utf-8")
+    if not stale:
+        record = _meta(out / "surrogate" / "run_metadata.json")
+        record["inputs"]["hash"] = _sha256(out / "dataset.parquet")
+        (out / "surrogate" / "run_metadata.json").write_text(
+            json.dumps(record), encoding="utf-8"
+        )
+    return out
+
+
+@_corpora()
+def test_both_d6_branches_on_tmp_copies(tmp_path, corpus):
+    """The stale-by-sign branch and the unconditional branch each accept their own state and
+    reject the other's, on a negated-parquet-plus-banner copy and an agreeing copy.
+
+    Spec: A surrogate trained before the sign change is stale by exactly a sign flip.
+    """
+    pinned = _meta(corpus / "surrogate" / "run_metadata.json")["inputs"]["hash"]
+    current = _tmp_corpus(tmp_path, corpus, stale=False)
+    stale = _tmp_corpus(tmp_path, corpus, stale=True)
+    assert (_stale(current), _stale(stale)) == (False, True)
+
+    for path, is_stale in ((current, False), (stale, True)):
+        check_holdout_targets(path, stale=is_stale)
+        check_phase_baseline_skill(path, stale=is_stale)
+        check_surrogate_inputs_hash(path, stale=is_stale, pinned=pinned)
+
+    for check in (check_holdout_targets, check_phase_baseline_skill):
+        with pytest.raises(AssertionError):
+            check(stale, stale=False)  # banner forgotten while stale
+        with pytest.raises(AssertionError):
+            check(current, stale=True)  # banner left behind after the retrain
+    with pytest.raises(AssertionError):
+        check_surrogate_inputs_hash(stale, stale=False, pinned=pinned)
+    with pytest.raises(AssertionError):
+        check_surrogate_inputs_hash(current, stale=True, pinned=pinned)
+    with pytest.raises(AssertionError):
+        check_surrogate_inputs_hash(stale, stale=True, pinned="0" * 64)
 
 
 def test_skill_and_config_r2_table_patterns_cannot_cross_match():
