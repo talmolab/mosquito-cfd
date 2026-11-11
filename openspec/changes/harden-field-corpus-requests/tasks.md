@@ -295,7 +295,7 @@
     `sphere_cv_*` functions; both `Raises:` docstrings say "not strictly less than (NaN included)".
     The NaN drag cases match the guard's own message and use the reader tripwire, like the
     steadiness test. Mutant: the helper reverted to `>=` must be killed in both functions.
-8.5 [ ] CHANGELOG `box_margin` wording matches D3. Full CPU suite, ruff on CI's paths, and
+8.5 [x] CHANGELOG `box_margin` wording matches D3. Full CPU suite, ruff on CI's paths, and
     `openspec validate --strict` pass. Push; post a reply on #140 mapping each finding to its fix.
 8.6 [ ] File follow-up issues: infinite inlet/outlet planes accepted; `flow_video`'s `plt?????`
     glob skips steps of 100000 or more; `_PLT_PATTERN`'s `\d` matches non-ASCII digits.
