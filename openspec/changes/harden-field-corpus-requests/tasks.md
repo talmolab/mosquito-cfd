@@ -178,7 +178,7 @@
 
 ## 6. Verification
 
-6.1 [ ] **Mutation-test** every guard, restoring from saved bytes. Each mutant is listed with the
+6.1 [x] **Mutation-test** every guard, restoring from saved bytes. Each mutant is listed with the
     test(s) that must kill it:
 
     **Inverted-request check**
@@ -226,7 +226,7 @@
     Record the kill table in the PR body. A surviving mutant means a test fix in its own `test(...)`
     commit.
 
-6.2 [ ] Run CI's exact commands:
+6.2 [x] Run CI's exact commands:
     - `uv sync --frozen --group viz`
     - `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`
     - the same paths with `uv run ruff format --check`
@@ -235,11 +235,11 @@
     Do not use `/run-ci-locally`, which lints only `src/` (#96). Run the full suite before every
     commit. Finally, run `openspec validate harden-field-corpus-requests --strict`.
 
-6.3 [ ] Don't re-run `scripts/verify_eulerian_box_ab.py` on real plotfiles. The only change it can see
+6.3 [x] Don't re-run `scripts/verify_eulerian_box_ab.py` on real plotfiles. The only change it can see
     is that two `REGION_CASES` entries are gone, and the rejection happens before `yt.load`. Say this
     in the PR body instead of claiming a real-plotfile run.
 
-6.4 [ ] `docs/CHANGELOG.md`, as the last commit on its own. #136 inserts at the top of `### Changed`,
+6.4 [x] `docs/CHANGELOG.md`, as the last commit on its own. #136 inserts at the top of `### Changed`,
     and these edits stay clear of that hunk:
     - **New entry** at the top of `### Fixed`: inverted requests, a bad `step`, duplicate steps and an
       invalid `box_margin` now raise; the steadiness guard; the canonical fast path.
