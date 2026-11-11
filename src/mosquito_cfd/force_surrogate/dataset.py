@@ -26,6 +26,12 @@ Design decisions are documented in the OpenSpec change ``add-force-surrogate-dat
   (``particle_inputs.hinge_*``, read from the deck the manifest's ``input_file`` names) with
   :func:`.normalization.shift_moment_reference`; the raw ``M*`` columns keep the solver's
   values. The canonical definition is ``docs/coordinate-convention.md`` ``## Moments``.
+- **Sign** (OpenSpec change ``fix-wing-force-sign-convention``): the ``CF_*`` coefficients are
+  the IB force and moment **on the wing**. IAMReX's ``ib_force``/``ib_moment`` act on the fluid,
+  so extraction shifts the solver's moments to the hinge with the solver's forces, then negates
+  force and shifted moment through :func:`.normalization.force_on_wing`, then normalizes. The raw
+  ``F*``/``M*`` columns keep the solver's on-fluid values. The canonical definition is
+  ``docs/coordinate-convention.md`` ``## Force and moment sign``.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ from mosquito_cfd.force_surrogate.normalization import (
     compute_force_reference,
     compute_moment_coefficient,
     compute_moment_reference,
+    force_on_wing,
     shift_moment_reference,
 )
 from mosquito_cfd.force_surrogate.sidecar import (
@@ -392,13 +399,16 @@ def _extract_config(
 
     f_ref = compute_force_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).f_ref
     m_ref = compute_moment_reference(f_star, stroke, R_GYRATION, SPAN, CHORD, RHO).m_ref
-    fc = compute_force_coefficients(fx, fy, fz, f_ref)
-    # Reference-frame change before normalization, into new arrays: raw M* stay as written.
+    # Reference-frame change on the solver's own (on-fluid) quantities, into new arrays: raw M*
+    # stay as written.
     if offset is None:
         hinge_moments = (mx, my, mz)  # zero rows; nothing to shift
     else:
         hinge_moments = shift_moment_reference(mx, my, mz, fx, fy, fz, offset=offset)
-    mc = compute_moment_coefficient(*hinge_moments, m_ref)
+    # Then the sign, once, through the single-source helper: the coefficients are the IB force
+    # and moment on the wing. Raw F*/M* columns stay as written.
+    fc = compute_force_coefficients(*force_on_wing(fx, fy, fz), f_ref)
+    mc = compute_moment_coefficient(*force_on_wing(*hinge_moments), m_ref)
 
     cycles = time * f_star
     phase = np.mod(cycles, 1.0)
@@ -519,6 +529,11 @@ def build_dataset(
     solver's moments -- about the origin in the CSV's ``X,Y,Z`` -- are shifted by
     ``(origin - hinge) x F`` before normalization. The raw ``Mx/My/Mz`` columns are unshifted.
     See ``docs/coordinate-convention.md`` ``## Moments``.
+
+    The coefficients are the IB force and moment on the wing: force and shifted moment are
+    negated through :func:`.normalization.force_on_wing` before normalization, while the raw
+    ``Fx..Mz`` columns keep the solver's on-fluid values. See
+    ``docs/coordinate-convention.md`` ``## Force and moment sign``.
 
     Args:
         manifest_path: Path to the sweep manifest (its ``configs[]`` drives the join, and

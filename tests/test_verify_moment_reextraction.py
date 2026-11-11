@@ -101,6 +101,16 @@ def _offsets(df):
     return {name: OFFSET for name in df["config_name"].unique()}
 
 
+_CF = ["CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"]
+
+
+def _on_wing(df: pd.DataFrame) -> pd.DataFrame:
+    """``df`` with every coefficient negated: what the extractor emits since #109."""
+    out = df.copy()
+    out[_CF] = -out[_CF]
+    return out
+
+
 def _failed(checks) -> list[str]:
     return [c.name for c in checks if not c.ok]
 
@@ -230,7 +240,9 @@ def test_gate_comparing_a_committed_corpus_to_itself_fails_and_names_its_baselin
 
 def test_zero_offset_control_reproduces_a_pre_change_parquet(tmp_path):
     """With the shift forced to zero, the rewired extractor must reproduce, value for value
-    across all 22 columns, a parquet written with particle-origin moments."""
+    across all 22 columns, a parquet written with particle-origin moments -- with every
+    coefficient negated, since the extractor now emits the force on the wing (#109) while the
+    #108 baseline carries the solver's on-fluid sign."""
     fixture = REPO / "tests" / "fixtures" / "synthetic_ib_particle.csv"
     deck = tmp_path / "inputs" / "deck"
     deck.parent.mkdir()
@@ -259,8 +271,8 @@ def test_zero_offset_control_reproduces_a_pre_change_parquet(tmp_path):
         provenance["c"]["csv_sha256"]
         == hashlib.sha256(fixture.read_bytes()).hexdigest()
     )
-    np.testing.assert_array_equal(frame["CF_mx"], raw["Mx"].to_numpy(float) / m_ref)
-    np.testing.assert_array_equal(frame["CF_mz"], raw["Mz"].to_numpy(float) / m_ref)
+    np.testing.assert_array_equal(frame["CF_mx"], -raw["Mx"].to_numpy(float) / m_ref)
+    np.testing.assert_array_equal(frame["CF_mz"], -raw["Mz"].to_numpy(float) / m_ref)
 
     # The shift is restored afterwards (the patch is scoped, not left behind).
     from mosquito_cfd.force_surrogate import build_dataset
@@ -268,12 +280,17 @@ def test_zero_offset_control_reproduces_a_pre_change_parquet(tmp_path):
     shifted, _, _ = build_dataset(manifest, {"c": run / "IB_Particle_1.csv"})
     assert not np.allclose(shifted["CF_mx"], frame["CF_mx"])
 
-    # And the frame comparison it feeds is exact across every column.
-    checks = module.compare_zero_offset(frame, frame.copy())
+    # And the frame comparison it feeds is exact across every column, against the NEGATED
+    # pre-change baseline: the on-fluid parquet the #108 recipe compares with.
+    pre_change = _on_wing(frame)
+    checks = module.compare_zero_offset(pre_change, frame)
     assert _failed(checks) == []
     checks = module.compare_zero_offset(
-        frame, frame.assign(CF_mx=frame["CF_mx"] + 1e-15)
+        pre_change, frame.assign(CF_mx=frame["CF_mx"] + 1e-15)
     )
+    assert _failed(checks) == ["zero-offset control (design D11)"]
+    # Non-vacuous: an extraction carrying the baseline's own (on-fluid) sign fails.
+    checks = module.compare_zero_offset(pre_change, pre_change.copy())
     assert _failed(checks) == ["zero-offset control (design D11)"]
 
 
@@ -440,8 +457,9 @@ def test_csv_hash_comparison_covers_both_key_sets(change):
 def test_zero_offset_mode_rehashes_csvs_through_main(tmp_path, capsys, tampered):
     """--zero-offset-control must actually run the CSV re-hash, not just define it. The
     extraction itself is stood in for (it needs the raw CSVs); everything after it is real.
-    The stub returns the baseline frame, so this test's zero-offset line compares the
-    baseline with itself: a placeholder, not evidence. Only the re-hash line is under test."""
+    The stub returns the baseline frame negated (what the on-wing extractor emits, #109), so
+    this test's zero-offset line compares the baseline with its own negation: a placeholder,
+    not evidence. Only the re-hash line is under test."""
     corpus, base = _regenerated_throwaway_corpus(tmp_path)
     module = _load()
     recorded = json.loads((corpus / "run_metadata.json").read_text(encoding="utf-8"))
@@ -449,7 +467,7 @@ def test_zero_offset_mode_rehashes_csvs_through_main(tmp_path, capsys, tampered)
     if tampered:
         hashes[next(iter(hashes))] = "f" * 64
     provenance = {name: {"csv_sha256": h} for name, h in hashes.items()}
-    module.build_with_zero_offset = lambda *a, **k: (base, provenance)
+    module.build_with_zero_offset = lambda *a, **k: (_on_wing(base), provenance)
 
     rc = module.main(
         ["--corpus", str(corpus), "--zero-offset-control", "--input-dir", str(tmp_path)]
@@ -520,7 +538,7 @@ def test_zero_offset_mode_re_verifies_anchors_through_main(tmp_path, capsys, out
             for n, h in hashes.items()
         }
         provenance["s35_f085_p30"]["deck_sha256_verified_against"] = anchor
-        return base, provenance
+        return _on_wing(base), provenance  # the on-wing extractor's output (#109)
 
     module = _load()
     module.build_with_zero_offset = stub

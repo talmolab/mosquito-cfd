@@ -187,7 +187,8 @@ def test_complete_build_reports_no_drops():
 
 
 def test_coefficients_use_single_source_per_config_normalization(tmp_path):
-    """CF_* == raw / per-config reference (ratio form, not round literals).
+    """CF_* == -raw / per-config reference (ratio form, not round literals): the coefficients
+    are the IB force on the wing, the negation of the solver's on-fluid force (#109).
 
     Spec: Coefficients use the single-source per-config normalization.
     """
@@ -202,10 +203,14 @@ def test_coefficients_use_single_source_per_config_normalization(tmp_path):
         f_star=1.0, phi_amp_deg=70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).m_ref
     assert f_ref == pytest.approx(200.27, rel=1e-3)
-    np.testing.assert_allclose(df["CF_x"].to_numpy(), FIXTURE_FX / f_ref)
-    np.testing.assert_allclose(df["CF_mx"].to_numpy(), FIXTURE_MX / m_ref)
-    # Not round literals: 50/200.27 ~ 0.2497.
-    assert df["CF_x"].to_numpy()[1] == pytest.approx(50.0 / f_ref)
+    np.testing.assert_allclose(df["CF_x"].to_numpy(), -FIXTURE_FX / f_ref)
+    # The default deck's hinge is the particle origin, so the shift is zero: -Mx/m_ref.
+    np.testing.assert_allclose(df["CF_mx"].to_numpy(), -FIXTURE_MX / m_ref)
+    # Not round literals: -50/200.27 ~ -0.2497.
+    assert df["CF_x"].to_numpy()[1] == pytest.approx(-50.0 / f_ref)
+    # Non-vacuous: a build that omits the sign fails here.
+    assert not np.allclose(df["CF_x"].to_numpy(), FIXTURE_FX / f_ref)
+    assert not np.allclose(df["CF_mx"].to_numpy(), FIXTURE_MX / m_ref)
 
 
 def test_phase_and_wingbeat_tag_every_timestep(tmp_path):
@@ -872,6 +877,9 @@ def test_shift_applied_with_a_non_committed_offset(tmp_path):
     axes, so a hardcoded constant or a special-cased axis fails. Expected values are the
     hand-expanded cross product, not a call to the helper under test.
 
+    The coefficients are the negated shifted moments (on the wing, #109): the shift is applied
+    to the solver's own on-fluid M and F, the sign afterwards.
+
     Spec: Offset is derived, not hardcoded; Parallel-axis shift is applied at extraction.
     """
     cfg = _validated_point_config()
@@ -884,26 +892,27 @@ def test_shift_applied_with_a_non_committed_offset(tmp_path):
     fx, fy, fz = (FIXTURE_RAW[c].to_numpy(dtype=float) for c in ("Fx", "Fy", "Fz"))
     mx, my, mz = (FIXTURE_RAW[c].to_numpy(dtype=float) for c in ("Mx", "My", "Mz"))
     m_ref = _m_ref(cfg)
-    np.testing.assert_allclose(
-        df["CF_mx"], (mx + dy * fz - dz * fy) / m_ref, rtol=1e-12
-    )
-    np.testing.assert_allclose(
-        df["CF_my"], (my + dz * fx - dx * fz) / m_ref, rtol=1e-12
-    )
-    np.testing.assert_allclose(
-        df["CF_mz"], (mz + dx * fy - dy * fx) / m_ref, rtol=1e-12
-    )
-    # Non-vacuous: the fixture's forces make the shift visible on every moment axis.
-    assert not np.allclose(df["CF_mx"], mx / m_ref)
-    assert not np.allclose(df["CF_my"], my / m_ref)
-    assert not np.allclose(df["CF_mz"], mz / m_ref)
+    shifted = {
+        "CF_mx": (mx + dy * fz - dz * fy) / m_ref,
+        "CF_my": (my + dz * fx - dx * fz) / m_ref,
+        "CF_mz": (mz + dx * fy - dy * fx) / m_ref,
+    }
+    unshifted = {"CF_mx": mx / m_ref, "CF_my": my / m_ref, "CF_mz": mz / m_ref}
+    for col, want in shifted.items():
+        np.testing.assert_allclose(df[col], -want, rtol=1e-12)
+        # Non-vacuous: the fixture's forces make the shift visible on every moment axis
+        # (neither sign of the unshifted moment matches), and the sign is applied.
+        assert not np.allclose(df[col], -unshifted[col]), col
+        assert not np.allclose(df[col], unshifted[col]), col
+        assert not np.allclose(df[col], want), col
     assert provenance[cfg["name"]]["offset"] == [0.5, 1.75, -0.75]
 
 
 def test_committed_geometry_shift_is_spanwise_and_leaves_cf_my_invariant(tmp_path):
     """The committed geometry: origin (4,2,4), hinge (4,0.5,4) -> offset (0,1.5,0).
-    CF_mx/CF_mz move by +a*Fz / -a*Fx (this clause pins cross-product ORDER); CF_my compares
-    equal to My/m_ref (this does NOT pin order: F x d also has a zero y-term).
+    CF_mx/CF_mz are -(Mx + a*Fz) / -(Mz - a*Fx) over m_ref (this clause pins cross-product
+    ORDER); CF_my compares equal to -My/m_ref (this does NOT pin order: F x d also has a zero
+    y-term). The sign is the on-wing one (#109), applied after the shift.
 
     Spec: A spanwise shift leaves the M_y component invariant.
     """
@@ -916,15 +925,19 @@ def test_committed_geometry_shift_is_spanwise_and_leaves_cf_my_invariant(tmp_pat
     fx, fz = FIXTURE_RAW["Fx"].to_numpy(float), FIXTURE_RAW["Fz"].to_numpy(float)
     mx, my, mz = (FIXTURE_RAW[c].to_numpy(float) for c in ("Mx", "My", "Mz"))
     m_ref = _m_ref(cfg)
-    np.testing.assert_allclose(df["CF_mx"], (mx + a * fz) / m_ref, rtol=1e-12)
-    np.testing.assert_allclose(df["CF_mz"], (mz - a * fx) / m_ref, rtol=1e-12)
-    assert (df["CF_my"].to_numpy() == my / m_ref).all()
+    np.testing.assert_allclose(df["CF_mx"], -(mx + a * fz) / m_ref, rtol=1e-12)
+    np.testing.assert_allclose(df["CF_mz"], -(mz - a * fx) / m_ref, rtol=1e-12)
+    assert (df["CF_my"].to_numpy() == -my / m_ref).all()
+    # Non-vacuous: the unnegated form fails.
+    assert not np.allclose(df["CF_mx"], (mx + a * fz) / m_ref)
+    assert not np.allclose(df["CF_mz"], (mz - a * fx) / m_ref)
 
 
 def test_offset_is_derived_per_configuration(tmp_path):
     """Two configs, identical CSVs, decks differing in hinge_y (the component that enters
-    CF_mx) -> CF_mx differs by exactly (delta a)*Fz/m_ref. A derive-once-and-reuse bug emits
-    identical columns. (Varying only hinge_x would leave CF_mx identical -- not a test.)
+    CF_mx) -> CF_mx differs by exactly -(delta a)*Fz/m_ref (on-wing sign, #109). A
+    derive-once-and-reuse bug emits identical columns. (Varying only hinge_x would leave CF_mx
+    identical -- not a test.)
 
     Spec: The offset is derived independently for each configuration.
     """
@@ -940,11 +953,76 @@ def test_offset_is_derived_per_configuration(tmp_path):
     cf_b = df.loc[df["config_name"] == "b", "CF_mx"].to_numpy()
     fz = FIXTURE_RAW["Fz"].to_numpy(float)
     np.testing.assert_allclose(
-        cf_a - cf_b, (1.5 - 1.0) * fz / _m_ref(a_cfg), atol=1e-15
+        cf_a - cf_b, -(1.5 - 1.0) * fz / _m_ref(a_cfg), atol=1e-15
     )
     assert not np.array_equal(cf_a, cf_b)
+    # Non-vacuous: the unnegated difference fails.
+    assert not np.allclose(cf_a - cf_b, (1.5 - 1.0) * fz / _m_ref(a_cfg), atol=1e-15)
     assert provenance["a"]["offset"] == [0.0, 1.5, 0.0]
     assert provenance["b"]["offset"] == [0.0, 1.0, 0.0]
+
+
+def test_sign_is_applied_once_after_the_shift_through_force_on_wing(
+    tmp_path, monkeypatch
+):
+    """With ``force_on_wing`` replaced at its use site by an identity spy, ``build_dataset``
+    emits exactly ``+F/f_ref`` and ``+(M + d x F)/m_ref``, so no other step applies the sign.
+    Across all calls the spy receives exactly the solver force arrays and the shifted moment
+    arrays (identity-compared, each once): the forces passed to the shift, and the arrays the
+    shift returned, so the sign comes after the shift.
+
+    Spec: The sign is applied once, after the hinge shift, through the helper (design D1).
+    """
+    from mosquito_cfd.force_surrogate import dataset as dataset_module
+    from mosquito_cfd.force_surrogate.normalization import (
+        compute_force_coefficients,
+        compute_moment_coefficient,
+    )
+
+    passed, shift_inputs, shift_outputs = [], [], []
+    real_shift = dataset_module.shift_moment_reference
+
+    def spy(*components):
+        passed.extend(components)
+        return tuple(components)
+
+    def shift_spy(mx, my, mz, fx, fy, fz, *, offset):
+        shift_inputs.extend((fx, fy, fz))
+        out = real_shift(mx, my, mz, fx, fy, fz, offset=offset)
+        shift_outputs.extend(out)
+        return out
+
+    monkeypatch.setattr(dataset_module, "force_on_wing", spy)
+    monkeypatch.setattr(dataset_module, "shift_moment_reference", shift_spy)
+
+    a_cfg = {**_validated_point_config(), "name": "a", "index": 0}
+    b_cfg = {**_validated_point_config(), "name": "b", "index": 1}
+    hinges = {"a": (3.5, 0.25, 4.75), "b": (4.0, 0.5, 4.0)}
+    manifest = _write_manifest(tmp_path / "m.json", [a_cfg, b_cfg], hinges=hinges)
+    df, _, _ = build_dataset(manifest, {"a": FIXTURE, "b": FIXTURE})
+
+    f_ref = compute_force_reference(1.0, 70.0, R_GYRATION, SPAN, CHORD, RHO).f_ref
+    m_ref = _m_ref(a_cfg)
+    f = [FIXTURE_RAW[c].to_numpy(float) for c in ("Fx", "Fy", "Fz")]
+    m = [FIXTURE_RAW[c].to_numpy(float) for c in ("Mx", "My", "Mz")]
+    for name, hinge in hinges.items():
+        sub = df[df["config_name"] == name]
+        d = np.subtract(FIXTURE_ORIGIN, hinge)
+        fc = compute_force_coefficients(*f, f_ref)
+        mc = compute_moment_coefficient(
+            *real_shift(*m, *f, offset=d), m_ref
+        )  # +(M + d x F)/m_ref
+        for col, want in zip(
+            ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"),
+            (fc.cf_x, fc.cf_y, fc.cf_z, mc.cf_mx, mc.cf_my, mc.cf_mz),
+            strict=True,
+        ):
+            np.testing.assert_array_equal(sub[col].to_numpy(), want, err_msg=col)
+
+    expected = shift_inputs + shift_outputs
+    assert len(expected) == 12 and len({id(x) for x in expected}) == 12
+    assert len(passed) == len(expected)
+    assert {id(x) for x in passed} == {id(x) for x in expected}
 
 
 def test_raw_moments_stay_bitwise_equal_to_csv(tmp_path):
