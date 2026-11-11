@@ -442,3 +442,13 @@ def test_fast_path_does_not_see_a_noncanonical_twin(tmp_path):
     assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
     with pytest.raises(ValueError, match=r"two plotfile directories parse to step 100"):
         corpus.steps("s35_f085_p30")
+
+
+def test_missing_run_directory_is_self_describing_after_a_fast_path_miss(tmp_path):
+    # The fast path's canonical is_dir() is False when the whole run directory is absent; the
+    # fallback must still report the missing run directory, not a "no plotfile" or OS error.
+    root = tmp_path / "corpus"
+    (root / "runs").mkdir(parents=True)
+    (root / "sweep_manifest.json").write_text(json.dumps(_manifest(["s35_f085_p30"])))
+    with pytest.raises(ValueError, match=r"no run directory for config 's35_f085_p30'"):
+        FieldCorpus(root).plotfile("s35_f085_p30", 100)
