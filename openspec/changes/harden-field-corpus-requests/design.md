@@ -234,7 +234,7 @@ Recorded here rather than changed:
 
 Left as follow-ups, not done here:
 
-- `_PLT_PATTERN`'s `\d` matches non-ASCII digits. This predates the change.
+- `_PLT_PATTERN`'s `\d` matches non-ASCII digits. This predates the change (#145).
 - `os.scandir` in `_scan`, which belongs to #112.
 - A shared `_run_path` helper for the run-directory path.
 
@@ -261,6 +261,6 @@ Five reviewers found no blocking issue and five important ones, all fixed here:
 Recorded here rather than changed:
 
 - **Infinite inlet/outlet planes** (`x_inlet=-inf`) still pass the guard and return a silent result.
-  This predates the change and is filed as a follow-up.
+  This predates the change and is filed as #143.
 - **`flow_video` globs `plt?????`,** so steps of 100000 or more are skipped. This predates the change
-  and is filed as a follow-up.
+  and is filed as #144.
