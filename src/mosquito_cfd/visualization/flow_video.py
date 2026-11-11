@@ -101,12 +101,18 @@ def _validate_box_margin(box_margin: Any) -> float:
     # caller never passed (harden-field-corpus-requests D3). Any numbers.Real is accepted
     # (int, float, Fraction, numpy integer/floating scalars); bool is an int subclass and is
     # rejected, and np.bool_ is not a numbers.Real. Decimal is not a numbers.Real either.
+    # np.timedelta64 is registered as numbers.Real but is a duration: float() raises TypeError
+    # for a 's' unit and returns the raw tick count for 'ns', so it is rejected by type.
     margin = None
-    if isinstance(box_margin, numbers.Real) and not isinstance(box_margin, bool):
+    if isinstance(box_margin, numbers.Real) and not isinstance(
+        box_margin, (bool, np.timedelta64)
+    ):
         try:
             margin = float(box_margin)
-        except OverflowError:
-            # An int beyond float64 range (10**400) is finite as an int but has no float value.
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError: an int beyond float64 range (10**400) is finite but has no float
+            # value. TypeError/ValueError: a numbers.Real whose __float__ fails is still a
+            # caller's bad value, and the spec promises a ValueError for every rejection.
             margin = None
     if margin is None or not (math.isfinite(margin) and margin > 0):
         # The accepted types are named because some rejected values (Decimal("3"), 10**400) are
@@ -480,7 +486,8 @@ def build_flow_video(
         box_margin: Isotropic half-width of the near-field extraction box around ``center``, in
             the same domain length units as ``center``. Used only by ``lev-3d``, but validated
             in every mode: any real number (``int``, ``float``, ``Fraction`` or numpy real
-            scalar; not ``bool``) that converts to a finite ``float`` ``> 0``. Default ``3.0``.
+            scalar; not ``bool`` or ``np.timedelta64``) that converts to a finite ``float``
+            ``> 0``. Default ``3.0``.
         fps: Output video frame rate.
 
     Returns:

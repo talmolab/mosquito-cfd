@@ -6,6 +6,7 @@ The real-plotfile-adapter tests live in ``tests/test_flow_video_plotfile.py`` (`
 
 from __future__ import annotations
 
+import numbers
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -662,6 +663,22 @@ def _plotfile_io_tripwire(plotfile_dir):
     raise AssertionError("plotfile I/O before argument validation")
 
 
+class _RealWithoutFloat:
+    """A registered numbers.Real whose float() raises, as np.timedelta64(1, "s") does."""
+
+    def __init__(self, error: type[Exception]):
+        self.error = error
+
+    def __float__(self):
+        raise self.error("no float value")
+
+    def __repr__(self):
+        return f"_RealWithoutFloat({self.error.__name__})"
+
+
+numbers.Real.register(_RealWithoutFloat)
+
+
 #: The box_margin validator's own message, up to the value it shows.
 _BOX_MARGIN_MESSAGE = (
     r"box_margin must be an int, float, Fraction or numpy real scalar that converts to a finite "
@@ -672,6 +689,7 @@ _BOX_MARGIN_MESSAGE = (
 #: ValueError: float() raises OverflowError on them. Decimal("3") and 10**400 are finite and
 #: positive, so the message must say why they are rejected (harden-field-corpus-requests D3).
 _BAD_BOX_MARGINS = [
+    ("neg_int", -1, "-1"),
     ("neg_float", -1.0, "-1.0"),
     ("zero_int", 0, "0"),
     ("zero_float", 0.0, "0.0"),
@@ -685,6 +703,22 @@ _BAD_BOX_MARGINS = [
     ("decimal", Decimal("3"), "Decimal('3')"),
     ("huge_int", 10**400, repr(10**400)),
     ("huge_neg_int", -(10**400), repr(-(10**400))),
+    # numpy registers timedelta64 as numbers.Real. float() raises TypeError for a 's' unit and
+    # returns the raw tick count for 'ns', so both must be rejected, shown in numpy's own repr.
+    ("timedelta_s", np.timedelta64(1, "s"), "np.timedelta64(1,'s')"),
+    ("timedelta_ns", np.timedelta64(5, "ns"), "np.timedelta64(5,'ns')"),
+    # Not a numbers.Real; its .item() would show datetime.date(2020, 1, 1).
+    ("datetime", np.datetime64("2020-01-01"), "np.datetime64('2020-01-01')"),
+    (
+        "real_float_type_error",
+        _RealWithoutFloat(TypeError),
+        "_RealWithoutFloat(TypeError)",
+    ),
+    (
+        "real_float_value_error",
+        _RealWithoutFloat(ValueError),
+        "_RealWithoutFloat(ValueError)",
+    ),
 ]
 
 
@@ -726,6 +760,7 @@ def test_rejects_invalid_box_margin(
 #: Valid margins: the smallest and ordinary positive floats, an int, numpy integer and float32
 #: scalars, and a Fraction (a numbers.Real). Each must pass validation in every mode.
 _GOOD_BOX_MARGINS = [
+    ("subnormal", 5e-324),
     ("tiny", 1e-9),
     ("half", 0.5),
     ("int", 2),
@@ -766,14 +801,72 @@ def test_accepts_valid_box_margin(tmp_path, monkeypatch, field_mode, box_margin)
 
 @pytest.mark.parametrize(
     ("box_margin", "expected"),
-    [(Fraction(1, 2), 0.5), (np.float32(0.5), 0.5), (np.int64(2), 2.0), (2, 2.0)],
-    ids=["fraction", "np_float32", "np_int64", "int"],
+    [
+        (Fraction(1, 2), 0.5),
+        (Fraction(5, 2), 2.5),
+        (np.float32(0.5), 0.5),
+        (np.int64(2), 2.0),
+        (2, 2.0),
+    ],
+    ids=["fraction", "fraction_above_1", "np_float32", "np_int64", "int"],
 )
 def test_validated_box_margin_is_a_plain_float(box_margin, expected):
     """The validator returns the margin as a plain float, which is what the caller then uses."""
     validated = flow_video._validate_box_margin(box_margin)
     assert type(validated) is float
     assert validated == expected
+
+
+class _StopAfterFirstBox(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    "box_margin", [Fraction(5, 2), np.float32(2.5)], ids=["fraction", "np_float32"]
+)
+def test_lev3d_box_is_built_from_the_validated_margin(
+    tmp_path, monkeypatch, box_margin
+):
+    """lev-3d requests exactly center -/+ 2.5 as plain floats, whatever real type was passed.
+
+    The validator's own tests cannot see whether build_flow_video uses its result: a validator
+    returning a wrong float for margins >= 1 left the whole suite green.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    requests = []
+
+    def recording_extract_eulerian_box(plotfile_path, *, lo, hi, halo=0):
+        requests.append((lo, hi))
+        raise _StopAfterFirstBox
+
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        recording_extract_eulerian_box,
+    )
+
+    try:
+        with pytest.raises(_StopAfterFirstBox):
+            build_flow_video(
+                plotfile_dir=plotfile_dir,
+                field_mode="lev-3d",
+                vertex_path=_VERTEX_PATH,
+                out_dir=tmp_path / "out",
+                docker_image_digest=DIGEST,
+                timestamp=TS,
+                label="margin",
+                box_margin=box_margin,
+                **_KINEMATICS_KWARGS,
+            )
+    finally:
+        plt.close("all")
+
+    center = np.asarray(_KINEMATICS_KWARGS["center"], dtype=np.float64)
+    assert len(requests) == 1
+    lo, hi = requests[0]
+    assert all(type(v) is float for v in (*lo, *hi))
+    assert lo == tuple(float(c) for c in center - 2.5)
+    assert hi == tuple(float(c) for c in center + 2.5)
 
 
 def test_rejects_non_positive_fps(tmp_path, monkeypatch):
