@@ -186,7 +186,10 @@ turns each config's IB-particle force CSV into a tidy table — **one row per (c
 of kinematics + phase + normalized force/moment coefficients + raw forces/moments, joined to this
 sweep's `reynolds` and train/holdout `split`. The raw `Mx/My/Mz` and the derived `CF_m*` differ in
 **moment reference point** (solver particle origin vs the deck's declared hinge); see
-[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments). Forces come from the IB-particle CSV **only**
+[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments). Raw and derived also
+differ in **sign**: the coefficients `CF_x..CF_mz` are the IB force and moment **on the wing**, while
+the raw `Fx..Mz` keep the solver's `ib_force`/`ib_moment`, which act on the fluid; see
+[force and moment sign](../../docs/coordinate-convention.md#force-and-moment-sign). Forces come from the IB-particle CSV **only**
 (`amr.plot_int = -1`, CC-6); no plotfiles.
 
 | File | Status | Contents |

@@ -466,12 +466,12 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR2b — corpus flip and re-extraction (needs `Z:`)
 
-31. [ ] Re-derive task 0's PR2b list and put it in the PR body. Prechecks:
+31. [x] Re-derive task 0's PR2b list and put it in the PR body. Prechecks:
     - `Z:` is mounted.
     - All 27 `IB_Particle_1.csv` per corpus are present under the baseline `input_dir`.
     - All 27 coarse `run_metadata.json` anchors are present.
     - Record the merge-base sha.
-32. [ ] **Test first (synthetic, throwaway repos):** the verifier (design D8) passes an exact negation.
+32. [x] **Test first (synthetic, throwaway repos):** the verifier (design D8) passes an exact negation.
     It fails each of the following, one test per case:
     - a changed raw column;
     - a changed non-CF column;
@@ -489,18 +489,18 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - a baseline parquet whose sha does not match the surrogate's `inputs.hash`.
 
     A changed `hardware` block is reported and passes.
-33. [ ] Implement `scripts/verify_force_sign_reextraction.py`. Mutation-test each check.
-34. [ ] **Test first, synthetic extractor:**
+33. [x] Implement `scripts/verify_force_sign_reextraction.py`. Mutation-test each check.
+34. [x] **Test first, synthetic extractor:**
     - Rewrite `test_force_surrogate_dataset.py:189, :870, :903, :924` to the negated form, each with a
       non-vacuity clause.
     - Add the identity-spy test for `build_dataset`.
     - Adapt `test_verify_moment_reextraction.py:231` (the control compares against the negated
       baseline).
-35. [ ] Call `force_on_wing` in `_extract_config` after the shift. Update `verify_moment_reextraction.py`'s
+35. [x] Call `force_on_wing` in `_extract_config` after the shift. Update `verify_moment_reextraction.py`'s
     control and docstring.
-36. [ ] **Test first (synthetic driver only):** `scripts/extract_forces.py` writes `force_sign_convention`
+36. [x] **Test first (synthetic driver only):** `scripts/extract_forces.py` writes `force_sign_convention`
     with the pinned value. Implement it.
-37. [ ] **Test first, D6:**
+37. [x] **Test first, D6:**
     - Generalize the banner test to both corpora, anchored at `Path(__file__)`.
     - Add banner-conditional branches:
       - `:118`: `−dataset`, not `allclose` to `+`.
@@ -510,26 +510,26 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
     These are green now (no banner). Commit the code. **The extraction scope is frozen from this commit**
     (design D9).
-38. [ ] Local, red commit:
+38. [x] Local, red commit:
     - Rewrite `test_force_surrogate_scale_invariance.py:87, :223, :282` to the negated or coefficient
       form, with non-vacuity clauses. `:116-122` stay byte-identical.
     - Extend `:343` to assert `force_sign_convention` on **both committed corpora**, and pin each
       `dataset.units.json` literally.
 
     Record the failing output.
-39. [ ] From the clean tree at task 37's commit, re-extract both corpora into a temp dir. Use the
+39. [x] From the clean tree at task 37's commit, re-extract both corpora into a temp dir. Use the
     **native PowerShell command lines** built verbatim from each baseline `run_metadata.json` (design
     D8); coarse adds `--run-metadata-name run_metadata.json`. Then:
     - Run `verify_force_sign_reextraction.py --baseline-ref <merge-base>` and record the output.
     - The frozen raw shas hold.
     - `git diff --exit-code <merge-base> -- uv.lock` is clean.
-40. [ ] **HUMAN CHECKPOINT before committing binaries.** The data commit contains:
+40. [x] **HUMAN CHECKPOINT before committing binaries.** The data commit contains:
     - 2 parquets and 2 `run_metadata.json`;
     - both README banners;
     - the section's surrogate phrase;
     - the `sweep_provenance.json` `re_extraction` stage (with `#108` moved into `history`, the digest
       kept, `pull_request: null`) and the matching `test_force_surrogate_sweep.py:1015` edit.
-41. [ ] Commit:
+41. [x] Commit:
     - drop the xfail on task 6; the corpus phrase now fails its guard, so remove it;
     - add the links in both corpus READMEs and `docs/force_surrogate/roadmap.md`, and extend the
       link-list test;
@@ -544,6 +544,37 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - Open PR2b with "advances #109".
     - In a follow-up commit, set `pull_request` and its test literal together, along with the CHANGELOG
       PR number.
+
+
+### PR2b implementation notes (deviations recorded, not silent)
+
+- **Task 31, measured.** Merge-base `a097951`. Prechecks: `Z:` mounted; 27/27 `IB_Particle_1.csv` per
+  corpus present and byte-equal to each baseline `csv_sha256`; 27/27 coarse anchors present. Sims built
+  from `a097951` exports with their own `src` first on `PYTHONPATH`: control 0 failures; simB 20 and
+  simC 19, every one inside the planned list, plus the two task-41 items (the task-6 xfail XPASSes and
+  the corpus phrase guard fails in simB).
+- **Two tests added to the PR2b list by decision.** `test_verify_moment_reextraction.py:440` and `:496`
+  stub `build_with_zero_offset` with the un-negated baseline and assert `rc == 0`. Once the zero-offset
+  control compares against the negated baseline (D8), the stubs must return the CF-negated baseline.
+  The sims could not see this, because they did not apply task 35's verifier edit. Only the stubs
+  changed; the assertions did not.
+- **`:282` was rewritten but was never red.** In the coefficient form `b = CF_mx·m_ref/(CF_z·f_ref)`
+  the sign cancels (D2), so it passes on both the pre- and post-re-extraction corpus. A half-flip still
+  fails it.
+- **Task 37 was followed by a test-only commit.** The banner predicate (any of six targets) and the
+  wording clause could not fail on real data, so they became small functions with synthetic negative
+  cases. The task-37 commit is recorded in the corpus metadata, so it was not amended. The six-target
+  R² tie was reverted to `CF_mx`/`CF_mz`, because widening it was unfailable on consistent data and is
+  not needed for D6.
+- **Re-extraction ran from a named throwaway branch** `fix-wing-force-sign-pr2b-extract` at `f848df6`
+  (task 37), in its own worktree and venv, because a detached checkout would record `git.branch =
+  "HEAD"`, which `test_regenerated_records_carry_a_clean_git_commit` rejects.
+- **Verifier.** It holds its own copy of the `force_sign_convention` literal, so a wrong writer constant
+  cannot pass both. A `row count` check guards against shape mismatch. An "every `CF_*` column non-zero"
+  check exists because `-0 == 0` would let an all-zero column pass the negation check vacuously.
+- **Kill tables:** verifier 28/28 (one mutant was re-formulated: sorting only the already-sorted
+  baseline was not a weakening); extractor and #108 control 9/9; `force_sign_provenance` 4/4; D6 7/7
+  plus 3/3 once the banners existed; banner helpers 4/4.
 
 ---
 

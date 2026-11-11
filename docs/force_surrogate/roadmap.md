@@ -111,7 +111,9 @@ not a diffused-IB force deficit, and not the sphere's 2.64× extraction bug.)*
 ### CC-5. Pure-data convention.
 The dataset carries **dimensionless coefficients + raw forces**; kinematic parameters in
 documented units; one `dataset.units.json` sidecar (mirrors the circumnutation units-sidecar
-convention). No silent unit mixing.
+convention). No silent unit mixing. The coefficients are the IB force and moment **on the wing**;
+the raw forces keep the solver's on-fluid sign
+([force and moment sign](../coordinate-convention.md#force-and-moment-sign), #109).
 
 ### CC-6. Scope guard (force-only).
 **No** velocity-field/plotfile reading, **no** AMReX→PhysicsNeMo field reader, **no** RL
