@@ -251,7 +251,7 @@
     - **Amend line 40** (`### Changed`, #106 delegation): its "deliberate narrowings" list gains
       inverted requests `(#106, #122)`.
 
-6.5 [ ] PR body:
+6.5 [x] PR body (#140):
     - `Closes #121` and `Closes #122`, each on its own line;
     - "#112 owns the remaining NFS listing cost", written exactly that way and never as "does not
       close" (a negated closing keyword still auto-closes);
