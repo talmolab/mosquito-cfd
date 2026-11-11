@@ -6,11 +6,6 @@ Usage:
     uv run python examples/flapping_wing/visualize.py velocity \\
         Z:/users/eberrigan/mosquito-cfd/runs/flapping_wing/plt00100
 
-    # Force time series with kinematics overlay
-    uv run python examples/flapping_wing/visualize.py forces \\
-        Z:/users/eberrigan/mosquito-cfd/runs/flapping_wing/plt00* \\
-        --output-dir results/
-
     # Vorticity visualization
     uv run python examples/flapping_wing/visualize.py vorticity \\
         Z:/users/eberrigan/mosquito-cfd/runs/flapping_wing/plt00100
@@ -120,123 +115,6 @@ def visualize_vorticity(plotfile: str, output_dir: Path | None = None):
     print(f"Saved: {output_path}")
 
 
-def extract_forces(plotfile: str) -> dict:
-    """Extract force components from plotfile particles."""
-    import yt
-    yt.set_log_level("error")
-
-    ds = yt.load(plotfile)
-    ad = ds.all_data()
-    time = float(ds.current_time)
-
-    # Force components stored in particle_real_comp3/4/5
-    fx = float(np.array(ad['all', 'particle_real_comp3']).sum())
-    fy = float(np.array(ad['all', 'particle_real_comp4']).sum())
-    fz = float(np.array(ad['all', 'particle_real_comp5']).sum())
-
-    # Compute kinematics at this time
-    phi, alpha, omega_phi = compute_kinematics(time)
-
-    return {
-        "time": time,
-        "fx": fx,
-        "fy": fy,
-        "fz": fz,
-        "phi": phi,
-        "alpha": alpha,
-        "omega_phi": omega_phi,
-    }
-
-
-def visualize_forces(plotfiles: list[str], output_dir: Path | None = None):
-    """Generate force time series with kinematics overlay."""
-    import matplotlib.pyplot as plt
-
-    output_dir = output_dir or Path(".")
-
-    # Extract forces from all plotfiles
-    data = []
-    for pf in sorted(plotfiles):
-        print(f"Processing: {pf}")
-        data.append(extract_forces(pf))
-
-    times = np.array([d["time"] for d in data])
-    fx = np.array([d["fx"] for d in data])
-    fy = np.array([d["fy"] for d in data])
-    phi = np.array([d["phi"] for d in data])
-    alpha = np.array([d["alpha"] for d in data])
-
-    # Force on wing = -force on fluid
-    F_drag = -fx  # Chord-wise (drag)
-    F_lift = -fy  # Normal (lift)
-
-    # Create figure with 3 panels
-    fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
-
-    # Panel 1: Kinematics
-    ax1 = axes[0]
-    ln1 = ax1.plot(times, phi, 'b-', linewidth=2, label='Stroke (phi)')
-    ax1.set_ylabel('Stroke Angle (deg)', color='blue', fontsize=11)
-    ax1.tick_params(axis='y', labelcolor='blue')
-    ax1.axhline(0, color='gray', linestyle='--', alpha=0.5)
-
-    ax1_twin = ax1.twinx()
-    ln2 = ax1_twin.plot(times, alpha, 'r--', linewidth=2, label='Pitch (alpha)')
-    ax1_twin.set_ylabel('Pitch Angle (deg)', color='red', fontsize=11)
-    ax1_twin.tick_params(axis='y', labelcolor='red')
-
-    # Combined legend
-    lns = ln1 + ln2
-    labs = [l.get_label() for l in lns]
-    ax1.legend(lns, labs, loc='upper right')
-    ax1.set_title('Wing Kinematics', fontsize=12, fontweight='bold')
-    ax1.grid(True, alpha=0.3)
-
-    # Panel 2: Drag force
-    ax2 = axes[1]
-    ax2.plot(times, F_drag, 'b-o', linewidth=2, markersize=4, label='Drag (Fx)')
-    ax2.set_ylabel('Drag Force', fontsize=11)
-    ax2.axhline(0, color='gray', linestyle='--', alpha=0.5)
-    ax2.legend(loc='upper right')
-    ax2.grid(True, alpha=0.3)
-
-    # Panel 3: Lift force
-    ax3 = axes[2]
-    ax3.plot(times, F_lift, 'r-s', linewidth=2, markersize=4, label='Lift (Fy)')
-    ax3.set_xlabel('Time (dimensionless)', fontsize=11)
-    ax3.set_ylabel('Lift Force', fontsize=11)
-    ax3.axhline(0, color='gray', linestyle='--', alpha=0.5)
-    ax3.legend(loc='upper right')
-    ax3.grid(True, alpha=0.3)
-
-    # Main title
-    fig.suptitle(
-        'Flapping Wing Force History with Kinematics\n'
-        f'f={FREQUENCY} | phi_amp={STROKE_AMP} deg | alpha_amp={PITCH_AMP} deg',
-        fontsize=12, fontweight='bold'
-    )
-    plt.tight_layout()
-
-    # Save
-    output_path = output_dir / 'flapping_wing_force_history.png'
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.savefig(output_dir / 'flapping_wing_force_history.pdf', bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-    # Also compute and print cycle-averaged forces
-    if len(times) > 1:
-        period = 1.0 / FREQUENCY
-        # Find indices within one complete period
-        mask = times <= period
-        if mask.sum() > 2:
-            mean_lift = np.mean(F_lift[mask])
-            mean_drag = np.mean(F_drag[mask])
-            print(f"\nCycle-averaged forces (first period):")
-            print(f"  Mean lift: {mean_lift:.4f}")
-            print(f"  Mean drag: {mean_drag:.4f}")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Visualize flapping wing output")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -251,19 +129,12 @@ def main():
     vort_parser.add_argument("plotfile", help="Path to plotfile")
     vort_parser.add_argument("--output-dir", type=Path, help="Output directory")
 
-    # forces subcommand
-    force_parser = subparsers.add_parser("forces", help="Generate force time series")
-    force_parser.add_argument("plotfiles", nargs="+", help="Paths to plotfiles")
-    force_parser.add_argument("--output-dir", type=Path, help="Output directory")
-
     args = parser.parse_args()
 
     if args.command == "velocity":
         visualize_velocity(args.plotfile, args.output_dir)
     elif args.command == "vorticity":
         visualize_vorticity(args.plotfile, args.output_dir)
-    elif args.command == "forces":
-        visualize_forces(args.plotfiles, args.output_dir)
 
 
 if __name__ == "__main__":

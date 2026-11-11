@@ -59,8 +59,19 @@ expression matches that definition on a known row of the committed `forces.csv` 
 formula to the **source**, not to the band. The analysis MAY additionally report the net 6-DOF
 hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's momentum balance, with
 `ib_force` the solver's on-fluid column) — written with the on-wing IB force `ib_w = −ib_force` as
-`F_hydro = ρ_f·(SumU + ib_w)`, i.e. `CF_hydro = CF_added + ρ_f·CF_ib` (`ρ_f = 1` in every committed
-run) — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
+`F_hydro = ρ_f·(SumU + ib_w)` — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
+IAMReX's `ib_force` is per unit fluid density (`DiffusedIB.cpp` multiplies it by `euler_fluid_rho`),
+so the IB force on the wing is `ρ_f·ib_w`, and `F_ref = ½·ρ_f·ω²·S_yy` SHALL be built with the same
+`ρ_f` (`compute_force_reference(..., rho=rho_f)`). The density therefore cancels:
+`CF_ib = ρ_f·ib_w/F_ref(ρ_f)`, `CF_added` and `CF_hydro = CF_added + CF_ib` are independent of `ρ_f`, and
+so are every ratio (`added_mass_fraction`) and the gate verdict. `ρ_f = 1` in every committed run, so
+no committed coefficient changes. A `ρ_f` that is not a finite, positive real number (a
+`numbers.Real` other than a boolean) SHALL raise `ValueError` naming `rho_f`, before any file is read;
+so SHALL an integer too large to convert to a float, and a value below the smallest normal float
+(`np.finfo(float).tiny`), where the cancellation is no longer exact. A `rho_f` large enough that
+`F_ref`, or any force or coefficient computed from finite input, overflows SHALL raise a `ValueError`
+that names `rho_f` as a possible cause, never return an `inf`/NaN coefficient. The accepted
+value is converted to a Python `float`, so every coefficient is `float64`.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
 
@@ -72,9 +83,26 @@ run) — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
 
 - **Given** the `ib_force`, added-mass (`ρ_f·SumU`), and net hydrodynamic coefficients
 - **When** they are computed over the pinned steady window
-- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `CF_ib` the **on-wing** IB coefficient `−ib_force/F_ref`, `CF_hydro = CF_added + ρ_f·CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
+- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `F_ref` built at the same `ρ_f` and `CF_ib` the **on-wing** IB coefficient `−ρ_f·ib_force/F_ref`, `CF_hydro = CF_added + CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
 
 > **Why 6-DOF balance, not `ib + added` (implementation deviation):** the proposal's scenario assumed `combined = ib_only + added_mass_only`. Reading the IAMReX source (`DiffusedIB.cpp`) showed the `SumU` columns are already `(sum_u_new − sum_u_old)/dt` and the particle equation of motion combines them as `ρ_f·(SumU − ib_force)`. The gate is unaffected (it is graded on `ib_force` alone); only the *reported* decomposition formula changed to match the solver. `fix-wing-force-sign-convention` (#109) later established that `ib_force` is the force on the fluid and moved the analysis to on-wing coefficients, where the same balance reads `F_hydro = ρ_f·(SumU + ib_w)`.
+
+#### Scenario: The density cancels, so no coefficient or verdict depends on it
+
+- **Given** a committed force CSV
+- **When** `reconstruct_wing_forces` and `body_frame_added_mass_subtracted` run at `ρ_f = 0.5`, `2` and
+  `1.3`, and at `ρ_f = 1`
+- **Then** `f_ref` is `ρ_f` times its `ρ_f = 1` value, while `CF_ib`, `CF_added`, `CF_hydro`, every
+  reported peak, `added_mass_fraction`, `*_drop_frac` and `am_rms_share_*` equal their `ρ_f = 1`
+  values (exactly at the powers of two, to `1e-12` relative at `1.3`)
+- **And** `plausibility_gate` gives the same verdict and the same peaks at every one of those densities
+- **And** a `ρ_f` of `Fraction(1, 2)`, `np.float32(2)` or an arbitrary-precision real such as
+  `sympy.Float("1.3", 50)` gives the same `float64` coefficients as the equal `float`, bitwise
+- **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
+  `Decimal("1")` (not a `numbers.Real`), a 0-d array, or a subnormal such as `1e-320` raises
+  `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
+- **And** `ρ_f = 5e305` (where `F_ref` is finite but the forces overflow) and `ρ_f = 1e308` (where
+  `F_ref` itself overflows) raise `ValueError` naming `rho_f` in both functions
 
 #### Scenario: Added-mass does not decide the gate
 
@@ -179,14 +207,16 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 ### Requirement: Added-mass-subtracted body-frame CF diagnostic (reported; #40 cheap interim)
 
 The flapping-wing analysis SHALL provide a **reported** diagnostic that compares the **6-DOF
-force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ib_w = −ib_force`. `F_6dof` is the
+force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ρ_f·ib_w` (`ib_w = −ib_force`;
+`ib_force` is per unit density, so both sides carry `ρ_f`; `F_ref` is built with the same `ρ_f`, so
+the diagnostic's peaks and ratios do not depend on it). `F_6dof` is the
 solver's free-body momentum balance `ρ_f·(SumU − ib_force)` applied to the wing's columns; the solver
 itself never evaluates that balance for the prescribed-motion wing. The difference between the two is
 the solver's **internal-fluid momentum term** `ρ_f·SumU` (via the existing `added_mass_force`, #36). For
 the zero-thickness vertex-file wing, that term is the momentum change of fluid within about one grid
 cell of the sheet, so it depends on the grid. This code calls the term "added mass", but it is **not**
 van Veen's added-mass component; which CFD force corresponds to van Veen's model is a follow-up issue. The
-requirement's name is historical: `ib_w` is the 6-DOF force minus `ρ_f·SumU`. The diagnostic rotates
+requirement's name is historical: `ρ_f·ib_w` is the 6-DOF force minus `ρ_f·SumU`. The diagnostic rotates
 both forces into the instantaneous wing body frame with the **same** analytic `R(t)` and
 `body_frame_coefficients` the T2a body-frame decomposition uses (CC-V4 — the rotation and the added-mass
 magnitude are **reused, not re-derived**), and reports, over the pinned steady window
@@ -228,19 +258,20 @@ the existing decomposition guards (never a silent NaN coefficient).
 
 - **Given** `forces_t2a_newconv.csv` (29-col, with `SumUx/SumUy/SumUz`), `ρ_f = RHO = 1.0`, the analytic
   `R(t)` from the wing kinematics, and `F_ref` from `compute_force_reference`
-- **When** the diagnostic forms `F_6dof = ρ_f·(SumU + ib_w)` and `ib_w`, and rotates both into the wing body frame over `t ≥ 0.05`
+- **When** the diagnostic forms `F_6dof = ρ_f·(SumU + ib_w)` and `ρ_f·ib_w`, and rotates both into the wing body frame over `t ≥ 0.05`
 - **Then** the 6-DOF peaks are `|CF_chord| ≈ 0.652` and `|CF_normal| ≈ 2.285` and the `ib_w` peaks
   `0.923` and `2.606`, so `chord_drop_frac ≈ −0.42` and `normal_drop_frac ≈ −0.14` (removing the
   internal-fluid term raises both peaks), reproduced from the committed CSV; the `ib_w` peaks
   `0.923`/`2.606` are the **same peaks** as the body-frame comparison's `0.92`/`2.61` shown to an extra
-  significant figure, because the `ib_w` series is exactly the graded force (a test SHALL assert the
-  `ib_w` peaks equal `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot
-  drift), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
+  significant figure, because at `ρ_f = RHO = 1` the `ρ_f·ib_w` series is exactly the graded force (a
+  test SHALL assert, at `ρ_f = RHO` and at `ρ_f = 2`, that the `ib_w` peaks equal
+  `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot drift;
+  the identity holds at any density because `F_ref` carries the same `ρ_f`), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
   different results
 
 #### Scenario: Body-frame added-mass RMS shares are reported
 
-- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame on-wing IB force `ib_w` over the
+- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame on-wing IB force `Rᵀ·ρ_f·ib_w` over the
   pinned steady window
 - **When** the RMS share is formed as `rms(added-mass component)/rms(ib component)` per body axis (the
   body-frame analog of the lab-frame `added_mass_fraction`, not a peak ratio and not `rms(6dof)`)
@@ -312,3 +343,131 @@ the existing decomposition guards (never a silent NaN coefficient).
 - **When** the diagnostic runs on each
 - **Then** the first raises `ValueError` naming the degenerate 6-DOF peak (the `drop_frac` denominator) and the second raises `ValueError` naming the degenerate `ib_w` (the RMS-share denominator), each against `_DEGENERATE_CF_FLOOR`
 - **And** a guard on only one of the two denominators fails this scenario
+
+### Requirement: Per-component decomposition of the CFD force, graded against van Veen's model
+
+The analysis SHALL provide `decompose_wing_force(csv_path, *, f_star, phi_amp_deg, pitch_amp_deg,
+window_t0=STEADY_WINDOW_T0, …)` that builds van Veen's per-component + total model on **our** measured wing
+kinematics, normalizes each by the single-source `compute_force_reference` built at the model's density
+`rho` (`F_ref = ½ρω_ref²S_yy`, 200.27 at `ρ = 1`; the same reference formula as the CFD `CF`; no
+correction factor), so the model coefficients, like the CFD's, do not depend on the density, aligns to the CFD time grid from
+`reconstruct_wing_body_forces` (reused, not re-derived, CC-V4), and grades / reports the comparison over
+the pinned steady window. It SHALL be **cluster-free** (committed CSVs) and FP64. Because both sides share
+the **same** kinematics and `F_ref`, the graded claim is **"consistent with / validated against van Veen's
+quasi-steady model at matched kinematics — in peak magnitude"** — a plausibility result against the
+literature-standard model, **not** an independent validation of the per-component split (the CFD gives only
+the total). The graded oracle SHALL rest on the **grid-settled** normal **peak magnitude** (the robust,
+`S_WE`-insensitive lever) and the **decomposition-closure identity**. The normal **peak phase** (measured:
+the CFD peak **leads** the QS model by ~0.058 cycle — the expected quasi-steady-vs-unsteady discrepancy,
+triply confounded by grid non-convergence + the single-wingbeat transient), the normal **curve RMSE**, the
+translational-chord magnitude, and the **grid-unconverged** chord total curve SHALL be **reported, not
+gated** (a tight phase gate would require reverse-fitting the confounded ~0.06 gap — CC-V2). The **one**
+graded magnitude tolerance SHALL be a **named, test-guarded constant** derived from **sourced** quantities
+(van Veen coefficient 95 % CIs ⊕ the measured coarse↔medium grid spread ⊕ the small `S_WE` geometric
+uncertainty) and pinned **before** the committed-run result — never reverse-fit (CC-V2); the magnitude
+grader SHALL be proven on synthetic fixtures to **pass within and fail outside** `T4_NORMAL_MAG_TOL` (both
+directions). The return value SHALL expose **no** chord `*_pass`/`*_match` verdict key, and its key set
+SHALL be exact/enumerated (a later-added chord gate fails a guard). A `rho` that is not a finite,
+positive, normal real number SHALL raise `ValueError` naming `rho` before any file is read, and a
+`rho` large enough that the model's `F_ref` or any model force overflows SHALL raise `ValueError`
+naming `rho`, never return an `inf`/NaN number.
+
+#### Scenario: Normal peak MAGNITUDE is the primary graded lever (S_WE-insensitive)
+
+- **Given** the model-total `CF_normal(t)` and the CFD `CF_normal(t)` over the steady window
+- **When** the normal peak-magnitude grade is computed
+- **Then** the **relative** peak gap `|model_peak − cfd_peak| / cfd_peak` is within `T4_NORMAL_MAG_TOL` (a
+  **relative/fractional** tolerance, units-consistent with the grid GCI — see design §D6); on the T2a
+  coarse CSV, model ≈2.48 vs CFD ≈2.61 (gap ≈0.05); on the flagship T3c fine-256³ CSV (the current
+  production comparison), model ≈2.48 vs CFD ≈2.23 (gap ≈0.11) — both pass. The term is
+  `S_WE`-**insensitive** (the `S_WE` uncertainty moves the normal peak by only ~0.001, marker and analytic
+  `S_WE` agreeing to ~0.1 %); a synthetic series offset in magnitude beyond the tolerance **fails** (both
+  directions), and widening `T4_NORMAL_MAG_TOL` flips a not-loosened test
+
+#### Scenario: Normal peak phase and curve RMSE are reported, not gated
+
+- **Given** the same normal series
+- **When** the peak-phase gap and curve RMSE are computed
+- **Then** they are **reported** (no pass/fail tolerance): the peak-phase gap (~0.058 cycle on the T2a
+  coarse CSV, ~0.055 cycle on the T3c fine-256³ CSV; CFD leading either way) is reported with its confounds
+  (QS-vs-unsteady wake-memory omission + grid non-convergence + single-wingbeat transient), and the curve
+  RMSE (inflated by the phase offset) is reported — neither is gated, so neither can be reverse-fit
+
+#### Scenario: Translational-chord is a known-answer self-consistency check, NOT an identity to 0.30
+
+- **Given** the model's translational-tangential peak `CF` on our kinematics
+- **When** it is reported
+- **Then** it equals the value **computed from the pinned polynomial** `(A·α²+B·α+C)` at our α (≈ **0.42**),
+  pinned as a **known-answer literal** — and it is reported as **O(0.4) ≪ the CFD total peak ≈0.92**, which
+  is the #40 apples-to-oranges resolution; van Veen's *reported* translational chord `~0.3` (a Fig-4b
+  eyeball at his mosquito operating point) is noted as the same order, the small difference attributed to
+  the operating point — **reported, not graded**. The analysis SHALL NOT assert the peak equals `0.30`
+  within a tolerance, and SHALL NOT reuse `VAN_VEEN_CF_TARGETS["cf_chord_peak"]` as a chord gate (that
+  would both fail numerically and be circular)
+
+#### Scenario: Decomposition closure is an exact identity (graded)
+
+- **Given** the per-component model series (translational, added-mass, Wagner)
+- **When** they are summed
+- **Then** the sum equals the reported `model_total` (chord and normal) to floating tolerance
+
+#### Scenario: Chord total curve is reported with the grid band and the convergence direction
+
+- **Given** the model-total `CF_chord(t)` and the CFD `CF_chord(t)` on the coarse **and** medium CSVs
+- **When** `medium_csv` is supplied and the chord comparison is reported
+- **Then** it is emitted **with** `T4_CHORD_GCI_BAND` (asserted **equal** to the committed T3b chord GCI via
+  the reused `wing_grid_convergence_from_body_forces`, not a re-typed literal) and **no** chord
+  `*_pass`/`*_match` key, and it reports that the CFD chord **converges toward the model** under refinement
+  (coarse `≈0.92` → medium `≈0.554` → model `≈0.43`) — the tight chord verdict is deferred to **#50**
+
+  **Caveat (T3c, fine-grid production usage):** `medium_csv` is **optional** and this 2-grid band is
+  **report-only**, exercised directly by the coarse/medium fixture in `test_wing_force_decomposition.py`.
+  `medium_csv` MUST NOT be paired with a `csv_path` that is **finer** than it — `wing_grid_convergence`
+  treats `csv_path`'s role as "coarse" unconditionally, so pairing a finer grid as `csv_path` against a
+  coarser `medium_csv` **inverts** the convergence-direction sign (verified: `chord_converges_toward_model`
+  flips to `False`, the wrong answer). Once the fine 256³ grid (`forces_fine.csv`) became the flagship
+  CFD comparison (T3c, closing #50), the production caller (`make_force_decomposition_figure.py`,
+  `test_t4_decomposition_numbers_reproduce`) stopped passing `medium_csv` for exactly this reason —
+  `chord_gci_band`/`chord_converges_toward_model` are `None` in that call — and RESULTS.md instead reports
+  the separately-computed T3c 3-grid Richardson/`GCI_fine` numbers (`wing_grid_convergence_3grid`) as the
+  authoritative grid-uncertainty figure for the chord (CF_chord fine `≈0.41` vs model `≈0.43`).
+
+#### Scenario: The magnitude tolerance derives from its sourced inputs (not reverse-fit)
+
+- **Given** the committed T3b normal grid GCI (via the reused convergence helper), the pinned
+  coefficient-CI band, and the `S_WE` geometric-uncertainty term **recomputed** from the marker-vs-analytic
+  `S_WE` difference propagated through the Wagner share (**not** a typed literal)
+- **When** `T4_NORMAL_MAG_TOL` is checked against its §D6 quadrature recomputed from those inputs
+- **Then** it is **≥** its derived floor (`√(0.146²+0.006²+0.001²) ≈ 0.147`) and **≤** a small rounding
+  margin above it — a tolerance loosened past its sourced budget **fails** — making "pinned from sourced
+  quantities, before the result" enforceable rather than aspirational (CC-V2); and `T4_CHORD_GCI_BAND` is
+  asserted **equal** to the committed T3b chord GCI from the helper (a reported band, not a typed literal)
+
+#### Scenario: End-to-end on the committed coarse CSV reproduces the known peaks
+
+- **Given** `forces_t2a_newconv.csv` (29-col, with `SumU{x,y,z}`) and the analytic `R(t)`
+- **When** `decompose_wing_force` runs
+- **Then** the CFD side reproduces the T2a coarse peaks (`CF_chord ≈ 0.92`, `CF_normal ≈ 2.61`) via the
+  reused `reconstruct_wing_body_forces` (not re-derived), and the per-component model + total are returned
+  on the same time grid, with an exact/enumerated key set (no chord verdict key)
+
+#### Scenario: Malformed input raises, never a silent coefficient
+
+- **Given** a CSV missing a required column, a non-finite `ib_force`/`SumU` row, or a `window_t0` selecting
+  no timesteps
+- **When** `decompose_wing_force` runs
+- **Then** it raises `ValueError` (mirroring the existing decomposition guards) — never a silent `NaN`
+
+#### Scenario: The model's density cancels, so no T4 number or verdict depends on it
+
+- **Given** `forces_fine.csv` and the production kinematics (`f_star = 1`, `phi_amp_deg = 70`,
+  `pitch_amp_deg = 45`)
+- **When** `decompose_wing_force` runs at `rho = 0.5`, `2` and `1.3`, and at `rho = 1`
+- **Then** every returned number, every `*_pass` verdict and every `series` array equals its `rho = 1`
+  value (exactly at the powers of two, to `1e-12` relative at `1.3`); before this change, `rho = 2`
+  doubled the model normal peak (2.48 → 4.95 against the CFD's 2.23) and flipped `normal_mag_pass`
+- **And** a `rho` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
+  `Decimal("1")`, a 0-d array or a subnormal raises `ValueError` naming `rho`, also when the CSV path
+  does not exist
+- **And** `rho = 5e305` (the model forces overflow while `F_ref` is finite) and `rho = 1e308` (`F_ref`
+  overflows) raise `ValueError` naming `rho`

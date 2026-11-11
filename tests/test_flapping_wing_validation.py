@@ -6,9 +6,12 @@ source (NOT tuned to make the gate pass). See openspec/changes/standardize-force
 (Task E; capability flapping-wing-validation).
 """
 
+from fractions import Fraction
+
 import numpy as np
 import pandas as pd
 import pytest
+from _density_helpers import BAD_DENSITIES, OVERFLOW_DENSITIES, PreciseReal
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     STEADY_WINDOW_T0,
@@ -163,21 +166,171 @@ def test_missing_csv_column_raises_descriptive_error(tmp_path):
 # --- E.3: decomposition is the 6-DOF momentum balance, self-consistent ---
 
 
-def test_decomposition_is_six_dof_momentum_balance():
-    """F_hydro = rho_f*(SumU - ib_force); added-mass is a positive non-trivial fraction.
+def test_ib_series_are_the_ib_force_on_the_wing():
+    """``cf_*_ib`` is the IB force on the wing, ``−ib_force/F_ref``, exactly (issue #109).
+
+    ``ib_force`` acts on the fluid (docs/coordinate-convention.md#force-and-moment-sign), so the wing's
+    series is its negation, applied once through ``force_on_wing``.
+    """
+    df = pd.read_csv(_CSV)
+    d = _decomp()
+    np.testing.assert_array_equal(d.cf_x_ib, -df["Fx"].to_numpy(float) / d.f_ref)
+    np.testing.assert_array_equal(d.cf_z_ib, -df["Fz"].to_numpy(float) / d.f_ref)
+
+
+@pytest.mark.parametrize("rho_f", [1.0, 2.0])
+def test_decomposition_is_six_dof_momentum_balance(rho_f):
+    """F_hydro = rho_f*(SumU - ib_force) = added + rho_f*ib_w; added-mass is a positive fraction.
 
     Scenario: Decomposition is reported and self-consistent. Per WriteIBForceAndMoment the net
-    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force) (NOT a naive ib+added sum).
+    hydrodynamic force is the 6-DOF balance rho_f*(SumU - ib_force). ``ib_force`` is per unit
+    density, so the IB force on the wing is ``rho_f*ib_w`` and ``cf_hydro = cf_added + cf_ib``.
+    ``rho_f = 2`` pins where the density enters, which ``rho_f = 1`` cannot.
     """
-    d = _decomp()
-    # f_hydro == added_mass - rho_f*ib (rho_f = 1): cf_hydro == cf_added - cf_ib
-    np.testing.assert_allclose(d.cf_x_hydro, d.cf_x_added - d.cf_x_ib, rtol=1e-9)
-    np.testing.assert_allclose(d.cf_z_hydro, d.cf_z_added - d.cf_z_ib, rtol=1e-9)
-    frac = added_mass_fraction(d)
+    df = pd.read_csv(_CSV)
+    d = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    for axis in ("x", "z"):
+        np.testing.assert_array_equal(
+            getattr(d, f"cf_{axis}_ib"),
+            rho_f * -df[f"F{axis}"].to_numpy(float) / d.f_ref,
+        )
+    np.testing.assert_allclose(
+        d.cf_x_hydro, d.cf_x_added + d.cf_x_ib, rtol=1e-12, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        d.cf_z_hydro, d.cf_z_added + d.cf_z_ib, rtol=1e-12, atol=1e-12
+    )
+    # The raw identity, independent of the coefficient algebra above.
+    for axis in ("x", "z"):
+        raw = rho_f * (df[f"SumU{axis}"] - df[f"F{axis}"]).to_numpy(float)
+        np.testing.assert_allclose(
+            getattr(d, f"cf_{axis}_hydro") * d.f_ref, raw, rtol=1e-12, atol=1e-9
+        )
+    frac = added_mass_fraction(reconstruct_wing_forces(_CSV, **_KIN))
     for key in ("stroke", "lift"):
         assert 0.0 < frac[key] < 1.0  # positive, non-trivial, not hard-coded
     # added-mass is a larger fraction of lift than of stroke (reported, not asserted exact)
     assert frac["lift"] > frac["stroke"]
+
+
+_LAB_SERIES = [
+    f"cf_{axis}_{key}" for key in ("ib", "added", "hydro") for axis in ("x", "z")
+]
+
+
+@pytest.mark.parametrize("rho_f", [0.5, 2.0, 1.3])
+def test_density_cancels_so_no_lab_coefficient_or_gate_verdict_depends_on_it(rho_f):
+    """``F_ref`` carries the same ``rho_f`` as the forces, so every coefficient is density-free.
+
+    Scenario: The density cancels, so no coefficient or verdict depends on it (review round 3
+    of #136). Before the fix ``F_ref`` stayed at ``RHO``: at ``rho_f = 0.5`` the gate's floor
+    check failed on this CSV. The powers of two are exact in floating point; 1.3 is not.
+    """
+    one = reconstruct_wing_forces(_CSV, **_KIN)
+    other = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    assert other.f_ref == pytest.approx(rho_f * one.f_ref, rel=1e-15)
+    exact = rho_f in (0.5, 2.0)
+    for name in _LAB_SERIES:
+        if exact:
+            np.testing.assert_array_equal(getattr(other, name), getattr(one, name))
+        else:
+            np.testing.assert_allclose(
+                getattr(other, name), getattr(one, name), rtol=1e-12, atol=1e-15
+            )
+    frac_one, frac_other = added_mass_fraction(one), added_mass_fraction(other)
+    for key in ("stroke", "lift"):
+        assert frac_other[key] == pytest.approx(frac_one[key], rel=1e-12)
+    gate_one, gate_other = plausibility_gate(one), plausibility_gate(other)
+    assert gate_other.keys() == gate_one.keys()
+    for key, value in gate_one.items():
+        if isinstance(value, bool):
+            assert gate_other[key] is value, key
+        else:
+            assert gate_other[key] == pytest.approx(value, rel=1e-12, abs=1e-15), key
+
+
+@pytest.mark.parametrize(
+    "rho_f", [Fraction(1, 2), np.float32(2.0), PreciseReal(1.3)], ids=repr
+)
+def test_density_of_another_real_type_gives_the_same_float64_coefficients(rho_f):
+    """A ``Fraction``, ``np.float32`` or arbitrary-precision density is converted to ``float``.
+
+    Scenario: The density cancels (review rounds 3 and 4 of #136). Unconverted, ``Fraction *
+    float64 array`` is an object-dtype array, and a higher-precision real gives coefficients
+    that differ from the float path in the last place.
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    got = reconstruct_wing_forces(_CSV, rho_f=rho_f, **_KIN)
+    want = reconstruct_wing_forces(_CSV, rho_f=float(rho_f), **_KIN)
+    assert type(got.f_ref) is float
+    for name in _LAB_SERIES:
+        assert getattr(got, name).dtype == np.float64, name
+        np.testing.assert_array_equal(getattr(got, name), getattr(want, name))
+    kin = dict(pitch_amp_deg=45.0, **_KIN)
+    got_d = body_frame_added_mass_subtracted(_CSV, rho_f=rho_f, **kin)
+    want_d = body_frame_added_mass_subtracted(_CSV, rho_f=float(rho_f), **kin)
+    for key, value in want_d.items():
+        assert type(got_d[key]) is type(value), key
+        assert got_d[key] == value, key
+
+
+@pytest.mark.parametrize("bad", list(BAD_DENSITIES.values()), ids=list(BAD_DENSITIES))
+@pytest.mark.parametrize("csv", [_CSV, "no/such/forces.csv"])
+def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, csv):
+    """A bad ``rho_f`` is a named parameter error, raised before the CSV is opened.
+
+    Scenario: The density cancels (review of #136). The missing path proves the check
+    runs before any I/O: a FileNotFoundError would mean the file was read first.
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    with pytest.raises(
+        ValueError, match=r"rho_f must be a finite, positive real number"
+    ):
+        reconstruct_wing_forces(csv, rho_f=bad, **_KIN)
+    with pytest.raises(
+        ValueError, match=r"rho_f must be a finite, positive real number"
+    ):
+        body_frame_added_mass_subtracted(csv, rho_f=bad, pitch_amp_deg=45.0, **_KIN)
+
+
+_NEWCONV = "examples/flapping_wing/forces_t2a_newconv.csv"
+
+
+# The overflow is the point of these cases; numpy warns on it (and on the inf + -inf after).
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("rho_f", OVERFLOW_DENSITIES, ids=repr)
+@pytest.mark.parametrize("csv", [_CSV, _NEWCONV])
+def test_density_so_large_that_it_overflows_names_rho_f(rho_f, csv):
+    """An overflowing density is a named error, never an ``inf``/NaN coefficient.
+
+    Scenario: The density cancels (review rounds 4 and 5 of #136). At ``5e305`` ``F_ref`` is
+    finite but the forces overflow (round 5 found ``cf_z_hydro`` returned with ``inf``); at
+    ``1e308`` ``F_ref`` itself overflows.
+    """
+    from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
+
+    with pytest.raises(ValueError, match=r"rho_f=.*overflow"):
+        reconstruct_wing_forces(csv, rho_f=rho_f, **_KIN)
+    with pytest.raises(ValueError, match=r"rho_f=.*overflow"):
+        body_frame_added_mass_subtracted(csv, rho_f=rho_f, pitch_amp_deg=45.0, **_KIN)
+
+
+def test_non_finite_input_row_is_not_reported_as_a_density_overflow(tmp_path):
+    """The overflow check looks only where the input is finite (#138 owns non-finite input).
+
+    A NaN force row in the lab path keeps its existing behaviour at ``rho_f = 1``: no overflow
+    error, and the NaN stays in that row's coefficient.
+    """
+    df = pd.read_csv(_CSV)
+    df.loc[5, "Fx"] = np.nan
+    path = tmp_path / "nan_row.csv"
+    df.to_csv(path, index=False)
+    d = reconstruct_wing_forces(path, **_KIN)
+    assert np.isnan(d.cf_x_ib[5]) and np.isnan(d.cf_x_hydro[5])
+    assert np.isfinite(np.delete(d.cf_x_ib, 5)).all()
 
 
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---

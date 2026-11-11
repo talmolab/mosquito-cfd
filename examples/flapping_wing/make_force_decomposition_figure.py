@@ -1,7 +1,7 @@
 """Per-component force-decomposition figure (Tier T4): van Veen model vs CFD, cluster-free.
 
 Replots van Veen's (2022) quasi-steady model — translational / added-mass / Wagner / total — against
-the CFD total ``ib_force`` body-frame coefficients (fine 256³ grid, ``forces_fine.csv``, T3c/PR #52),
+the CFD IB force on the wing's body-frame coefficients (fine 256³ grid, ``forces_fine.csv``, T3c/PR #52),
 for the chord and normal separately, over the steady window. Everything is recomputed from the
 committed IB-particle CSV via ``decompose_wing_force`` (van Veen's *model* replotted at our operating
 point — NOT a digitized figure; the time-resolved mosquito curves are van Veen Fig 13, not Fig 3-4).
@@ -54,7 +54,7 @@ def make_figure(
     fig, (ax_chord, ax_normal) = plt.subplots(1, 2, figsize=(12, 4.6), sharex=True)
     panels = (
         (ax_chord, 0, "CF_chord (tangential)", "chord"),
-        (ax_normal, 1, "CF_normal (lift)", "normal"),
+        (ax_normal, 1, "CF_normal (wing-normal)", "normal"),
     )
     for ax, idx, title, comp in panels:
         # Model components + total (van Veen model at our kinematics); CFD total on top.
@@ -72,25 +72,42 @@ def make_figure(
             color="black",
             lw=1.6,
             ls="--",
-            label="CFD total (ib_force)",
+            label="CFD IB force on wing",
         )
         ax.axhline(0, color="gray", lw=0.5, ls=":")
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("time (wingbeats)")
         ax.grid(alpha=0.25)
     ax_chord.set_ylabel("body-frame CF (van Veen normalization)")
-    ax_normal.legend(fontsize=8, loc="upper right")
+    ax_normal.legend(fontsize=8, loc="lower left")
+    # The model's return-stroke lobe has the opposite sign to the CFD's: T4 feeds the model our
+    # signed pitch rather than van Veen's angle of attack (#133). The graded check uses |peak|.
+    ax_normal.text(
+        1.0,
+        -0.24,
+        "graded on |peak|. The model's return-stroke lobe is\n"
+        "inverted: it uses the signed pitch, not the angle\n"
+        "of attack (#133)",
+        transform=ax_normal.transAxes,
+        ha="right",
+        va="top",
+        fontsize=7.5,
+        color="#444444",
+    )
     fig.suptitle(
         "T4 per-component decomposition: van Veen model (transl + added-mass + Wagner) vs CFD total\n"
         f"normal peak model {result['normal_peak_model']:.2f} vs CFD {result['normal_peak_cfd']:.2f} "
-        f"(graded, magnitude); phase gap {result['normal_peak_phase_gap']:.3f} cycle (reported)",
+        f"(graded, magnitude); |peak| timing gap {result['normal_peak_phase_gap']:.3f} cycle "
+        "(reported; see #133)",
         fontsize=11,
         fontweight="bold",
     )
     fig.tight_layout(rect=[0, 0, 1, 0.93])
     out.parent.mkdir(exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(
+        out.with_suffix(".pdf"), bbox_inches="tight", metadata={"CreationDate": None}
+    )
     if return_artifacts:
         return out, fig, result
     plt.close(fig)

@@ -64,7 +64,11 @@ _CORPUS_READMES = (
 # The fixed link list, staged per PR (the CC requirement's table). Each later PR extends it in the
 # same commit as the link it adds.
 _LINKED_OBJECTS = (ForceCoefficients, MomentCoefficients, force_on_wing, flapping_wing)
-_LINKED_FILES: tuple[str, ...] = ()
+_LINKED_FILES: tuple[str, ...] = (
+    "examples/flapping_wing/RESULTS.md",
+    "examples/flapping_wing/figures/README.md",
+    "docs/aerodynamics_validation/roadmap.md",
+)
 
 
 def _flat(text: str) -> str:
@@ -297,33 +301,6 @@ def test_conditions_define_on_wing_as_minus_raw_over_f_ref(tmp_path):
         assert _on_wing(list(sign * raw.T / f_ref), list(raw.T), f_ref) is expected, (
             sign
         )
-
-
-def test_flapping_condition_flips_with_the_code_path():
-    """The flapping-wing condition depends on the code path, not the data.
-
-    Negating the CSV would negate both sides, so the direction is exercised by swapping the
-    reconstruction instead, whichever sign the committed path has: the path and its negation
-    disagree, and negating only one of ``cf_x_ib``/``cf_z_ib`` is never on-wing. Once PR2a routes
-    ``reconstruct_wing_forces`` through ``force_on_wing``, this is tested by monkeypatching
-    ``force_on_wing`` at that use site.
-    """
-
-    def both(*args, **kwargs):
-        d = flapping_wing.reconstruct_wing_forces(*args, **kwargs)
-        return type(d)(**{**d.__dict__, "cf_x_ib": -d.cf_x_ib, "cf_z_ib": -d.cf_z_ib})
-
-    assert flapping_series_on_wing() != flapping_series_on_wing(both)
-    wing = (
-        both if flapping_series_on_wing(both) else flapping_wing.reconstruct_wing_forces
-    )
-    for field in ("cf_x_ib", "cf_z_ib"):
-
-        def half(*args, _field=field, **kwargs):
-            d = wing(*args, **kwargs)
-            return type(d)(**{**d.__dict__, _field: -getattr(d, _field)})
-
-        assert flapping_series_on_wing(half) is False, field
 
 
 def test_surrogate_condition_needs_the_banner_in_both_readmes(tmp_path):

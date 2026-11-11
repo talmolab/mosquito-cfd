@@ -189,7 +189,9 @@ root".
 IAMReX's `ib_force` and `ib_moment` (the `Fx..Mz` columns of `IB_Particle_*.csv`) are the force
 and moment the wing exerts **on the fluid**. Each marker's force `(U_wing − u*)/dt · dv` is added to
 the fluid's forcing field, and `ib_force` is their sum. Strictly, `ib_force` is force per unit fluid
-density; it equals the force here only because `ρ_f = 1`.
+density; it equals the force here only because `ρ_f = 1`. The flapping-wing analysis multiplies
+it by `ρ_f` and builds `F_ref = ½·ρ_f·ω²·S_yy` with the same `ρ_f`, so the density cancels from
+every coefficient.
 
 Every derived wing coefficient is defined as the **IB force and moment on the wing**, their negation
 by Newton's third law. That covers:
@@ -201,22 +203,19 @@ by Newton's third law. That covers:
 
 The wing paths apply the negation only through `mosquito_cfd.force_surrogate.force_on_wing`, and
 the raw columns keep the solver's values ([raw vs derived](#moments)). The paths not yet converted
-are flagged by the pending notes below.
+are flagged by the pending note below.
 
 Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
 
-Pending #109: the flapping-wing series still carry the solver's on-fluid sign.
-
-The corpus note also covers the committed surrogates and evidence figures built from it. The
-flapping-wing note covers the lab-frame, body-frame and T4 CFD series alike, and the figures drawn
-from them.
+The corpus note also covers the committed surrogates and evidence figures built from it.
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
 reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body
-6-DOF balance would add the term's time difference, with its angular counterpart from `SumT`
+6-DOF balance would add this term (`SumU` is already a time difference), with its angular
+counterpart from `SumT`
 (`DiffusedIB.cpp:1082-1087` and `:1108-1111` at IAMReX `f93dc794`), but the solver never evaluates
-that balance for the prescribed-motion wing. For this zero-thickness wing the term is the momentum
-change of fluid in a thin layer around the sheet, whose width is set by the grid, so the term
+that balance for the prescribed-motion wing. For this zero-thickness wing the term is the rate of
+change of fluid momentum in a thin layer around the sheet, whose width is set by the grid, so the term
 depends on the grid. Its physical status is an open follow-up question.
 
 The sphere and heaving-ellipsoid analyses already report the force on the body.

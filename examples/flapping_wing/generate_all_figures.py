@@ -26,7 +26,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 
 from mosquito_cfd.benchmarks.wing_kinematics import rotation_matrix as _wing_rotation
-from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate import compute_force_reference, force_on_wing
 from mosquito_cfd.force_surrogate.constants import R_GYRATION
 from mosquito_cfd.geometry import generate_planform, read_vertex_file
 
@@ -256,9 +256,11 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
 
     df = pd.read_csv(forces_csv)
     t = df["time"].values
-    Fx = df["Fx"].values
-    Fy = df["Fy"].values
-    Fz = df["Fz"].values
+    # The IB force on the wing: ib_force acts on the fluid
+    # (docs/coordinate-convention.md#force-and-moment-sign).
+    Fx, Fy, Fz = force_on_wing(
+        df["Fx"].to_numpy(float), df["Fy"].to_numpy(float), df["Fz"].to_numpy(float)
+    )
 
     phi, alpha = euler_angles(t)
 
@@ -311,10 +313,10 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax2.plot(t_s, CF_y, color=GREEN, lw=1.5, alpha=0.8, ls="--", label="CF_y (span)")
     ax2.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
     ax2.set_ylabel("CF (lab frame)", fontsize=9)
-    ax2.legend(fontsize=8, loc="upper right")
+    ax2.legend(fontsize=8, loc="lower right")
     plt.setp(ax2.get_xticklabels(), visible=False)
 
-    # Panel 3: CF_z (lift / span-axis force)
+    # Panel 3: CF_z (lift / lab vertical force)
     ax3.plot(t_s, CF_z, color=RED, lw=1.5, label="CF_z (vertical / lift)")
     ax3.axhline(0, color="gray", lw=0.5, ls="--", alpha=0.5)
     # Mark acceptance range
@@ -322,7 +324,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     ax3.axhline(-0.5, color=RED, lw=0.8, ls=":", alpha=0.5)
     ax3.set_ylabel("CF_z (lift)", fontsize=9)
     ax3.set_xlabel("Time t/T", fontsize=9)
-    ax3.legend(fontsize=8, loc="upper right")
+    ax3.legend(fontsize=8, loc="upper left")
 
     # Common x-axis label
     ax3.set_xlabel("Dimensionless time t/T", fontsize=10)
@@ -332,7 +334,7 @@ def plot_f1_forces(figures_dir: Path, forces_csv: Path):
     fig.text(0.5, -0.01, note, ha="center", fontsize=7, color="gray")
 
     out = figures_dir / "fig_forces.pdf"
-    fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out, bbox_inches="tight", dpi=150, metadata={"CreationDate": None})
     fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
     print(f"F1: {out} + .png")

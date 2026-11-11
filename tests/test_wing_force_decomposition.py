@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _density_helpers import BAD_DENSITIES, OVERFLOW_DENSITIES, PreciseReal
 
 from mosquito_cfd.benchmarks import van_veen_model as vv
 from mosquito_cfd.benchmarks.flapping_wing import (
@@ -276,3 +277,66 @@ def test_decompose_reproduces_coarse_peaks():
     assert r["normal_peak_cfd"] == pytest.approx(2.606, rel=1e-2)
     # Model per-component + total returned on the same time grid for the figure.
     assert r["series"]["model_normal"].shape == r["series"]["cfd_normal"].shape
+
+
+def _assert_same_t4(got, want, *, exact: bool, path: str = "") -> None:
+    """Every number, verdict and series in two ``decompose_wing_force`` results agrees."""
+    if isinstance(want, dict):
+        assert got.keys() == want.keys(), path
+        for key in want:
+            _assert_same_t4(got[key], want[key], exact=exact, path=f"{path}.{key}")
+    elif isinstance(want, (tuple, list)):
+        assert len(got) == len(want), path
+        for i, (g, w) in enumerate(zip(got, want, strict=True)):
+            _assert_same_t4(g, w, exact=exact, path=f"{path}[{i}]")
+    elif isinstance(want, (bool, np.bool_)) or want is None or isinstance(want, str):
+        assert got == want, path
+    elif exact:
+        np.testing.assert_array_equal(got, want, err_msg=path)
+    else:
+        np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-15, err_msg=path)
+
+
+@pytest.mark.parametrize("rho", [0.5, 2.0, 1.3, PreciseReal(1.3)], ids=repr)
+def test_model_density_cancels_so_no_t4_number_or_verdict_depends_on_it(rho):
+    """The model is normalized by ``F_ref`` built at the model's own ``rho``.
+
+    Scenario: The model's density cancels, so no T4 number or verdict depends on it (review
+    round 4 of #136). Before the fix the model was divided by the CFD's ``F_ref`` at ``RHO``:
+    ``rho = 2`` doubled the model normal peak (2.48 -> 4.95 vs the CFD's 2.23) and flipped
+    ``normal_mag_pass``. The powers of two are exact in floating point; 1.3 is not.
+    """
+    want = decompose_wing_force(_FINE, **_KIN)
+    got = decompose_wing_force(_FINE, rho=rho, **_KIN)
+    if isinstance(rho, PreciseReal):
+        # A higher-precision real is converted to float first, so it matches float(rho) bitwise.
+        want = decompose_wing_force(_FINE, rho=float(rho), **_KIN)
+        _assert_same_t4(got, want, exact=True)
+    else:
+        _assert_same_t4(got, want, exact=rho in (0.5, 2.0))
+
+
+@pytest.mark.parametrize("bad", list(BAD_DENSITIES.values()), ids=list(BAD_DENSITIES))
+@pytest.mark.parametrize("csv", [_FINE, "no/such/forces.csv"])
+def test_model_density_that_is_not_a_finite_positive_real_raises_before_reading(
+    bad, csv
+):
+    """A bad ``rho`` is a named parameter error, raised before the CSV is opened (round 4)."""
+    with pytest.raises(
+        ValueError, match=r"^rho must be a finite, positive real number"
+    ):
+        decompose_wing_force(csv, rho=bad, **_KIN)
+
+
+# The overflow is the point of these cases; numpy warns on it (and on the inf + -inf after).
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("rho", OVERFLOW_DENSITIES, ids=repr)
+def test_model_density_so_large_that_it_overflows_names_rho(rho):
+    """An overflowing ``rho`` is a named error, never an ``inf``/NaN T4 number (round 5).
+
+    At ``5e305`` the model's ``F_ref`` is finite but its forces overflow: round 5 found
+    ``normal_peak_model = inf`` and ``normal_mag_pass = False`` returned with no error.
+    """
+    with pytest.raises(ValueError, match=r"\brho=.*overflow"):
+        decompose_wing_force(_FINE, rho=rho, **_KIN)

@@ -43,7 +43,7 @@ axis convention. Values snapshotted in `validation_figures_summary.json`.
 | `V1_three_convention_CF` | The three `F_ref` conventions: peak-tip 624.79 → mean-tip 253.22 → **van Veen radius-of-gyration 200.27** (the adopted one). |
 | `V2_second_moment` | Radius of gyration `r_gyr = 1.698` and spanwise second moment `S_yy = 6.80`, traced from the committed `wing.vertex`. |
 | `V3_scale_invariance` | The force surrogate is scale-invariant: held-out R² is unchanged by re-normalization (`ΔR² = 0` for `CF_x`, `CF_z`). |
-| `V4_added_mass` | Added-mass term (`ρ_f·SumU`) as an RMS fraction of `ib_force`: ~10 % stroke, ~40 % lift (reported, not gated). |
+| `V4_added_mass` | The solver's internal-fluid term (`ρ_f·SumU`, called added mass in the code) as an RMS fraction of the IB force on the wing, for the contrast-baseline `forces.csv`: ~10 % stroke, ~40 % lift (reported, not gated). |
 | `V5_lab_vs_body` | Lab- vs body-frame force decomposition at the α = 45° pitch amplitude. |
 
 ## Grid convergence (T3b) — `make_grid_convergence_figure.py` / `make_lev_figure.py`
@@ -66,7 +66,7 @@ T3c/#52 — the finest grid available). **Cluster-free.**
 
 | File | Shows |
 |------|-------|
-| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD total `ib_force` (fine grid), for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.23 — graded, rel gap ~11 %); the CFD peak **leads** the model in **phase** (~0.055 cycle — reported, the expected quasi-steady-vs-unsteady discrepancy); the model chord (0.43) is now close to the CFD total (0.41), the endpoint of the coarse→medium→fine convergence (0.92 → 0.554 → 0.41) toward the model. Resolves the #40 CF_chord PARTIAL. **Cluster-free.** |
+| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD IB force on the wing ([sign](../../../docs/coordinate-convention.md#force-and-moment-sign); fine grid), for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees (model 2.48 vs CFD 2.23 — graded, rel gap ~11 %); the CFD peak **leads** the model in **phase** (~0.055 cycle — reported); the model's return-stroke normal lobe is inverted because T4 feeds it the signed pitch rather than the angle of attack, which also affects these numbers ([#133](https://github.com/talmolab/mosquito-cfd/issues/133)); the model chord (0.43) is now close to the CFD total (0.41), the endpoint of the coarse→medium→fine convergence (0.92 → 0.554 → 0.41) toward the model. The chord comparison, and so the #40 CF_chord resolution, is pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133): the corrected chord model peaks near 0.18. **Cluster-free.** |
 
 ## Grid convergence (T3c, 3-grid) — `make_grid_convergence_3grid_figure.py` / `make_force_timeseries_3grid_figure.py`
 
@@ -74,8 +74,8 @@ Tier **T3c** ([#50](https://github.com/talmolab/mosquito-cfd/issues/50)): 3-grid
 
 | File | Shows |
 |------|-------|
-| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal vs grid spacing (Δx), for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded) + van Veen reference lines. CF_chord: converging toward van Veen target range (0.3–0.43), GCI_fine=27.6 %. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
-| `fig_force_timeseries_3grid` | Body-frame CF_chord and \|CF_normal\| time series over one wingbeat, all 3 grids overlaid. Shows where grids agree (normal waveform shape) and where they differ (chord magnitude and late-cycle asymmetry at coarse). Van Veen target bands shaded. |
+| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal vs grid spacing (Δx), for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded) + van Veen reference lines. CF_chord: converging toward van Veen target range (0.3–0.43; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133): the upper end is the uncorrected T4 model), GCI_fine=27.6 %. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
+| `fig_force_timeseries_3grid` | Body-frame CF_chord and signed CF_normal time series over one wingbeat, all 3 grids overlaid. Shows where grids agree (normal waveform shape) and where they differ (chord magnitude and late-cycle asymmetry at coarse). Van Veen target bands shaded. |
 
 ## Regenerate
 

@@ -29,14 +29,21 @@ _GRIDS = [
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _WINDOW_T0 = STEADY_WINDOW_T0
 
-# Van Veen reference bands — show on the dominant (positive-peak) half of each stroke.
-# CF_chord: translational→QS model peak range (0.30–0.43).
-# CF_normal: Richardson→van Veen QS target range (2.16–2.48); negative mirror added for
-# the return stroke so the band is visible on both sides.
+# Van Veen reference bands, drawn on the positive side as peak-magnitude ranges.
+# CF_chord: translational→QS model peak range (0.30–0.43); the CFD chord is near-symmetric, so
+# its |peak| can fall on either side.
+# CF_normal: Richardson→van Veen QS target range (2.16–2.48). The IB force on the wing keeps
+# a positive normal lobe on each half-stroke (brief dips near the reversals, of up to about -0.1
+# on the coarse grid), so
+# no negative mirror is drawn.
 _VV_BANDS = {
     "cf_chord":  ("van Veen QS 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
-    "cf_normal": ("van Veen target ±[2.16–2.48]", 2.16, 2.48, "#2ca02c", 0.15),
+    "cf_normal": ("van Veen target 2.16–2.48", 2.16, 2.48, "#2ca02c", 0.15),
 }
+
+
+# Where each band's label sits (axes fraction): where no grid's curve crosses the band.
+_BAND_LABEL_X = {"cf_chord": 0.5, "cf_normal": 0.66}
 
 
 def make_figure(
@@ -57,15 +64,12 @@ def make_figure(
     for ax, comp in [(ax_chord, "cf_chord"), (ax_normal, "cf_normal")]:
         lbl, ymin, ymax, color, alpha = _VV_BANDS[comp]
         ax.axhspan(ymin, ymax, color=color, alpha=alpha, zorder=1)
-        if comp == "cf_normal":
-            # Mirror band for the return stroke (negative side)
-            ax.axhspan(-ymax, -ymin, color=color, alpha=alpha, zorder=1)
         # Direct text annotation at right edge of band
         ax.annotate(
             lbl,
-            xy=(0.99, (ymin + ymax) / 2),
+            xy=(_BAND_LABEL_X[comp], (ymin + ymax) / 2),
             xycoords=("axes fraction", "data"),
-            ha="right", va="center", fontsize=8, color=color,
+            ha="left", va="center", fontsize=8, color=color,
             bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7),
         )
 
@@ -77,7 +81,7 @@ def make_figure(
     # Styling — draw legend AFTER all artists are added
     for ax, ylabel, title in [
         (ax_chord,  "CF_chord  (tangential)",  "CF_chord — body-frame tangential force"),
-        (ax_normal, "CF_normal  (lift)",        "CF_normal — body-frame lift force  (signed)"),
+        (ax_normal, "CF_normal  (wing-normal)",        "CF_normal — wing-normal force  (signed)"),
     ]:
         ax.set_ylabel(ylabel, fontsize=10)
         ax.set_title(title, fontsize=11, fontweight="bold")
@@ -90,7 +94,8 @@ def make_figure(
         grid_handles = [(h, lb) for h, lb in zip(handles, labels) if "van Veen" not in lb]
         if grid_handles:
             hs, ls = zip(*grid_handles)
-            ax.legend(hs, ls, fontsize=9, loc="upper right", framealpha=0.85)
+            loc = "lower right" if ax is ax_chord else "upper left"
+            ax.legend(hs, ls, fontsize=9, loc=loc, framealpha=0.85)
 
     ax_normal.set_xlabel("Time  (wingbeats)", fontsize=10)
     ax_normal.set_xlim(_WINDOW_T0, 1.0)
@@ -103,7 +108,7 @@ def make_figure(
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     out.parent.mkdir(exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight", metadata={"CreationDate": None})
     plt.close(fig)
     return out
 

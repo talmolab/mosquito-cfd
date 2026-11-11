@@ -161,11 +161,11 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 15. [x] **Test first, then fix (#19):** none of `runner.py`, `run_one_config.py` and the argo template
     contains `assum` or `not yet verified` **anywhere** (case-insensitive). Each contains "verified
     against the A40 corpus (PR #18)".
-16. [ ] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
+16. [x] Add the CHANGELOG entry. Run the suite, ruff and `openspec validate --strict`. **Stop for
     approval before pushing.** Open PR1 with "advances #109", mentioning #19 without a keyword. #19
     stays open until the OpenSpec archive after PR3: its list includes the live spec text
     (`force-surrogate/spec.md:775`), which changes only when the delta is archived. Close #19 by hand
-    then.
+    then. **Done: PR1 merged as #134 (`5b650fa`, 2026-10-29).**
 
 ### PR1 implementation notes (deviations recorded, not silent)
 
@@ -231,18 +231,18 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR2a — flapping-wing path (no `Z:`; 8 figure files)
 
-17. [ ] Re-derive task 0's PR2a list, and put it in the PR body.
-18. [ ] File the follow-up issue "which CFD force should the van Veen comparison use: the 6-DOF force or
-    `ib_w`?" first.
-19. [ ] **Test first:**
+17. [x] Re-derive task 0's PR2a list, and put it in the PR body. **Done on `08824e8`: 8 failures, all on the list or task 27; no other test breaks.**
+18. [x] File the follow-up issue "which CFD force should the van Veen comparison use: the 6-DOF force or
+    `ib_w`?" first. **Filed as #135.**
+19. [x] **Test first:**
     - `reconstruct_wing_forces` gives `cf_*_ib == −ib/f_ref` and `cf_hydro == cf_added + ρ_f·cf_ib`.
     - The raw identity `cf_hydro·f_ref == ρ_f·(SumU − ib_force)` holds.
     - Rewrite `test_flapping_wing_validation.py:166`.
-20. [ ] **Test first:**
+20. [x] **Test first:**
     - `reconstruct_wing_body_forces` rotates `−F`.
     - The existing graded literals in `test_wing_body_frame.py` and the T4 tests stay green with no
       edit to them. This is the independent pin.
-21. [ ] **Test first, the identity spy at use sites** (design D1). With the spy in place, across
+21. [x] **Test first, the identity spy at use sites** (design D1). With the spy in place, across
     `reconstruct_wing_forces`, `reconstruct_wing_body_forces`, `body_frame_added_mass_subtracted`,
     `plot_f1_forces` and `fig_v1_three_convention`:
     - series that *are* the IB force equal the pre-change on-fluid series bitwise;
@@ -251,7 +251,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
       (`test_flapping_condition_flips_with_the_code_path`) with a monkeypatch of `force_on_wing` at
       the `flapping_wing` use site (PR1 implementation notes, task 12);
     - across all calls, the multiset of arrays passed equals the expected set, each once.
-22. [ ] **Test first, the relabelled diagnostic:**
+22. [x] **Test first, the relabelled diagnostic:**
     - Keys `peak_cf_*_{6dof,ib}`, and `drop_frac = 1 − ib/6dof`.
     - Values (design D5): chord 0.6517 / 0.9231 / −0.4165; normal 2.2851 / 2.6060 / −0.1404; shares
       0.8392 / 0.1278.
@@ -260,10 +260,10 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - **Two-sided degeneracy:** a zero 6-DOF case and a zero `ib_w` case each raise their own
       `ValueError`. Mutants with the floor on only one denominator each fail.
     - Redesign `test_wing_body_frame.py:404` and `:605`. Rewrite `:443`, `:494` and `:664`.
-23. [ ] Implement 19–22 through `force_on_wing`, including `plot_f1_forces` and
+23. [x] Implement 19–22 through `force_on_wing`, including `plot_f1_forces` and
     `fig_v1_three_convention`. Fix the `flapping_wing.py` comments, docstrings and error messages listed
     in design D5.
-24. [ ] **Test first**, in `test_results_reproducibility.py`. Every RESULTS.md edit in design D5 gets a
+24. [x] **Test first**, in `test_results_reproducibility.py`. Every RESULTS.md edit in design D5 gets a
     pinned assertion:
     - the lab ranges;
     - the phase table: raw `Fz` labelled; `CF_z (lab)` `= −Fz/F_ref`; the caption;
@@ -275,24 +275,192 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - the #133 pointer at `:279`.
 
     All enumeration guards stay green.
-25. [ ] Edit RESULTS.md only after 24 is red against it, then make it green. Update the labels in design
+25. [x] Edit RESULTS.md only after 24 is red against it, then make it green. Update the labels in design
     D5, with `test_flapping_wing_validation_figures.py:52` in the same commit as its label. Add the
     links for RESULTS.md, `figures/README.md` and `docs/aerodynamics_validation/roadmap.md`, and extend
     the link-list test.
-26. [ ] **Test first:** the `visualize.py` subparser set is `{velocity, vorticity}` (red now). Then
+26. [x] **Test first:** the `visualize.py` subparser set is `{velocity, vorticity}` (red now). Then
     remove the `forces` subcommand.
-27. [ ] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
+27. [x] The flapping-wing pending phrase now fails its guard. Remove it from the section in the same
     commit as 23.
-28. [ ] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
-29. [ ] **HUMAN CHECKPOINT before committing binaries.**
+28. [x] Fresh reviewer agent on the figure code, labels and RESULTS.md wording **before rendering**.
+29. [x] **HUMAN CHECKPOINT before committing binaries.**
     - Render only the five functions (design D5), with PDF `CreationDate=None`. Render twice and `cmp`.
     - `git status --porcelain` lists exactly the 8 files, and `validation_figures_summary.json` is
       unchanged.
     - Check the 3-grid band side; add a structural test if it moves.
     - The PR2a figure scope is clean since rendering.
     - Record the generating commit and blob sizes in the PR body.
-30. [ ] Add the CHANGELOG entry. Run the suite and ruff. Check one blob per path. **Stop for approval
-    before pushing.** Open PR2a with "advances #109".
+30. [x] Add the CHANGELOG entry. Run the suite and ruff. Check one blob per path. **Stop for approval
+    before pushing.** Open PR2a with "advances #109". (Opened as #136.)
+
+### PR2a implementation notes (deviations recorded, not silent)
+
+- **Two tests outside task 0's list needed edits** (user-approved, 2026-10-29). The task-17 sim kept
+  the diagnostic's old return keys, so it could not show what the planned key rename breaks:
+  - `test_wing_body_frame.py:550` `test_diagnostic_is_reported_not_graded`: only the exact key set
+    changes.
+  - `test_wing_body_frame.py:642` `test_window_t0_and_rho_f_plumbing`: the 6-DOF force is
+    `rho_f·SumU + rho_f·ib_w`, the same formula as the lab-frame `cf_hydro`, so `rho_f = 0` now
+    raises the 6-DOF degeneracy error, and `rho_f = 2` exactly doubles `peak_cf_*_6dof` while
+    leaving `peak_cf_*_ib` unchanged. (Superseded by review rounds 2 and 3: every reported
+    value is now unchanged at `rho_f = 2`.)
+- **The slab wording.** Design D5's RESULTS.md sentence says "a one-cell slab"; the design's own
+  "What inside means" says about two cells, and PR1 softened the doc to "a thin layer whose width is
+  set by the grid". RESULTS.md uses the PR1 wording.
+- **Task 21.** PR1's injected-reconstruction test is retired. Its half-flip check (negating only one
+  of the two components is never on-wing) moved into the use-site monkeypatch test, so no coverage
+  is lost.
+- **Figure-script spies** read the plotted data back by capturing the figures each script closes.
+  The test's own cleanup bypasses the capture: a first version looped forever because cleanup
+  called the captured `close`.
+- **Reflow-proof doc checks.** `test_results_reproducibility.py` gains a `_flat` helper (whitespace
+  collapsed, blockquote markers dropped) for the new phrase checks, as PR1 did for the sign section.
+  The changed RESULTS.md paragraphs were reflowed to 100 characters.
+- **Kill table:** 20/20 on saved-bytes copies after a green baseline. `flapping_wing.py` 11/11
+  (sign bypassed or doubled in the lab path; the hydro sign and its `rho_f`; the body path bypassed;
+  the 6-DOF sign and `rho_f`; each degeneracy floor alone; `drop_frac` inverted; the RMS share
+  against the wrong force), F1 1/1, V1 1/1, RESULTS.md 6/6, `visualize.py` 1/1.
+- **Task 28 (pre-render review): no blocker; findings taken.**
+  - **T4 normal panel.** With the IB force on the wing, the CFD normal is positive on both
+    half-strokes, as hovering needs, while the model's return-stroke lobe is inverted. The cause is
+    in the model as T4 applies it: it is fed our signed pitch, not van Veen's angle of attack. Folding
+    the stroke direction in (`α·sign ω`, `|ω|`, `ω̇·sign ω`) on `forces_fine.csv` gives
+    correlation +0.99 and RMSE 0.16 against the CFD, versus −0.11 and 1.84 now. The fix is #133's own
+    change (user decision, 2026-11-02); the diagnosis is posted on #133. PR2a keeps the signed
+    curves and adds a panel note, a suptitle pointer, and a pending note at the top of RESULTS.md's
+    T4 section. The legend moves to lower left.
+  - **3-grid figure.** The mirrored negative normal band is dropped (user decision), with its
+    comment and the "±" label.
+  - **Wording.** The RMSE sentence names the sign mismatch, not the phase offset; "subtract the term"
+    and "84 % of chord RMS" are reworded for the relabelled diagnostic; leftover "lift" labels and
+    `ib_force` docstrings are fixed.
+  - **Reproducible PDFs.** The three PDF writers in the render set gain `metadata={"CreationDate":
+    None}`, which design D5 requires for the render-twice `cmp` gate.
+  - **Guards.** The T4 note and the positive-only band are pinned in
+    `test_flapping_wing_validation_figures.py` (both red against the pre-fix scripts), and the T4
+    pending note in `test_results_reproducibility.py` (mutant killed).
+- **PR review round 1 (#136, `/review-pr`, five reviewers): no blocker; important items fixed.**
+  - **Density on both sides.** IAMReX's `ib_force` is per unit density (`DiffusedIB.cpp`
+    multiplies it by `euler_fluid_rho`), so the diagnostic now compares the 6-DOF force with
+    `ρ_f·ib_w`, not `ib_w`, and rejects a `rho_f` that is not finite and positive. This
+    reverses part of the `:642` test approved on 2026-10-29: `ρ_f = 2` now doubles both peaks
+    and leaves the ratios unchanged (user-approved, 2026-11-10; superseded by round 3, where
+    `F_ref` also carries `ρ_f` and nothing changes at `ρ_f = 2`). Every committed run uses
+    `ρ_f = 1`, so no number changes. Round 1 left the lab path's `cf_ib` unscaled, calling
+    it "a sum, not a ratio"; that was wrong (`added_mass_fraction` is a ratio). Round 2 fixes it.
+  - **Unpinned signs.** A spy test now pins T4's CFD series; F1's `CF_y` and every V1 curve
+    are asserted. Before, re-negating T4's CFD series or F1's `CF_y` passed the suite.
+  - **Degeneracy floors.** The `ib_w` error names only the RMS share (it is the drop
+    fraction's numerator), the grammar is fixed, and the normal `ib_w` floor has its own case.
+  - **#133 scope in the docs.** The T4 pending note, the T4 chord row, the status row, the
+    roadmap's "#40 resolved" and the figures README now mark the chord comparison pending.
+  - **Wording.** `*_drop_frac`'s redefinition is in the CHANGELOG; "positive on both
+    half-strokes" becomes "a positive lobe on each half-stroke" (the normal dips near the
+    reversals, by up to about −0.1 on the coarse grid); `ρ_f·SumU` is the rate of change of momentum; the phase-table
+    header names each sign; the interim phrase checks are reflow-proof.
+  - **Kill table:** 17/17 on saved-bytes copies after a green baseline (one survivor first,
+    fixed by pinning the pending note's chord sentence).
+  - **Deferred** to follow-up issues: the README regeneration commands rewrite files outside
+    the render set (#137), and the lab-frame plausibility gate passes a CSV containing `inf`
+    (#138). Both predate this PR. The "(lift)" labels in the grid-convergence figures are left for #133,
+    which re-renders them.
+- **PR review round 2 (#136, focused review of the round-1 fixes): no blocker.** Tasks:
+  - [x] R2.1 Spec deltas: the IB force on the wing is `ρ_f·ib_w` in the lab path and the diagnostic;
+    `CF_hydro = CF_added + CF_ib`; ratios are density-independent; `rho_f` is validated before I/O;
+    the "same peaks" scenario holds at `ρ_f = RHO`.
+  - [x] R2.2 Test first: the lab path at `ρ_f = 2` (spy, 6-DOF balance, `added_mass_fraction`
+    unchanged); `rho_f` validation in both functions, including bool, `None`, string and a missing
+    CSV path; doc guards for every remaining chord "resolved"/"#40 closed" claim, the roadmap's #40
+    framing, and the CHANGELOG's figure claim.
+  - [x] R2.3 Implement: a shared `_validated_density`; `reconstruct_wing_forces` scales `cf_ib` by `ρ_f`.
+  - [x] R2.4 Docs: pending markers; roadmap #40 wording; CHANGELOG and squash-message figure claim;
+    momentum wording aligned; "dips of up to about −0.1 (coarse grid)"; Fig. 4's degree axis cited.
+  - [x] R2.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Outcome.** The lab path now carries `ρ_f` on `cf_ib`, so `added_mass_fraction` no longer depends on
+    it (user chose this over deferring, 2026-11-10); this changes two tests approved earlier, the lab
+    spy test and the 6-DOF balance test at `ρ_f = 2`. A shared `_validated_density` accepts only real
+    numbers and runs before any file is read. A per-paragraph guard
+    (`test_every_chord_resolution_claim_cites_133`) found 12 unflagged chord-resolution claims, two
+    beyond the review's list; each now cites #133. The convention doc's "would add the term's time
+    difference" double-counted (`SumU` is already a time difference) and is corrected.
+  - **Kill table:** 17/17 on saved-bytes copies after a green baseline, including the validation
+    placed after the read, which survived round 2's review.
+- **PR review round 3 (#136, narrow review of the round-2 code fix): no blocker.** Round 2 put
+  `ρ_f` on the force but left `F_ref` at `RHO`, so at `ρ_f ≠ 1` the lab coefficients scaled with
+  the density and the gate's floor check failed on `forces.csv` at `ρ_f = 0.5`. Latent: no caller
+  passes `rho_f`. Tasks:
+  - [x] R3.1 Spec deltas: `F_ref` is built with the same `ρ_f`, so every coefficient, ratio and the
+    gate verdict are density-independent; the density scenario becomes "the density cancels";
+    "same peaks" holds at any `ρ_f`; `numbers.Real`, `10**400` and the `float64` result named.
+  - [x] R3.2 Test first: invariance at `ρ_f = 0.5, 2, 1.3` (lab series, `f_ref = ρ_f·F_ref(1)`,
+    `added_mass_fraction`, every `plausibility_gate` field; every diagnostic value); "same peaks"
+    at `ρ_f = 2`; the diagnostic spy test's `F_ref` pinned as `2·F_ref(1)` rather than read from
+    the code; `Fraction(1, 2)` and `np.float32(2)` give the same `float64` results as the equal
+    float; `10**400` raises the named error. These replace round 2's doubling assertions.
+  - [x] R3.3 Implement: `compute_force_reference(..., rho=rho_f)` in `reconstruct_wing_forces` and
+    `body_frame_added_mass_subtracted` (`reconstruct_wing_body_forces` takes no density and stays
+    at `RHO`); `_validated_density` maps `OverflowError` to the named error.
+  - [x] R3.4 Docs: docstrings, CHANGELOG, convention doc.
+  - [x] R3.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 7/8 on saved-bytes copies after a green baseline (each `F_ref` back at `RHO`,
+    each force unscaled, the validator returning the raw object, the lab path discarding its
+    result, `OverflowError` uncaught). The survivor was the diagnostic discarding the validator's
+    result. It was recorded here as equivalent, which was wrong: round 4 showed that a
+    `sympy.Float` density changes the outputs in the last place. Full suite: 1590 passed, 14
+    skipped, 1 xfailed.
+- **PR review round 4 (#136, two focused reviewers on the round-3 fix): no blocker.** Tasks:
+  - [x] R4.1 Spec deltas: T4's requirement (MODIFIED, full text) builds the model's `F_ref` at
+    `rho` and validates `rho`, with a new scenario that no T4 number or verdict depends on it;
+    the density scenario adds arbitrary-precision reals, `Decimal`, 0-d arrays, subnormals and
+    `1e308`.
+  - [x] R4.2 Test first: T4 invariance at `rho = 0.5, 2, 1.3` over every returned number,
+    verdict and series, and a bad `rho` raising before reading; a registered `numbers.Real` stub
+    (`tests/_density_helpers.py::PreciseReal`) standing in for `sympy.Float`, since sympy is not
+    a declared dependency, used in both the lab/diagnostic and the T4 type tests; `Decimal("1")`, `np.array(1.0)`, `1e-320` and `5e-324` in the bad list;
+    `1e308` naming `rho_f`; the lab spy test builds `F_ref` at `rho = 2` itself.
+  - [x] R4.3 Implement: `decompose_wing_force` normalizes the model by
+    `compute_force_reference(..., rho=rho)` and validates `rho`; `_validated_density` takes the
+    parameter name and rejects values below `np.finfo(float).tiny`; both `f_ref` errors name
+    `rho_f`.
+  - [x] R4.4 Docs: CHANGELOG; stale doubling notes above tagged as superseded; the round-3
+    equivalence claim corrected.
+  - [x] R4.5 Mutation-test the new guards on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 12/12 on saved-bytes copies after a green baseline. These cover T4's `F_ref` at
+    the CFD's or at `RHO`, `rho` unvalidated, validated after the read or its result discarded, the
+    validator ignoring its name, accepting subnormals, `Decimal` or duck-typed input, and either
+    `f_ref` error no longer naming `rho_f`. The round-4 reviewers' three survivors, including round
+    3's, are among them. T4 discarding its validated `rho` first survived; it was killed by adding
+    the `PreciseReal` case to T4's invariance test. Full suite: 1612 passed, 14 skipped, 1 xfailed.
+  - **Deferred** to #139: `heaving_ellipsoid.ellipsoid_added_mass_fraction` divides
+    `|rho_f·SumU|` by an unscaled `ib_force` and accepts a negative `rho_f` (on main; a different
+    benchmark).
+- **PR review round 5 (#136, narrow review of the round-4 T4 fix): no blocker.** Between about
+  3e305 and 9e305, `F_ref` is finite but the density-scaled forces overflow, so T4 returned
+  `inf`/NaN numbers (and `normal_mag_pass = False`) with no error, and `reconstruct_wing_forces`
+  returned an `inf` `cf_z_hydro`. Tasks:
+  - [x] R5.1 Spec deltas: an overflowing force or coefficient computed from finite input raises
+    `ValueError` naming the density, in all three functions; T4's bad-`rho` scenario lists the
+    same values as the lab one.
+  - [x] R5.2 Test first: `5e305` and `1e308` raise naming `rho_f` (lab and diagnostic, on two
+    CSVs) and `rho` (T4); a NaN input row is not reported as an overflow; T4's bad-`rho` test
+    uses the shared `BAD_DENSITIES` (`tests/_density_helpers.py`). numpy's overflow and
+    invalid-value warnings are filtered on the overflow tests only, where they are expected.
+  - [x] R5.3 Implement: `_raise_if_density_overflowed` checks the forces over `F_ref` in
+    `reconstruct_wing_forces`, `body_frame_added_mass_subtracted` and T4's model, counting only
+    rows whose input is finite. Non-finite input keeps its existing handling: the lab path
+    passes it through (#138) and the diagnostic raises its own error.
+  - [x] R5.4 Docs: docstrings, CHANGELOG, the PR body's tables.
+  - [x] R5.5 Mutation-test on saved-bytes copies; full suite; ruff.
+  - **Kill table:** 6/7 on saved-bytes copies after a green baseline. Killed: each of the three
+    overflow checks removed, the finite-input mask ignored or inverted, and the error dropping
+    the density's name. The survivor, T4's own model-`F_ref` finiteness check removed, is
+    equivalent and kept for its clearer message. Degenerate kinematics are caught first by
+    `reconstruct_wing_body_forces`' check on the same `F_ref` arguments, and any `rho` that
+    overflows `F_ref` also overflows the model forces (about 2.5·`F_ref`), which the new check
+    catches. Full suite: 1634 passed, 14 skipped, 1 xfailed.
+- **Example scripts are not reformatted.** CI does not format-check `examples/flapping_wing/`, so the
+  two figure scripts carry only the sign and label edits.
 
 ---
 

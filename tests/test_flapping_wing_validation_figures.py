@@ -48,7 +48,7 @@ def test_fig_force_decomposition_regenerates(tmp_path):
             model_total.get_ydata(), result["series"]["model_normal"]
         )
         cfd_total = next(
-            ln for ln in normal_ax.lines if ln.get_label() == "CFD total (ib_force)"
+            ln for ln in normal_ax.lines if ln.get_label() == "CFD IB force on wing"
         )
         np.testing.assert_allclose(
             cfd_total.get_ydata(), result["series"]["cfd_normal"]
@@ -94,3 +94,42 @@ def test_validation_figures_generate_with_tested_numbers(tmp_path):
     assert summary["v4"]["lift"] > summary["v4"]["stroke"]
     # V5: the frame figure is at the alpha=45 deg midstroke
     assert summary["v5"]["alpha_deg"] == 45.0
+
+
+def test_t4_normal_panel_names_the_model_sign_issue(tmp_path):
+    """The T4 normal panel says its graded check is |peak| and that the model's return-stroke lobe is
+    inverted (#133), because with the IB force on the wing the two lobes point opposite ways there."""
+    mod = _load(_DECOMP_SCRIPT, "make_force_decomp_fig_note")
+    _, fig, _ = mod.make_figure(tmp_path / "decomp.png", return_artifacts=True)
+    try:
+        notes = " ".join(t.get_text() for t in fig.axes[1].texts)
+        assert "#133" in notes and "|peak|" in notes
+        assert "#133" in fig._suptitle.get_text()
+    finally:
+        plt.close(fig)
+
+
+def test_3grid_normal_band_is_positive_only(tmp_path, monkeypatch):
+    """With the IB force on the wing the CFD normal has a positive lobe on each half-stroke, so the 3-grid
+    figure draws the van Veen normal band on the positive side only (no mirrored band)."""
+    mod = _load(
+        REPO / "examples" / "flapping_wing" / "make_force_timeseries_3grid_figure.py",
+        "make_force_timeseries_3grid_fig",
+    )
+    real_close = plt.close
+    figures = []
+    monkeypatch.setattr(mod.plt, "close", lambda fig=None: figures.append(fig))
+    mod.make_figure(tmp_path / "ts.png")
+    try:
+        ax_normal = figures[0].axes[1]
+        spans = [p.get_extents() for p in ax_normal.patches]
+        y_ranges = [
+            ax_normal.transData.inverted().transform(e.get_points())[:, 1]
+            for e in spans
+        ]
+        assert y_ranges, "no band drawn"
+        assert all(lo >= 0 for lo, _ in y_ranges), y_ranges
+        assert "±" not in mod._VV_BANDS["cf_normal"][0]
+    finally:
+        for fig in figures:
+            real_close(fig)

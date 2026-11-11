@@ -107,20 +107,23 @@ def _table_numbers(doc: str, header_sub: str) -> set[float]:
 def test_lab_frame_ranges_recompute():
     """Lab-frame CF ranges/peaks recompute from forces_t2a_newconv.csv (F_ref=200.27, t>=0.05).
 
-    Scenario: Lab-frame ranges recompute from the committed new-convention CSV.
+    Scenario: Lab-frame ranges recompute from the committed new-convention CSV. The coefficients are
+    the IB force on the wing (issue #109), so the ranges are the negated solver ranges.
     """
     d = reconstruct_wing_forces(_NEWCONV, **_KIN)
     assert d.f_ref == pytest.approx(200.27, abs=0.02)
     m = d.time >= STEADY_WINDOW_T0
-    assert d.cf_x_ib[m].min() == pytest.approx(-2.35, abs=0.02)
-    assert d.cf_x_ib[m].max() == pytest.approx(+2.37, abs=0.02)
-    assert d.cf_z_ib[m].min() == pytest.approx(-1.46, abs=0.02)
-    assert d.cf_z_ib[m].max() == pytest.approx(+0.03, abs=0.02)
+    assert d.cf_x_ib[m].min() == pytest.approx(-2.37, abs=0.02)
+    assert d.cf_x_ib[m].max() == pytest.approx(+2.35, abs=0.02)
+    assert d.cf_z_ib[m].min() == pytest.approx(-0.03, abs=0.02)
+    assert d.cf_z_ib[m].max() == pytest.approx(+1.46, abs=0.02)
     assert np.abs(d.cf_x_ib[m]).max() == pytest.approx(2.37, abs=0.02)
     assert np.abs(d.cf_z_ib[m]).max() == pytest.approx(1.46, abs=0.02)
     doc = _doc()
-    for lit in ("−2.35", "+2.37", "−1.46", "+0.03", "2.37", "1.46", "200.27"):
+    for lit in ("[−2.37, +2.35]", "[−0.03, +1.46]", "2.37", "1.46", "200.27"):
         assert lit in doc, f"RESULTS.md headline literal {lit!r} missing"
+    for stale in ("[−2.35, +2.37]", "[−1.46, +0.03]"):
+        assert stale not in doc, f"stale on-fluid range {stale!r} still in RESULTS.md"
 
 
 def test_body_frame_peaks_reproduce_partial_verdict():
@@ -166,6 +169,32 @@ def test_phase_table_raw_fz_recompute():
     idx = int(np.argmax(np.abs(fz[m])))
     assert fz[m][idx] == pytest.approx(-292, abs=2)
     assert phase[m][idx] == pytest.approx(0.49, abs=0.02)
+    # CF_z (lab) is the IB force on the wing, -Fz/F_ref (issue #109); the Fz cells stay solver-native.
+    d = reconstruct_wing_forces(_NEWCONV, **_KIN)
+    for target, want in {0.25: "+0.049", 0.50: "+1.449", 0.75: "+0.092"}.items():
+        i = int(np.argmin(np.abs(phase - target)))
+        assert f"{d.cf_z_ib[i]:+.3f}" == want, (target, d.cf_z_ib[i])
+    assert f"{d.cf_z_ib[m][idx]:+.3f}" == "+1.459"
+    table = _phase_table(_doc())
+    for cell in ("+0.049", "+1.449", "+0.092", "+1.459"):
+        assert cell in table, cell
+    for stale in ("−0.049", "−1.449", "−0.092", "−1.459"):
+        assert stale not in table, stale
+    assert "solver `ib_force`, on the fluid" in table
+    assert "−Fz / F_ref" in table
+    assert "coordinate-convention.md#force-and-moment-sign" in table
+
+
+def _flat(text: str) -> str:
+    """Whitespace collapsed and blockquote markers dropped, so a reflowed line cannot split a phrase."""
+    return " ".join(re.sub(r"(?m)^>[ \t]?", "", text).split())
+
+
+def _phase_table(doc: str) -> str:
+    """The `### Force at key phases` subsection, caption and table (flattened)."""
+    start = doc.index("### Force at key phases")
+    end = doc.index("\n#", start + 1)
+    return _flat(doc[start:end])
 
 
 def test_added_mass_fractions_are_rms(_kin=_KIN):
@@ -219,20 +248,30 @@ def test_added_mass_subtracted_interim_recomputes():
     asserted-complete (set-equality), and the two pre-existing headline tables are proven unperturbed.
     """
     out = body_frame_added_mass_subtracted(_NEWCONV, **_INTERIM_KIN)
-    # (a) recompute — peaks, signed peak-to-peak drops, body-frame added-mass RMS shares.
-    assert out["peak_cf_chord_total"] == pytest.approx(0.923, abs=0.02)
-    assert out["peak_cf_chord_subtracted"] == pytest.approx(0.652, abs=0.02)
-    assert out["peak_cf_normal_total"] == pytest.approx(2.606, abs=0.02)
-    assert out["peak_cf_normal_subtracted"] == pytest.approx(2.285, abs=0.02)
-    assert out["chord_drop_frac"] == pytest.approx(0.29, abs=0.01)
-    assert out["normal_drop_frac"] == pytest.approx(0.12, abs=0.01)
-    assert out["am_rms_share_chord"] == pytest.approx(0.84, abs=0.02)
-    assert out["am_rms_share_normal"] == pytest.approx(0.13, abs=0.02)
+    # (a) recompute — the 6-DOF and ib_w peaks, the rises from dropping rho_f*SumU, the RMS shares.
+    assert out["peak_cf_chord_ib"] == pytest.approx(0.923, abs=5e-4)
+    assert out["peak_cf_chord_6dof"] == pytest.approx(0.652, abs=5e-4)
+    assert out["peak_cf_normal_ib"] == pytest.approx(2.606, abs=5e-4)
+    assert out["peak_cf_normal_6dof"] == pytest.approx(2.285, abs=5e-4)
+    rise = {
+        c: out[f"peak_cf_{c}_ib"] / out[f"peak_cf_{c}_6dof"] - 1
+        for c in ("chord", "normal")
+    }
+    assert round(100 * rise["chord"]) == 42 and round(100 * rise["normal"]) == 14
+    assert out["am_rms_share_chord"] == pytest.approx(0.84, abs=0.005)
+    assert out["am_rms_share_normal"] == pytest.approx(0.13, abs=0.005)
     doc = _doc()
     # (b) the interim literals are present in the doc (share phrases are load-bearing linkages).
     for lit in ("0.923", "0.652", "2.606", "2.285"):
         assert lit in doc, f"interim literal {lit!r} missing from RESULTS.md"
     assert "chord 84" in doc and "normal 13" in doc
+    section = _flat(_interim_section(doc))
+    assert (
+        "6-DOF `ρ_f·(SumU + ib_w)`" in section and "IB force on wing `ib_w`" in section
+    )
+    assert "raises the peak 42 %" in section and "14 %" in section
+    for stale in ("−29 %", "−12 %", "−42 %", "subtracted `ib − ρ_f·SumU`"):
+        assert stale not in section, stale
     # (c) interim-table enumeration is asserted-complete (a new interim decimal cell fails here).
     interim_nums = _table_numbers(doc, _INTERIM_HEADER_SUB)
     known = _INTERIM_TABLE_VERIFIED | _INTERIM_TABLE_REFERENCE
@@ -254,7 +293,7 @@ def test_interim_framing_is_honest_and_disambiguated():
     still reads PARTIAL + references #40.
     """
     doc = _doc()
-    section = _interim_section(doc).lower()
+    section = _flat(_interim_section(doc)).lower()
     # Honest framing: isolates a share, does NOT resolve; residual ~2x van Veen's 0.3; deferred to T4.
     assert "isolat" in section
     assert "does not resolve" in section or "not resolve" in section
@@ -265,7 +304,11 @@ def test_interim_framing_is_honest_and_disambiguated():
     # and distinct from the ~47% instantaneous drop at the total peak (pinned in test_wing_body_frame).
     assert "peak-to-peak" in section
     assert "different phase" in section or "different phases" in section
-    assert "47 %" in section
+    assert "1094" in section and "39 %" in section and "47 %" not in section
+    assert "added mass dominates" not in section
+    # The IB-only residual is ~3x van Veen's 0.3; the 6-DOF 0.652 is ~2x.
+    assert "neither candidate does" in section and "~3×" in section
+    assert "#135" in section
     # Disambiguation: body-frame shares vs lab-frame fractions — different frame + axis pairing.
     assert "stroke 37" in section and "lift 29" in section
     assert "different frame" in section
@@ -276,7 +319,8 @@ def test_interim_framing_is_honest_and_disambiguated():
     # validated-against-model; the interim is not the edit that changed the verdict (T4's is).
     assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
     assert (
-        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude) |" in doc
+        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133)) |"
+        in doc
     )
 
 
@@ -491,3 +535,90 @@ def test_3grid_convergence_recomputes_from_committed_csvs():
         return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
     assert json.loads(_T3C_META.read_text())["inputs"]["hash"] == _sha(_FINE_DECK)
+
+
+def test_results_vocabulary_states_the_sign_and_the_open_question():
+    """RESULTS.md says what "total" means, that the diagnostic's name is historical, and what is open.
+
+    Design D5: "total" keeps one meaning, the IB force on the wing ``ib_w``; the solver's ``ρ_f·SumU`` is
+    an internal-fluid term, not van Veen's added mass; which force van Veen should be compared with is
+    #135; the T4 RMSE note points at #133; and no stale "total hydrodynamic force" claim survives.
+    """
+    doc = _doc()
+    flat = _flat(doc)
+    assert "'Total' here means all aerodynamic mechanisms" in flat
+    assert "measured as the IB force on the wing `ib_w`" in flat
+    assert "not van Veen's added-mass component" in flat
+    assert "the name is historical" in flat
+    assert "#135" in flat and "#133" in flat
+    assert "is the **total** hydrodynamic force" not in flat
+    assert "coordinate-convention.md#force-and-moment-sign" in flat
+    # The T4 section flags that its normal-force numbers await the #133 model-sign fix.
+    assert "Pending [#133](" in flat and "should not be relied on until then" in flat
+    # The pending note also covers the chord: same stroke-direction cause, plus eq 3.12's degrees.
+    note = flat[flat.index("Pending [#133](") :]
+    note = note[: note.index("| body-frame peak |")]
+    for phrase in (
+        "The chord comparison is affected too",
+        "degrees",
+        "0.18",
+        "#40 resolved",
+        "status table",
+    ):
+        assert phrase in note, phrase
+    assert "close agreement, grid-limited (#50), pending #133" in flat
+    root = Path(__file__).resolve().parents[1]
+    roadmap = (root / "docs/aerodynamics_validation/roadmap.md").read_text(
+        encoding="utf-8"
+    )
+    # #40 is the chord question, so the roadmap must not call it resolved "for the normal".
+    assert "#40's chord question is pending [#133](" in _flat(roadmap)
+    assert "the graded normal magnitude passes" in _flat(roadmap)
+    assert "#40 resolved for the normal force" not in _flat(roadmap)
+    # The T4 figure's note covers the normal only; the CHANGELOG must not claim more.
+    changelog = _flat((root / "docs/CHANGELOG.md").read_text(encoding="utf-8"))
+    assert "The T4 figure flags the normal" in changelog
+    assert (
+        "The figure and RESULTS.md flag this, for the chord comparison" not in changelog
+    )
+    readme = (root / "examples/flapping_wing/figures/README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "the #40 CF_chord resolution, is pending [#133](" in _flat(readme)
+    t4 = doc[doc.index("**Reported (not gated):** the normal **peak-phase gap**") :]
+    assert "#133" in t4[: t4.index("\n\n")]
+
+
+# Every claim that T4 resolved the chord question (#40) must cite #133, which found that T4's chord
+# model is fed the signed pitch and radians (review of #136). Checked per paragraph, and per row in a
+# table, across the three documents that make the claim, so a new unflagged claim fails here too.
+_CHORD_RESOLUTION_CLAIM = re.compile(
+    r"resolved by the (?:\"?T4|T4)|resolves the CF_chord|resolved the CF_chord"
+    r"|Resolves the (?:T2a |#40 )?CF_chord|#40 closed|#40 resolved|0\.3–0\.43"
+    r"|validated against van Veen's quasi-steady model|full QS model total"
+)
+_CHORD_CLAIM_DOCS = (
+    "examples/flapping_wing/RESULTS.md",
+    "docs/aerodynamics_validation/roadmap.md",
+    "examples/flapping_wing/figures/README.md",
+)
+
+
+def _blocks(text: str):
+    """Paragraphs of ``text``; a table yields one block per row."""
+    for para in re.split(r"\n\s*\n", text):
+        lines = para.splitlines()
+        if lines and all(ln.lstrip().startswith("|") for ln in lines):
+            yield from lines
+        else:
+            yield para
+
+
+@pytest.mark.parametrize("rel", _CHORD_CLAIM_DOCS)
+def test_every_chord_resolution_claim_cites_133(rel):
+    """No paragraph or table row says the chord is resolved without pointing at #133."""
+    text = (Path(__file__).resolve().parents[1] / rel).read_text(encoding="utf-8")
+    claims = [b for b in _blocks(text) if _CHORD_RESOLUTION_CLAIM.search(b)]
+    assert claims, f"{rel}: no chord-resolution claim found; the guard would be vacuous"
+    unflagged = [" ".join(b.split())[:160] for b in claims if "#133" not in b]
+    assert not unflagged, (rel, unflagged)
