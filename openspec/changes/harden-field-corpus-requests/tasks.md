@@ -276,3 +276,26 @@
 7.5 [x] The CHANGELOG entry is marked **BREAKING**. "Both narrowings" becomes "Each narrowing".
 7.6 [x] Mutants 4/4 killed: try/except narrowed, numpy unwrap removed, and each NaN guard reverted
     to `>=`. design.md records the review round, the deliberate non-changes, and the follow-ups.
+
+## 8. PR review round (`/review-pr` on #140; no blocking findings)
+
+8.1 [x] **Spec first:** the `visualization-tooling` delta gains the valid-margin scenario and the
+    `numbers.Real` rule; a `force-extraction` delta adds the inlet-upstream scenario; D3 and the
+    proposal are updated. `openspec validate --strict` passes.
+8.2 [ ] **Anchors, then red then green (`box_margin`):** `1e-9`, `0.5`, `2`, `np.int64(2)` and
+    `np.float32(0.5)` reach the plotfile tripwire in every mode (anchors: they pass today).
+    `Fraction(1, 2)` reaching it, `Decimal("3")` and `np.bool_(True)` being rejected, and the new
+    message are red first. Implementation: `numbers.Real` plus `float()`, returning the `float`.
+    Re-run the four surviving mutants (`np.integer`/`np.floating` dropped, `> 1e-3`, `>= 1`); all
+    must be killed.
+8.3 [ ] **Red then green (`halo` message):** `halo=np.float64(1.9)` is reported as `got 1.9`. Add
+    `mosquito_cfd._messages.plain_repr` and use it for `step`, `halo` and `box_margin`; correct the
+    three comments that claimed `_validate_halo` already did this.
+8.4 [ ] **Refactor under green tests:** one `_require_upstream(x_inlet, x_outlet)` used by both
+    `sphere_cv_*` functions; both `Raises:` docstrings say "not strictly less than (NaN included)".
+    The NaN drag cases match the guard's own message and use the reader tripwire, like the
+    steadiness test. Mutant: the helper reverted to `>=` must be killed in both functions.
+8.5 [ ] CHANGELOG `box_margin` wording matches D3. Full CPU suite, ruff on CI's paths, and
+    `openspec validate --strict` pass. Push; post a reply on #140 mapping each finding to its fix.
+8.6 [ ] File follow-up issues: infinite inlet/outlet planes accepted; `flow_video`'s `plt?????`
+    glob skips steps of 100000 or more; `_PLT_PATTERN`'s `\d` matches non-ASCII digits.

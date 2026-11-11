@@ -30,8 +30,8 @@ committed artifact changes. It is independent of the #109 force-sign work.
 - `FieldCorpus.plotfile()` returns `runs/<config>/plt{step:05d}` after a single `is_dir()` when that
   path is a directory. Otherwise it scans the run directory. The fast path trusts the canonical name
   (D2).
-- `build_flow_video` requires `box_margin` to be a finite real number `> 0`, checked next to `fps`
-  (D3).
+- `build_flow_video` requires `box_margin` to be a real number (`numbers.Real`, not `bool`) that
+  converts to a finite `float` `> 0`, checked next to `fps` (D3).
 - `sphere_cv_steadiness_fraction` checks `x_inlet < x_outlet` before reading a plotfile, as
   `sphere_cv_drag_cd` already does. That way an inverted slab is reported in the caller's terms, not
   as the reader's `lo`/`hi` error (D1).
@@ -54,11 +54,16 @@ The breaking changes reject only inputs that were always caller bugs. No in-repo
   - `field-surrogate`: 3 MODIFIED requirements (Region semantics, Eulerian-box adapter delegation,
     Corpus addressing).
   - `visualization-tooling`: 1 ADDED requirement.
+  - `force-extraction`: 1 MODIFIED requirement (Robust input validation for the control-volume
+    tools gains the inlet-upstream scenario).
 - **Affected code:**
+  - `src/mosquito_cfd/_messages.py` (new): `plain_repr`, shared by the `step`, `halo` and
+    `box_margin` messages
   - `src/mosquito_cfd/field_surrogate/snapshot.py`
   - `src/mosquito_cfd/field_surrogate/corpus.py`
   - `src/mosquito_cfd/visualization/flow_video.py`
-  - `src/mosquito_cfd/benchmarks/stress_integral.py`: the `sphere_cv_steadiness_fraction` guard, plus
+  - `src/mosquito_cfd/benchmarks/stress_integral.py`: the shared `_require_upstream` guard, now also
+    called by `sphere_cv_steadiness_fraction`, plus
     docstrings for `extract_eulerian_box` and `check_field_capture_velocity`
   - `scripts/make_flow_video.py`: `--box-margin` help text only
 - **Affected tests:**

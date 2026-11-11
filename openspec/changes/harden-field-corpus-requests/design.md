@@ -128,12 +128,17 @@ test depends on this.
 `build_flow_video` validates `box_margin` right after the `fps` check, before any I/O or `Figure`
 creation. The rules:
 
-- It must be a real number: `int`, `float`, or a numpy integer or floating scalar. `bool` is rejected.
-- It must be finite and `> 0`.
+- It must be a real number (`numbers.Real`): `int`, `float`, `fractions.Fraction`, or a numpy integer
+  or floating scalar. `bool` and `np.bool_` are rejected; so is `decimal.Decimal`, which is not a
+  `numbers.Real`.
+- It must convert to a finite `float` `> 0`. An `int` too large for a `float` (`10**400`) fails here.
+- The validated `float` is what the rest of the function uses.
 
-On failure it raises `ValueError: box_margin must be a finite number > 0, got <value>`. Without this
-check, the caller would get the reader's `lo`/`hi` error, which names values they never wrote. A
-non-numeric value such as `"3"` raises the same `ValueError`, not a `TypeError` from `np.isfinite`.
+On failure it raises `ValueError: box_margin must be an int, float, Fraction or numpy real scalar
+that converts to a finite float > 0, got <value>`. The type list is in the message so that it is true
+of every rejected value, including `Decimal("3")` and `10**400`, which are finite and positive. Without
+this check, the caller would get the reader's `lo`/`hi` error, which names values they never wrote. A
+non-numeric value such as `"3"` raises the same `ValueError`, not a `TypeError`.
 
 The check covers all four field modes, although only `lev-3d` uses the value. The default (3.0) is
 valid, so a bad value is always an explicit mistake. Zero is rejected because `center ± 0` is a point
@@ -196,8 +201,9 @@ Five reviewers found no blocking issue. These fixes were made before the PR was 
 - **`box_margin=10**400` raised `TypeError`, not `ValueError`.** D3 says a bad value is always a
   `ValueError`, but `np.isfinite` cannot coerce an int beyond float64 range. The finiteness test
   now treats `TypeError`/`OverflowError` as "not finite".
-- **`step` messages printed numpy reprs** (`got np.int64(-1)`), unlike `_validate_halo` and
-  `_validate_box_margin`. numpy scalars are now shown as plain values. `repr` still tells `'100'`
+- **`step` messages printed numpy reprs** (`got np.int64(-1)`), unlike `_validate_box_margin`.
+  numpy scalars are now shown as plain values. (This entry first said "unlike `_validate_halo`" too;
+  that was false, and the #140 round below fixes `_validate_halo`.) `repr` still tells `'100'`
   apart from `100`.
 - **A NaN `x_inlet`/`x_outlet` got past `x_inlet >= x_outlet`,** because NaN compares False both
   ways. It then reached the reader, whose error names `lo`/`hi`. Both `sphere_cv_steadiness_fraction`
@@ -231,3 +237,30 @@ Left as follow-ups, not done here:
 - `_PLT_PATTERN`'s `\d` matches non-ASCII digits. This predates the change.
 - `os.scandir` in `_scan`, which belongs to #112.
 - A shared `_run_path` helper for the run-directory path.
+
+### PR review round (`/review-pr` on #140): what changed
+
+Five reviewers found no blocking issue and five important ones, all fixed here:
+
+- **No test showed that a valid `box_margin` is accepted.** Four mutants survived the whole suite:
+  dropping `np.integer` or `np.floating` from the accepted types, and tightening `> 0` to `> 1e-3` or
+  `>= 1`. A second scenario now requires `1e-9`, `0.5`, `2`, `np.int64(2)`, `np.float32(0.5)` and
+  `Fraction(1, 2)` to pass validation in every mode.
+- **The `box_margin` message was false for some values it rejected.** `Fraction(3)`, `Decimal("3")`
+  and `10**400` are finite and positive, yet the message said "must be a finite number > 0". D3 now
+  accepts any `numbers.Real` (so `Fraction` passes) and names the accepted types in the message.
+- **A comment claimed `_validate_halo` unwraps numpy scalars; it did not.** `halo=np.float64(1.9)`
+  was reported as `got np.float64(1.9)`. One helper, `mosquito_cfd._messages.plain_repr`, now formats
+  the value in the `step`, `halo` and `box_margin` messages, replacing two copies of the expression.
+- **The `sphere_cv_*` `Raises:` docstrings still said `x_inlet >= x_outlet`,** though the guard also
+  rejects NaN. The guard was also copied into both functions. It is now one helper,
+  `_require_upstream`, and both docstrings say "not strictly less than (NaN included)".
+- **The inlet/outlet guard had tests but no spec scenario.** A `force-extraction` delta adds one to
+  the existing "Robust input validation for the control-volume tools" requirement.
+
+Recorded here rather than changed:
+
+- **Infinite inlet/outlet planes** (`x_inlet=-inf`) still pass the guard and return a silent result.
+  This predates the change and is filed as a follow-up.
+- **`flow_video` globs `plt?????`,** so steps of 100000 or more are skipped. This predates the change
+  and is filed as a follow-up.
