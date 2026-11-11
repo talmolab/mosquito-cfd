@@ -416,7 +416,9 @@ def _tmp_corpus(tmp_path: Path, corpus: Path, *, stale: bool) -> Path:
     if _stale(corpus) != stale:
         dataset[TARGET_COLUMNS] = -dataset[TARGET_COLUMNS]
     dataset.to_parquet(out / "dataset.parquet", index=False)
-    banner = f"> The surrogate artifacts {STALE_BANNER}.\n\n" if stale else ""
+    # Reflowed inside a quote, so a plain-substring banner check would misread it.
+    reflowed = STALE_BANNER.replace(" against ", "\n> against ")
+    banner = f"> The surrogate artifacts {reflowed}.\n\n" if stale else ""
     (out / "README.md").write_text(f"# Corpus\n\n{banner}Body.\n", encoding="utf-8")
     if not stale:
         record = _meta(out / "surrogate" / "run_metadata.json")

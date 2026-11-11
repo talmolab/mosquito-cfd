@@ -272,10 +272,15 @@ def test_the_sign_key_missing_fails():
 
 
 @pytest.mark.parametrize(
-    "git", [{"commit": "b" * 40}, {"commit": "b" * 40, "dirty": None}]
+    "git",
+    [
+        {"commit": "b" * 40},
+        {"commit": "b" * 40, "dirty": None},
+        {"commit": "b" * 40, "dirty": 0},
+    ],
 )
 def test_an_unknown_dirty_state_fails_the_dirty_check(git):
-    """Only an explicit ``dirty: false`` passes; a missing or null flag is not a clean tree."""
+    """Only an explicit ``dirty: false`` passes; a missing, null or falsy flag is not a clean tree."""
     new = _new_meta()
     new["git"] = git
     assert "git.dirty is false" in _failed(_load().compare_metadata(_base_meta(), new))

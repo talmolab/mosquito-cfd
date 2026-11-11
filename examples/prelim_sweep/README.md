@@ -2,9 +2,10 @@
 
 > **Stale surrogate (#109).** `dataset.parquet` now carries the IB force and moment on the
 > wing ([sign convention](../../docs/coordinate-convention.md#force-and-moment-sign)), but
-> the committed `surrogate/` was trained on the previous coefficients, and `figures/` was drawn
-> from it, so they are stale against `dataset.parquet`: the surrogate predicts the force on the
-> fluid (and the moment on it), so negate its outputs before comparing them with the dataset.
+> the committed `surrogate/` was trained on the previous coefficients, and the evidence figure
+> in `figures/` was drawn from it, so they are stale against `dataset.parquet`: the surrogate
+> predicts the force on the fluid (and the moment on it), so negate its outputs before comparing
+> them with the dataset.
 > The retrain is the last step of #109.
 
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
