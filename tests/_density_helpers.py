@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numbers
+from decimal import Decimal
 
 import numpy as np
 
@@ -35,3 +36,24 @@ class PreciseReal:
 
 
 numbers.Real.register(PreciseReal)
+
+
+# Densities every density-taking function rejects before reading. Decimal and a 0-d array are
+# not numbers.Real; 1e-320 and 5e-324 are subnormal floats.
+BAD_DENSITIES = {
+    "0.0": 0.0,
+    "-1.0": -1.0,
+    "nan": float("nan"),
+    "inf": float("inf"),
+    "True": True,
+    "None": None,
+    "'1.0'": "1.0",
+    "10**400": 10**400,
+    "Decimal(1)": Decimal("1"),
+    "array(1.0)": np.array(1.0),
+    "1e-320": 1e-320,
+    "5e-324": 5e-324,
+}
+
+# Densities that overflow: at 5e305 F_ref is finite but the forces are not; at 1e308 F_ref is not.
+OVERFLOW_DENSITIES = [5e305, 1e308]

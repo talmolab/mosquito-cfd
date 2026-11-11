@@ -141,6 +141,31 @@ def _validated_density(rho_f: object, name: str = "rho_f") -> float:
     return value
 
 
+def _raise_if_density_overflowed(
+    name: str,
+    density: float,
+    arrays: list[NDArray[np.floating]],
+    finite_input: NDArray[np.bool_] | None = None,
+) -> None:
+    """Raise a ``ValueError`` naming the density if a force computed from finite input overflowed.
+
+    ``F_ref`` can stay finite while the forces scaled by the density overflow to ``inf``/NaN, so
+    the ``F_ref`` check alone does not catch it. Only rows where ``finite_input`` is True count:
+    a non-finite input row keeps its existing handling (issue #138), and is not reported as a
+    density overflow.
+    """
+    for a in arrays:
+        bad = ~np.isfinite(a)
+        if finite_input is not None:
+            bad &= finite_input.reshape(finite_input.shape + (1,) * (bad.ndim - 1))
+        if bad.any():
+            raise ValueError(
+                f"{name}={density!r} makes the forces overflow to inf/NaN, although the input is "
+                f"finite; the density cancels from every coefficient, so a smaller {name} gives "
+                "the same result"
+            )
+
+
 def added_mass_force(
     sum_u: NDArray[np.floating], rho_f: float = RHO
 ) -> NDArray[np.floating]:
@@ -197,7 +222,8 @@ def reconstruct_wing_forces(
 
     Raises:
         ValueError: if ``rho_f`` is not a finite, positive real number (checked before the CSV is
-            read), a required column is missing, or ``f_ref`` is degenerate.
+            read), a required column is missing, ``f_ref`` is degenerate, or ``rho_f`` is so large
+            that a force computed from a finite input row overflows.
     """
     rho_f = _validated_density(rho_f)
     df = pd.read_csv(csv_path)
@@ -224,6 +250,22 @@ def reconstruct_wing_forces(
     # 6-DOF balance: F_hydro = rho_f*(SumU - ib_force) = added_mass + rho_f*ib_w.
     fh_x = am_x + ib_x
     fh_z = am_z + ib_z
+    finite_input = np.isfinite(df[["Fx", "Fz", "SumUx", "SumUz"]].to_numpy(float)).all(
+        axis=1
+    )
+    _raise_if_density_overflowed(
+        "rho_f",
+        rho_f,
+        [
+            ib_x / f_ref,
+            ib_z / f_ref,
+            am_x / f_ref,
+            am_z / f_ref,
+            fh_x / f_ref,
+            fh_z / f_ref,
+        ],
+        finite_input,
+    )
     return WingForceDecomposition(
         time=df["time"].to_numpy(float),
         f_ref=f_ref,
@@ -664,7 +706,8 @@ def body_frame_added_mass_subtracted(
             CSV has no rows; a force/``SumU`` row is
             non-finite **anywhere in the series** (checked over the whole record, not just the window,
             so a corrupt/diverged write-out cannot be silently trimmed to clean numbers); ``f_ref`` is
-            not finite and positive; ``window_t0`` selects no timesteps; or a 6-DOF or ``ib_w``
+            not finite and positive; ``rho_f`` is so large that a force computed from a finite row
+            overflows; ``window_t0`` selects no timesteps; or a 6-DOF or ``ib_w``
             body-frame peak (``|CF_chord|``/``|CF_normal|``) falls below the numerical degeneracy floor
             (``_DEGENERATE_CF_FLOOR``) over the window. Each denominator has its own named error; the
             drop fraction and RMS share are never returned as a silent ``nan``/``inf`` or huge finite
@@ -711,6 +754,14 @@ def body_frame_added_mass_subtracted(
     added = added_mass_force(sum_u, rho_f)  # rho_f * SumU (#36); reused, not re-derived
     wing = rho_f * ib  # the IB force on the wing; ib_force is per unit density
     six_dof = added + wing  # rho_f*(SumU - ib_force), the free-body balance
+    # Non-finite input rows are left to body_frame_coefficients' own error below.
+    finite_input = np.isfinite(np.column_stack([ib, sum_u])).all(axis=1)
+    _raise_if_density_overflowed(
+        "rho_f",
+        rho_f,
+        [added / f_ref, wing / f_ref, six_dof / f_ref],
+        finite_input,
+    )
     rots = np.stack(
         [
             rotation_matrix(
@@ -881,7 +932,8 @@ def decompose_wing_force(
         verdict), and a ``series`` sub-dict for the figure. There is NO chord/phase/RMSE ``*_pass``.
 
     Raises:
-        ValueError: if ``rho`` is not a finite, positive, normal real number; or propagated from
+        ValueError: if ``rho`` is not a finite, positive, normal real number, or so large that the
+            model's ``F_ref`` or forces overflow; or propagated from
             :func:`reconstruct_wing_body_forces` (missing ``time``/``Fx``/
             ``Fy``/``Fz`` column, non-finite force row, or an empty steady window) — never a silent NaN.
     """
@@ -943,6 +995,11 @@ def decompose_wing_force(
         s_cy=moments.s_cy,
         s_we=moments.s_we,
         rho=rho,
+    )
+    _raise_if_density_overflowed(
+        "rho",
+        rho,
+        [a / f_ref for a in (tx, tz, ax, az, wx, wz, total_x, total_z)],
     )
     model_chord = total_x / f_ref
     model_normal = total_z / f_ref

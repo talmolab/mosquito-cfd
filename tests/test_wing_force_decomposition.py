@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from _density_helpers import PreciseReal
+from _density_helpers import BAD_DENSITIES, OVERFLOW_DENSITIES, PreciseReal
 
 from mosquito_cfd.benchmarks import van_veen_model as vv
 from mosquito_cfd.benchmarks.flapping_wing import (
@@ -316,7 +316,7 @@ def test_model_density_cancels_so_no_t4_number_or_verdict_depends_on_it(rho):
         _assert_same_t4(got, want, exact=rho in (0.5, 2.0))
 
 
-@pytest.mark.parametrize("bad", [0.0, float("nan"), True, "1.0"], ids=repr)
+@pytest.mark.parametrize("bad", list(BAD_DENSITIES.values()), ids=list(BAD_DENSITIES))
 @pytest.mark.parametrize("csv", [_FINE, "no/such/forces.csv"])
 def test_model_density_that_is_not_a_finite_positive_real_raises_before_reading(
     bad, csv
@@ -326,3 +326,17 @@ def test_model_density_that_is_not_a_finite_positive_real_raises_before_reading(
         ValueError, match=r"^rho must be a finite, positive real number"
     ):
         decompose_wing_force(csv, rho=bad, **_KIN)
+
+
+# The overflow is the point of these cases; numpy warns on it (and on the inf + -inf after).
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("rho", OVERFLOW_DENSITIES, ids=repr)
+def test_model_density_so_large_that_it_overflows_names_rho(rho):
+    """An overflowing ``rho`` is a named error, never an ``inf``/NaN T4 number (round 5).
+
+    At ``5e305`` the model's ``F_ref`` is finite but its forces overflow: round 5 found
+    ``normal_peak_model = inf`` and ``normal_mag_pass = False`` returned with no error.
+    """
+    with pytest.raises(ValueError, match=r"\brho=.*overflow"):
+        decompose_wing_force(_FINE, rho=rho, **_KIN)

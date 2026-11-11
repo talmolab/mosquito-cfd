@@ -6,13 +6,12 @@ source (NOT tuned to make the gate pass). See openspec/changes/standardize-force
 (Task E; capability flapping-wing-validation).
 """
 
-from decimal import Decimal
 from fractions import Fraction
 
 import numpy as np
 import pandas as pd
 import pytest
-from _density_helpers import PreciseReal
+from _density_helpers import BAD_DENSITIES, OVERFLOW_DENSITIES, PreciseReal
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     STEADY_WINDOW_T0,
@@ -276,24 +275,7 @@ def test_density_of_another_real_type_gives_the_same_float64_coefficients(rho_f)
         assert got_d[key] == value, key
 
 
-# Decimal and a 0-d array are not numbers.Real; 1e-320 and 5e-324 are subnormal floats.
-_BAD_DENSITIES = {
-    "0.0": 0.0,
-    "-1.0": -1.0,
-    "nan": float("nan"),
-    "inf": float("inf"),
-    "True": True,
-    "None": None,
-    "'1.0'": "1.0",
-    "10**400": 10**400,
-    "Decimal(1)": Decimal("1"),
-    "array(1.0)": np.array(1.0),
-    "1e-320": 1e-320,
-    "5e-324": 5e-324,
-}
-
-
-@pytest.mark.parametrize("bad", list(_BAD_DENSITIES.values()), ids=list(_BAD_DENSITIES))
+@pytest.mark.parametrize("bad", list(BAD_DENSITIES.values()), ids=list(BAD_DENSITIES))
 @pytest.mark.parametrize("csv", [_CSV, "no/such/forces.csv"])
 def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, csv):
     """A bad ``rho_f`` is a named parameter error, raised before the CSV is opened.
@@ -313,17 +295,42 @@ def test_density_that_is_not_a_finite_positive_real_raises_before_reading(bad, c
         body_frame_added_mass_subtracted(csv, rho_f=bad, pitch_amp_deg=45.0, **_KIN)
 
 
-def test_density_so_large_that_f_ref_overflows_names_rho_f():
-    """``rho_f = 1e308`` overflows ``F_ref``; the error names ``rho_f``, not only the kinematics.
+_NEWCONV = "examples/flapping_wing/forces_t2a_newconv.csv"
 
-    Scenario: The density cancels (review round 4 of #136).
+
+# The overflow is the point of these cases; numpy warns on it (and on the inf + -inf after).
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("rho_f", OVERFLOW_DENSITIES, ids=repr)
+@pytest.mark.parametrize("csv", [_CSV, _NEWCONV])
+def test_density_so_large_that_it_overflows_names_rho_f(rho_f, csv):
+    """An overflowing density is a named error, never an ``inf``/NaN coefficient.
+
+    Scenario: The density cancels (review rounds 4 and 5 of #136). At ``5e305`` ``F_ref`` is
+    finite but the forces overflow (round 5 found ``cf_z_hydro`` returned with ``inf``); at
+    ``1e308`` ``F_ref`` itself overflows.
     """
     from mosquito_cfd.benchmarks.flapping_wing import body_frame_added_mass_subtracted
 
-    with pytest.raises(ValueError, match=r"f_ref must be finite and positive.*rho_f"):
-        reconstruct_wing_forces(_CSV, rho_f=1e308, **_KIN)
-    with pytest.raises(ValueError, match=r"f_ref must be finite and positive.*rho_f"):
-        body_frame_added_mass_subtracted(_CSV, rho_f=1e308, pitch_amp_deg=45.0, **_KIN)
+    with pytest.raises(ValueError, match=r"rho_f=.*overflow"):
+        reconstruct_wing_forces(csv, rho_f=rho_f, **_KIN)
+    with pytest.raises(ValueError, match=r"rho_f=.*overflow"):
+        body_frame_added_mass_subtracted(csv, rho_f=rho_f, pitch_amp_deg=45.0, **_KIN)
+
+
+def test_non_finite_input_row_is_not_reported_as_a_density_overflow(tmp_path):
+    """The overflow check looks only where the input is finite (#138 owns non-finite input).
+
+    A NaN force row in the lab path keeps its existing behaviour at ``rho_f = 1``: no overflow
+    error, and the NaN stays in that row's coefficient.
+    """
+    df = pd.read_csv(_CSV)
+    df.loc[5, "Fx"] = np.nan
+    path = tmp_path / "nan_row.csv"
+    df.to_csv(path, index=False)
+    d = reconstruct_wing_forces(path, **_KIN)
+    assert np.isnan(d.cf_x_ib[5]) and np.isnan(d.cf_x_hydro[5])
+    assert np.isfinite(np.delete(d.cf_x_ib, 5)).all()
 
 
 # --- E.5: docs disclose the lab-frame caveat and defer body-frame/time-resolved ---
