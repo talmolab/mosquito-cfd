@@ -228,8 +228,9 @@ def extract_eulerian_box(
     Raises:
         ValueError: If ``lo`` or ``hi`` is not a 3-vector or contains NaN; if ``lo > hi`` on
             any axis; if ``halo`` is negative or not of an integer type (``bool``, integral
-            floats such as ``2.0`` and 0-d arrays included); if the plotfile's on-disk precision is not fp64, or cannot be
-            determined because yt no longer exposes the private ``ds.index._dtype``; if it is
+            floats such as ``2.0`` and 0-d arrays included); if the plotfile's on-disk precision
+            is not fp64, or cannot be determined because yt no longer exposes the private
+            ``ds.index._dtype``; if it is
             multi-level; or if a required field is missing. The pre-refactor function raised only
             for the last two. It accepted the others, an fp32 plotfile silently as upcast
             float64.

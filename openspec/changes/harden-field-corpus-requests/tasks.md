@@ -284,18 +284,42 @@
     proposal are updated. `openspec validate --strict` passes.
 8.2 [x] **Anchors, then red then green (`box_margin`):** `1e-9`, `0.5`, `2`, `np.int64(2)` and
     `np.float32(0.5)` reach the plotfile tripwire in every mode (anchors: they pass today).
-    `Fraction(1, 2)` reaching it, `Decimal("3")` and `np.bool_(True)` being rejected, and the new
-    message are red first. Implementation: `numbers.Real` plus `float()`, returning the `float`.
+    `Fraction(1, 2)` reaching it and the new message are red first; `Decimal("3")` and
+    `np.bool_(True)` were already rejected, so only their message was red. Implementation: `numbers.Real` plus `float()`, returning the `float`.
     Re-run the four surviving mutants (`np.integer`/`np.floating` dropped, `> 1e-3`, `>= 1`); all
     must be killed.
 8.3 [x] **Red then green (`halo` message):** `halo=np.float64(1.9)` is reported as `got 1.9`. Add
     `mosquito_cfd._messages.plain_repr` and use it for `step`, `halo` and `box_margin`; correct the
     three comments that claimed `_validate_halo` already did this.
 8.4 [x] **Refactor under green tests:** one `_require_upstream(x_inlet, x_outlet)` used by both
-    `sphere_cv_*` functions; both `Raises:` docstrings say "not strictly less than (NaN included)".
+    `sphere_cv_*` functions; both `Raises:` docstrings say "not strictly less than ``x_outlet``
+    (NaN in either included)".
     The NaN drag cases match the guard's own message and use the reader tripwire, like the
     steadiness test. Mutant: the helper reverted to `>=` must be killed in both functions.
 8.5 [x] CHANGELOG `box_margin` wording matches D3. Full CPU suite, ruff on CI's paths, and
     `openspec validate --strict` pass. Push; post a reply on #140 mapping each finding to its fix.
 8.6 [x] File follow-up issues (#143, #144, #145): infinite inlet/outlet planes accepted; `flow_video`'s `plt?????`
     glob skips steps of 100000 or more; `_PLT_PATTERN`'s `\d` matches non-ASCII digits.
+
+## 9. Focused re-review of the fix commits (two reviewers; no blocking findings)
+
+9.1 [x] **Spec first:** the `visualization-tooling` delta rejects `np.timedelta64`,
+    `np.datetime64` and a `numbers.Real` whose `float()` raises, adds `-1` and `5e-324`, and gains
+    the scenario "the lev-3d near-field box is built from the validated float". The stray blank
+    line in the `force-extraction` delta is removed. `openspec validate --strict` passes.
+9.2 [x] **Red then green (`box_margin`):** `np.timedelta64(1, "s")`, `np.timedelta64(5, "ns")` and
+    a registered `numbers.Real` whose `__float__` raises `TypeError` fail in every mode (12 red:
+    an escaping `TypeError`, or acceptance). Implementation: reject `np.timedelta64` by type and
+    catch `TypeError`, `ValueError` and `OverflowError` around `float()`. The timedelta messages
+    stayed red (8) until `plain_repr` unwrapped only numpy number and bool scalars, excluding
+    `np.timedelta64`, which subclasses `np.signedinteger`.
+9.3 [x] **Mutation-kill tests (pass today):** `-1`, `5e-324`, `np.datetime64("2020-01-01")`, a
+    `ValueError`-raising `numbers.Real`, `(Fraction(5, 2), 2.5)` in the plain-float test, and
+    `test_lev3d_box_is_built_from_the_validated_margin`. Mutants killed: the `except` narrowed to
+    `OverflowError`, `TypeError` or `ValueError` dropped from it, `np.timedelta64` no longer
+    excluded, `plain_repr` unwrapping timedelta or every `np.generic` or omitting `np.bool_`,
+    `> 1e-12`, a wrong `float` for margins of 1 or more, and the validator returning its input.
+    One survivor is equivalent: dropping the rebind (see design.md).
+9.4 [x] Re-wrap the 122-character `extract_eulerian_box` docstring line; correct the wording of
+    8.2 and 8.4 and design.md; the CHANGELOG states the rule for ints beyond int64 and the `np.timedelta64`
+    rejection. Full CPU suite, ruff on CI's paths, and `openspec validate --strict` pass.

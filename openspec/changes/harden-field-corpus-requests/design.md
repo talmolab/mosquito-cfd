@@ -130,8 +130,11 @@ creation. The rules:
 
 - It must be a real number (`numbers.Real`): `int`, `float`, `fractions.Fraction`, or a numpy integer
   or floating scalar. `bool` and `np.bool_` are rejected; so is `decimal.Decimal`, which is not a
-  `numbers.Real`.
-- It must convert to a finite `float` `> 0`. An `int` too large for a `float` (`10**400`) fails here.
+  `numbers.Real`. `np.timedelta64` is rejected by type: numpy registers it as `numbers.Real`, but it
+  is a duration, and `float()` either raises (`'s'` unit) or returns the raw tick count (`'ns'`).
+- It must convert to a finite `float` `> 0`. An `int` too large for a `float` (`10**400`) fails here,
+  and so does any `numbers.Real` whose `float()` raises `TypeError` or `ValueError`: every rejection
+  is a `ValueError`.
 - The validated `float` is what the rest of the function uses.
 
 On failure it raises `ValueError: box_margin must be an int, float, Fraction or numpy real scalar
@@ -254,7 +257,8 @@ Five reviewers found no blocking issue and five important ones, all fixed here:
   the value in the `step`, `halo` and `box_margin` messages, replacing two copies of the expression.
 - **The `sphere_cv_*` `Raises:` docstrings still said `x_inlet >= x_outlet`,** though the guard also
   rejects NaN. The guard was also copied into both functions. It is now one helper,
-  `_require_upstream`, and both docstrings say "not strictly less than (NaN included)".
+  `_require_upstream`, and both docstrings say "not strictly less than ``x_outlet`` (NaN in either
+  included)".
 - **The inlet/outlet guard had tests but no spec scenario.** A `force-extraction` delta adds one to
   the existing "Robust input validation for the control-volume tools" requirement.
 
@@ -264,3 +268,26 @@ Recorded here rather than changed:
   This predates the change and is filed as #143.
 - **`flow_video` globs `plt?????`,** so steps of 100000 or more are skipped. This predates the change
   and is filed as #144.
+
+### Focused re-review of the fix commits (`b618a41..cb18146`)
+
+Two reviewers (behaviour; tests and spec) found no blocking issue and two important ones, both fixed:
+
+- **Narrowing the `except` to `OverflowError` let a `TypeError` escape.** `np.timedelta64(1, "s")` is
+  a `numbers.Real` whose `float()` raises `TypeError`, and `np.timedelta64(5, "ns")` was accepted as
+  `5.0`. D3 now rejects `np.timedelta64` by type and catches `TypeError`, `ValueError` and
+  `OverflowError` around `float()`. `plain_repr` now unwraps only numpy number and bool scalars
+  (excluding `np.timedelta64`, which subclasses `np.signedinteger`), because `.item()` showed
+  `np.timedelta64(5, "ns")` as `5` and `NaT` as `None`.
+- **No test showed that `build_flow_video` uses the validated `float`.** A validator returning a
+  wrong `float` for margins of 1 or more left the suite green. A `lev-3d` test now records the box
+  the reader is asked for and requires exactly `center - 2.5` and `center + 2.5` for
+  `Fraction(5, 2)` and `np.float32(2.5)`.
+
+Smaller fixes: `5e-324` and `-1` join the valid and invalid lists; one docstring line in
+`extract_eulerian_box` is re-wrapped; the wording of tasks 8.2 and 8.4 is corrected; the CHANGELOG
+states that an `int` beyond the int64 range is accepted while it converts to a finite `float`.
+
+Recorded rather than changed: dropping the `box_margin = _validate_box_margin(box_margin)` rebind
+is not observable today, because `center - Fraction(5, 2)` gives the same float corners as
+`center - 2.5`. `np.longdouble` keeps its numpy repr after `.item()`; this is cosmetic.
