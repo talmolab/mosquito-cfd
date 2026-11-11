@@ -21,7 +21,6 @@ field-based sphere Cd entry point SHALL not require IB-marker fields when run in
 - **AND** with `method="marker"` (the default) a missing-particle plotfile still raises, because the
   marker sum *is* that method
 
-
 #### Scenario: An inlet that is not strictly upstream is rejected before any plotfile is read
 
 - **GIVEN** `sphere_cv_drag_cd` or `sphere_cv_steadiness_fraction` called with `x_inlet` equal to
