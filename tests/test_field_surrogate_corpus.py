@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from mosquito_cfd.field_surrogate.corpus import FieldCorpus
@@ -231,3 +233,105 @@ def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "iterdir", reverse_numeric_iterdir)
     assert FieldCorpus(root).steps("s35_f085_p30") == [2, 10, 100]
+
+
+# --- harden-field-corpus-requests: step validation, duplicates, the canonical fast path --------
+
+
+class _IoSpy:
+    """Record manifest loads and ``Path`` directory checks/listings, installed AFTER construction.
+
+    ``FieldCorpus.__init__`` itself calls ``root.is_dir()``, so a spy installed before
+    construction would record that call. Only the ``Path`` API is covered: an ``os.path.isdir`` or
+    ``os.scandir`` call would not be seen, which is why every zero-call assertion below has a
+    positive control showing the same spy DOES see a real lookup.
+    """
+
+    def __init__(self, monkeypatch):
+        import mosquito_cfd.force_surrogate.dataset as fs_dataset
+
+        self.calls: list[str] = []
+        real_is_dir, real_iterdir = Path.is_dir, Path.iterdir
+        real_load = fs_dataset.load_manifest_configs
+
+        def is_dir(path, *args, **kwargs):
+            self.calls.append(f"is_dir:{path.name}")
+            return real_is_dir(path, *args, **kwargs)
+
+        def iterdir(path):
+            self.calls.append(f"iterdir:{path.name}")
+            return real_iterdir(path)
+
+        def load(*args, **kwargs):
+            # _configs imports load_manifest_configs lazily, inside the call, so patching the
+            # module attribute is observed.
+            self.calls.append("load_manifest")
+            return real_load(*args, **kwargs)
+
+        monkeypatch.setattr(Path, "is_dir", is_dir)
+        monkeypatch.setattr(Path, "iterdir", iterdir)
+        monkeypatch.setattr(fs_dataset, "load_manifest_configs", load)
+
+    def count(self, prefix: str) -> int:
+        return sum(1 for c in self.calls if c.startswith(prefix))
+
+
+def _bare_corpus(tmp_path: Path, plt_names: list[str]) -> tuple[Path, Path]:
+    """A one-config corpus whose run directory holds empty ``plt*`` directories.
+
+    ``plotfile()``/``steps()`` never read a plotfile's contents, so empty directories suffice.
+    """
+    root = tmp_path / "corpus"
+    run = root / "runs" / "s35_f085_p30"
+    run.mkdir(parents=True)
+    (root / "sweep_manifest.json").write_text(json.dumps(_manifest(["s35_f085_p30"])))
+    for name in plt_names:
+        (run / name).mkdir()
+    return root, run
+
+
+@pytest.mark.parametrize(
+    "step",
+    [np.int64(100), np.int32(100), np.uint64(100), 0],
+    ids=["np_int64", "np_int32", "np_uint64", "zero"],
+)
+def test_integer_like_steps_resolve(tmp_path, step):
+    # Anchor (passes before the step validation): numpy integers -- e.g. a value taken from an
+    # array of steps -- and step 0 (plt00000 is written at initialization) stay valid.
+    root, run = _bare_corpus(tmp_path, ["plt00000", "plt00100"])
+    assert (
+        FieldCorpus(root).plotfile("s35_f085_p30", step) == run / f"plt{int(step):05d}"
+    )
+
+
+_BAD_STEPS = ["100", 100.0, True, np.bool_(True), -1, None]
+
+
+@pytest.mark.parametrize("accessor", ["plotfile", "snapshot"])
+@pytest.mark.parametrize("step", _BAD_STEPS, ids=[repr(s) for s in _BAD_STEPS])
+def test_invalid_step_is_rejected_before_any_io(tmp_path, monkeypatch, accessor, step):
+    # "100" used to fail with "no plotfile for step 100 ... available steps: [100]"; 100.0 and
+    # True resolved plt00100; -1 scanned the run directory. All are caller bugs, reported as a bad
+    # step before the manifest is read or the run directory is touched
+    # (harden-field-corpus-requests D4). A fresh instance per case: once the manifest is cached a
+    # validate-after-_config mutant would also record no manifest load.
+    root, _ = _bare_corpus(tmp_path, ["plt00100"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+
+    with pytest.raises(
+        ValueError,
+        match=r"step must be a non-negative integer, got " + re.escape(repr(step)),
+    ):
+        getattr(corpus, accessor)("s35_f085_p30", step)
+    assert spy.calls == []
+
+
+def test_io_spy_sees_a_real_plotfile_lookup(tmp_path, monkeypatch):
+    # Positive control for the zero-call assertion above.
+    root, _ = _bare_corpus(tmp_path, ["plt00100"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+    corpus.plotfile("s35_f085_p30", 100)
+    assert spy.count("load_manifest") == 1
+    assert spy.count("is_dir:") >= 1

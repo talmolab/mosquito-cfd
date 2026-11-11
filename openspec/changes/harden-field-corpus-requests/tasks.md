@@ -107,10 +107,10 @@
 
 ## 3. #121: `step` validation (`corpus.py`)
 
-3.1 [ ] **Anchor**: `np.int64(100)`, `np.int32(100)` and `0` resolve `plt00100` and `plt00000`. This
+3.1 [x] **Anchor**: `np.int64(100)`, `np.int32(100)` and `0` resolve `plt00100` and `plt00000`. This
     passes today.
 
-3.2 [ ] **Red**: `test_invalid_step_is_rejected_before_any_io`, parametrized over `step ∈ {"100",
+3.2 [x] **Red**: `test_invalid_step_is_rejected_before_any_io`, parametrized over `step ∈ {"100",
     100.0, True, np.bool_(True), -1, None}` × `{plotfile, snapshot}`.
     - Build a fresh `FieldCorpus` for each parameter.
     - Only after construction, install spies on
@@ -123,7 +123,7 @@
 
     It fails today: `"100"` gives the "no plotfile" message, `100.0` resolves, and `-1` scans.
 
-3.3 [ ] **Implement** in the same commit: `_validate_step(step) -> int`, called first in `plotfile()`.
+3.3 [x] **Implement** in the same commit: `_validate_step(step) -> int`, called first in `plotfile()`.
     Update the `plotfile()`/`snapshot()` docstrings: the `step` argument is "non-negative integer
     timestep", and `Raises:` lists a bad `step`, an unknown config or missing run directory, and
     duplicates; `snapshot()` also lists "anything `read_field_snapshot` raises (including `lo > hi`)".

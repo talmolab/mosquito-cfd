@@ -14,11 +14,24 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
 
 #: Plotfile directory names are ``plt`` followed by digits only. ``plt00300.old`` and ``pltXXXXX``
 #: are deliberately not matched.
 _PLT_PATTERN = re.compile(r"^plt(\d+)$")
+
+
+def _validate_step(step: Any) -> int:
+    # Mirrors snapshot._validate_halo. bool is an int subclass (plotfile(c, True) would resolve
+    # step 1); np.bool_ is not an np.integer, so the type test rejects it. Checked before any
+    # manifest read or filesystem access, so a bad step is reported as a bad step
+    # (harden-field-corpus-requests D4). repr() so the string '100' is distinguishable from 100.
+    if isinstance(step, bool) or not isinstance(step, (int, np.integer)) or step < 0:
+        raise ValueError(f"step must be a non-negative integer, got {step!r}")
+    return int(step)
+
 
 #: Kinematic parameters carried per config in the sweep manifest.
 GLOBAL_PARAM_KEYS: tuple[str, ...] = (
@@ -154,14 +167,18 @@ class FieldCorpus:
 
         Args:
             config_id: Config name as listed in the manifest.
-            step: Timestep, as written in the ``pltNNNNN`` directory name.
+            step: Non-negative integer timestep (``int`` or ``np.integer``, not ``bool``), as
+                written in the ``pltNNNNN`` directory name.
 
         Returns:
             Path to the plotfile directory.
 
         Raises:
-            ValueError: If no plotfile for that step exists.
+            ValueError: If ``step`` is not a non-negative integer (checked before any I/O), if
+                the config is not in the manifest or its run directory is absent, or if no
+                plotfile for that step exists.
         """
+        step = _validate_step(step)
         run = self.run_dir(config_id)
         for candidate in run.iterdir():
             match = _PLT_PATTERN.match(candidate.name)
@@ -187,7 +204,7 @@ class FieldCorpus:
 
         Args:
             config_id: Config name as listed in the manifest.
-            step: Timestep, as written in the ``pltNNNNN`` directory name.
+            step: Non-negative integer timestep, as written in the ``pltNNNNN`` directory name.
             lo: Physical lower corner; defaults to the full domain.
             hi: Physical upper corner; defaults to the full domain.
             halo: Extra cells sliced on every side.
@@ -195,6 +212,10 @@ class FieldCorpus:
 
         Returns:
             The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile.
+
+        Raises:
+            ValueError: Anything :meth:`plotfile` raises (a bad ``step`` before any I/O), and
+                anything ``read_field_snapshot`` raises, including ``lo > hi`` on any axis.
         """
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
