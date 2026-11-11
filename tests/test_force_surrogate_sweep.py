@@ -1058,7 +1058,7 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
         "re_extraction": "fix-wing-force-sign-convention",  # #109 PR2b
         "retrain": "fix-moment-reference-hinge",  # #108 PR3, until #109's retrain
     }
-    prs = {"re_extraction": None, "retrain": 126}
+    prs = {"re_extraction": 146, "retrain": 126}
     for stage, expected in stages.items():
         step = record[stage]
         assert step["change"] == changes[stage], stage
