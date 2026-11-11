@@ -31,7 +31,10 @@ def _validate_step(step: Any) -> int:
     # manifest read or filesystem access, so a bad step is reported as a bad step
     # (harden-field-corpus-requests D4). repr() so the string '100' is distinguishable from 100.
     if isinstance(step, bool) or not isinstance(step, (int, np.integer)) or step < 0:
-        raise ValueError(f"step must be a non-negative integer, got {step!r}")
+        # numpy scalars are shown as their plain value, as _validate_halo and
+        # flow_video._validate_box_margin do -- never numpy 2's "np.int64(-1)" repr.
+        shown = step.item() if isinstance(step, np.generic) else step
+        raise ValueError(f"step must be a non-negative integer, got {shown!r}")
     return int(step)
 
 
@@ -191,7 +194,7 @@ class FieldCorpus:
         config = self._config(config_id)
         return {k: config[k] for k in GLOBAL_PARAM_KEYS}
 
-    def plotfile(self, config_id: str, step: int) -> Path:
+    def plotfile(self, config_id: str, step: int | np.integer) -> Path:
         """Return the plotfile directory for one ``(config_id, step)``.
 
         The canonical AMReX name ``plt{step:05d}`` is tried first with one ``is_dir()``; only if
@@ -234,7 +237,7 @@ class FieldCorpus:
     def snapshot(
         self,
         config_id: str,
-        step: int,
+        step: int | np.integer,
         *,
         lo=(float("-inf"),) * 3,
         hi=(float("inf"),) * 3,

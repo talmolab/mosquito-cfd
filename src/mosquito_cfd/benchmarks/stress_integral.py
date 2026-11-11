@@ -309,7 +309,8 @@ def sphere_cv_drag_cd(
     Returns:
         Dict with ``cd``, ``drag``, ``x_inlet``, ``x_outlet`` (actual cell-center positions).
     """
-    if x_inlet >= x_outlet:
+    # `not <`, not `>=`: NaN compares False both ways and must not reach the reader.
+    if not (x_inlet < x_outlet):
         raise ValueError(
             f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
         )
@@ -492,7 +493,8 @@ def sphere_cv_steadiness_fraction(
             (``harden-field-corpus-requests`` D1); and anything :func:`sphere_cv_drag_cd` or
             :func:`extract_eulerian_box` raises.
     """
-    if x_inlet >= x_outlet:
+    # `not <`, not `>=`: NaN compares False both ways and must not reach the reader.
+    if not (x_inlet < x_outlet):
         raise ValueError(
             f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
         )

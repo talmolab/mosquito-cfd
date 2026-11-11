@@ -457,21 +457,31 @@ def test_inverted_request_is_rejected(lo, hi, halo):
     _assert_inversion_error(excinfo, lo, hi)
 
 
-def test_inverted_request_is_rejected_before_the_plotfile_is_opened(tmp_path):
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:] for c in INVERTED_REQUESTS],
+    ids=[c[0] for c in INVERTED_REQUESTS],
+)
+def test_inverted_request_is_rejected_before_the_plotfile_is_opened(
+    tmp_path, lo, hi, halo
+):
     # A path that does not exist: if the check ran after yt.load, this would be a load error.
-    lo, hi = (4.0,) * 3, (2.0,) * 3
     with pytest.raises(ValueError, match=r"inverted region request") as excinfo:
-        read_field_snapshot(tmp_path / "no_such_plotfile", lo=lo, hi=hi)
+        read_field_snapshot(tmp_path / "no_such_plotfile", lo=lo, hi=hi, halo=halo)
     _assert_inversion_error(excinfo, lo, hi)
 
 
-def test_inverted_request_is_rejected_before_yt_is_imported(monkeypatch):
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:] for c in INVERTED_REQUESTS],
+    ids=[c[0] for c in INVERTED_REQUESTS],
+)
+def test_inverted_request_is_rejected_before_yt_is_imported(monkeypatch, lo, hi, halo):
     # sys.modules[name] = None makes `import yt` raise ImportError, so a check placed between the
     # import and yt.load surfaces as ImportError rather than the inversion error.
     monkeypatch.setitem(sys.modules, "yt", None)
-    lo, hi = (4.0,) * 3, (2.0,) * 3
     with pytest.raises(ValueError, match=r"inverted region request") as excinfo:
-        read_field_snapshot(FIXTURE, lo=lo, hi=hi)
+        read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo)
     _assert_inversion_error(excinfo, lo, hi)
 
 

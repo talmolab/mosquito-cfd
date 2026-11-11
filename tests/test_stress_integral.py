@@ -181,6 +181,12 @@ def test_sphere_cv_drag_rejects_swapped_planes():
         sphere_cv_drag_cd("no/such/plotfile", x_inlet=8.0, x_outlet=2.0)
     with pytest.raises(ValueError, match="upstream"):
         sphere_cv_drag_cd("no/such/plotfile", x_inlet=5.0, x_outlet=5.0)
+    # NaN compares False both ways, so `x_inlet >= x_outlet` let it through to the reader, whose
+    # error named lo/hi; `not (x_inlet < x_outlet)` rejects it here, in the caller's terms.
+    with pytest.raises(ValueError, match="upstream"):
+        sphere_cv_drag_cd("no/such/plotfile", x_inlet=float("nan"), x_outlet=5.0)
+    with pytest.raises(ValueError, match="upstream"):
+        sphere_cv_drag_cd("no/such/plotfile", x_inlet=2.0, x_outlet=float("nan"))
 
 
 @pytest.mark.requires_plotfile
@@ -629,7 +635,11 @@ def test_sphere_cv_steadiness_fraction_rejects_a_slab_outside_the_domain():
         )
 
 
-@pytest.mark.parametrize(("x_inlet", "x_outlet"), [(4.0, 2.0), (3.0, 3.0)])
+@pytest.mark.parametrize(
+    ("x_inlet", "x_outlet"),
+    [(4.0, 2.0), (3.0, 3.0), (float("nan"), 3.0), (1.0, float("nan"))],
+    ids=["inverted", "equal", "nan_inlet", "nan_outlet"],
+)
 def test_sphere_cv_steadiness_fraction_rejects_inlet_not_upstream_before_reading(
     monkeypatch, x_inlet, x_outlet
 ):

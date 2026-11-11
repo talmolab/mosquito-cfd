@@ -100,7 +100,13 @@ def _validate_box_margin(box_margin: Any) -> None:
     is_real = isinstance(box_margin, (int, float, np.integer, np.floating)) and not (
         isinstance(box_margin, (bool, np.bool_))
     )
-    if not (is_real and np.isfinite(box_margin) and box_margin > 0):
+    try:
+        # np.isfinite raises TypeError on an int beyond float64 range (10**400): that is a bad
+        # value, reported as ValueError like every other.
+        finite = is_real and bool(np.isfinite(box_margin))
+    except (TypeError, OverflowError):
+        finite = False
+    if not (finite and box_margin > 0):
         shown = box_margin.item() if isinstance(box_margin, np.generic) else box_margin
         raise ValueError(f"box_margin must be a finite number > 0, got {shown!r}")
 

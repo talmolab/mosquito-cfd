@@ -304,11 +304,19 @@ def test_integer_like_steps_resolve(tmp_path, step):
     )
 
 
-_BAD_STEPS = ["100", 100.0, True, np.bool_(True), -1, None]
+_BAD_STEPS = ["100", 100.0, True, np.bool_(True), -1, np.int64(-1), None]
+
+
+def _shown(step):
+    # numpy scalars are shown as their plain Python value, as _validate_halo and
+    # _validate_box_margin do -- never numpy 2's "np.int64(-1)" repr.
+    return repr(step.item() if isinstance(step, np.generic) else step)
 
 
 @pytest.mark.parametrize("accessor", ["plotfile", "snapshot"])
-@pytest.mark.parametrize("step", _BAD_STEPS, ids=[repr(s) for s in _BAD_STEPS])
+@pytest.mark.parametrize(
+    "step", _BAD_STEPS, ids=[f"{type(s).__name__}:{_shown(s)}" for s in _BAD_STEPS]
+)
 def test_invalid_step_is_rejected_before_any_io(tmp_path, monkeypatch, accessor, step):
     # "100" used to fail with "no plotfile for step 100 ... available steps: [100]"; 100.0 and
     # True resolved plt00100; -1 scanned the run directory. All are caller bugs, reported as a bad
@@ -321,7 +329,9 @@ def test_invalid_step_is_rejected_before_any_io(tmp_path, monkeypatch, accessor,
 
     with pytest.raises(
         ValueError,
-        match=r"step must be a non-negative integer, got " + re.escape(repr(step)),
+        match=r"step must be a non-negative integer, got "
+        + re.escape(_shown(step))
+        + "$",
     ):
         getattr(corpus, accessor)("s35_f085_p30", step)
     assert spy.calls == []
@@ -379,7 +389,9 @@ def test_non_directory_entries_never_duplicate_or_resolve(tmp_path, monkeypatch)
     _listing_order(monkeypatch, ["plt00100", "plt100"])
     root, run = _bare_corpus(tmp_path, ["plt00100"])
     (run / "plt100").write_text("not a plotfile")
-    assert FieldCorpus(root).steps("s35_f085_p30") == [100]
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == [100]
+    assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
 
     root2, run2 = _bare_corpus(tmp_path / "second", ["plt100"])
     (run2 / "plt00100").write_text("not a plotfile")

@@ -262,3 +262,17 @@
     - the published-image note.
 
     Post the hand-written squash message as a PR comment.
+
+## 7. Pre-PR review round (`/review-pr`, branch mode; no blocking findings)
+
+7.1 [x] **Red then green:** `box_margin` given `10**400` or `-(10**400)` is a `ValueError`, not a
+    `TypeError` (8 cases).
+7.2 [x] **Red then green:** a numpy `step` is shown as its plain value in the message
+    (`np.int64(-1)` → `got -1`).
+7.3 [x] **Red then green:** a NaN `x_inlet`/`x_outlet` is rejected by
+    `sphere_cv_steadiness_fraction` and `sphere_cv_drag_cd` themselves, via `not (x_inlet < x_outlet)`.
+7.4 [x] Test gaps: `plotfile()` is checked on the first non-directory layout; the before-`yt.load`
+    and before-`import yt` tests run over all of `INVERTED_REQUESTS`.
+7.5 [x] The CHANGELOG entry is marked **BREAKING**. "Both narrowings" becomes "Each narrowing".
+7.6 [x] Mutants 4/4 killed: try/except narrowed, numpy unwrap removed, and each NaN guard reverted
+    to `>=`. design.md records the review round, the deliberate non-changes, and the follow-ups.

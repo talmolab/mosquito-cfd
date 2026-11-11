@@ -660,24 +660,28 @@ def _plotfile_io_tripwire(plotfile_dir):
     raise AssertionError("plotfile I/O before argument validation")
 
 
+#: (id, value, the value as the message must show it). Ints beyond float64 range must still be a
+#: ValueError: np.isfinite raises TypeError on them.
 _BAD_BOX_MARGINS = [
-    (-1.0, "-1.0"),
-    (0, "0"),
-    (0.0, "0.0"),
-    (float("nan"), "nan"),
-    (float("inf"), "inf"),
-    (float("-inf"), "-inf"),
-    (np.float64(-1.0), "-1.0"),
-    (True, "True"),
-    ("3", "'3'"),
+    ("neg_float", -1.0, "-1.0"),
+    ("zero_int", 0, "0"),
+    ("zero_float", 0.0, "0.0"),
+    ("nan", float("nan"), "nan"),
+    ("inf", float("inf"), "inf"),
+    ("neg_inf", float("-inf"), "-inf"),
+    ("np_float64_neg", np.float64(-1.0), "-1.0"),
+    ("bool", True, "True"),
+    ("str", "3", "'3'"),
+    ("huge_int", 10**400, repr(10**400)),
+    ("huge_neg_int", -(10**400), repr(-(10**400))),
 ]
 
 
 @pytest.mark.parametrize("field_mode", FIELD_MODES)
 @pytest.mark.parametrize(
     ("box_margin", "shown"),
-    _BAD_BOX_MARGINS,
-    ids=[s for _, s in _BAD_BOX_MARGINS],
+    [c[1:] for c in _BAD_BOX_MARGINS],
+    ids=[c[0] for c in _BAD_BOX_MARGINS],
 )
 def test_rejects_invalid_box_margin(
     tmp_path, monkeypatch, field_mode, box_margin, shown

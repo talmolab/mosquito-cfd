@@ -188,3 +188,46 @@ order with the same `Path.iterdir` patch used for the duplicate test.
 
 "`is_dir` filter dropped" was added beside "duplicate check before the `is_dir` filter". The two fail
 differently: the first lets files count as steps, the second only mis-orders the checks.
+
+### Pre-PR review round (`/review-pr`, branch mode): what changed
+
+Five reviewers found no blocking issue. These fixes were made before the PR was opened:
+
+- **`box_margin=10**400` raised `TypeError`, not `ValueError`.** D3 says a bad value is always a
+  `ValueError`, but `np.isfinite` cannot coerce an int beyond float64 range. The finiteness test
+  now treats `TypeError`/`OverflowError` as "not finite".
+- **`step` messages printed numpy reprs** (`got np.int64(-1)`), unlike `_validate_halo` and
+  `_validate_box_margin`. numpy scalars are now shown as plain values. `repr` still tells `'100'`
+  apart from `100`.
+- **A NaN `x_inlet`/`x_outlet` got past `x_inlet >= x_outlet`,** because NaN compares False both
+  ways. It then reached the reader, whose error names `lo`/`hi`. Both `sphere_cv_steadiness_fraction`
+  and `sphere_cv_drag_cd` now test `not (x_inlet < x_outlet)`. The `sphere_cv_drag_cd` half
+  fixes behaviour that predates this change. It is included because the D1 rationale (report bad
+  input in the caller's terms) applies equally.
+- **Tests:** `plotfile()` is now also checked on the first non-directory layout, and the
+  before-`yt.load` and before-`import yt` tests run over the whole inverted matrix.
+- **CHANGELOG:** the entry carries **BREAKING**, matching the proposal.
+
+Recorded here rather than changed:
+
+- **D1, zero tolerance.** The inversion check has no tolerance, so a 1-ULP inversion
+  (`lo = nextafter(2, 3)`, `hi = 2`) raises where legacy returned one cell. This is deliberate. No
+  committed call site builds corners that should coincide from separately rounded terms; `center ±
+  box_margin` cannot invert, because rounding is monotone.
+- **D2, cost of non-canonical names.** A hit on a non-canonical name such as `plt1500` now pays a
+  full scan: the canonical miss, the `run_dir()` stat, and every matching entry's `is_dir()`. The
+  old loop stopped at the first match. That full scan is the price of the duplicate check. AMReX
+  never writes such names.
+- **D2, case-insensitive mounts.** On NTFS or the `Z:` mount, a directory named `PLT00100` is
+  served as `.../plt00100`, so `FieldSnapshot.source` records the canonical spelling rather than
+  the on-disk one.
+- **A/B total.** `scripts/verify_eulerian_box_ab.py`'s expected total on the six real plotfiles
+  falls from 171 to 159 (15 `REGION_CASES` plus 9 `DIVERGENCE_CASES`, each run on 6 plotfiles, plus
+  the per-file boxes). The earlier archived run with a different case set also totalled 159, so a
+  log reading 159 is not by itself evidence of which case set ran.
+
+Left as follow-ups, not done here:
+
+- `_PLT_PATTERN`'s `\d` matches non-ASCII digits. This predates the change.
+- `os.scandir` in `_scan`, which belongs to #112.
+- A shared `_run_path` helper for the run-directory path.
