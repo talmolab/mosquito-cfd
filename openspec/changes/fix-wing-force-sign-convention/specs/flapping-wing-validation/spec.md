@@ -69,7 +69,8 @@ no committed coefficient changes. A `ρ_f` that is not a finite, positive real n
 `numbers.Real` other than a boolean) SHALL raise `ValueError` naming `rho_f`, before any file is read;
 so SHALL an integer too large to convert to a float, and a value below the smallest normal float
 (`np.finfo(float).tiny`), where the cancellation is no longer exact. A `rho_f` large enough that
-`F_ref` overflows SHALL raise a `ValueError` that names `rho_f` as a possible cause. The accepted
+`F_ref`, or any force or coefficient computed from finite input, overflows SHALL raise a `ValueError`
+that names `rho_f` as a possible cause, never return an `inf`/NaN coefficient. The accepted
 value is converted to a Python `float`, so every coefficient is `float64`.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
@@ -100,7 +101,8 @@ value is converted to a Python `float`, so every coefficient is `float64`.
 - **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
   `Decimal("1")` (not a `numbers.Real`), a 0-d array, or a subnormal such as `1e-320` raises
   `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
-- **And** `ρ_f = 1e308` raises `ValueError` naming `rho_f` in both functions
+- **And** `ρ_f = 5e305` (where `F_ref` is finite but the forces overflow) and `ρ_f = 1e308` (where
+  `F_ref` itself overflows) raise `ValueError` naming `rho_f` in both functions
 
 #### Scenario: Added-mass does not decide the gate
 
@@ -366,7 +368,9 @@ uncertainty) and pinned **before** the committed-run result — never reverse-fi
 grader SHALL be proven on synthetic fixtures to **pass within and fail outside** `T4_NORMAL_MAG_TOL` (both
 directions). The return value SHALL expose **no** chord `*_pass`/`*_match` verdict key, and its key set
 SHALL be exact/enumerated (a later-added chord gate fails a guard). A `rho` that is not a finite,
-positive, normal real number SHALL raise `ValueError` naming `rho` before any file is read.
+positive, normal real number SHALL raise `ValueError` naming `rho` before any file is read, and a
+`rho` large enough that the model's `F_ref` or any model force overflows SHALL raise `ValueError`
+naming `rho`, never return an `inf`/NaN number.
 
 #### Scenario: Normal peak MAGNITUDE is the primary graded lever (S_WE-insensitive)
 
@@ -462,5 +466,8 @@ positive, normal real number SHALL raise `ValueError` naming `rho` before any fi
 - **Then** every returned number, every `*_pass` verdict and every `series` array equals its `rho = 1`
   value (exactly at the powers of two, to `1e-12` relative at `1.3`); before this change, `rho = 2`
   doubled the model normal peak (2.48 → 4.95 against the CFD's 2.23) and flipped `normal_mag_pass`
-- **And** a `rho` of `0`, NaN, a boolean or a string raises `ValueError` naming `rho`, also when the CSV
-  path does not exist
+- **And** a `rho` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
+  `Decimal("1")`, a 0-d array or a subnormal raises `ValueError` naming `rho`, also when the CSV path
+  does not exist
+- **And** `rho = 5e305` (the model forces overflow while `F_ref` is finite) and `rho = 1e308` (`F_ref`
+  overflows) raise `ValueError` naming `rho`
