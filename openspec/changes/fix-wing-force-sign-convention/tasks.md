@@ -466,7 +466,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR2b — corpus flip and re-extraction (needs `Z:`)
 
-31. [x] Re-derive task 0's PR2b list and put it in the PR body. Prechecks:
+31. [x] Re-derive task 0's PR2b list and put it in the PR body (measured here; it goes into the
+    PR body when task 42 opens the PR). Prechecks:
     - `Z:` is mounted.
     - All 27 `IB_Particle_1.csv` per corpus are present under the baseline `input_dir`.
     - All 27 coarse `run_metadata.json` anchors are present.
@@ -574,7 +575,9 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   check exists because `-0 == 0` would let an all-zero column pass the negation check vacuously.
 - **Kill tables:** verifier 28/28 (one mutant was re-formulated: sorting only the already-sorted
   baseline was not a weakening); extractor and #108 control 9/9; `force_sign_provenance` 4/4; D6 7/7
-  plus 3/3 once the banners existed; banner helpers 4/4.
+  plus 3/3 once the banners existed; banner helpers 4/4. After the fresh review (task 42): a missing
+  or null `git.dirty` now fails the verifier (1/1), and the three banner literals became one shared,
+  reflow-tolerant predicate in `tests/_readme_guards.py` (1/1).
 
 ---
 

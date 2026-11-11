@@ -271,6 +271,16 @@ def test_the_sign_key_missing_fails():
     assert "force_sign_convention is the pinned value" in failed
 
 
+@pytest.mark.parametrize(
+    "git", [{"commit": "b" * 40}, {"commit": "b" * 40, "dirty": None}]
+)
+def test_an_unknown_dirty_state_fails_the_dirty_check(git):
+    """Only an explicit ``dirty: false`` passes; a missing or null flag is not a clean tree."""
+    new = _new_meta()
+    new["git"] = git
+    assert "git.dirty is false" in _failed(_load().compare_metadata(_base_meta(), new))
+
+
 def test_a_missing_git_block_fails_the_dirty_check():
     new = _new_meta()
     del new["git"]

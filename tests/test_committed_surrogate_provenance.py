@@ -47,6 +47,7 @@ from _readme_guards import (
     CYCLE_MEAN_HEADER,
     R2_NEAR_TARGET,
     SKILL_HEADER,
+    STALE_BANNER,
     check_comparison_table,
     check_cycle_mean_table,
     check_fine_denominator,
@@ -54,6 +55,7 @@ from _readme_guards import (
     check_fine_qs_disclosure,
     check_quoted_in_source,
     check_skill_table,
+    has_staleness_banner,
     overlap_cell,
     parse_table,
 )
@@ -97,9 +99,8 @@ def _readme(corpus: Path) -> str:
     return (corpus / "README.md").read_text(encoding="utf-8")
 
 
-# The D6 staleness banner, and the sha256 of each corpus's pre-change (a2e8f64) dataset.parquet,
+# The sha256 of each corpus's pre-change (a2e8f64) dataset.parquet,
 # which is the committed surrogate's inputs.hash and the coarse seed record's dataset sha.
-_BANNER = "are stale against `dataset.parquet`"
 _PRE_SIGN_CHANGE_SHA = {
     COARSE: "01c88ae908b85616f0335583a9ca8e27eb9b660574244981f44333883eb40afa",
     FINE: "2092f0fd05a60e706667b22848c46f7ce6608309b2021b02940c606856bd26a9",
@@ -108,7 +109,7 @@ _PRE_SIGN_CHANGE_SHA = {
 
 def _stale(corpus: Path) -> bool:
     """Whether the corpus README carries the D6 staleness banner (the pinned state)."""
-    return _BANNER in _readme(corpus)
+    return has_staleness_banner(_readme(corpus))
 
 
 def check_holdout_targets(corpus: Path, *, stale: bool) -> None:
@@ -415,7 +416,7 @@ def _tmp_corpus(tmp_path: Path, corpus: Path, *, stale: bool) -> Path:
     if _stale(corpus) != stale:
         dataset[TARGET_COLUMNS] = -dataset[TARGET_COLUMNS]
     dataset.to_parquet(out / "dataset.parquet", index=False)
-    banner = f"> The surrogate artifacts {_BANNER}.\n\n" if stale else ""
+    banner = f"> The surrogate artifacts {STALE_BANNER}.\n\n" if stale else ""
     (out / "README.md").write_text(f"# Corpus\n\n{banner}Body.\n", encoding="utf-8")
     if not stale:
         record = _meta(out / "surrogate" / "run_metadata.json")

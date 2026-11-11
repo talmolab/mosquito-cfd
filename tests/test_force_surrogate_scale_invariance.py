@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _readme_guards import banner_paragraph
 
 from mosquito_cfd.force_surrogate import (
     compute_force_coefficients,
@@ -465,19 +466,7 @@ def test_committed_extraction_provenance_matches_the_decks_and_the_cfd_run(corpu
 
 
 _REPO = Path(__file__).resolve().parents[1]
-_STALE_BANNER = "are stale against `dataset.parquet`"
 _TARGETS = ("CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz")
-
-
-def banner_paragraph(readme: str) -> str | None:
-    """The README paragraph carrying the staleness banner, whitespace-collapsed, or ``None``."""
-    for paragraph in readme.split("\n\n"):
-        # Strip blockquote markers, so a banner reflowed inside a quote still matches.
-        lines = [line.strip().removeprefix(">") for line in paragraph.splitlines()]
-        flat = " ".join(" ".join(lines).split())
-        if _STALE_BANNER in flat:
-            return flat
-    return None
 
 
 @pytest.mark.parametrize("corpus", ["prelim_sweep", "prelim_sweep_fine"])
