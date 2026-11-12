@@ -583,16 +583,16 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR3 — retrain and regenerate (closes #109)
 
-43. [ ] Local commit of the pre-registered literals as tests (docstrings name this change and note that
+43. [x] Local commit of the pre-registered literals as tests (docstrings name this change and note that
     they may be retired by a later OpenSpec change):
     - the 12 `a2e8f64` skill intervals, plus the overlap test that also asserts
       `inputs.hash == sha256(dataset)` and `inputs.hash != pinned` (red until the retrain);
     - exact `overshoot_factor` and `round(baseline_rmse_cf_z, 4)` (red until the figures).
-44. [ ] **Test first, G0**, in `test_force_surrogate_train_gpu.py` (design D7). First verify
+44. [x] **Test first, G0**, in `test_force_surrogate_train_gpu.py` (design D7). First verify
     physicsnemo's final-layer options. Run in WSL with the three mutants.
-45. [ ] Decide the `seed_variation.json` third dataset key and the README seed-table shape. Edit their
+45. [x] Decide the `seed_variation.json` third dataset key and the README seed-table shape. Edit their
     tests.
-46. [ ] Fresh reviewer agent, **before** any render, on:
+46. [x] Fresh reviewer agent, **before** any render, on:
     - the caption;
     - the evidence-figure title (`evidence_figure.py:682` "span-normal" → "lab vertical");
     - the quasi-steady "poor fit" wording (`evidence_figure.py:8, :644, :672`; coarse README `:416-428`);
@@ -621,9 +621,54 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - the one-blob check.
 
     **Stop for approval before pushing** tasks 43–50 together.
-52. [ ] Open PR3. Put the hand-written squash message at the top of the PR body and in a PR comment, with
-    "Closes #109." on its own line. Then commit the PR number into `sweep_provenance.json` and its test.
-    Add the stale T4 literals to #115.
+52. [ ] Open PR3 with "Closes #109." on its own line in the PR body (a normal PR body; no hand-written
+    squash message, by user decision). Then commit the PR number into `sweep_provenance.json` and its
+    test. Add the stale T4 literals to #115.
 53. [ ] After merge: `/cleanup-merged`, including the OpenSpec archive (a separate `chore(openspec):
     archive …` commit on `main`) and the roadmap update. After the archive, confirm the live spec no
     longer says "not yet verified", and close #19 by hand.
+
+
+### PR3 implementation notes (deviations recorded, not silent)
+
+- **Task 0, measured.** Merge-base `90b2a72`. Sims are exports of it with their own `src` first on
+  `PYTHONPATH`. Control: 0 failures (1861 passed). Simulated retrain (the committed surrogate's
+  outputs exactly negated, hashes re-pointed, banners and the surrogate phrase removed): 3 failures.
+  One is planned (`test_seed_variation_record_matches_the_committed_surrogate`). The other two,
+  `test_committed_sidecar_regenerates_from_committed_inputs[coarse|fine]`, are sim artifacts: the sim
+  rewrote the sidecar JSON with `—` escapes, while the generator writes a raw UTF-8 em-dash.
+  The new G3/G4 tests pass on that sim.
+- **G0 needed a non-zero final bias.** physicsnemo's `FullyConnected` final layer is
+  `FCLayer(activation_fn=None, weight_norm=False, weight_fact=False, activation_par=None)` around a plain
+  `nn.Linear`, as D7 requires (verified in the WSL train venv, physicsnemo 2.1.1). But
+  `FCLayer.reset_parameters` initializes that bias to 0, so negating the bias is a no-op and the
+  "weights negated, bias not" mutant would be equivalent. The test therefore gives the final bias the
+  same non-zero value (`linspace(−0.5, 0.5, 6)`) in both runs, negated in the −y run; equivariance
+  holds for any initial value.
+  - The three D7 defects are permanent in-test controls (an appended SiLU, W-only negation, an
+    asymmetric loss), each asserting `not array_equal`.
+  - Source mutants run in WSL: 3/3 killed (Softplus appended in `build_model`, the bias negation
+    dropped from the patch, an asymmetric loss in `train_model`).
+  - Consequence for the prose: in production the retrain on −y with seed s equals the old seed-s run
+    with only the final **weights** negated, so the two seed sets are paired, correlated draws.
+- **Task 43 kill table:** 12/13 killed, plus the non-vacuity mutant (the overlap test turns green on
+  the stale tree without its dataset-identity call). The survivor, a target-set assertion, was
+  redundant: a missing target raises `KeyError`, an extra one is harmless. It was removed. The
+  inverted-range synthetic case was strengthened so the `min <= max` clause is the one that fails.
+- **Task 45 decision (user):** `seed_variation.json` gains `datasets.on_wing`, filled from the retrain's
+  own `metrics.json` `seed_sweep` (no separate GPU runs). The coarse README seed table gets three range
+  columns: on-wing | before #109 | before #108. The shared row regex changes, so
+  `test_skill_and_config_r2_table_patterns_cannot_cross_match` (`:462`) is edited with it, as one of
+  that table's own tests. The seed-record test now also requires every `on_wing` seed to equal the
+  committed `seed_sweep` entry and the surrogate's commit, and pins `hinge_referenced` to the pre-#109 sha
+  permanently.
+- **Task 46 review:** no blocking findings.
+  - The quasi-steady "poor fit" wording is kept. On the sign-corrected holdout lift its pointwise R²
+    is 0.049 / 0.051, its correlation is +0.72 / +0.79 (it was −0.72 / −0.79), and its RMS ratio is
+    unchanged. The caption quotes only the RMS ratio.
+  - The panel title becomes "lab vertical", with a test.
+  - Three README-draft findings are adopted for task 50:
+    - the config-R² columns are reported, not gated (G3 is about skill);
+    - the seed sets are paired, not independent;
+    - the coarse README's unsupported causal sentence about the quasi-steady overshoot ("the CFD
+      `ib_force` itself is correct") takes the fine README's "not investigated here" wording.

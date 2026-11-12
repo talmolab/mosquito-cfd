@@ -594,6 +594,18 @@ def test_build_figure_moment_panel_is_my_not_pitch():
     plt.close(fig)
 
 
+def test_build_figure_lift_panel_is_the_lab_vertical_force():
+    """The CF_z panel names the lab vertical (z) force, not "span-normal": the span is y
+    (fix-wing-force-sign-convention design D1; docs/coordinate-convention.md)."""
+    fig = build_figure(_toy_predictions(), _toy_metrics())
+    titles = {ax.get_title().split()[0]: ax.get_title() for ax in _scatter_axes(fig)}
+    assert "lab vertical" in titles["CF_z"]
+    assert all("span-normal" not in t.lower() for t in titles.values())
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
 def test_build_figure_off_axis_moments_excluded():
     """Scenario: The off-axis (waveform-dominated) moments are not the headline."""
     assert PANEL_COEFFICIENTS == ("CF_x", "CF_z", "CF_my")
