@@ -1,5 +1,13 @@
 # Force-surrogate fine-grid kinematic sweep (`prelim_sweep_fine`)
 
+> **Stale surrogate (#109).** `dataset.parquet` now carries the IB force and moment on the
+> wing ([sign convention](../../docs/coordinate-convention.md#force-and-moment-sign)), but
+> the committed `surrogate/` was trained on the previous coefficients, and the evidence figure
+> in `figures/` was drawn from it, so they are stale against `dataset.parquet`: the surrogate
+> predicts the force on the fluid (and the moment on it), so negate its outputs before comparing
+> them with the dataset.
+> The retrain is the last step of #109.
+
 The **256×128×256** counterpart of [`examples/prelim_sweep`](../prelim_sweep/README.md) (which
 this file assumes as background — differences are called out, not re-derived). Same 27-config
 *Aedes aegypti*-anchored kinematic grid (φ ∈ {35,45,55}°, f\* ∈ {0.85,1.0,1.15}, α ∈ {30,45,60}°),
@@ -14,7 +22,7 @@ enabled** — this corpus produces AMReX plotfiles, not just force CSVs.
 | `sweep_manifest.json` / `sweep_manifest.units.json` | Per-config kinematics, `reynolds`, `max_step`/`stop_time`, `plot_int`, `init_iter`, **`cfl`**, train/holdout `split`. |
 | `sweep_provenance.json` | git commit, base-inputs SHA256, `field_capture` policy, `timestep_policy` (this corpus's `ns.cfl`), `supersession_history` (superseded prior cluster runs — see below), and `cluster_run` (recorded post-run checks, e.g. CC-F1). |
 | `run_metadata_<config>.json` | Per-config run-observed metadata (27 files) — see "Run-observed metadata" below. |
-| `dataset.parquet` / `dataset.units.json` / `run_metadata.json` | The extracted force dataset and its build provenance — same schema and conventions as the coarse corpus's (see its README's "Dataset" section). |
+| `dataset.parquet` / `dataset.units.json` / `run_metadata.json` | The extracted force dataset and its build provenance — same schema and conventions as the coarse corpus's (see its README's "Dataset" section): the coefficients are the IB force and moment on the wing and the raw `Fx..Mz` act on the fluid ([force and moment sign](../../docs/coordinate-convention.md#force-and-moment-sign)). |
 | `generate_full_corpus.py` | Thin driver over `mosquito_cfd.force_surrogate.sweep.generate_sweep()`. |
 | `surrogate/` | The force surrogate trained on this corpus (#110): `surrogate.pt` (seed 1234), `holdout_predictions.parquet`, `metrics.json` (with `phase_baseline_skill` and the 5-seed `seed_sweep`), `run_metadata.json`. Same trainer, flags and file layout as the coarse corpus's `surrogate/`. |
 | `figures/` | The evidence figure: `evidence_figure.png`, `evidence_figure_metrics.json` (every number on the figure), `run_metadata.json` (provenance, including the grid profile and the CFD cost per step). There is no separate `figures/README.md`; this file covers it. |

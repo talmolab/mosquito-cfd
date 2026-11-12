@@ -1,5 +1,13 @@
 # Force-surrogate kinematic sweep (`prelim_sweep`)
 
+> **Stale surrogate (#109).** `dataset.parquet` now carries the IB force and moment on the
+> wing ([sign convention](../../docs/coordinate-convention.md#force-and-moment-sign)), but
+> the committed `surrogate/` was trained on the previous coefficients, and the evidence figure
+> in `figures/` was drawn from it, so they are stale against `dataset.parquet`: the surrogate
+> predicts the force on the fluid (and the moment on it), so negate its outputs before comparing
+> them with the dataset.
+> The retrain is the last step of #109.
+
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see
 [`docs/force_surrogate/roadmap.md`](../../docs/force_surrogate/roadmap.md), row #2). These decks are
@@ -179,7 +187,10 @@ turns each config's IB-particle force CSV into a tidy table — **one row per (c
 of kinematics + phase + normalized force/moment coefficients + raw forces/moments, joined to this
 sweep's `reynolds` and train/holdout `split`. The raw `Mx/My/Mz` and the derived `CF_m*` differ in
 **moment reference point** (solver particle origin vs the deck's declared hinge); see
-[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments). Forces come from the IB-particle CSV **only**
+[`docs/coordinate-convention.md`](../../docs/coordinate-convention.md#moments). Raw and derived also
+differ in **sign**: the coefficients `CF_x..CF_mz` are the IB force and moment **on the wing**, while
+the raw `Fx..Mz` keep the solver's `ib_force`/`ib_moment`, which act on the fluid; see
+[force and moment sign](../../docs/coordinate-convention.md#force-and-moment-sign). Forces come from the IB-particle CSV **only**
 (`amr.plot_int = -1`, CC-6); no plotfiles.
 
 | File | Status | Contents |

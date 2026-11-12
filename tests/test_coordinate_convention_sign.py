@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from _readme_guards import _section
+from _readme_guards import _section, has_staleness_banner
 
 from mosquito_cfd.benchmarks import flapping_wing
 from mosquito_cfd.force_surrogate import (
@@ -50,7 +50,6 @@ SURROGATE_PHRASE = (
     "Pending #109: the committed surrogates still predict the solver's on-fluid sign; "
     "negate their outputs."
 )
-_BANNER = "are stale against `dataset.parquet`"
 _CORPUS_PARQUETS = (
     _ROOT / "examples" / "prelim_sweep" / "dataset.parquet",
     _ROOT / "examples" / "prelim_sweep_fine" / "dataset.parquet",
@@ -68,6 +67,9 @@ _LINKED_FILES: tuple[str, ...] = (
     "examples/flapping_wing/RESULTS.md",
     "examples/flapping_wing/figures/README.md",
     "docs/aerodynamics_validation/roadmap.md",
+    "examples/prelim_sweep/README.md",
+    "examples/prelim_sweep_fine/README.md",
+    "docs/force_surrogate/roadmap.md",
 )
 
 
@@ -142,7 +144,7 @@ def flapping_series_on_wing(
 
 def surrogates_stale(readmes: tuple[Path, ...] = _CORPUS_READMES) -> bool:
     """Whether both corpus READMEs carry the staleness banner (the surrogate phrase's condition)."""
-    return all(_BANNER in p.read_text(encoding="utf-8") for p in readmes)
+    return all(has_staleness_banner(p.read_text(encoding="utf-8")) for p in readmes)
 
 
 def test_sign_section_exists_once_and_states_the_convention():
@@ -305,7 +307,10 @@ def test_conditions_define_on_wing_as_minus_raw_over_f_ref(tmp_path):
 
 def test_surrogate_condition_needs_the_banner_in_both_readmes(tmp_path):
     with_banner = tmp_path / "a.md"
-    with_banner.write_text(f"Surrogate artifacts {_BANNER}.\n", encoding="utf-8")
+    with_banner.write_text(
+        "> Surrogate artifacts are stale\n> against `dataset.parquet`.\n",
+        encoding="utf-8",
+    )  # reflowed inside a quote: the shared predicate still finds it
     without = tmp_path / "b.md"
     without.write_text("No banner.\n", encoding="utf-8")
     assert surrogates_stale((with_banner, with_banner)) is True

@@ -7,15 +7,15 @@
   "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
   "downstream_artifacts_regenerated_from": {
-    "reason": "fix-moment-reference-hinge (#108) re-referenced the moment coefficients CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge. It re-extracted dataset.parquet from the existing CFD output (PR2, #118) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126). No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
+    "reason": "fix-wing-force-sign-convention (#109) re-extracted dataset.parquet from the existing CFD output with every CF_* coefficient negated, so the coefficients are the IB force and moment on the wing (IAMReX's ib_force/ib_moment act on the fluid); the raw Fx..Mz columns are unchanged. Before it, fix-moment-reference-hinge (#108) re-referenced CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge (re-extraction PR2, #118, now under history) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126); the #109 retrain is still to come, so surrogate/* and figures/* are #108's and predict the on-fluid sign. No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
     "cfd_cluster_workflows": [
       "force-surrogate-sweep-9454x",
       "force-surrogate-sweep-8nbjt"
     ],
     "docker_image_digest": "sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
     "re_extraction": {
-      "change": "fix-moment-reference-hinge",
-      "pull_request": 118,
+      "change": "fix-wing-force-sign-convention",
+      "pull_request": 146,
       "cluster_workflows": [],
       "affected": [
         "dataset.parquet",
@@ -36,6 +36,18 @@
         "figures/evidence_figure_metrics.json",
         "figures/run_metadata.json"
       ]
-    }
+    },
+    "history": [
+      {
+        "stage": "re_extraction",
+        "change": "fix-moment-reference-hinge",
+        "pull_request": 118,
+        "cluster_workflows": [],
+        "affected": [
+          "dataset.parquet",
+          "run_metadata.json"
+        ]
+      }
+    ]
   }
 }

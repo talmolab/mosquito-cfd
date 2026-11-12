@@ -14,8 +14,9 @@ rather than by re-running the extractor's algebra:
 - raw force and moment share one convention;
 - the coefficients satisfy the on-wing mirror inequality.
 
-The coefficient guard fails with :class:`CoefficientsOnFluid` while the committed corpus still carries
-the solver's on-fluid sign. Design: ``openspec/changes/fix-wing-force-sign-convention/design.md`` D3.
+The coefficient guard fails with :class:`CoefficientsOnFluid` if a committed corpus carries the
+solver's on-fluid sign (both carried it until that change re-extracted them).
+Design: ``openspec/changes/fix-wing-force-sign-convention/design.md`` D3.
 """
 
 from __future__ import annotations
@@ -28,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mosquito_cfd.benchmarks.wing_kinematics import angular_velocity
 from mosquito_cfd.force_surrogate import (
@@ -289,18 +289,12 @@ def test_raw_force_and_moment_share_one_convention():
     assert not bad, "raw force and moment disagree in sign:\n" + "\n".join(bad)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=CoefficientsOnFluid,
-    reason="#109: the committed corpus coefficients carry the solver's on-fluid sign "
-    "until re-extraction",
-)
 def test_coefficients_are_the_ib_force_on_the_wing():
     """Coefficients are on the wing: ``W_wing = ∫ CF_m · Ω dt ≤ 0`` and ``corr(CF_mz, −CF_x) > 0``.
 
     The correlation check catches a half-flip inside extraction (only the force or only the moment
     coefficients negated). Only the sign predicates raise :class:`CoefficientsOnFluid`. The
-    non-vacuity checks are plain assertions, so broken coefficients fail even under the xfail:
+    non-vacuity checks are plain assertions, so broken coefficients fail with a plain assertion:
     ``CF_*`` must be finite and equal ``|F|/f_ref``, ``|M_hinge|/m_ref`` in magnitude (sign-agnostic).
     """
     runs = _corpus_runs()

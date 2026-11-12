@@ -202,12 +202,12 @@ by Newton's third law. That covers:
 - the T4 CFD series.
 
 The wing paths apply the negation only through `mosquito_cfd.force_surrogate.force_on_wing`, and
-the raw columns keep the solver's values ([raw vs derived](#moments)). The paths not yet converted
-are flagged by the pending note below.
+the raw columns keep the solver's values ([raw vs derived](#moments)). The artifacts not yet
+regenerated are flagged by the pending note below.
 
-Pending #109: the committed corpus coefficients still carry the solver's on-fluid sign.
+Pending #109: the committed surrogates still predict the solver's on-fluid sign; negate their outputs.
 
-The corpus note also covers the committed surrogates and evidence figures built from it.
+The surrogate note also covers the evidence figures drawn from those surrogates.
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
 reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body

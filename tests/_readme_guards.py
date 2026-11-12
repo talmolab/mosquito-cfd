@@ -62,6 +62,30 @@ _PER_STEP_VALUE = re.compile(r"(?<![\d.])(\d+\.\d+) s per step")
 _QS_RATIO = re.compile(r"~(\d+(?:\.\d+)?)×")
 
 
+# The fix-wing-force-sign-convention (#109) staleness banner, design D6. One literal and one
+# predicate shared by every guard that reads it, so they cannot disagree on a reflowed banner.
+STALE_BANNER = "are stale against `dataset.parquet`"
+
+
+def banner_paragraph(readme: str) -> str | None:
+    """The README paragraph carrying the staleness banner, whitespace-collapsed, or ``None``.
+
+    Line-leading blockquote markers are stripped first, so a banner reflowed inside a quote still
+    matches.
+    """
+    for paragraph in readme.split("\n\n"):
+        lines = [line.strip().removeprefix(">") for line in paragraph.splitlines()]
+        flat = " ".join(" ".join(lines).split())
+        if STALE_BANNER in flat:
+            return flat
+    return None
+
+
+def has_staleness_banner(readme: str) -> bool:
+    """Whether the README carries the D6 staleness banner."""
+    return banner_paragraph(readme) is not None
+
+
 def parse_table(readme: str, header: str) -> dict[str, list[str]]:
     """Rows of the table under ``header``, keyed by target, as stripped cell strings."""
     lines = [line.strip() for line in readme.splitlines()]

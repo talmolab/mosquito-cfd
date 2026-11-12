@@ -30,7 +30,9 @@ swapped ``--input-dir``.
 
 ``--zero-offset-control`` additionally runs the rewired extractor over the raw CSVs with the
 shift forced to zero and requires the result to equal the baseline across all 22 columns
-(design D11): it separates "the rewired pipeline changed something" from "the shift did".
+(design D11), with every ``CF_*`` column negated: since ``fix-wing-force-sign-convention`` (#109)
+the extractor emits the IB force on the wing, while a #108 baseline carries the solver's
+on-fluid sign. It separates "the rewired pipeline changed something" from "the shift did".
 
 Run from anywhere inside the repository, e.g.::
 
@@ -44,6 +46,11 @@ The default ``--baseline-ref HEAD`` is right only BEFORE the regenerated corpus 
 Re-verifying afterwards needs ``--baseline-ref`` set to the last commit with particle-origin
 moments (for #108, ``fea817a``, PR1's merge commit on ``main``). Compared against itself, a
 corpus fails the "changed" check by design.
+
+That ``--baseline-ref fea817a`` recipe predates #109. Its frame checks assume the regenerated
+corpus and the baseline share one sign, so on a corpus extracted after #109 they fail the
+unchanged-column and algebraic checks by design; only the zero-offset control accounts for the
+sign. The #109 re-extraction has its own gate, ``scripts/verify_force_sign_reextraction.py``.
 """
 
 from __future__ import annotations
@@ -72,6 +79,7 @@ _CHANGED = ("CF_mx", "CF_mz")
 # comparison in this gate is exact.
 _CHANGED_RTOL, _CHANGED_ATOL = 1e-9, 1e-12
 _RAW = ["Fx", "Fy", "Fz", "Mx", "My", "Mz"]
+_COEFFICIENTS = ["CF_x", "CF_y", "CF_z", "CF_mx", "CF_my", "CF_mz"]
 
 
 @dataclass(frozen=True)
@@ -375,8 +383,13 @@ def compare_csv_hashes(new_meta: Mapping, provenance: Mapping) -> list[Check]:
 
 
 def compare_zero_offset(baseline: pd.DataFrame, zero: pd.DataFrame) -> list[Check]:
-    """The zero-offset extraction must equal the pre-change baseline in every column."""
-    ok, detail = _frames_equal(baseline[DATASET_COLUMNS], zero[DATASET_COLUMNS])
+    """The zero-offset extraction must equal the pre-change baseline with every ``CF_*`` negated.
+
+    The extractor emits the force on the wing since #109; a #108 baseline is on the fluid.
+    """
+    expected = baseline[DATASET_COLUMNS].copy()
+    expected[_COEFFICIENTS] = -expected[_COEFFICIENTS]
+    ok, detail = _frames_equal(expected, zero[DATASET_COLUMNS])
     return [
         Check(
             "zero-offset control (design D11)",
