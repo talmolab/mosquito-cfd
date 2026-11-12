@@ -246,21 +246,44 @@ def _seed_record() -> dict:
     return _meta(SURROGATE / "seed_variation.json")
 
 
-def test_seed_variation_record_matches_the_committed_surrogate():
-    """The committed seed-variation record's corrected seed-1234 run *is* the committed surrogate.
+# The seed record's datasets, newest first: the #109 on-wing retrain, the #108 retrain on the
+# pre-#109 (on-fluid) parquet, and the pre-#108 control. The README seed table has one range
+# column per dataset, in this order.
+_SEED_DATASETS = ("on_wing", "hinge_referenced", "pre_108")
 
-    Its six config_mean_r2 equal metrics.json exactly and its dataset hash is the committed
-    dataset's. (Its commit is not compared with the surrogate's: a retrain at a later commit,
-    such as the seed-sweep regeneration, must not break this.) Both datasets cover seeds 1234-1238, from
-    clean trees, at one epoch count. (The pre-#108 entries cannot be reconciled in CI: the old
-    metrics.json is only in history, which CI's depth-1 checkout does not fetch.)
+
+def _current_seed_dataset(datasets: dict) -> str:
+    """The record's dataset the committed surrogate was trained on (D6: before the retrain,
+    the #108 one, and no ``on_wing`` entry exists yet)."""
+    if _stale(COARSE):
+        assert "on_wing" not in datasets, "stale banner, but the record has on_wing"
+        return "hinge_referenced"
+    return "on_wing"
+
+
+def test_seed_variation_record_matches_the_committed_surrogate():
+    """The committed seed-variation record's current dataset *is* the committed 5-seed sweep.
+
+    Every seed's six config_mean_r2 equal that seed's ``metrics.json`` ``seed_sweep`` entry
+    exactly, the seed-1234 run equals ``config_resolved``, and the dataset hash is the committed
+    dataset's. ``hinge_referenced`` (the #108 retrain) is pinned to the pre-#109 parquet sha for
+    good. Every dataset covers seeds 1234-1238, from clean trees, at one epoch count. (The older
+    entries cannot be reconciled in CI: their metrics.json is only in history, which CI's depth-1
+    checkout does not fetch.)
     """
     record = _seed_record()
     targets = list(TARGET_COLUMNS)
     assert record["targets"] == targets
-    old, new = record["datasets"]["pre_108"], record["datasets"]["hinge_referenced"]
-    assert old["dataset_sha256"] != new["dataset_sha256"]
-    for ds in (old, new):
+    datasets = record["datasets"]
+    current_key = _current_seed_dataset(datasets)
+    expected = _SEED_DATASETS[_SEED_DATASETS.index(current_key) :]
+    assert set(datasets) == set(expected), sorted(datasets)
+    shas = [datasets[k]["dataset_sha256"] for k in expected]
+    assert len(set(shas)) == len(shas), "two seed-record datasets share a sha"
+    assert (
+        datasets["hinge_referenced"]["dataset_sha256"] == _PRE_SIGN_CHANGE_SHA[COARSE]
+    )
+    for ds in datasets.values():
         assert sorted(r["seed"] for r in ds["runs"]) == [1234, 1235, 1236, 1237, 1238]
         for r in ds["runs"]:
             assert r["dataset_sha256"] == ds["dataset_sha256"], r["seed"]
@@ -269,46 +292,49 @@ def test_seed_variation_record_matches_the_committed_surrogate():
             ]
             assert r["epochs"] == 2000 and set(r["config_mean_r2"]) == set(targets)
 
-    if _stale(COARSE):  # D6: trained before the #109 sign change
-        assert new["dataset_sha256"] == _PRE_SIGN_CHANGE_SHA[COARSE]
-        assert new["dataset_sha256"] != _sha256(COARSE / "dataset.parquet")
-    else:
-        assert new["dataset_sha256"] == _sha256(COARSE / "dataset.parquet")
-    (committed,) = [r for r in new["runs"] if r["seed"] == 1234]
+    current = datasets[current_key]
+    if current_key == "on_wing":
+        assert current["dataset_sha256"] == _sha256(COARSE / "dataset.parquet")
+        surrogate_commit = _meta(SURROGATE / "run_metadata.json")["git"]["commit"]
+        assert {r["git_commit"] for r in current["runs"]} == {surrogate_commit}
     metrics = _meta(SURROGATE / "metrics.json")
+    sweep = {r["seed"]: r for r in metrics["seed_sweep"]["runs"]}
+    for r in current["runs"]:
+        assert r["config_mean_r2"] == {
+            c: sweep[r["seed"]]["per_target"][c]["config_mean_r2"] for c in targets
+        }, r["seed"]
+    (committed,) = [r for r in current["runs"] if r["seed"] == 1234]
     assert committed["config_mean_r2"] == {
         c: metrics["config_resolved"][c]["config_mean_r2"] for c in targets
     }
 
 
+# A README seed-table row: target, then one "lo to hi" range per _SEED_DATASETS entry.
 _TABLE_ROW = re.compile(
-    r"^\s*\|\s*`(CF_\w+)`\s*\|\s*(\S+) to (\S+)\s*\|\s*(\S+) to (\S+)\s*\|\s*$", re.M
+    r"^\s*\|\s*`(CF_\w+)`\s*\|\s*(\S+) to (\S+)\s*\|\s*(\S+) to (\S+)\s*\|"
+    r"\s*(\S+) to (\S+)\s*\|\s*$",
+    re.M,
 )
 
 
 def test_readme_seed_table_is_the_seed_record():
-    """The README's 5-seed table is the committed record's per-target min/max (2 dp), for both
-    datasets, and "negative for four of the five seeds" is counted, not asserted."""
+    """The README's 5-seed table is the committed record's per-target min/max (2 dp), one column
+    per dataset (on-wing, before #109, before #108), and "negative for four of the five seeds" is
+    counted on the current dataset, not asserted."""
     readme = (COARSE / "README.md").read_text(encoding="utf-8").replace("−", "-")
     rows = {m[0]: m[1:] for m in _TABLE_ROW.findall(readme)}
     assert set(rows) == set(TARGET_COLUMNS), sorted(rows)
     record = _seed_record()["datasets"]
-    for c, (new_lo, new_hi, old_lo, old_hi) in rows.items():
-        for ds, lo, hi in (
-            ("hinge_referenced", new_lo, new_hi),
-            ("pre_108", old_lo, old_hi),
-        ):
+    for c, cells in rows.items():
+        for i, ds in enumerate(_SEED_DATASETS):
+            lo, hi = cells[2 * i], cells[2 * i + 1]
             values = [r["config_mean_r2"][c] for r in record[ds]["runs"]]
             assert (float(lo), float(hi)) == (
                 round(min(values), 2),
                 round(max(values), 2),
-            ), (
-                c,
-                ds,
-            )
-    negative_cf_x = sum(
-        r["config_mean_r2"]["CF_x"] < 0 for r in record["hinge_referenced"]["runs"]
-    )
+            ), (c, ds)
+    current = record[_current_seed_dataset(record)]
+    negative_cf_x = sum(r["config_mean_r2"]["CF_x"] < 0 for r in current["runs"])
     if "for four of the five seeds" in readme:
         assert negative_cf_x == 4
 
@@ -467,19 +493,21 @@ def test_skill_and_config_r2_table_patterns_cannot_cross_match():
     tables each header yields only its own rows.
     """
     skill_row = "| `CF_x` | 0.988 | 0.988 to 0.992 | 0.955 |"
-    config_row = "| `CF_x` | -4.17 to 0.09 | -0.01 to 0.09 |"
+    config_row = "| `CF_x` | -4.17 to 0.09 | -4.72 to 0.48 | -0.01 to 0.09 |"
     assert _SKILL_ROW.search(skill_row) and not _TABLE_ROW.search(skill_row)
     assert _TABLE_ROW.search(config_row) and not _SKILL_ROW.search(config_row)
     for pattern in (_SKILL_ROW, _TABLE_ROW):
         assert not pattern.search(_SKILL_HEADER)
-    seed_header = "| target | hinge-referenced, 5 seeds | pre-#108, 5 seeds |"
+    seed_header = (
+        "| target | on-wing, 5 seeds | before #109, 5 seeds | pre-#108, 5 seeds |"
+    )
     headers = (SKILL_HEADER, CYCLE_MEAN_HEADER, COMPARISON_HEADER, seed_header)
     assert len(set(headers)) == 4
     widths = {
         SKILL_HEADER: 3,
         CYCLE_MEAN_HEADER: 1,
         COMPARISON_HEADER: 3,
-        seed_header: 2,
+        seed_header: 3,
     }
     marker = {h: f"table{i}" for i, h in enumerate(headers)}
     text = "\n\n".join(
