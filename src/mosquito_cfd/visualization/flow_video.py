@@ -18,12 +18,15 @@ optional ``viz`` dependency group installed (`design.md` D2).
 
 from __future__ import annotations
 
+import math
+import numbers
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.benchmarks.lev import q_criterion, vorticity_magnitude
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
@@ -89,6 +92,36 @@ _WING_Z_LIFT = 0.6
 def _validate_field_mode(field_mode: str) -> None:
     if field_mode not in FIELD_MODES:
         raise ValueError(f"field_mode must be one of {FIELD_MODES}, got {field_mode!r}")
+
+
+def _validate_box_margin(box_margin: Any) -> float:
+    # Validated in every mode although only lev-3d uses it: the default is valid, so a bad value
+    # is always an explicit caller mistake. A non-positive margin makes center +/- box_margin an
+    # inverted or zero-width request, and the reader's lo > hi error would name values this
+    # caller never passed (harden-field-corpus-requests D3). Any numbers.Real is accepted
+    # (int, float, Fraction, numpy integer/floating scalars); bool is an int subclass and is
+    # rejected, and np.bool_ is not a numbers.Real. Decimal is not a numbers.Real either.
+    # np.timedelta64 is registered as numbers.Real but is a duration: float() raises TypeError
+    # for a 's' unit and returns the raw tick count for 'ns', so it is rejected by type.
+    margin = None
+    if isinstance(box_margin, numbers.Real) and not isinstance(
+        box_margin, (bool, np.timedelta64)
+    ):
+        try:
+            margin = float(box_margin)
+        except (TypeError, ValueError, OverflowError):
+            # OverflowError: an int beyond float64 range (10**400) is finite but has no float
+            # value. TypeError/ValueError: a numbers.Real whose __float__ fails is still a
+            # caller's bad value, and the spec promises a ValueError for every rejection.
+            margin = None
+    if margin is None or not (math.isfinite(margin) and margin > 0):
+        # The accepted types are named because some rejected values (Decimal("3"), 10**400) are
+        # finite and positive: "must be a finite number > 0" would be false for them.
+        raise ValueError(
+            "box_margin must be an int, float, Fraction or numpy real scalar that converts to a "
+            f"finite float > 0, got {plain_repr(box_margin)}"
+        )
+    return margin
 
 
 def render_velocity_slice_frame(
@@ -450,8 +483,11 @@ def build_flow_video(
         mesh_alpha: Isosurface mesh facecolor alpha (``lev-3d`` only). Default
             ``DEFAULT_LEV_MESH_ALPHA`` (``0.65``) -- keeps the mesh visible even where the wing
             overlay's own depth sort orders it in front of part of the isosurface (issue #88).
-        box_margin: Isotropic half-width of the near-field extraction box around ``center``
-            (``lev-3d`` only). Default ``3.0``.
+        box_margin: Isotropic half-width of the near-field extraction box around ``center``, in
+            the same domain length units as ``center``. Used only by ``lev-3d``, but validated
+            in every mode: any real number (``int``, ``float``, ``Fraction`` or numpy real
+            scalar; not ``bool`` or ``np.timedelta64``) that converts to a finite ``float``
+            ``> 0``. Default ``3.0``.
         fps: Output video frame rate.
 
     Returns:
@@ -460,7 +496,8 @@ def build_flow_video(
 
     Raises:
         ValueError: If ``docker_image_digest`` is a mutable tag, ``field_mode`` is not one of the
-            4 valid modes, ``fps`` is not positive, no plotfiles are found under
+            4 valid modes, ``fps`` is not positive, ``box_margin`` is not a real number
+            converting to a finite ``float > 0``, no plotfiles are found under
             ``plotfile_dir``, or the center/hinge/kinematics parameters cannot be fully resolved
             (see :func:`mosquito_cfd.visualization.wing_render.resolve_kinematics_kwargs`).
     """
@@ -471,6 +508,7 @@ def build_flow_video(
         # ZeroDivisionError from `int(1000 / fps)` after a Figure already exists (which would
         # leak it -- the same class of bug PR1's review found in comparison_figure.py).
         raise ValueError(f"fps must be positive, got {fps}")
+    box_margin = _validate_box_margin(box_margin)
 
     kin_kwargs = resolve_kinematics_kwargs(
         config_name=config_name,

@@ -9,6 +9,7 @@ bottom are `requires_plotfile`-marked and run locally against the Z: data.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import numpy as np
@@ -175,12 +176,30 @@ def _sphere_plt(grid: str, step: int = 10000) -> str:
     return str(Path(root) / sub / f"plt{step:05d}")
 
 
-def test_sphere_cv_drag_rejects_swapped_planes():
+#: Inlet/outlet pairs that are not strictly upstream. NaN compares False both ways, so the guard
+#: must be `not (x_inlet < x_outlet)`: `x_inlet >= x_outlet` let NaN through to the reader, whose
+#: error named lo/hi.
+_NOT_UPSTREAM = [(8.0, 2.0), (5.0, 5.0), (float("nan"), 5.0), (2.0, float("nan"))]
+_NOT_UPSTREAM_IDS = ["inverted", "equal", "nan_inlet", "nan_outlet"]
+
+
+def _upstream_message(x_inlet, x_outlet):
+    # The guard's own message, showing both values the caller passed.
+    return re.escape(
+        f"x_inlet ({x_inlet}) must be strictly upstream of x_outlet ({x_outlet})"
+    )
+
+
+def _reader_tripwire(*args, **kwargs):
+    raise AssertionError("plotfile read before the x_inlet/x_outlet check")
+
+
+@pytest.mark.parametrize(("x_inlet", "x_outlet"), _NOT_UPSTREAM, ids=_NOT_UPSTREAM_IDS)
+def test_sphere_cv_drag_rejects_swapped_planes(monkeypatch, x_inlet, x_outlet):
     # Guard raises BEFORE any plotfile I/O, so this is cluster-free.
-    with pytest.raises(ValueError, match="upstream"):
-        sphere_cv_drag_cd("no/such/plotfile", x_inlet=8.0, x_outlet=2.0)
-    with pytest.raises(ValueError, match="upstream"):
-        sphere_cv_drag_cd("no/such/plotfile", x_inlet=5.0, x_outlet=5.0)
+    monkeypatch.setattr(si, "extract_eulerian_box", _reader_tripwire)
+    with pytest.raises(ValueError, match=_upstream_message(x_inlet, x_outlet)):
+        sphere_cv_drag_cd("no/such/plotfile", x_inlet=x_inlet, x_outlet=x_outlet)
 
 
 @pytest.mark.requires_plotfile
@@ -626,4 +645,22 @@ def test_sphere_cv_steadiness_fraction_rejects_a_slab_outside_the_domain():
     with pytest.raises(ValueError, match="selects no cells"):
         sphere_cv_steadiness_fraction(
             str(_LEV_FIXTURE), str(_LEV_FIXTURE), x_inlet=-5.0, x_outlet=-3.0, dt=0.1
+        )
+
+
+@pytest.mark.parametrize(("x_inlet", "x_outlet"), _NOT_UPSTREAM, ids=_NOT_UPSTREAM_IDS)
+def test_sphere_cv_steadiness_fraction_rejects_inlet_not_upstream_before_reading(
+    monkeypatch, x_inlet, x_outlet
+):
+    # Same guard as sphere_cv_drag_cd, checked BEFORE any plotfile read: otherwise an inverted
+    # slab reaches extract_eulerian_box first and the error names lo/hi, values this caller never
+    # passed (harden-field-corpus-requests D1).
+    monkeypatch.setattr(si, "extract_eulerian_box", _reader_tripwire)
+    with pytest.raises(ValueError, match=_upstream_message(x_inlet, x_outlet)):
+        sphere_cv_steadiness_fraction(
+            str(_LEV_FIXTURE),
+            str(_LEV_FIXTURE),
+            x_inlet=x_inlet,
+            x_outlet=x_outlet,
+            dt=0.1,
         )

@@ -5,7 +5,9 @@ repository -- ``openspec/project.md`` documents its three mount points (the ``Z:
 Windows, ``/mnt/hpi_dev/users/eberrigan/...`` under WSL, and
 ``/hpi/hpi_dev/users/eberrigan/...`` on the cluster). Steps are discovered from the ``plt*``
 directories actually present on disk rather than assumed from a deck's ``plot_int`` -- a run
-can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``.
+can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``. ``plotfile()`` first tries the
+canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the run directory
+only when that name is not a directory.
 """
 
 from __future__ import annotations
@@ -14,11 +16,54 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
+from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
 
 #: Plotfile directory names are ``plt`` followed by digits only. ``plt00300.old`` and ``pltXXXXX``
 #: are deliberately not matched.
 _PLT_PATTERN = re.compile(r"^plt(\d+)$")
+
+
+def _validate_step(step: Any) -> int:
+    # Mirrors snapshot._validate_halo. bool is an int subclass (plotfile(c, True) would resolve
+    # step 1); np.bool_ is not an np.integer, so the type test rejects it. Checked before any
+    # manifest read or filesystem access, so a bad step is reported as a bad step
+    # (harden-field-corpus-requests D4). repr() so the string '100' is distinguishable from 100.
+    if isinstance(step, bool) or not isinstance(step, (int, np.integer)) or step < 0:
+        # plain_repr: numpy scalars are shown as their plain value, as in the halo and
+        # box_margin messages -- never numpy 2's "np.int64(-1)" repr.
+        raise ValueError(f"step must be a non-negative integer, got {plain_repr(step)}")
+    return int(step)
+
+
+def _scan(run: Path) -> dict[int, Path]:
+    """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
+
+    The shared listing behind ``steps()`` and ``plotfile()``'s fallback, so both give the same
+    verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
+    stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
+
+    Raises:
+        ValueError: If two directories parse to the same step, naming both in sorted order so the
+            message does not depend on the filesystem's listing order.
+    """
+    found: dict[int, Path] = {}
+    for entry in run.iterdir():
+        match = _PLT_PATTERN.match(entry.name)
+        if not (match and entry.is_dir()):
+            continue
+        step = int(match.group(1))
+        if step in found:
+            names = ", ".join(sorted((found[step].name, entry.name)))
+            raise ValueError(
+                f"ambiguous plotfiles under {run}: "
+                f"two plotfile directories parse to step {step}: {names}"
+            )
+        found[step] = entry
+    return found
+
 
 #: Kinematic parameters carried per config in the sweep manifest.
 GLOBAL_PARAM_KEYS: tuple[str, ...] = (
@@ -31,9 +76,10 @@ GLOBAL_PARAM_KEYS: tuple[str, ...] = (
 class FieldCorpus:
     """Address a field-capture corpus by config id and timestep.
 
-    The manifest is parsed once per instance and cached; ``steps()``/``plotfile()`` still list
-    ``plt*`` directories live on every call, since which plotfiles exist can change while a run
-    is in progress. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    The manifest is parsed once per instance and cached. Plotfile presence is never cached, since
+    which plotfiles exist can change while a run is in progress: ``steps()`` lists the ``plt*``
+    directories on every call, and ``plotfile()`` stats the canonical ``plt{step:05d}`` first and
+    lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
     """
 
     def __init__(
@@ -121,13 +167,12 @@ class FieldCorpus:
 
         Returns:
             The available steps, sorted ascending.
+
+        Raises:
+            ValueError: If the config is not in the manifest, its run directory is absent, or
+                two directories parse to the same step (e.g. ``plt100`` and ``plt00100``).
         """
-        found = []
-        for entry in self.run_dir(config_id).iterdir():
-            match = _PLT_PATTERN.match(entry.name)
-            if match and entry.is_dir():
-                found.append(int(match.group(1)))
-        return sorted(found)
+        return sorted(_scan(self.run_dir(config_id)))
 
     def global_params(self, config_id: str) -> dict[str, Any]:
         """Return this config's kinematic parameters from the manifest.
@@ -149,34 +194,50 @@ class FieldCorpus:
         config = self._config(config_id)
         return {k: config[k] for k in GLOBAL_PARAM_KEYS}
 
-    def plotfile(self, config_id: str, step: int) -> Path:
+    def plotfile(self, config_id: str, step: int | np.integer) -> Path:
         """Return the plotfile directory for one ``(config_id, step)``.
+
+        The canonical AMReX name ``plt{step:05d}`` is tried first with one ``is_dir()``; only if
+        it is not a directory is the run directory listed. The fast path therefore trusts the
+        canonical name: with both ``plt100`` and ``plt00100`` present it returns ``plt00100``
+        without reporting the ambiguity, which ``steps()`` and this method's scan do report
+        (``harden-field-corpus-requests`` D2).
 
         Args:
             config_id: Config name as listed in the manifest.
-            step: Timestep, as written in the ``pltNNNNN`` directory name.
+            step: Non-negative integer timestep (``int`` or ``np.integer``, not ``bool``), as
+                written in the ``pltNNNNN`` directory name.
 
         Returns:
             Path to the plotfile directory.
 
         Raises:
-            ValueError: If no plotfile for that step exists.
+            ValueError: If ``step`` is not a non-negative integer (checked before any I/O), if
+                the config is not in the manifest or its run directory is absent, if two
+                directories in the run directory parse to the same step, or if no plotfile for
+                that step exists.
         """
+        step = _validate_step(step)
+        self._config(config_id)  # manifest membership first, on both paths
+        canonical = self.runs_dir / config_id / f"plt{step:05d}"
+        if canonical.is_dir():
+            return canonical
         run = self.run_dir(config_id)
-        for candidate in run.iterdir():
-            match = _PLT_PATTERN.match(candidate.name)
-            if match and candidate.is_dir() and int(match.group(1)) == step:
-                return candidate
+        found = _scan(run)
+        if step in found:
+            return found[step]
+        # Available steps come from the scan already done: calling steps() here re-ran the
+        # manifest lookup, the run-directory stat and a second listing.
         raise ValueError(
             f"no plotfile for step {step} of config {config_id!r} under {run} "
             f"(no 'plt<digits>' directory parses to step {step}); "
-            f"available steps: {self.steps(config_id)}"
+            f"available steps: {sorted(found)}"
         )
 
     def snapshot(
         self,
         config_id: str,
-        step: int,
+        step: int | np.integer,
         *,
         lo=(float("-inf"),) * 3,
         hi=(float("inf"),) * 3,
@@ -187,7 +248,7 @@ class FieldCorpus:
 
         Args:
             config_id: Config name as listed in the manifest.
-            step: Timestep, as written in the ``pltNNNNN`` directory name.
+            step: Non-negative integer timestep, as written in the ``pltNNNNN`` directory name.
             lo: Physical lower corner; defaults to the full domain.
             hi: Physical upper corner; defaults to the full domain.
             halo: Extra cells sliced on every side.
@@ -195,6 +256,10 @@ class FieldCorpus:
 
         Returns:
             The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile.
+
+        Raises:
+            ValueError: Anything :meth:`plotfile` raises (a bad ``step`` before any I/O), and
+                anything ``read_field_snapshot`` raises, including ``lo > hi`` on any axis.
         """
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 

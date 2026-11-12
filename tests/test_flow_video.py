@@ -6,6 +6,9 @@ The real-plotfile-adapter tests live in ``tests/test_flow_video_plotfile.py`` (`
 
 from __future__ import annotations
 
+import numbers
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 import matplotlib
@@ -656,14 +659,228 @@ def test_velocity_slice_slices_at_the_hinge_height_not_domain_center(
         np.testing.assert_allclose(field, 2.0)
 
 
-def test_rejects_non_positive_fps(tmp_path):
+def _plotfile_io_tripwire(plotfile_dir):
+    raise AssertionError("plotfile I/O before argument validation")
+
+
+class _RealWithoutFloat:
+    """A registered numbers.Real whose float() raises, as np.timedelta64(1, "s") does."""
+
+    def __init__(self, error: type[Exception]):
+        self.error = error
+
+    def __float__(self):
+        raise self.error("no float value")
+
+    def __repr__(self):
+        return f"_RealWithoutFloat({self.error.__name__})"
+
+
+numbers.Real.register(_RealWithoutFloat)
+
+
+#: The box_margin validator's own message, up to the value it shows.
+_BOX_MARGIN_MESSAGE = (
+    r"box_margin must be an int, float, Fraction or numpy real scalar that converts to a finite "
+    r"float > 0, got "
+)
+
+#: (id, value, the value as the message must show it). Ints beyond float64 range must still be a
+#: ValueError: float() raises OverflowError on them. Decimal("3") and 10**400 are finite and
+#: positive, so the message must say why they are rejected (harden-field-corpus-requests D3).
+_BAD_BOX_MARGINS = [
+    ("neg_int", -1, "-1"),
+    ("neg_float", -1.0, "-1.0"),
+    ("zero_int", 0, "0"),
+    ("zero_float", 0.0, "0.0"),
+    ("nan", float("nan"), "nan"),
+    ("inf", float("inf"), "inf"),
+    ("neg_inf", float("-inf"), "-inf"),
+    ("np_float64_neg", np.float64(-1.0), "-1.0"),
+    ("bool", True, "True"),
+    ("np_bool", np.bool_(True), "True"),
+    ("str", "3", "'3'"),
+    ("decimal", Decimal("3"), "Decimal('3')"),
+    ("huge_int", 10**400, repr(10**400)),
+    ("huge_neg_int", -(10**400), repr(-(10**400))),
+    # numpy registers timedelta64 as numbers.Real. float() raises TypeError for a 's' unit and
+    # returns the raw tick count for 'ns', so both must be rejected, shown in numpy's own repr.
+    ("timedelta_s", np.timedelta64(1, "s"), "np.timedelta64(1,'s')"),
+    ("timedelta_ns", np.timedelta64(5, "ns"), "np.timedelta64(5,'ns')"),
+    # Not a numbers.Real; its .item() would show datetime.date(2020, 1, 1).
+    ("datetime", np.datetime64("2020-01-01"), "np.datetime64('2020-01-01')"),
+    (
+        "real_float_type_error",
+        _RealWithoutFloat(TypeError),
+        "_RealWithoutFloat(TypeError)",
+    ),
+    (
+        "real_float_value_error",
+        _RealWithoutFloat(ValueError),
+        "_RealWithoutFloat(ValueError)",
+    ),
+]
+
+
+@pytest.mark.parametrize("field_mode", FIELD_MODES)
+@pytest.mark.parametrize(
+    ("box_margin", "shown"),
+    [c[1:] for c in _BAD_BOX_MARGINS],
+    ids=[c[0] for c in _BAD_BOX_MARGINS],
+)
+def test_rejects_invalid_box_margin(
+    tmp_path, monkeypatch, field_mode, box_margin, shown
+):
+    """box_margin is validated in every mode, before any plotfile I/O or Figure creation.
+
+    A non-positive margin turns lev-3d's center +/- box_margin request into an inverted or
+    zero-width region; without this check the caller sees the reader's lo > hi error instead
+    (harden-field-corpus-requests D3).
+    """
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
+    open_before = len(plt.get_fignums())
+
+    with pytest.raises(ValueError, match=_BOX_MARGIN_MESSAGE) as excinfo:
+        build_flow_video(
+            plotfile_dir=tmp_path / "does-not-exist",
+            field_mode=field_mode,
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            box_margin=box_margin,
+            **_KINEMATICS_KWARGS,
+        )
+
+    assert str(excinfo.value).endswith(f"got {shown}"), str(excinfo.value)
+    assert len(plt.get_fignums()) == open_before
+
+
+#: Valid margins: the smallest and ordinary positive floats, an int, numpy integer and float32
+#: scalars, and a Fraction (a numbers.Real). Each must pass validation in every mode.
+_GOOD_BOX_MARGINS = [
+    ("subnormal", 5e-324),
+    ("tiny", 1e-9),
+    ("half", 0.5),
+    ("int", 2),
+    ("np_int64", np.int64(2)),
+    ("np_float32", np.float32(0.5)),
+    ("fraction", Fraction(1, 2)),
+]
+
+
+@pytest.mark.parametrize("field_mode", FIELD_MODES)
+@pytest.mark.parametrize(
+    "box_margin",
+    [c[1] for c in _GOOD_BOX_MARGINS],
+    ids=[c[0] for c in _GOOD_BOX_MARGINS],
+)
+def test_accepts_valid_box_margin(tmp_path, monkeypatch, field_mode, box_margin):
+    """A valid box_margin passes validation and the call reaches plotfile discovery.
+
+    Without these, dropping np.integer or np.floating from the accepted types, or tightening
+    "> 0" to "> 1e-3" or ">= 1", left the whole suite green: every other test passes either an
+    invalid margin or the default.
+    """
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
+
+    with pytest.raises(AssertionError, match="plotfile I/O before argument validation"):
+        build_flow_video(
+            plotfile_dir=tmp_path / "does-not-exist",
+            field_mode=field_mode,
+            vertex_path=_VERTEX_PATH,
+            out_dir=tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TS,
+            label="test",
+            box_margin=box_margin,
+            **_KINEMATICS_KWARGS,
+        )
+
+
+@pytest.mark.parametrize(
+    ("box_margin", "expected"),
+    [
+        (Fraction(1, 2), 0.5),
+        (Fraction(5, 2), 2.5),
+        (np.float32(0.5), 0.5),
+        (np.int64(2), 2.0),
+        (2, 2.0),
+    ],
+    ids=["fraction", "fraction_above_1", "np_float32", "np_int64", "int"],
+)
+def test_validated_box_margin_is_a_plain_float(box_margin, expected):
+    """The validator returns the margin as a plain float, which is what the caller then uses."""
+    validated = flow_video._validate_box_margin(box_margin)
+    assert type(validated) is float
+    assert validated == expected
+
+
+class _StopAfterFirstBox(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    "box_margin", [Fraction(5, 2), np.float32(2.5)], ids=["fraction", "np_float32"]
+)
+def test_lev3d_box_is_built_from_the_validated_margin(
+    tmp_path, monkeypatch, box_margin
+):
+    """lev-3d requests exactly center -/+ 2.5 as plain floats, whatever real type was passed.
+
+    The validator's own tests cannot see whether build_flow_video uses its result: a validator
+    returning a wrong float for margins >= 1 left the whole suite green.
+    """
+    plotfile_dir = tmp_path / "plotfiles"
+    (plotfile_dir / "plt00000").mkdir(parents=True)
+    requests = []
+
+    def recording_extract_eulerian_box(plotfile_path, *, lo, hi, halo=0):
+        requests.append((lo, hi))
+        raise _StopAfterFirstBox
+
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.stress_integral.extract_eulerian_box",
+        recording_extract_eulerian_box,
+    )
+
+    try:
+        with pytest.raises(_StopAfterFirstBox):
+            build_flow_video(
+                plotfile_dir=plotfile_dir,
+                field_mode="lev-3d",
+                vertex_path=_VERTEX_PATH,
+                out_dir=tmp_path / "out",
+                docker_image_digest=DIGEST,
+                timestamp=TS,
+                label="margin",
+                box_margin=box_margin,
+                **_KINEMATICS_KWARGS,
+            )
+    finally:
+        plt.close("all")
+
+    center = np.asarray(_KINEMATICS_KWARGS["center"], dtype=np.float64)
+    assert len(requests) == 1
+    lo, hi = requests[0]
+    assert all(type(v) is float for v in (*lo, *hi))
+    assert lo == tuple(float(c) for c in center - 2.5)
+    assert hi == tuple(float(c) for c in center + 2.5)
+
+
+def test_rejects_non_positive_fps(tmp_path, monkeypatch):
     """fps=0 must raise before any matplotlib Figure is created, not leak one via an unguarded
     ZeroDivisionError from `int(1000 / fps)` deep inside FuncAnimation construction.
     """
+    # Match the guard's own message and trip on plotfile discovery. A bare match="fps" also
+    # matched the "no plotfiles found under <tmp_path>" error, because tmp_path is named after this
+    # test -- so the test passed with the fps guard deleted.
+    monkeypatch.setattr(flow_video, "_plotfile_frames", _plotfile_io_tripwire)
     nonexistent_plotfile_dir = tmp_path / "does-not-exist"
     open_before = len(plt.get_fignums())
 
-    with pytest.raises(ValueError, match="fps"):
+    with pytest.raises(ValueError, match=r"fps must be positive, got 0"):
         build_flow_video(
             plotfile_dir=nonexistent_plotfile_dir,
             field_mode="wake-slice",
