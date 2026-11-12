@@ -293,3 +293,132 @@ def test_sweep_is_recorded_in_metrics_and_run_metadata(tmp_path):
     assert set(result["metrics"]["phase_baseline_skill"]["per_target"]) == set(
         TARGET_COLUMNS
     )
+
+
+# --- G0: sign equivariance (fix-wing-force-sign-convention, design D7) ----------------------
+#
+# Retraining on -y must equal retraining on y with only the final linear layer's initial weight
+# and bias negated. This is a one-shot WSL gate for that change's retrain; it lives here because
+# torch and physicsnemo are only in the `train` group. It runs on device="cpu" (bitwise).
+#
+# physicsnemo's FullyConnected final layer is FCLayer(activation_fn=None, weight_norm=False,
+# weight_fact=False, activation_par=None) around a plain nn.Linear, and FCLayer.reset_parameters
+# initializes that bias to 0. Negating a zero bias is a no-op, so the "weights negated but not the
+# bias" control would be vacuous; the patch therefore gives the final bias the same non-zero
+# initial value in both runs (negated in the -y run). Equivariance holds for any initial value.
+
+
+def _final_linear(model):
+    import torch
+
+    linears = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
+    return linears[-1]
+
+
+def _sign_df(tmp_path, *, negate_targets):
+    from mosquito_cfd.force_surrogate.train import filter_converged_beat_report_holdout
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    df = pd.read_parquet(_toy_parquet(tmp_path / "dataset.parquet"))
+    df, _ = filter_converged_beat_report_holdout(df)
+    if negate_targets:
+        df[TARGET_COLUMNS] = -df[TARGET_COLUMNS]
+    return df
+
+
+def _fit_with_patched_init(
+    tmp_path, monkeypatch, *, negate, negate_bias=True, output_activation=False
+):
+    """Run the trainer's own per-seed path, recording the patched initial parameters."""
+    import torch
+
+    from mosquito_cfd.force_surrogate import train
+
+    real_build = train.build_model
+    initial = {}
+
+    def patched_build(*args, **kwargs):
+        model = real_build(*args, **kwargs)
+        if output_activation:
+            model = torch.nn.Sequential(model, torch.nn.SiLU())
+        last = _final_linear(model)
+        with torch.no_grad():
+            last.bias.copy_(torch.linspace(-0.5, 0.5, last.bias.numel()))
+            if negate:
+                last.weight.neg_()
+                if negate_bias:
+                    last.bias.neg_()
+        initial.update({n: p.detach().clone() for n, p in model.named_parameters()})
+        initial["__final__"] = [
+            n for n, p in model.named_parameters() if p is last.weight or p is last.bias
+        ]
+        return model
+
+    monkeypatch.setattr(train, "build_model", patched_build)
+    fit = train._fit_one_seed(
+        _sign_df(tmp_path, negate_targets=negate),
+        seed=7,
+        n_val_configs=2,
+        epochs=60,
+        hidden=train.DEFAULT_HIDDEN,
+        num_layers=train.DEFAULT_NUM_LAYERS,
+        lr=1e-3,
+        device="cpu",
+    )
+    monkeypatch.setattr(train, "build_model", real_build)
+    return fit.y_pred, initial
+
+
+def test_trainer_is_sign_equivariant_up_to_the_output_layer_init(tmp_path, monkeypatch):
+    """G0: training on -y with the final layer's W and b negated predicts exactly -p.
+
+    Spec: The trainer is sign-equivariant up to the output-layer initialization.
+    """
+    p, init = _fit_with_patched_init(tmp_path / "pos", monkeypatch, negate=False)
+    p_neg, init_neg = _fit_with_patched_init(tmp_path / "neg", monkeypatch, negate=True)
+
+    # Exactly the final weight and bias differ, each by an exact negation; nothing vacuous.
+    final = init["__final__"]
+    assert len(final) == 2 and final == init_neg["__final__"]
+    params = [n for n in init if n != "__final__"]
+    assert params == [n for n in init_neg if n != "__final__"]
+    for name in params:
+        if name in final:
+            assert init_neg[name].equal(-init[name]), name
+            assert bool(init[name].ne(0).any()), name
+        else:
+            assert init_neg[name].equal(init[name]), name
+
+    assert p.shape == p_neg.shape and np.isfinite(p).all()
+    assert np.abs(p).max() > 0
+    assert np.array_equal(p_neg, -p)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    ["output activation appended", "weights negated, bias not", "asymmetric loss"],
+)
+def test_sign_equivariance_check_fails_on_each_defect(tmp_path, monkeypatch, defect):
+    """G0 controls: each named defect breaks array_equal(p_neg, -p)."""
+    import torch
+
+    kwargs = {}
+    if defect == "output activation appended":
+        kwargs["output_activation"] = True
+    elif defect == "weights negated, bias not":
+        kwargs["negate_bias"] = False
+    else:
+
+        class _AsymmetricLoss(torch.nn.Module):
+            def forward(self, pred, target):
+                r = pred - target
+                return (r**2).mean() + 0.1 * r.mean()
+
+        monkeypatch.setattr(torch.nn, "MSELoss", _AsymmetricLoss)
+
+    p, _ = _fit_with_patched_init(tmp_path / "pos", monkeypatch, negate=False, **kwargs)
+    p_neg, _ = _fit_with_patched_init(
+        tmp_path / "neg", monkeypatch, negate=True, **kwargs
+    )
+    assert np.isfinite(p).all() and np.isfinite(p_neg).all()
+    assert not np.array_equal(p_neg, -p), defect
