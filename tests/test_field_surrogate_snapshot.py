@@ -1579,6 +1579,61 @@ def test_each_field_leaves_the_covering_grid_cache_once_copied(monkeypatch):
     assert clears == [1]
 
 
+class _TrackedField:
+    """Stand-in for the yt array a covering grid returns, recording every buffer handed out.
+
+    Offers the two ways the reader may unwrap it: ``to_ndarray()`` (unyt makes a copy) and
+    ``.d`` (a view of yt's own buffer). Each handed-out array, and yt's array itself, is
+    recorded as ``(weakref, shares_memory_with_yt)``.
+    """
+
+    def __init__(self, inner, record):
+        import weakref
+
+        self._inner = inner
+        self._record = record
+        record.append((weakref.ref(inner), True))
+
+    def _hand_out(self, arr):
+        import weakref
+
+        self._record.append((weakref.ref(arr), np.shares_memory(arr, self._inner)))
+        return arr
+
+    def to_ndarray(self):
+        return self._hand_out(self._inner.to_ndarray())
+
+    @property
+    def d(self):
+        return self._hand_out(self._inner.d)
+
+
+def _tracking_grid(record):
+    class _TrackingGrid(_RecordingGrid):
+        def __getitem__(self, key):
+            alive = [i for i, (ref, _) in enumerate(record) if ref() is not None]
+            assert not alive, f"reading {key} while earlier buffers {alive} are alive"
+            return _TrackedField(super().__getitem__(key), record)
+
+    return _TrackingGrid
+
+
+def test_no_full_domain_buffer_outlives_its_copy(monkeypatch):
+    # Refcount-deterministic, unlike the tracemalloc bound: before each field is read, yt's
+    # array for every earlier field -- and whatever the reader unwrapped it into -- must already
+    # be dead, and none may outlive the call. Kills a reader that keeps `raw` bound until the
+    # next iteration, which only adds ~1 S of peak and so passes the 7.5 S bound.
+    record: list = []
+    _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
+    read_field_snapshot(FIXTURE, **FULL)
+    assert (
+        len(record) == 12
+    )  # positive control: yt's array and one unwrapped array per field
+    assert all(ref() is None for ref, _ in record), (
+        "a buffer outlived read_field_snapshot"
+    )
+
+
 @pytest.fixture(scope="module")
 def plotfile_96(tmp_path_factory):
     root = tmp_path_factory.mktemp("p96") / "plt96"
