@@ -77,8 +77,8 @@ near-zero spread of six cycle means and swings with the seed. It stays in `metri
 | `CF_my` | −1.04 to 0.91 |
 | `CF_mz` | −4.70 to 0.75 |
 
-On this corpus `CF_y`, `CF_z` and `CF_mx` are robust to the seed and `CF_x`, `CF_my` and `CF_mz` are
-not; only for the first three does the record support saying the surrogate resolves the per-config
+On this corpus `CF_y` and `CF_z` are robust to the seed (spread ≤ 0.05, the coarse README's
+threshold), `CF_mx` nearly so (spread 0.052), and `CF_x`, `CF_my` and `CF_mz` are not; only for the first three does the record support saying the surrogate resolves the per-config
 average force.
 
 ### Coarse vs fine
@@ -102,7 +102,7 @@ unrounded values; touching ranges count as overlapping). Five of the six pairs o
 disjoint: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
 these only in the sign of every target, the two `CF_y` ranges overlapped (coarse 0.974 to 0.984,
 fine 0.980 to 0.994). Training on negated targets differs only in the sign of the output layer's
-initial weights (see the coarse README's seed table), so the change from overlapping to disjoint
+initial weights (G0, checked bitwise on CPU; see the coarse README's seed table), so the change from overlapping to disjoint
 comes from the initialisation draw alone, and this `CF_y` difference is not robust to the choice
 of seeds. Five seeds a side cannot rule out a difference as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
 difference would reflect the CFD data as well as the surrogate; this table is not a measurement of

@@ -650,7 +650,8 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   - Source mutants run in WSL: 3/3 killed (Softplus appended in `build_model`, the bias negation
     dropped from the patch, an asymmetric loss in `train_model`).
   - Consequence for the prose: in production the retrain on −y with seed s equals the old seed-s run
-    with only the final **weights** negated, so the two seed sets are paired, correlated draws.
+    with only the final **weights** negated, so the two seed sets are paired draws (task-51 review: their per-seed values show no consistent
+    correlation at n=5, so the READMEs say "paired", not "correlated").
 - **Task 43 kill table:** 12/13 killed, plus the non-vacuity mutant (the overlap test turns green on
   the stale tree without its dataset-identity call). The survivor, a target-set assertion, was
   redundant: a missing target raises `KeyError`, an extra one is harmless. It was removed. The

@@ -291,7 +291,7 @@ and CI-tested. The GPU run is not *guaranteed* bitwise (`warn_only` determinism,
 `CUBLAS_WORKSPACE_CONFIG`), so `metrics.json` records `reproducibility.bitwise == "cpu_only"`; on the
 training A5000, three runs at seed 1234 on identical data were nonetheless observed to be
 bitwise-identical (only the wall-clock `inference` timing differed), and the five-seed retrain that
-added `seed_sweep` reproduced the committed checkpoint and predictions byte-for-byte and every
+added `seed_sweep` (on the pre-#109 model, #128) reproduced the committed checkpoint and predictions byte-for-byte and every
 seed's config-resolved R² in `surrogate/seed_variation.json` exactly. The model trains in **FP32** (the A5000 path); the
 predictions are FP32 and `metrics.json` values are computed in float64 on the inverse-transformed
 predictions (the float32→float64 round-off is ≪ the reported RMSE).
@@ -383,8 +383,8 @@ legible without losing any disclosure:
 
   On the current data `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.05), `CF_y` moderately
   so, and `CF_x`, `CF_my` and `CF_mz` not at all; the committed seed-1234 model is the lowest of the
-  five draws for `CF_x` and `CF_my`. Since the runs are bitwise-reproducible at a fixed seed, the spread is initialisation,
-  not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves
+  five draws for `CF_x` and `CF_my`. Since the runs are bitwise-reproducible at a fixed seed, the spread comes from the seed's
+  initialisation and its choice of the three validation configurations, not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves
   the per-config average force.
 
   **Reading the columns.** The pre-registered #109 gate compared **skill**, not config-resolved R²:
@@ -395,7 +395,8 @@ legible without losing any disclosure:
   weights negated (its bias starts at zero; checked bitwise for the trainer's own code path on a
   small CPU problem), so each on-wing seed is a seed-matched network that differs from its
   before-#109 counterpart only in the sign of the output layer's initial weights: the two columns
-  are paired, correlated draws, not independent ones.
+  are paired draws (the same hidden-layer initialisation and validation carve per seed), not
+  independent ones; at n=5 their per-seed values show no consistent correlation.
 
   **Before #108.** Between the before-#109 (hinge-referenced) and before-#108 (particle-origin)
   columns, under a pre-registered, deliberately conservative rule — a target counts as moved only
@@ -446,7 +447,7 @@ legible without losing any disclosure:
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
   **per-evaluation latency speedup is ~372×** and is reported as the like-for-like floor. It is a
-  single wall-clock timing sample and a noisy one: bitwise-identical runs of the same model have
+  single wall-clock timing sample and a noisy one: bitwise-identical runs of the pre-#109 model
   measured ~257–470×, so read it as a few hundred ×, not a precise factor. The throughput and
   parallelism factors are likewise single samples. Both
   factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.
