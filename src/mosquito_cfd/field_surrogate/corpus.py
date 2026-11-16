@@ -7,11 +7,14 @@ Windows, ``/mnt/hpi_dev/users/eberrigan/...`` under WSL, and
 directories actually present on disk rather than assumed from a deck's ``plot_int`` -- a run
 can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``. ``plotfile()`` first tries the
 canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the run directory
-only when that name is not a directory.
+only when that name is not a directory. A listing is one ``os.scandir`` with no per-entry
+``stat``: each entry's type comes from its ``DirEntry``. That is the module's only ``os`` call;
+every path it takes or returns is a ``pathlib.Path``.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -45,23 +48,31 @@ def _scan(run: Path) -> dict[int, Path]:
     verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
     stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
 
+    One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``, so
+    the cost does not grow by a ``stat`` per entry -- an NFS round trip each. No ``Path`` API keeps
+    the ``DirEntry`` before Python 3.14's ``Path.info`` (improve-field-reader-perf-memory D1).
+    ``DirEntry.is_dir()`` follows symlinks and returns ``False`` for an entry that has vanished;
+    any other ``OSError`` from it propagates.
+
     Raises:
         ValueError: If two directories parse to the same step, naming both in sorted order so the
             message does not depend on the filesystem's listing order.
     """
     found: dict[int, Path] = {}
-    for entry in run.iterdir():
-        match = _PLT_PATTERN.match(entry.name)
-        if not (match and entry.is_dir()):
-            continue
-        step = int(match.group(1))
-        if step in found:
-            names = ", ".join(sorted((found[step].name, entry.name)))
-            raise ValueError(
-                f"ambiguous plotfiles under {run}: "
-                f"two plotfile directories parse to step {step}: {names}"
-            )
-        found[step] = entry
+    # `with` closes the directory handle on the duplicate raise too, not only on exhaustion.
+    with os.scandir(run) as entries:
+        for entry in entries:
+            match = _PLT_PATTERN.match(entry.name)
+            if not (match and entry.is_dir()):
+                continue
+            step = int(match.group(1))
+            if step in found:
+                names = ", ".join(sorted((found[step].name, entry.name)))
+                raise ValueError(
+                    f"ambiguous plotfiles under {run}: "
+                    f"two plotfile directories parse to step {step}: {names}"
+                )
+            found[step] = run / entry.name
     return found
 
 
@@ -78,8 +89,8 @@ class FieldCorpus:
 
     The manifest is parsed once per instance and cached. Plotfile presence is never cached, since
     which plotfiles exist can change while a run is in progress: ``steps()`` lists the ``plt*``
-    directories on every call, and ``plotfile()`` stats the canonical ``plt{step:05d}`` first and
-    lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    directories on every call (one ``os.scandir``, no per-entry ``stat``), and ``plotfile()``
+    stats the canonical ``plt{step:05d}`` first and lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
     """
 
     def __init__(

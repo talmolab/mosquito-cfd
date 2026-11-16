@@ -49,6 +49,85 @@ def _corpus(tmp_path: Path, names=("s35_f085_p30",), steps=(100,)) -> Path:
     return root
 
 
+def _under(path, root: Path) -> bool:
+    """Whether an ``os`` call's path argument lies under ``root`` (an fd never does)."""
+    if path is None or isinstance(path, int):
+        return False
+    target = os.path.abspath(os.fsdecode(os.fspath(path)))
+    return Path(target).is_relative_to(os.path.abspath(root))
+
+
+class _Listing:
+    """Stand-in for ``os.scandir``'s iterator: iterable, a context manager, and closable."""
+
+    def __init__(self, entries):
+        self._it = iter(entries)
+        self.closed = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._it)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def close(self):
+        self.closed += 1
+
+
+class _StubEntry:
+    """A ``DirEntry`` stand-in whose ``is_dir()`` returns, or raises, ``is_dir``."""
+
+    def __init__(self, run: Path, name: str, is_dir=True):
+        self.name = name
+        self.path = os.path.join(run, name)
+        self._is_dir = is_dir
+
+    def is_dir(self, *, follow_symlinks=True):
+        if isinstance(self._is_dir, BaseException):
+            raise self._is_dir
+        return self._is_dir
+
+
+def _fake_scandir(monkeypatch, root: Path, *, order=(), extra=()) -> list[str]:
+    """Replace ``os.scandir`` for paths under ``root`` with a forced-order listing.
+
+    The real ``DirEntry`` objects are yielded with the names in ``order`` first, then the rest,
+    then the ``extra`` stub entries. NTFS lists names sorted and ext4 hash-ordered, so a check that
+    depends on the order it sees is pinned to an adverse one rather than left to the filesystem.
+
+    Returns:
+        The names of the directories listed, so the caller can assert the fake was used: a test
+        that forces an order the code never sees passes vacuously.
+    """
+    real = os.scandir
+    calls: list[str] = []
+    rank = {name: i for i, name in enumerate(order)}
+
+    def fake(path="."):
+        if not _under(path, root):
+            return real(path)
+        calls.append(Path(os.fsdecode(os.fspath(path))).name)
+        with real(path) as it:
+            entries = sorted(it, key=lambda e: rank.get(e.name, len(rank)))
+        return _Listing([*entries, *extra])
+
+    monkeypatch.setattr(os, "scandir", fake)
+    return calls
+
+
+def _symlink_or_skip(target: Path, link: Path) -> None:
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"cannot create a directory symlink here: {exc}")
+
+
 def test_resolves_a_snapshot_by_config_and_step(tmp_path):
     corpus = FieldCorpus(_corpus(tmp_path))
 
@@ -204,13 +283,6 @@ def test_manifest_is_parsed_from_disk_only_once_per_instance(tmp_path, monkeypat
     assert len(calls) == 1, f"expected exactly one manifest parse, got {len(calls)}"
 
 
-def _symlink_or_skip(target: Path, link: Path) -> None:
-    try:
-        os.symlink(target, link, target_is_directory=True)
-    except (OSError, NotImplementedError) as exc:
-        pytest.skip(f"cannot create a directory symlink here: {exc}")
-
-
 def _pass_corpus(tmp_path: Path) -> Path:
     """3 configs x 5 canonically named empty plotfiles, plus a non-canonical ``plt7`` in ``c0``."""
     root = tmp_path / "corpus"
@@ -245,6 +317,32 @@ def test_corpus_pass_reads_the_manifest_once(tmp_path, monkeypatch):
     assert len(calls) == 1, calls
 
 
+def test_corpus_pass_lists_each_run_directory_once(tmp_path, monkeypatch):
+    # #112 item 1: steps() lists each run directory with one os.scandir, and a canonically named
+    # plotfile() resolves without listing. plotfile("c0", 7) is the positive control: plt7 is not
+    # canonical, so it must list, and the spy must see it.
+    root = _pass_corpus(tmp_path)
+    corpus = FieldCorpus(root)
+    listed: list[str] = []
+    real = os.scandir
+
+    def spy(path="."):
+        if _under(path, root):
+            listed.append(Path(os.fsdecode(os.fspath(path))).name)
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", spy)
+    steps = {c: corpus.steps(c) for c in corpus.config_ids()}
+    assert listed == ["c0", "c1", "c2"], listed
+    for config_id, config_steps in steps.items():
+        for step in config_steps:
+            if step != 7:
+                corpus.plotfile(config_id, step)
+    assert listed == ["c0", "c1", "c2"], listed
+    assert corpus.plotfile("c0", 7) == root / "runs" / "c0" / "plt7"
+    assert listed == ["c0", "c1", "c2", "c0"], listed
+
+
 def test_plotfile_presence_is_reread_and_the_manifest_is_not(tmp_path):
     # Anchor: plotfile presence is never cached, since a run can still be writing; the manifest is.
     root, run = _bare_corpus(tmp_path, ["plt00100"])
@@ -271,12 +369,108 @@ def test_symlinked_plotfile_directory_counts(tmp_path):
     assert corpus.plotfile("s35_f085_p30", 300) == run / "plt300"
 
 
+class _SymlinkToDirEntry(_StubEntry):
+    """A symlink to a directory: a directory only when the type check follows symlinks."""
+
+    def is_dir(self, *, follow_symlinks=True):
+        return follow_symlinks
+
+
+def test_listing_follows_symlinks_on_every_os(tmp_path, monkeypatch):
+    # The symlink anchor above skips where os.symlink needs a privilege (Windows without
+    # developer mode), so this stub carries the follow-symlinks contract on every OS: it is a
+    # directory only if the scan asks DirEntry.is_dir() to follow it.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    calls = _fake_scandir(monkeypatch, root, extra=[_SymlinkToDirEntry(run, "plt300")])
+    assert FieldCorpus(root).steps("s35_f085_p30") == [100, 300]
+    assert calls == ["s35_f085_p30"]
+
+
+def test_listing_costs_one_scandir_and_no_per_entry_stat(tmp_path, monkeypatch):
+    # #112 item 1: Path.iterdir() + Path.is_dir() cost one os.stat per plt-named entry, an NFS
+    # round trip each. A DirEntry carries its type, so the stat count must not grow with the
+    # number of entries. One scandir per call is the positive control that the spy fires.
+    root = tmp_path / "corpus"
+    (root / "runs").mkdir(parents=True)
+    (root / "sweep_manifest.json").write_text(json.dumps(_manifest(["small", "large"])))
+    sizes = {"small": 3, "large": 30}
+    for name, count in sizes.items():
+        run = root / "runs" / name
+        for i in range(count):
+            (run / f"plt{(i + 1) * 10:05d}").mkdir(parents=True)
+        (run / "plt99999").write_text("a file named like a plotfile")
+    corpus = FieldCorpus(root)
+    corpus.config_ids()
+
+    calls: list[str] = []
+    for name in ("scandir", "stat"):
+
+        def spy(path=".", *args, _real=getattr(os, name), _name=name, **kwargs):
+            if _under(path, root):
+                calls.append(_name)
+            return _real(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, name, spy)
+
+    counts = {}
+    for name, count in sizes.items():
+        calls.clear()
+        assert len(corpus.steps(name)) == count
+        counts[name] = (calls.count("scandir"), calls.count("stat"))
+    assert counts["small"][0] == counts["large"][0] == 1, counts
+    assert counts["small"][1] == counts["large"][1], counts
+
+
+def test_failing_entry_type_check_is_skipped_only_when_gone(tmp_path, monkeypatch):
+    # The propagate half: any OSError from the type check other than a vanished entry propagates,
+    # rather than hiding a damaged filesystem as a missing step. The skip half is
+    # test_a_dangling_symlink_is_skipped.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    denied = PermissionError("simulated EACCES on the type check")
+    calls = _fake_scandir(
+        monkeypatch, root, extra=[_StubEntry(run, "plt00200", denied)]
+    )
+    with pytest.raises(PermissionError, match="simulated EACCES"):
+        FieldCorpus(root).steps("s35_f085_p30")
+    assert calls == ["s35_f085_p30"]
+
+
 def test_a_dangling_symlink_is_skipped(tmp_path):
     # The skip half: DirEntry.is_dir() returns False for a target that does not exist (CPython
     # catches FileNotFoundError itself), as Path.is_dir() did.
     root, run = _bare_corpus(tmp_path, ["plt00100"])
     _symlink_or_skip(tmp_path / "gone", run / "plt00200")
     assert FieldCorpus(root).steps("s35_f085_p30") == [100]
+
+
+def test_scan_closes_the_listing_on_the_duplicate_raise(tmp_path, monkeypatch):
+    # The listing must be closed when the duplicate check raises mid-iteration, not left to the
+    # garbage collector: an open directory handle is a held resource, on NFS too.
+    root, _ = _bare_corpus(tmp_path, ["plt100", "plt00100"])
+    corpus = FieldCorpus(root)
+    real = os.scandir
+    listings: list[_Listing] = []
+
+    class _Closing(_Listing):
+        def __init__(self, it):
+            super().__init__(it)
+            self._real = it
+
+        def close(self):
+            super().close()
+            self._real.close()
+
+    def spy(path="."):
+        it = real(path)
+        if _under(path, root):
+            it = _Closing(it)
+            listings.append(it)
+        return it
+
+    monkeypatch.setattr(os, "scandir", spy)
+    with pytest.raises(ValueError, match="ambiguous plotfiles"):
+        corpus.steps("s35_f085_p30")
+    assert [listing.closed for listing in listings] == [1]
 
 
 def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):
@@ -294,49 +488,41 @@ def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):
     for padded, bare in ((2, "plt2"), (10, "plt10")):
         (run / f"plt{padded:05d}").rename(run / bare)
 
-    real_iterdir = Path.iterdir
-
-    def reverse_numeric_iterdir(self):
-        # Order by the STEP NUMBER descending, so the raw listing is [100, 10, 2] -- unambiguously
-        # the wrong answer. Ordering by name descending would yield plt2, plt10, plt00100, i.e.
-        # [2, 10, 100], which is accidentally correct and lets the mutant survive (this test's
-        # first version made exactly that mistake).
-        def step_of(q):
-            digits = q.name[3:]
-            return int(digits) if q.name.startswith("plt") and digits.isdigit() else -1
-
-        return iter(sorted(real_iterdir(self), key=step_of, reverse=True))
-
-    monkeypatch.setattr(Path, "iterdir", reverse_numeric_iterdir)
+    # Order by the STEP NUMBER descending, so the raw listing is [100, 10, 2] -- unambiguously the
+    # wrong answer. Ordering by name descending would yield plt2, plt10, plt00100, i.e.
+    # [2, 10, 100], which is accidentally correct and lets the mutant survive (this test's first
+    # version made exactly that mistake).
+    calls = _fake_scandir(monkeypatch, root, order=["plt00100", "plt10", "plt2"])
     assert FieldCorpus(root).steps("s35_f085_p30") == [2, 10, 100]
+    assert calls == ["s35_f085_p30"]
 
 
 # --- harden-field-corpus-requests: step validation, duplicates, the canonical fast path --------
 
 
 class _IoSpy:
-    """Record manifest loads and ``Path`` directory checks/listings, installed AFTER construction.
+    """Record manifest loads, ``Path.is_dir`` checks and ``os.scandir`` listings.
 
-    ``FieldCorpus.__init__`` itself calls ``root.is_dir()``, so a spy installed before
-    construction would record that call. Only the ``Path`` API is covered: an ``os.path.isdir`` or
-    ``os.scandir`` call would not be seen, which is why every zero-call assertion below has a
-    positive control showing the same spy DOES see a real lookup.
+    Installed AFTER construction: ``FieldCorpus.__init__`` itself calls ``root.is_dir()``, so a spy
+    installed before construction would record that call. An ``os.path.isdir`` call would not be
+    seen, which is why every zero-call assertion below has a positive control showing the same spy
+    DOES see a real lookup.
     """
 
     def __init__(self, monkeypatch):
         import mosquito_cfd.force_surrogate.dataset as fs_dataset
 
         self.calls: list[str] = []
-        real_is_dir, real_iterdir = Path.is_dir, Path.iterdir
+        real_is_dir, real_scandir = Path.is_dir, os.scandir
         real_load = fs_dataset.load_manifest_configs
 
         def is_dir(path, *args, **kwargs):
             self.calls.append(f"is_dir:{path.name}")
             return real_is_dir(path, *args, **kwargs)
 
-        def iterdir(path):
-            self.calls.append(f"iterdir:{path.name}")
-            return real_iterdir(path)
+        def scandir(path="."):
+            self.calls.append(f"scandir:{Path(os.fsdecode(os.fspath(path))).name}")
+            return real_scandir(path)
 
         def load(*args, **kwargs):
             # _configs imports load_manifest_configs lazily, inside the call, so patching the
@@ -345,7 +531,7 @@ class _IoSpy:
             return real_load(*args, **kwargs)
 
         monkeypatch.setattr(Path, "is_dir", is_dir)
-        monkeypatch.setattr(Path, "iterdir", iterdir)
+        monkeypatch.setattr(os, "scandir", scandir)
         monkeypatch.setattr(fs_dataset, "load_manifest_configs", load)
 
     def count(self, prefix: str) -> int:
@@ -424,22 +610,6 @@ def test_io_spy_sees_a_real_plotfile_lookup(tmp_path, monkeypatch):
     assert spy.count("is_dir:") >= 1
 
 
-def _listing_order(monkeypatch, names_first: list[str]) -> None:
-    """Force ``Path.iterdir`` to yield ``names_first`` (in that order) before anything else.
-
-    NTFS already lists names sorted and ext4 lists them hash-ordered, so a check that depends on
-    the order it sees must be pinned to an adverse one, not left to the filesystem.
-    """
-    real_iterdir = Path.iterdir
-
-    def ordered(path):
-        entries = list(real_iterdir(path))
-        rank = {name: i for i, name in enumerate(names_first)}
-        return iter(sorted(entries, key=lambda q: rank.get(q.name, len(rank))))
-
-    monkeypatch.setattr(Path, "iterdir", ordered)
-
-
 def test_duplicate_step_directories_raise(tmp_path, monkeypatch):
     # plt100 and plt00100 both parse to step 100. steps() used to return [100, 100, 200] and
     # plotfile() returned whichever directory the filesystem listed first. Every operation that
@@ -448,7 +618,7 @@ def test_duplicate_step_directories_raise(tmp_path, monkeypatch):
     # (harden-field-corpus-requests D5). plt200 is non-canonical, so plotfile(c, 200) cannot take
     # the canonical fast path and must scan.
     root, _ = _bare_corpus(tmp_path, ["plt100", "plt00100", "plt200"])
-    _listing_order(monkeypatch, ["plt100", "plt200", "plt00100"])
+    calls = _fake_scandir(monkeypatch, root, order=["plt100", "plt200", "plt00100"])
     corpus = FieldCorpus(root)
     expected = r"two plotfile directories parse to step 100: plt00100, plt100$"
 
@@ -456,6 +626,7 @@ def test_duplicate_step_directories_raise(tmp_path, monkeypatch):
         corpus.steps("s35_f085_p30")
     with pytest.raises(ValueError, match=expected):
         corpus.plotfile("s35_f085_p30", 200)
+    assert calls == ["s35_f085_p30", "s35_f085_p30"]
 
 
 def test_non_directory_entries_never_duplicate_or_resolve(tmp_path, monkeypatch):
@@ -463,7 +634,7 @@ def test_non_directory_entries_never_duplicate_or_resolve(tmp_path, monkeypatch)
     # the is_dir filter) and by plotfile() (a file named plt00100 is not a canonical hit). The
     # directory is forced to list BEFORE the same-step file: a duplicate check placed ahead of the
     # is_dir filter only fires in that order.
-    _listing_order(monkeypatch, ["plt00100", "plt100"])
+    calls = _fake_scandir(monkeypatch, tmp_path, order=["plt00100", "plt100"])
     root, run = _bare_corpus(tmp_path, ["plt00100"])
     (run / "plt100").write_text("not a plotfile")
     corpus = FieldCorpus(root)
@@ -475,6 +646,8 @@ def test_non_directory_entries_never_duplicate_or_resolve(tmp_path, monkeypatch)
     corpus2 = FieldCorpus(root2)
     assert corpus2.steps("s35_f085_p30") == [100]
     assert corpus2.plotfile("s35_f085_p30", 100) == run2 / "plt100"
+    # steps() on each corpus, plus the second plotfile() call's fallback scan.
+    assert calls == ["s35_f085_p30"] * 3
 
 
 def test_missing_step_lists_the_run_directory_once(tmp_path, monkeypatch):
@@ -486,7 +659,7 @@ def test_missing_step_lists_the_run_directory_once(tmp_path, monkeypatch):
     spy = _IoSpy(monkeypatch)
     with pytest.raises(ValueError, match=r"available steps: \[7\]$"):
         corpus.plotfile("s35_f085_p30", 8)
-    assert spy.count("iterdir:") == 1, spy.calls
+    assert spy.count("scandir:") == 1, spy.calls
 
 
 def test_noncanonical_step_resolves_with_one_listing(tmp_path, monkeypatch):
@@ -496,7 +669,7 @@ def test_noncanonical_step_resolves_with_one_listing(tmp_path, monkeypatch):
     corpus = FieldCorpus(root)
     spy = _IoSpy(monkeypatch)
     assert corpus.plotfile("s35_f085_p30", 7) == run / "plt7"
-    assert spy.count("iterdir:") == 1, spy.calls
+    assert spy.count("scandir:") == 1, spy.calls
 
 
 def test_canonical_plotfile_resolves_without_listing(tmp_path, monkeypatch):
@@ -504,13 +677,16 @@ def test_canonical_plotfile_resolves_without_listing(tmp_path, monkeypatch):
     # That name is tried with one is_dir() before any listing of the run directory -- on cluster
     # NFS each per-entry stat of a listing is a round trip (harden-field-corpus-requests D2). Step
     # 100 kills a `:05d` -> `:d` mutant (plt100 does not exist here).
-    root, run = _bare_corpus(tmp_path, ["plt00100", "plt100000"])
+    root, run = _bare_corpus(tmp_path, ["plt00100", "plt100000", "plt7"])
     corpus = FieldCorpus(root)
     spy = _IoSpy(monkeypatch)
     assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
     assert corpus.plotfile("s35_f085_p30", 100000) == run / "plt100000"
-    assert spy.count("iterdir:") == 0, spy.calls
+    assert spy.count("scandir:") == 0, spy.calls
     assert spy.calls.count("is_dir:plt00100") == 1, spy.calls
+    # Positive control: the same spy sees the one listing a non-canonical name needs.
+    assert corpus.plotfile("s35_f085_p30", 7) == run / "plt7"
+    assert spy.count("scandir:") == 1, spy.calls
 
 
 def test_unknown_config_is_rejected_before_the_fast_path(tmp_path):

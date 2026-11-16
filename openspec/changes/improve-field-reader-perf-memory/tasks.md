@@ -310,7 +310,7 @@
     |---|---|
     | `os.scandir` → `iterdir` + `Path.is_dir` | 1.3 |
     | `entry.is_dir()` → `Path(entry.path).is_dir()` | 1.3 |
-    | `is_dir(follow_symlinks=False)` | 1.1, the symlink test (where available) |
+    | `is_dir(follow_symlinks=False)` | 1.1, the symlink test (where `os.symlink` is permitted); and `test_listing_follows_symlinks_on_every_os`, a symlink-shaped stub entry, added in 1.4 because the real symlink test skips on Windows without developer mode |
     | `found[step] = entry` or `entry.path` | `test_noncanonical_step_resolves_with_one_listing` |
     | `with` dropped | 1.3 `test_scan_closes_the_listing_on_the_duplicate_raise` (a spy wrapping the real `os.scandir`) |
     | `is_dir()` wrapped in `except OSError: False` | 1.3 (`PermissionError` stub) |
