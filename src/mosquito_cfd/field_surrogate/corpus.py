@@ -7,11 +7,15 @@ Windows, ``/mnt/hpi_dev/users/eberrigan/...`` under WSL, and
 directories actually present on disk rather than assumed from a deck's ``plot_int`` -- a run
 can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``. ``plotfile()`` first tries the
 canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the run directory
-only when that name is not a directory.
+only when that name is not a directory. A listing is one ``os.scandir`` with no Python-level
+``stat`` per entry: each entry's type comes from its ``DirEntry``. Every path the module takes
+or returns is a ``pathlib.Path``.
 """
 
 from __future__ import annotations
 
+import errno
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -21,9 +25,11 @@ import numpy as np
 from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
 
-#: Plotfile directory names are ``plt`` followed by digits only. ``plt00300.old`` and ``pltXXXXX``
-#: are deliberately not matched.
-_PLT_PATTERN = re.compile(r"^plt(\d+)$")
+#: Plotfile directory names are ``plt`` followed by ASCII digits only, matched with ``fullmatch``
+#: against the whole name. ``plt00300.old`` and ``pltXXXXX`` are deliberately not matched, nor are
+#: ``plt`` + non-ASCII decimal digits (``\d`` would match them, and ``int()`` parses them) or a
+#: name with a trailing newline (``$`` would match before it) -- #145.
+_PLT_PATTERN = re.compile(r"plt([0-9]+)")
 
 
 def _validate_step(step: Any) -> int:
@@ -38,6 +44,33 @@ def _validate_step(step: Any) -> int:
     return int(step)
 
 
+#: The type-check failures Python 3.11's ``Path.is_dir()`` reported as "not a directory"
+#: (``pathlib._IGNORED_ERRNOS`` and ``_IGNORED_WINERRORS``): a vanished entry, a symlink through
+#: a file, a bad descriptor, a symlink loop, and three Windows path errors. ``DirEntry.is_dir()``
+#: itself swallows only ``FileNotFoundError``.
+_NOT_A_DIRECTORY_ERRNOS = frozenset(
+    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
+)
+_NOT_A_DIRECTORY_WINERRORS = frozenset({21, 123, 1921})
+
+
+def _is_dir(entry: os.DirEntry) -> bool:
+    # Keeps the verdict Path.is_dir() gave before the listing moved to os.scandir, so one broken
+    # symlink cannot take down a config's whole step list; any other OSError (e.g. EACCES, EIO)
+    # still propagates. ValueError is Path.is_dir()'s "non-encodable path".
+    try:
+        return entry.is_dir()
+    except OSError as exc:
+        if (
+            exc.errno in _NOT_A_DIRECTORY_ERRNOS
+            or getattr(exc, "winerror", None) in _NOT_A_DIRECTORY_WINERRORS
+        ):
+            return False
+        raise
+    except ValueError:
+        return False
+
+
 def _scan(run: Path) -> dict[int, Path]:
     """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
 
@@ -45,23 +78,33 @@ def _scan(run: Path) -> dict[int, Path]:
     verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
     stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
 
+    One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``
+    where the filesystem reports it, so there is no Python-level ``stat`` per entry (on NFS the
+    kernel may still stat an entry whose type the server did not return, or a symlink). No
+    ``Path`` API keeps the ``DirEntry`` before Python 3.14's ``Path.info``
+    (improve-field-reader-perf-memory D1). The type check follows symlinks and skips exactly the
+    entries ``Path.is_dir()`` skipped -- vanished, dangling, looping, or through a file; see
+    :func:`_is_dir` -- and any other ``OSError`` propagates.
+
     Raises:
         ValueError: If two directories parse to the same step, naming both in sorted order so the
             message does not depend on the filesystem's listing order.
     """
     found: dict[int, Path] = {}
-    for entry in run.iterdir():
-        match = _PLT_PATTERN.match(entry.name)
-        if not (match and entry.is_dir()):
-            continue
-        step = int(match.group(1))
-        if step in found:
-            names = ", ".join(sorted((found[step].name, entry.name)))
-            raise ValueError(
-                f"ambiguous plotfiles under {run}: "
-                f"two plotfile directories parse to step {step}: {names}"
-            )
-        found[step] = entry
+    # `with` closes the directory handle on the duplicate raise too, not only on exhaustion.
+    with os.scandir(run) as entries:
+        for entry in entries:
+            match = _PLT_PATTERN.fullmatch(entry.name)
+            if not (match and _is_dir(entry)):
+                continue
+            step = int(match.group(1))
+            if step in found:
+                names = ", ".join(sorted((found[step].name, entry.name)))
+                raise ValueError(
+                    f"ambiguous plotfiles under {run}: "
+                    f"two plotfile directories parse to step {step}: {names}"
+                )
+            found[step] = run / entry.name
     return found
 
 
@@ -78,8 +121,9 @@ class FieldCorpus:
 
     The manifest is parsed once per instance and cached. Plotfile presence is never cached, since
     which plotfiles exist can change while a run is in progress: ``steps()`` lists the ``plt*``
-    directories on every call, and ``plotfile()`` stats the canonical ``plt{step:05d}`` first and
-    lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    directories on every call (one ``os.scandir``, no per-entry ``stat``), and ``plotfile()``
+    stats the canonical ``plt{step:05d}`` first and lists only on a miss. Construct a new
+    ``FieldCorpus`` to pick up a manifest edited on disk.
     """
 
     def __init__(
@@ -159,8 +203,8 @@ class FieldCorpus:
     def steps(self, config_id: str) -> list[int]:
         """Return the timesteps whose plotfiles are actually present on disk, ascending.
 
-        Non-directories and names whose suffix after ``plt`` is not an integer are ignored, so a
-        stray file or a ``.old`` copy cannot masquerade as a step.
+        Non-directories and names whose suffix after ``plt`` is not one or more ASCII digits are
+        ignored, so a stray file or a ``.old`` copy cannot masquerade as a step.
 
         Args:
             config_id: Config name as listed in the manifest.

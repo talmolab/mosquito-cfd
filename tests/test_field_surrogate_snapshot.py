@@ -117,6 +117,16 @@ class _RecordingGrid:
             return value.astype("float32")
         return value
 
+    # The reader releases yt's per-field cache as it goes (improve-field-reader-perf-memory D4),
+    # so the proxy forwards exactly the two members that touches -- explicitly, not through a
+    # catch-all __getattr__.
+    @property
+    def field_data(self):
+        return self._inner.field_data
+
+    def clear_data(self):
+        self._inner.clear_data()
+
 
 class _ProxyIndex:
     def __init__(self, inner, max_level):
@@ -128,11 +138,17 @@ class _ProxyIndex:
 
 
 class _ProxyDataset:
-    def __init__(self, inner, log, max_level=None, fp32_field=None):
+    def __init__(
+        self, inner, log, max_level=None, fp32_field=None, grid_log=None, grid_cls=None
+    ):
         self._inner = inner
         self._log = log
         self._max_level = max_level
         self._fp32_field = fp32_field
+        # Covering-grid construction is recorded in its OWN log, so the field-read logs that
+        # existing tests compare with == are unchanged.
+        self._grid_log = grid_log
+        self._grid_cls = grid_cls or _RecordingGrid
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -142,7 +158,9 @@ class _ProxyDataset:
         return _ProxyIndex(self._inner.index, self._max_level)
 
     def covering_grid(self, *args, **kwargs):
-        return _RecordingGrid(
+        if self._grid_log is not None:
+            self._grid_log.append(kwargs.get("level", args[0] if args else None))
+        return self._grid_cls(
             self._inner.covering_grid(*args, **kwargs), self._log, self._fp32_field
         )
 
@@ -158,15 +176,29 @@ def _fixture_generator():
     return mod
 
 
-def _patch_yt(monkeypatch, *, max_level=None, fp32_field=None, path=FIXTURE):
-    """Return the list that records every ('boxlib', name) tuple actually read."""
+def _patch_yt(
+    monkeypatch,
+    *,
+    max_level=None,
+    fp32_field=None,
+    path=FIXTURE,
+    grid_log=None,
+    grid_cls=None,
+):
+    """Return the list that records every ('boxlib', name) tuple actually read.
+
+    ``grid_log``, when given, records each covering-grid construction; ``grid_cls`` replaces
+    the recording grid proxy.
+    """
     import yt
 
     log = []
     real_load = yt.load
 
     def fake_load(_path, *args, **kwargs):
-        return _ProxyDataset(real_load(str(path)), log, max_level, fp32_field)
+        return _ProxyDataset(
+            real_load(str(path)), log, max_level, fp32_field, grid_log, grid_cls
+        )
 
     monkeypatch.setattr(yt, "load", fake_load)
     return log
@@ -1172,11 +1204,16 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
     poisoned = np.array([np.nan, np.inf, -np.inf, -0.0, 1.5])
 
     class _Unyt:
-        # Minimal stand-in for yt's unyt_array: the reader unwraps via .to_ndarray().
+        # Minimal stand-in for yt's unyt_array: the reader unwraps via .d (a view), as
+        # unyt does; to_ndarray() is kept for any other caller.
         def __init__(self, array):
             self._array = array
 
         def to_ndarray(self):
+            return self._array.copy()
+
+        @property
+        def d(self):
             return self._array
 
     class _PoisonGrid:
@@ -1187,6 +1224,14 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
             value = self._inner[key].to_ndarray().copy()
             value.reshape(-1)[: poisoned.size] = poisoned
             return _Unyt(value)
+
+        # Forwarded for the reader's cache release (improve-field-reader-perf-memory D4).
+        @property
+        def field_data(self):
+            return self._inner.field_data
+
+        def clear_data(self):
+            self._inner.clear_data()
 
     class _PoisonDataset:
         def __init__(self, inner):
@@ -1260,3 +1305,616 @@ def test_frozen_oracle_is_unmodified():
         "copy of the pre-refactor implementation taken at 86c729e. If the change was "
         "deliberate, the delegation's equivalence claim no longer means what it says."
     )
+
+
+# --- improve-field-reader-perf-memory: bit-identity against a full-grid reference --------------
+
+
+def _ab_script():
+    # scripts/ is not a package; _map is the A/B script's cell-unit -> physical mapping, reused so
+    # the cases mean the same thing here as in the real-plotfile verification.
+    spec = importlib.util.spec_from_file_location(
+        "_verify_eulerian_box_ab", REPO_ROOT / "scripts" / "verify_eulerian_box_ab.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@functools.lru_cache(maxsize=4)
+def _full_grid_reference(path: str) -> dict:
+    """The full level-0 covering grid of all eight fields, read with yt directly, once per file.
+
+    Built independently of ``read_field_snapshot``'s read loop: no cache release, no teardown.
+    Only ``_region_bounds`` is shared, and that arithmetic is pinned against the legacy oracle.
+    """
+    import yt
+
+    from mosquito_cfd.field_surrogate.snapshot import CANONICAL_FIELDS
+
+    yt.set_log_level("error")
+    ds = yt.load(path)
+    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
+    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
+    ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
+    cg = ds.covering_grid(
+        level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
+    )
+    data = {
+        name: np.array(cg[field].to_ndarray(), copy=True)
+        for name, field in CANONICAL_FIELDS.items()
+    }
+    return {
+        "data": data,
+        "dle": dle,
+        "dre": dre,
+        "ddims": ddims,
+        "dx": (dre - dle) / ddims,
+        "time": float(ds.current_time),
+        "max_level": int(ds.index.max_level),
+    }
+
+
+def _frozen_copy(view: np.ndarray) -> np.ndarray:
+    out = np.array(view, dtype=np.float64, order="C", copy=True)
+    out.setflags(write=False)
+    return out
+
+
+def _expected_snapshot(path, lo, hi, halo) -> dict:
+    from mosquito_cfd.field_surrogate.snapshot import _corner, _region_bounds
+
+    ref = _full_grid_reference(str(path))
+    i_lo, i_hi = _region_bounds(
+        _corner(lo, "lo"),
+        _corner(hi, "hi"),
+        halo,
+        dle=ref["dle"],
+        dre=ref["dre"],
+        ddims=ref["ddims"],
+    )
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(i_lo, i_hi))
+    axes = []
+    for axis in range(3):
+        # The reader's own arithmetic: a linspace reference differs by an ULP on non-dyadic grids.
+        centers = (
+            ref["dle"][axis] + (np.arange(ref["ddims"][axis]) + 0.5) * ref["dx"][axis]
+        )
+        axes.append(_frozen_copy(centers[sl[axis]]))
+    return {
+        "arrays": {name: _frozen_copy(a[sl]) for name, a in ref["data"].items()},
+        "x": axes[0],
+        "y": axes[1],
+        "z": axes[2],
+        "dx": ref["dx"],
+        "time": ref["time"],
+        "max_level": ref["max_level"],
+    }
+
+
+def _assert_same_array(got: np.ndarray, want: np.ndarray, tag: str) -> None:
+    # Bitwise, not numeric: assert_array_equal treats -0.0 == 0.0 and ignores NaN payloads.
+    assert got.dtype == want.dtype == np.float64, tag
+    assert got.shape == want.shape, tag
+    assert got.tobytes() == want.tobytes(), tag
+    assert got.strides == want.strides, tag
+    assert got.flags.c_contiguous == want.flags.c_contiguous, tag
+    assert got.flags.f_contiguous == want.flags.f_contiguous, tag
+    assert got.flags.writeable is False, tag
+    assert got.base is None, tag
+
+
+def _assert_bit_identical(snap, path, lo, hi, halo) -> None:
+    from mosquito_cfd.field_surrogate.snapshot import CANONICAL_FIELDS
+
+    want = _expected_snapshot(path, lo, hi, halo)
+    assert snap.field_names == tuple(CANONICAL_FIELDS)
+    assert list(snap.arrays) == list(CANONICAL_FIELDS)
+    for name in CANONICAL_FIELDS:
+        _assert_same_array(snap.arrays[name], want["arrays"][name], name)
+    for axis in ("x", "y", "z"):
+        _assert_same_array(getattr(snap, axis), want[axis], axis)
+    assert snap.dx.tobytes() == want["dx"].tobytes()
+    assert snap.dx.dtype == np.float64 and snap.dx.shape == (3,)
+    assert snap.dx.flags.writeable is False
+    assert type(snap.time) is float and snap.time == want["time"]
+    assert snap.source == str(path)
+    assert type(snap.max_level) is int and snap.max_level == want["max_level"]
+
+
+ALL_FIELDS = (
+    "u",
+    "v",
+    "w",
+    "gradpx",
+    "gradpy",
+    "gradpz",
+    "density",
+    "tracer",
+)
+_BIT_CASES = [(c[0], c[1], c[2], c[3], c[4]) for c in REGION_CASES] + [
+    (c[0], c[1], c[2], c[3], c[5]) for c in DIVERGENCE_CASES
+]
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "counts"),
+    [c[1:] for c in _BIT_CASES],
+    ids=[c[0] for c in _BIT_CASES],
+)
+def test_read_is_bit_identical_to_a_full_grid_reference(
+    asym_plotfile, lo, hi, halo, counts
+):
+    # Anchor for every speed and memory change in improve-field-reader-perf-memory: the cache
+    # release, the teardown and the zero-cell short-circuit must not change one bit of what is
+    # returned, on the cubic fixture and on an anisotropic, non-zero-origin grid.
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo, fields=ALL_FIELDS)
+    assert (
+        snap.arrays["u"].shape == counts
+    )  # the tables' literal counts, not recomputed
+    _assert_bit_identical(snap, FIXTURE, lo, hi, halo)
+
+    ref = _full_grid_reference(str(asym_plotfile))
+    mapper = _ab_script()._map
+    mlo = mapper(lo, ref["dle"], ref["dre"], ref["dx"])
+    mhi = mapper(hi, ref["dle"], ref["dre"], ref["dx"])
+    snap = read_field_snapshot(
+        asym_plotfile, lo=mlo, hi=mhi, halo=halo, fields=ALL_FIELDS
+    )
+    _assert_bit_identical(snap, asym_plotfile, mlo, mhi, halo)
+
+
+_REAL_BIT_CASES = (
+    "full",
+    "halo2",
+    "x_slab_only",
+    "outside_domain",
+    "above_within_reach_offface_h2",
+)
+
+
+@pytest.mark.requires_plotfile
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:4] for c in _BIT_CASES if c[0] in _REAL_BIT_CASES],
+    ids=[c[0] for c in _BIT_CASES if c[0] in _REAL_BIT_CASES],
+)
+def test_real_multi_fab_read_is_bit_identical_to_a_full_grid_reference(lo, hi, halo):
+    import os
+
+    plotfiles = sorted(
+        (Path(os.environ["MOSQUITO_CFD_PLOTFILE_ROOT"]) / "t3c-fine").glob("plt*")
+    )
+    if not plotfiles:
+        pytest.skip("no t3c-fine/plt* under $MOSQUITO_CFD_PLOTFILE_ROOT")
+    path = plotfiles[-1]
+    ref = _full_grid_reference(str(path))
+    mapper = _ab_script()._map
+    mlo = mapper(lo, ref["dle"], ref["dre"], ref["dx"])
+    mhi = mapper(hi, ref["dle"], ref["dre"], ref["dx"])
+    snap = read_field_snapshot(path, lo=mlo, hi=mhi, halo=halo, fields=ALL_FIELDS)
+    _assert_bit_identical(snap, path, mlo, mhi, halo)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _release_full_grid_references():
+    # The real t3c-fine reference holds eight full 256x128x256 fields (~1 GB); drop the cache
+    # when this module finishes rather than for the rest of the session.
+    yield
+    _full_grid_reference.cache_clear()
+
+
+# --- improve-field-reader-perf-memory: guards before the zero-cell short-circuit ---------------
+
+_OUTSIDE = next(c for c in REGION_CASES if c[0] == "outside_domain")
+OUTSIDE_DOMAIN = {"lo": _OUTSIDE[1], "hi": _OUTSIDE[2], "halo": _OUTSIDE[3]}
+
+
+class _IndexWithoutDtype:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name == "_dtype":
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+
+class _DatasetWithoutDtype:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @property
+    def index(self):
+        return _IndexWithoutDtype(self._inner.index)
+
+
+@pytest.mark.parametrize(
+    "guard", ["multi_level", "no_dtype_attribute", "fp32_on_disk", "missing_field"]
+)
+def test_guards_fire_before_the_zero_cell_short_circuit(guard, monkeypatch, tmp_path):
+    # Anchor (passes before the short-circuit exists): a request with zero cells must still be
+    # refused for the same reason as a non-empty one. A short-circuit placed ahead of any guard
+    # would return empty arrays from a plotfile the reader refuses to read.
+    import yt
+
+    path = FIXTURE
+    if guard == "multi_level":
+        _patch_yt(monkeypatch, max_level=1)
+        match = "CC-F3"
+    elif guard == "no_dtype_attribute":
+        real_load = yt.load
+        monkeypatch.setattr(
+            yt, "load", lambda p, *a, **k: _DatasetWithoutDtype(real_load(str(p)))
+        )
+        match = "cannot determine the plotfile's on-disk precision"
+    elif guard == "fp32_on_disk":
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_fp32", real_dtype="float32"
+        )
+        match = "not 8-byte floats"
+    else:
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_reduced", fields=("x_velocity", "y_velocity")
+        )
+        match = r"missing required fields \[\('boxlib', 'z_velocity'\)"
+    with pytest.raises(ValueError, match=match):
+        read_field_snapshot(path, **OUTSIDE_DOMAIN)
+
+
+# --- improve-field-reader-perf-memory: covering-grid release and teardown (#120) ---------------
+
+
+def test_each_field_leaves_the_covering_grid_cache_once_copied(monkeypatch):
+    # #120 / #112 item 3: yt caches every field read through a covering grid in cg.field_data, so
+    # a six-field read held all six full-domain buffers at once. Each must be dropped once copied.
+    # Checked AT the calls, not after the read: clear_data() empties field_data, so "empty
+    # afterwards" holds whether or not the per-field release happened.
+    clears: list[int] = []
+
+    class _CacheCheckingGrid(_RecordingGrid):
+        def __getitem__(self, key):
+            stale = [f for f in self._log if f in self._inner.field_data]
+            assert not stale, f"reading {key} with earlier fields still cached: {stale}"
+            return super().__getitem__(key)
+
+        def clear_data(self):
+            assert not self._inner.field_data, list(self._inner.field_data)
+            clears.append(1)
+            super().clear_data()
+
+    log = _patch_yt(monkeypatch, grid_cls=_CacheCheckingGrid)
+    read_field_snapshot(FIXTURE, **FULL)
+    assert len(log) == 6
+    assert clears == [1]
+
+
+class _TrackedField:
+    """Stand-in for the yt array a covering grid returns, recording every buffer handed out.
+
+    Offers the two ways the reader may unwrap it: ``to_ndarray()`` (unyt makes a copy) and
+    ``.d`` (a view of yt's own buffer). Recorded as ``(weakref, shares_memory_with_yt)``, three
+    per field: yt's array, the ndarray that OWNS its memory, and the array handed out. The owner
+    matters: a view or slice of ``.d`` keeps the owner alive without keeping yt's wrapper alive,
+    so tracking the wrapper alone would miss a reader that holds on to a slice.
+    """
+
+    def __init__(self, inner, record):
+        import weakref
+
+        self._inner = inner
+        self._record = record
+        owner = inner.base if inner.base is not None else inner
+        record.append((weakref.ref(inner), True))
+        record.append((weakref.ref(owner), True))
+
+    def _hand_out(self, arr):
+        import weakref
+
+        self._record.append((weakref.ref(arr), np.shares_memory(arr, self._inner)))
+        return arr
+
+    def to_ndarray(self):
+        return self._hand_out(self._inner.to_ndarray())
+
+    @property
+    def d(self):
+        return self._hand_out(self._inner.d)
+
+
+def _tracking_grid(record):
+    class _TrackingGrid(_RecordingGrid):
+        def __getitem__(self, key):
+            alive = [i for i, (ref, _) in enumerate(record) if ref() is not None]
+            assert not alive, f"reading {key} while earlier buffers {alive} are alive"
+            return _TrackedField(super().__getitem__(key), record)
+
+    return _TrackingGrid
+
+
+def test_no_full_domain_buffer_outlives_its_copy(monkeypatch):
+    # Refcount-deterministic, unlike the tracemalloc bound: before each field is read, yt's
+    # array for every earlier field -- and whatever the reader unwrapped it into -- must already
+    # be dead, and none may outlive the call. Kills a reader that keeps `raw`, or any slice of
+    # it, bound until the next iteration: that holds a whole field but adds only ~1 S of peak,
+    # so it passes the 7.5 S bound.
+    record: list = []
+    _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
+    read_field_snapshot(FIXTURE, **FULL)
+    # Positive control: yt's array, its owner and one unwrapped array per field were tracked.
+    assert len(record) == 18
+    assert all(ref() is None for ref, _ in record), "a buffer outlived the call"
+
+
+def test_fields_are_unwrapped_through_a_view(monkeypatch):
+    # unyt's to_ndarray() is np.array(self): a transient full-domain copy per field, made only
+    # to be sliced and copied again. It does not raise the measured peak, which yt's read sets
+    # (design.md D4), so this pins the accessor, not a memory figure: `.d` is a view of yt's own
+    # buffer, and the reader's owning slice copy is the only copy it makes.
+    record: list = []
+    _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
+    read_field_snapshot(FIXTURE, **FULL)
+    handed_out = record[2::3]
+    assert len(handed_out) == 6
+    copies = [i for i, (_, shares) in enumerate(handed_out) if not shares]
+    assert not copies, f"fields {copies} were unwrapped into a full-domain copy"
+
+
+@pytest.fixture(scope="module")
+def plotfile_96(tmp_path_factory):
+    root = tmp_path_factory.mktemp("p96") / "plt96"
+    return _fixture_generator().write_fixture(root, shape=(96, 96, 96))
+
+
+@pytest.fixture(scope="module")
+def plotfile_64(tmp_path_factory):
+    root = tmp_path_factory.mktemp("p64") / "plt64"
+    return _fixture_generator().write_fixture(root, shape=(64, 64, 64))
+
+
+def _traced_peak(read) -> int:
+    """``tracemalloc`` peak of one call above its starting level, after a warm-up call.
+
+    Automatic GC stays enabled, as in production; a full collection runs before the traced call
+    so an earlier read's garbage is not counted. Restores the prior tracing and GC state.
+    """
+    import gc
+    import tracemalloc
+
+    if tracemalloc.is_tracing():
+        pytest.skip(
+            "tracemalloc is already tracing; a nested trace would be meaningless"
+        )
+    gc_was_enabled = gc.isenabled()
+    try:
+        gc.enable()
+        read()  # warm-up: yt's lazy imports and per-process caches
+        gc.collect()
+        tracemalloc.start()
+        start = tracemalloc.get_traced_memory()[0]
+        tracemalloc.reset_peak()
+        result = read()
+        peak = tracemalloc.get_traced_memory()[1] - start
+        del result
+        return peak
+    finally:
+        tracemalloc.stop()
+        if not gc_was_enabled:
+            gc.disable()
+
+
+def test_field_cache_release_bounds_the_peak(plotfile_96):
+    # Differential in units of one field's bytes S, never an absolute MB figure: yt's own
+    # overhead varies by version and platform, the per-field growth is what this change removes.
+    # Measured on 96^3 before the change: 9.7-11.1 S; after: 4.5-5.3 S.
+    field_bytes = 8 * 96**3
+    one = _traced_peak(lambda: read_field_snapshot(plotfile_96, **FULL, fields=("u",)))
+    six = _traced_peak(lambda: read_field_snapshot(plotfile_96, **FULL))
+    growth = (six - one) / field_bytes
+    assert growth <= 7.5, f"six-field peak exceeds one-field peak by {growth:.2f} S"
+
+
+def _yt_object_refs(monkeypatch) -> tuple[list, list]:
+    """Keep weak references to each REAL yt Dataset and covering grid the reader creates.
+
+    Never to a test proxy around one: a proxy dies on return even while the object it wraps
+    lives, which would make the assertion vacuous. The covering grid is tracked separately
+    because it holds its dataset only through a ``weakref.proxy``: a reader that dropped the
+    dataset but kept the grid would still pass a dataset-only check, while the grid -- in its own
+    cycle -- outlived the call.
+
+    Returns:
+        ``(datasets, grids)``, lists of weak references in creation order.
+    """
+    import weakref
+
+    import yt
+    from yt.data_objects.construction_data_containers import YTCoveringGrid
+
+    datasets: list = []
+    grids: list = []
+    real_load = yt.load
+    real_init = YTCoveringGrid.__init__
+
+    def load(*args, **kwargs):
+        ds = real_load(*args, **kwargs)
+        assert type(ds).__module__.startswith("yt."), type(ds)
+        datasets.append(weakref.ref(ds))
+        return ds
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        grids.append(weakref.ref(self))
+
+    monkeypatch.setattr(yt, "load", load)
+    monkeypatch.setattr(YTCoveringGrid, "__init__", init)
+    return datasets, grids
+
+
+def _assert_no_yt_object(snap) -> None:
+    values = [getattr(snap, f) for f in snap.__dataclass_fields__]
+    values += list(snap.arrays.values())
+    for value in values:
+        module = type(value).__module__
+        assert not module.startswith(("yt", "unyt")), (type(value), value)
+
+
+def test_dataset_is_dead_when_the_read_returns(plotfile_64, monkeypatch):
+    # #120: yt's dataset, index, field-info and covering grid form reference cycles. With
+    # automatic GC on they are promoted to the oldest generation during the read, so they -- and
+    # every cached field -- outlive the call until Python's next full collection.
+    import gc
+
+    datasets, grids = _yt_object_refs(monkeypatch)
+    gc_was_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        read_field_snapshot(plotfile_64, **FULL)  # warm-up
+        snap = read_field_snapshot(plotfile_64, **FULL)
+        assert len(datasets) == 2 and len(grids) == 2
+        assert datasets[-1]() is None, "the yt dataset outlived read_field_snapshot"
+        assert grids[-1]() is None, "the covering grid outlived read_field_snapshot"
+        _assert_no_yt_object(snap)
+    finally:
+        if not gc_was_enabled:
+            gc.disable()
+
+
+def _mapped_case(name: str, path) -> dict:
+    """A REGION_CASES / DIVERGENCE_CASES request, mapped onto ``path``'s domain (cell units)."""
+    import yt
+
+    case = next(c for c in REGION_CASES + DIVERGENCE_CASES if c[0] == name)
+    yt.set_log_level("error")
+    ds = yt.load(str(path))
+    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
+    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
+    dx = (dre - dle) / np.asarray(ds.domain_dimensions, dtype=np.float64)
+    mapper = _ab_script()._map
+    return {
+        "lo": mapper(case[1], dle, dre, dx),
+        "hi": mapper(case[2], dle, dre, dx),
+        "halo": case[3],
+    }
+
+
+def test_dataset_is_dead_after_a_zero_cell_read(plotfile_64, monkeypatch):
+    # Anchor (task 4.3): the zero-cell half of the test above. It passes before the zero-cell
+    # short-circuit exists, because that request still takes the full read path; once the
+    # short-circuit lands it pins that the early return still tears down.
+    import gc
+
+    request = _mapped_case("outside_domain", plotfile_64)
+    datasets, _ = _yt_object_refs(monkeypatch)
+    gc_was_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        read_field_snapshot(plotfile_64, **request)  # warm-up
+        snap = read_field_snapshot(plotfile_64, **request)
+        assert snap.arrays["u"].shape == (0, 0, 0)
+        assert len(datasets) == 2
+        assert datasets[-1]() is None, "the yt dataset outlived a zero-cell read"
+        _assert_no_yt_object(snap)
+    finally:
+        if not gc_was_enabled:
+            gc.disable()
+
+
+_ZERO_CELL_CASES = [
+    "upper_edge",
+    "outside_domain",
+    "above_beyond_reach_h2",
+    "x_below_yz_inside_h1",  # empty on x only: kills an any -> all mutant
+]
+
+
+@pytest.mark.parametrize("case", _ZERO_CELL_CASES)
+def test_zero_cell_region_reads_nothing(case, monkeypatch):
+    # #112 item 5: a region with zero cells on any axis read the full covering grid of every
+    # requested field -- 1.28 GB at 256x128x256 -- to return nothing.
+    _, lo, hi, halo, *_ = next(
+        c for c in REGION_CASES + DIVERGENCE_CASES if c[0] == case
+    )
+    _full_grid_reference(
+        str(FIXTURE)
+    )  # build the reference BEFORE the proxy is installed
+    grid_log: list = []
+    log = _patch_yt(monkeypatch, grid_log=grid_log)
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo, fields=ALL_FIELDS)
+    assert grid_log == [], "a covering grid was built for a zero-cell region"
+    assert log == [], "a field was read for a zero-cell region"
+    assert 0 in snap.arrays["u"].shape
+    _assert_bit_identical(snap, FIXTURE, lo, hi, halo)
+
+
+def test_zero_cell_read_costs_no_field_sized_memory(plotfile_96):
+    # Differential against fields=() on the same request: what is left after the plotfile guards
+    # is yt's own overhead, which is not field-sized. Measured on 96^3 before the change: 13.9 S;
+    # after the teardown commit alone: 7.9 S.
+    field_bytes = 8 * 96**3
+    request = _mapped_case("outside_domain", plotfile_96)
+    six = _traced_peak(lambda: read_field_snapshot(plotfile_96, **request))
+    none = _traced_peak(lambda: read_field_snapshot(plotfile_96, **request, fields=()))
+    gap = (six - none) / field_bytes
+    assert gap < 1.0, f"a zero-cell read cost {gap:.2f} S more than a no-field read"
+
+
+# --- improve-field-reader-perf-memory: point cloud (#112 item 5) -------------------------------
+
+
+def _in_memory_snapshot(shape, dx, k=6):
+    from types import MappingProxyType
+
+    from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
+
+    names = DEFAULT_FIELDS[:k]
+    rng = np.random.default_rng(0)
+    return FieldSnapshot(
+        arrays=MappingProxyType({n: rng.standard_normal(shape) for n in names}),
+        x=(np.arange(shape[0]) + 0.5) * dx[0],
+        y=(np.arange(shape[1]) + 0.5) * dx[1],
+        z=(np.arange(shape[2]) + 0.5) * dx[2],
+        dx=np.asarray(dx, dtype=np.float64),
+        time=0.0,
+        source="in-memory",
+        max_level=0,
+        field_names=names,
+    )
+
+
+def _assert_read_only_broadcast(cell_volume: np.ndarray, n: int, volume: float) -> None:
+    assert cell_volume.shape == (n,)
+    assert cell_volume.dtype == np.float64
+    assert cell_volume.strides == (0,)
+    np.testing.assert_array_equal(cell_volume, np.full(n, volume))
+    assert cell_volume.flags.writeable is False
+    with pytest.raises(ValueError):
+        cell_volume.setflags(write=True)
+    base = cell_volume.base
+    while base is not None:
+        assert not getattr(base, "flags", None) or base.flags.writeable is False, base
+        base = getattr(base, "base", None)
+
+
+def test_constant_cell_volume_is_a_read_only_broadcast():
+    # #112 item 5: a constant cell volume was an N-element buffer of one repeated value -- 67 MB
+    # at 256x128x256. A zero-stride broadcast of a read-only 0-d array costs 8 bytes.
+    snap = _in_memory_snapshot((2, 1, 3), (1.0, 2.0, 3.0))
+    _assert_read_only_broadcast(snap.to_point_cloud().cell_volume, 6, 6.0)
+
+    zero = read_field_snapshot(FIXTURE, **OUTSIDE_DOMAIN).to_point_cloud()
+    _assert_read_only_broadcast(zero.cell_volume, 0, 1.0)
+
+
+def test_point_cloud_peak_is_its_outputs():
+    # coords and values must coexist at the peak; the meshgrid temporaries (3 N-element arrays)
+    # and a dense cell_volume must not. Measured at 64^3 before the change: 1.44 x outputs.
+    snap = _in_memory_snapshot((64, 64, 64), (1.0, 1.0, 1.0))
+    pc = snap.to_point_cloud()
+    outputs = pc.coords.nbytes + pc.values.nbytes
+    del pc
+    peak = _traced_peak(snap.to_point_cloud)
+    assert peak <= 1.02 * outputs + 64 * 1024, f"peak {peak / outputs:.3f} x outputs"

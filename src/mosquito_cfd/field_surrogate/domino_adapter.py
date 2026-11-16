@@ -26,6 +26,17 @@ CPU-only CI runner and this change adds no dependency.
   ``volume_fields`` is therefore velocity plus pressure-*gradient*, not the
   velocity/pressure/turbulent-viscosity set DoMINO's own examples assume.
 
+**``grid`` here is not stock DoMINO's ``grid`` (#112 item 2).** Verified 2026-11-12 against
+``NVIDIA/physicsnemo`` ``8211352`` (``datapipes/cae/domino_datapipe.py``,
+``models/domino/model.py``, ``models/domino/utils/utils.py``); the bullets above were verified
+2026-09-21. Upstream's ``grid`` is ``create_grid(bbox_min, bbox_max, grid_resolution)``: a
+regular ``linspace`` grid over the volume bounding box, at a fixed resolution the model calls
+``interp_res`` (default ``(256, 96, 64)``). It is paired with ``sdf_grid``, the geometry's SDF on
+that same grid, and consumed only by the volume geometry encoding. Ours is the snapshot's own
+cell centres, at the snapshot's resolution and over the snapshot's region, as a free view of
+``volume_mesh_centers``. Choosing DoMINO's grid goes with producing ``sdf_grid``, so it is F3's
+decision; this adapter keeps emitting the view until then.
+
 No batch dimension is added: DoMINO's datapipe adds one itself, and a second would be wrong.
 """
 
@@ -83,7 +94,8 @@ def to_domino_volume(
         A dict with exactly :data:`VOLUME_HALF_KEYS` and **no** leading batch dimension. Every
         array is read-only against accidental writes (copy one before normalizing it in place).
         ``grid`` is a view of ``volume_mesh_centers`` reshaped to ``(nx, ny, nz, 3)``, not a
-        separate copy — the two share memory — and the
+        separate copy — the two share memory. It is the snapshot's own cell centres, not stock
+        DoMINO's fixed-resolution ``interp_res`` grid (see the module docstring) — and the
         global-params arrays are copies that do not alias the caller's input. The
         :data:`GEOMETRY_HALF_KEYS` are absent; see the module docstring for why.
 
