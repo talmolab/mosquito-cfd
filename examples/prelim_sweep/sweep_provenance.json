@@ -7,7 +7,7 @@
   "git_commit": "6e65e53d67ef8c6308b0576dfc16e18e4787e6be",
   "tool": "mosquito_cfd.force_surrogate.sweep.generate_sweep",
   "downstream_artifacts_regenerated_from": {
-    "reason": "fix-wing-force-sign-convention (#109) re-extracted dataset.parquet from the existing CFD output with every CF_* coefficient negated, so the coefficients are the IB force and moment on the wing (IAMReX's ib_force/ib_moment act on the fluid); the raw Fx..Mz columns are unchanged. Before it, fix-moment-reference-hinge (#108) re-referenced CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge (re-extraction PR2, #118, now under history) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126); the #109 retrain is still to come, so surrogate/* and figures/* are #108's and predict the on-fluid sign. No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
+    "reason": "fix-wing-force-sign-convention (#109) re-extracted dataset.parquet from the existing CFD output with every CF_* coefficient negated, so the coefficients are the IB force and moment on the wing (IAMReX's ib_force/ib_moment act on the fluid); the raw Fx..Mz columns are unchanged. Before it, fix-moment-reference-hinge (#108) re-referenced CF_mx/CF_mz from the IB particle's origin to the deck's declared wing hinge (re-extraction PR2, #118, now under history) and retrained surrogate/* and regenerated the evidence figure locally (PR3, #126); that retrain is now under history too. #109 then retrained surrogate/* on the on-wing coefficients and regenerated the evidence figure locally (PR3). No CFD was re-run: the CFD output is still the fix-force-surrogate-sweep-hinge (#71) cluster run against the corrected hinge geometry, recorded under cfd_cluster_workflows with its image digest.",
     "cfd_cluster_workflows": [
       "force-surrogate-sweep-9454x",
       "force-surrogate-sweep-8nbjt"
@@ -23,8 +23,8 @@
       ]
     },
     "retrain": {
-      "change": "fix-moment-reference-hinge",
-      "pull_request": 126,
+      "change": "fix-wing-force-sign-convention",
+      "pull_request": null,
       "host": "local A5000 workstation talmo-lab-02 (training under WSL2; figure rendered natively)",
       "cluster_workflows": [],
       "affected": [
@@ -32,6 +32,7 @@
         "surrogate/metrics.json",
         "surrogate/surrogate.pt",
         "surrogate/run_metadata.json",
+        "surrogate/seed_variation.json",
         "figures/evidence_figure.png",
         "figures/evidence_figure_metrics.json",
         "figures/run_metadata.json"
@@ -46,6 +47,21 @@
         "affected": [
           "dataset.parquet",
           "run_metadata.json"
+        ]
+      },
+      {
+        "stage": "retrain",
+        "change": "fix-moment-reference-hinge",
+        "pull_request": 126,
+        "cluster_workflows": [],
+        "affected": [
+          "surrogate/holdout_predictions.parquet",
+          "surrogate/metrics.json",
+          "surrogate/surrogate.pt",
+          "surrogate/run_metadata.json",
+          "figures/evidence_figure.png",
+          "figures/evidence_figure_metrics.json",
+          "figures/run_metadata.json"
         ]
       }
     ]
