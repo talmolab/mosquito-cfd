@@ -222,7 +222,9 @@ def read_field_snapshot(
 ) -> FieldSnapshot:
     """Read an axis-aligned region of a single-level AMReX plotfile.
 
-    Reads the full level-0 covering grid and slices the requested region in memory. The request
+    Reads the full level-0 covering grid and slices the requested region in memory, except for a
+    region with zero cells on some axis: that builds no covering grid and reads no field, after
+    every plotfile guard has run, and returns empty arrays equal to the full read's. The request
     is padded by ``halo`` cells on each side, and the part of the padded request inside the
     domain is kept ("halo is reach"): a request up to ``halo`` cells outside the domain returns
     the in-domain cells it reaches, and one farther out returns zero cells on that axis. A
@@ -326,34 +328,49 @@ def read_field_snapshot(
     dx = (dre - dle) / ddims
 
     i_lo, i_hi = _region_bounds(lo_v, hi_v, halo, dle=dle, dre=dre, ddims=ddims)
-
-    cg = ds.covering_grid(
-        level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
-    )
     sl = tuple(slice(int(a), int(b)) for a, b in zip(i_lo, i_hi))
 
     arrays: dict[str, np.ndarray] = {}
-    for name, field in zip(fields, requested):
-        raw = cg[field].to_ndarray()
-        if (
-            raw.dtype != np.float64
-        ):  # defence in depth; the real fp32 guard is on_disk above
-            raise ValueError(f"field {field} is {raw.dtype}, not float64")
-        # copy=True is load-bearing. np.ascontiguousarray returns the input UNCHANGED when the
-        # slice is already C-contiguous -- the full-extent read and any single-axis slab -- and
-        # marking such a view non-writable leaves its base reachable and writable, so the array
-        # stays mutable through arr.base and a small region retains this field's entire
-        # to_ndarray() buffer (measured ~5x over-retention for an x-slab at 128-cubed).
-        arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
-        arr.setflags(write=False)
-        arrays[name] = arr
-        # The copy is the only reference this reader keeps. yt caches every field read through
-        # a covering grid in cg.field_data, so without this all requested full-domain buffers
-        # are held at once (#120); dropped here, at most one is (improve-field-reader-perf-memory
-        # D4). `raw` is a view of that cached buffer.
-        del raw
-        cg.field_data.pop(field, None)
-    cg.clear_data()
+    if np.any(i_hi == i_lo):
+        # Zero cells on some axis: every slice of the covering grid would be empty, so building
+        # it -- a full read of every requested field -- buys nothing (#112 item 5). Reached only
+        # after every plotfile guard above, so a request the reader refuses is still refused.
+        # A fresh array is exactly what the full read's copy of an empty slice is: owning,
+        # C-ordered, with the same shape and strides (improve-field-reader-perf-memory D5).
+        shape = tuple(int(b - a) for a, b in zip(i_lo, i_hi))
+        for name in fields:
+            empty = np.empty(shape, dtype=np.float64)
+            empty.setflags(write=False)
+            arrays[name] = empty
+    else:
+        cg = ds.covering_grid(
+            level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
+        )
+        for name, field in zip(fields, requested):
+            raw = cg[field].to_ndarray()
+            if (
+                raw.dtype != np.float64
+            ):  # defence in depth; the real fp32 guard is on_disk above
+                raise ValueError(f"field {field} is {raw.dtype}, not float64")
+            # copy=True is load-bearing. np.ascontiguousarray returns the input UNCHANGED when
+            # the slice is already C-contiguous -- the full-extent read and any single-axis
+            # slab -- and marking such a view non-writable leaves its base reachable and
+            # writable, so the array stays mutable through arr.base and a small region retains
+            # this field's entire to_ndarray() buffer (measured ~5x over-retention for an
+            # x-slab at 128-cubed).
+            arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
+            arr.setflags(write=False)
+            arrays[name] = arr
+            # The copy is the only reference this reader keeps. yt caches every field read
+            # through a covering grid in cg.field_data, so without this all requested
+            # full-domain buffers are held at once (#120); dropped here, at most one is
+            # (improve-field-reader-perf-memory D4). `raw` is a view of that cached buffer.
+            del raw
+            cg.field_data.pop(field, None)
+        cg.clear_data()
+        # The grid holds the dataset only through a weakref.proxy, but sits in a cycle of its
+        # own: drop it before the collection below.
+        del cg
 
     axes = []
     for axis in range(3):
@@ -373,8 +390,9 @@ def read_field_snapshot(
     # frees none of them, and each read's cycle -- with any field still cached in it -- would
     # wait for Python's next full collection. Measured on CPython 3.11: held memory grew with
     # every read until the full collection was added; it costs ~70-90 ms of a ~5 s read at
-    # 256x128x256 (improve-field-reader-perf-memory D4). It frees only unreachable objects.
-    del cg, ds
+    # 256x128x256 (improve-field-reader-perf-memory D4). It frees only unreachable objects. Both
+    # paths -- the full read and the zero-cell one -- reach this teardown.
+    del ds
     gc.collect()
 
     return FieldSnapshot(

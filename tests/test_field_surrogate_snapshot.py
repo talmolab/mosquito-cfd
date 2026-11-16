@@ -1737,3 +1737,42 @@ def test_dataset_is_dead_after_a_zero_cell_read(plotfile_64, monkeypatch):
     finally:
         if not gc_was_enabled:
             gc.disable()
+
+
+_ZERO_CELL_CASES = [
+    "upper_edge",
+    "outside_domain",
+    "above_beyond_reach_h2",
+    "x_below_yz_inside_h1",  # empty on x only: kills an any -> all mutant
+]
+
+
+@pytest.mark.parametrize("case", _ZERO_CELL_CASES)
+def test_zero_cell_region_reads_nothing(case, monkeypatch):
+    # #112 item 5: a region with zero cells on any axis read the full covering grid of every
+    # requested field -- 1.28 GB at 256x128x256 -- to return nothing.
+    _, lo, hi, halo, *_ = next(
+        c for c in REGION_CASES + DIVERGENCE_CASES if c[0] == case
+    )
+    _full_grid_reference(
+        str(FIXTURE)
+    )  # build the reference BEFORE the proxy is installed
+    grid_log: list = []
+    log = _patch_yt(monkeypatch, grid_log=grid_log)
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo, fields=ALL_FIELDS)
+    assert grid_log == [], "a covering grid was built for a zero-cell region"
+    assert log == [], "a field was read for a zero-cell region"
+    assert 0 in snap.arrays["u"].shape
+    _assert_bit_identical(snap, FIXTURE, lo, hi, halo)
+
+
+def test_zero_cell_read_costs_no_field_sized_memory(plotfile_96):
+    # Differential against fields=() on the same request: what is left after the plotfile guards
+    # is yt's own overhead, which is not field-sized. Measured on 96^3 before the change: 13.9 S;
+    # after the teardown commit alone: 7.9 S.
+    field_bytes = 8 * 96**3
+    request = _mapped_case("outside_domain", plotfile_96)
+    six = _traced_peak(lambda: read_field_snapshot(plotfile_96, **request))
+    none = _traced_peak(lambda: read_field_snapshot(plotfile_96, **request, fields=()))
+    gap = (six - none) / field_bytes
+    assert gap < 1.0, f"a zero-cell read cost {gap:.2f} S more than a no-field read"
