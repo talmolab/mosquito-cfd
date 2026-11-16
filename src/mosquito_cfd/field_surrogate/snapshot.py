@@ -361,24 +361,27 @@ def read_field_snapshot(
             level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
         )
         for name, field in zip(fields, requested):
-            raw = cg[field].to_ndarray()
+            # `.d` is a plain-ndarray VIEW of yt's cached buffer. unyt's to_ndarray() is
+            # np.array(self) -- a full-domain copy, one more field of peak memory, made only to
+            # be sliced and copied again below (improve-field-reader-perf-memory D4).
+            raw = cg[field].d
             if (
                 raw.dtype != np.float64
             ):  # defence in depth; the real fp32 guard is on_disk above
                 raise ValueError(f"field {field} is {raw.dtype}, not float64")
             # copy=True is load-bearing. np.ascontiguousarray returns the input UNCHANGED when
             # the slice is already C-contiguous -- the full-extent read and any single-axis
-            # slab -- and marking such a view non-writable leaves its base reachable and
-            # writable, so the array stays mutable through arr.base and a small region retains
-            # this field's entire to_ndarray() buffer (measured ~5x over-retention for an
-            # x-slab at 128-cubed).
+            # slab -- and `raw` is a view of yt's cache, so the result would alias that cache,
+            # stay writable through arr.base, and keep the whole field alive for a small region
+            # (measured ~5x over-retention for an x-slab at 128-cubed).
             arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
             arr.setflags(write=False)
             arrays[name] = arr
             # The copy is the only reference this reader keeps. yt caches every field read
             # through a covering grid in cg.field_data, so without this all requested
             # full-domain buffers are held at once (#120); dropped here, at most one is
-            # (improve-field-reader-perf-memory D4). `raw` is a view of that cached buffer.
+            # (improve-field-reader-perf-memory D4). `raw` is a view that would keep the
+            # cached buffer alive, so it goes first.
             del raw
             cg.field_data.pop(field, None)
         cg.clear_data()

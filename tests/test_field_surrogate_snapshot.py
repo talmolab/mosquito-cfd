@@ -1204,11 +1204,16 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
     poisoned = np.array([np.nan, np.inf, -np.inf, -0.0, 1.5])
 
     class _Unyt:
-        # Minimal stand-in for yt's unyt_array: the reader unwraps via .to_ndarray().
+        # Minimal stand-in for yt's unyt_array: the reader unwraps via .d (a view), as
+        # unyt does; to_ndarray() is kept for any other caller.
         def __init__(self, array):
             self._array = array
 
         def to_ndarray(self):
+            return self._array.copy()
+
+        @property
+        def d(self):
             return self._array
 
     class _PoisonGrid:
@@ -1626,12 +1631,22 @@ def test_no_full_domain_buffer_outlives_its_copy(monkeypatch):
     record: list = []
     _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
     read_field_snapshot(FIXTURE, **FULL)
-    assert (
-        len(record) == 12
-    )  # positive control: yt's array and one unwrapped array per field
-    assert all(ref() is None for ref, _ in record), (
-        "a buffer outlived read_field_snapshot"
-    )
+    # Positive control: yt's array and one unwrapped array per field were tracked.
+    assert len(record) == 12
+    assert all(ref() is None for ref, _ in record), "a buffer outlived the call"
+
+
+def test_fields_are_unwrapped_without_a_full_domain_copy(monkeypatch):
+    # unyt's to_ndarray() is np.array(self): a full-domain copy, one more S of peak per field,
+    # made only to be sliced and copied again. `.d` is a view of yt's own buffer; the reader's
+    # owning slice copy is the only copy it needs.
+    record: list = []
+    _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
+    read_field_snapshot(FIXTURE, **FULL)
+    handed_out = record[1::2]
+    assert len(handed_out) == 6
+    copies = [i for i, (_, shares) in enumerate(handed_out) if not shares]
+    assert not copies, f"fields {copies} were unwrapped into a full-domain copy"
 
 
 @pytest.fixture(scope="module")
