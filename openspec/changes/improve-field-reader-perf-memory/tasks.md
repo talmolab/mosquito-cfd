@@ -123,10 +123,16 @@
       today: there are 0 `scandir` calls, and `stat` calls grow with the entry count.
     - The scandir half of the corpus-pass test, with `plt7` in the first config as its positive
       control. It fails today with 0 calls.
-    - `test_failing_entry_type_check_is_skipped_only_when_gone`, per the spec scenario. Stub entries
-      in a fake `scandir` raise `FileNotFoundError` (skipped) and `PermissionError` (propagates).
-      Today `Path.is_dir` is called instead of the stub's, so the stub never raises and the
-      `PermissionError` half fails.
+    - `test_failing_entry_type_check_is_skipped_only_when_gone`, per the spec scenario.
+      - **Skip half:** a real dangling symlink `plt00200`, skipped with a reason where `os.symlink`
+        raises. It passes today and after the change.
+      - **Propagate half:** a fake `scandir` yields a stub entry whose `is_dir()` raises
+        `PermissionError`. Today `Path.is_dir` is called instead of the stub's, so the stub never
+        raises and this half fails.
+
+      **Why a real symlink instead of a stub, changed during implementation.** CPython's
+      `DirEntry.is_dir()` catches `FileNotFoundError` itself and returns `False`, so no real entry
+      raises it. A stub that raised it would force a `try/except` modelling nothing real.
     - `test_scan_closes_the_listing_on_the_duplicate_raise`. A spy wraps the real `os.scandir`, with no
       forced-order fake, and asserts the iterator was closed exactly once when `steps()` raises on
       `plt100` beside `plt00100`. It fails today: the spy is never called.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -201,6 +202,81 @@ def test_manifest_is_parsed_from_disk_only_once_per_instance(tmp_path, monkeypat
     corpus.global_params("s35_f085_p30")
     corpus.steps("s35_f085_p30")
     assert len(calls) == 1, f"expected exactly one manifest parse, got {len(calls)}"
+
+
+def _symlink_or_skip(target: Path, link: Path) -> None:
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"cannot create a directory symlink here: {exc}")
+
+
+def _pass_corpus(tmp_path: Path) -> Path:
+    """3 configs x 5 canonically named empty plotfiles, plus a non-canonical ``plt7`` in ``c0``."""
+    root = tmp_path / "corpus"
+    names = ["c0", "c1", "c2"]
+    (root / "runs").mkdir(parents=True)
+    (root / "sweep_manifest.json").write_text(json.dumps(_manifest(names)))
+    for name in names:
+        for step in (100, 200, 300, 400, 500):
+            (root / "runs" / name / f"plt{step:05d}").mkdir(parents=True)
+    (root / "runs" / "c0" / "plt7").mkdir()
+    return root
+
+
+def test_corpus_pass_reads_the_manifest_once(tmp_path, monkeypatch):
+    # Anchor (holds since 1146552): a full config_ids() -> steps() -> plotfile() pass parses the
+    # manifest once, however many public calls it makes.
+    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+
+    corpus = FieldCorpus(_pass_corpus(tmp_path))
+    calls = []
+    real = fs_dataset.load_manifest_configs
+
+    def _counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(fs_dataset, "load_manifest_configs", _counting)
+    pairs = [(c, s) for c in corpus.config_ids() for s in corpus.steps(c)]
+    for config_id, step in pairs:
+        corpus.plotfile(config_id, step)
+    assert len(pairs) == 16
+    assert len(calls) == 1, calls
+
+
+def test_plotfile_presence_is_reread_and_the_manifest_is_not(tmp_path):
+    # Anchor: plotfile presence is never cached, since a run can still be writing; the manifest is.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == [100]
+    (run / "plt00500").mkdir()
+    assert corpus.steps("s35_f085_p30") == [100, 500]
+
+    manifest = _manifest(["s35_f085_p30", "added"])
+    (root / "sweep_manifest.json").write_text(json.dumps(manifest))
+    assert corpus.config_ids() == ["s35_f085_p30"]
+    assert FieldCorpus(root).config_ids() == ["s35_f085_p30", "added"]
+
+
+def test_symlinked_plotfile_directory_counts(tmp_path):
+    # Anchor: DirEntry.is_dir() follows symlinks, as Path.is_dir() did. plt300 is non-canonical, so
+    # steps() AND plotfile() both go through the listing.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    _symlink_or_skip(target, run / "plt300")
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == [100, 300]
+    assert corpus.plotfile("s35_f085_p30", 300) == run / "plt300"
+
+
+def test_a_dangling_symlink_is_skipped(tmp_path):
+    # The skip half: DirEntry.is_dir() returns False for a target that does not exist (CPython
+    # catches FileNotFoundError itself), as Path.is_dir() did.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    _symlink_or_skip(tmp_path / "gone", run / "plt00200")
+    assert FieldCorpus(root).steps("s35_f085_p30") == [100]
 
 
 def test_steps_sort_numerically_not_lexically(tmp_path, monkeypatch):

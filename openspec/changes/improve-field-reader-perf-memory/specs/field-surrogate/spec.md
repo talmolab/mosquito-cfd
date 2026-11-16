@@ -497,8 +497,9 @@ naming what was looked for and where.
 
 #### Scenario: A failing entry type check is skipped only when the entry is gone
 
-- **Given** a listing that yields, beside a real `plt00100`, one `plt`-named entry whose `is_dir()`
-  raises `FileNotFoundError` and, separately, one whose `is_dir()` raises `PermissionError`
+- **Given** a real `plt00100` beside a dangling symlink `plt00200`, on a platform where creating the
+  symlink succeeds; and, separately, a listing that yields beside `plt00100` one `plt`-named entry
+  whose `is_dir()` raises `PermissionError`
 - **When** `steps(config_id)` is called
 - **Then** the first returns `[100]`, and the second raises that `PermissionError`
 
