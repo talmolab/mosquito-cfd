@@ -1776,3 +1776,61 @@ def test_zero_cell_read_costs_no_field_sized_memory(plotfile_96):
     none = _traced_peak(lambda: read_field_snapshot(plotfile_96, **request, fields=()))
     gap = (six - none) / field_bytes
     assert gap < 1.0, f"a zero-cell read cost {gap:.2f} S more than a no-field read"
+
+
+# --- improve-field-reader-perf-memory: point cloud (#112 item 5) -------------------------------
+
+
+def _in_memory_snapshot(shape, dx, k=6):
+    from types import MappingProxyType
+
+    from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
+
+    names = DEFAULT_FIELDS[:k]
+    rng = np.random.default_rng(0)
+    return FieldSnapshot(
+        arrays=MappingProxyType({n: rng.standard_normal(shape) for n in names}),
+        x=(np.arange(shape[0]) + 0.5) * dx[0],
+        y=(np.arange(shape[1]) + 0.5) * dx[1],
+        z=(np.arange(shape[2]) + 0.5) * dx[2],
+        dx=np.asarray(dx, dtype=np.float64),
+        time=0.0,
+        source="in-memory",
+        max_level=0,
+        field_names=names,
+    )
+
+
+def _assert_read_only_broadcast(cell_volume: np.ndarray, n: int, volume: float) -> None:
+    assert cell_volume.shape == (n,)
+    assert cell_volume.dtype == np.float64
+    assert cell_volume.strides == (0,)
+    np.testing.assert_array_equal(cell_volume, np.full(n, volume))
+    assert cell_volume.flags.writeable is False
+    with pytest.raises(ValueError):
+        cell_volume.setflags(write=True)
+    base = cell_volume.base
+    while base is not None:
+        assert not getattr(base, "flags", None) or base.flags.writeable is False, base
+        base = getattr(base, "base", None)
+
+
+def test_constant_cell_volume_is_a_read_only_broadcast():
+    # #112 item 5: a constant cell volume was an N-element buffer of one repeated value -- 67 MB
+    # at 256x128x256. A zero-stride broadcast of a read-only 0-d array costs 8 bytes.
+    snap = _in_memory_snapshot((2, 1, 3), (1.0, 2.0, 3.0))
+    _assert_read_only_broadcast(snap.to_point_cloud().cell_volume, 6, 6.0)
+
+    zero = read_field_snapshot(FIXTURE, **OUTSIDE_DOMAIN).to_point_cloud()
+    _assert_read_only_broadcast(zero.cell_volume, 0, 1.0)
+
+
+def test_point_cloud_peak_is_its_outputs():
+    # coords and values must coexist at the peak; the meshgrid temporaries (3 N-element arrays)
+    # and a dense cell_volume must not. Measured at 64^3 before the change: 1.44 x outputs.
+    snap = _in_memory_snapshot((64, 64, 64), (1.0, 1.0, 1.0))
+    pc = snap.to_point_cloud()
+    outputs = pc.coords.nbytes + pc.values.nbytes
+    del pc
+    peak = _traced_peak(snap.to_point_cloud)
+    assert peak <= 1.02 * outputs + 64 * 1024, f"peak {peak / outputs:.3f} x outputs"

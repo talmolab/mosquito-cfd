@@ -48,6 +48,11 @@ class PointCloud:
         field_names: Column meaning for ``values``.
         cell_volume: ``(N,)`` per-point cell volume. Constant on a uniform grid; it exists so a
             future multi-level reader can vary it without changing this type (CC-F3 is open).
+            While constant it is a read-only, zero-stride broadcast of a read-only 0-d array
+            (8 bytes, not ``N``), which differs from a dense array in four ways: it cannot be
+            made writable, it is not C-contiguous for ``N > 1``, its ``base`` is the 0-d array,
+            and pickling it produces a dense, writable copy. Call ``np.ascontiguousarray`` on it
+            where a dense buffer is needed.
     """
 
     coords: np.ndarray
@@ -88,6 +93,10 @@ class FieldSnapshot:
         The ordering is part of the published contract: ``coords`` and ``values`` stay aligned
         across calls, and ``field_names`` fixes which column is which.
 
+        The peak allocation is ``coords`` and ``values`` coexisting: the meshgrid temporaries
+        are freed once ``coords`` is built, and ``cell_volume`` is a zero-stride broadcast (see
+        :class:`PointCloud`; ``np.ascontiguousarray`` gives a dense copy).
+
         Returns:
             The :class:`PointCloud` view of this snapshot.
         """
@@ -95,6 +104,9 @@ class FieldSnapshot:
         coords = np.stack(
             (gx.ravel(order="C"), gy.ravel(order="C"), gz.ravel(order="C")), axis=1
         )
+        # Three N-element temporaries; freed before `values` is built, so they never coexist
+        # with it (improve-field-reader-perf-memory D6).
+        del gx, gy, gz
         if self.field_names:
             values = np.stack(
                 [self.arrays[name].ravel(order="C") for name in self.field_names],
@@ -102,11 +114,13 @@ class FieldSnapshot:
             )
         else:
             values = np.empty((coords.shape[0], 0), dtype=np.float64)
-        cell_volume = np.full(
-            coords.shape[0], float(np.prod(self.dx)), dtype=np.float64
-        )
-        for arr in (coords, values, cell_volume):
+        for arr in (coords, values):
             arr.setflags(write=False)
+        volume = np.array(float(np.prod(self.dx)), dtype=np.float64)
+        volume.setflags(write=False)
+        # broadcast_to returns a read-only view; over a read-only base it can never be made
+        # writable, so the one shared value cannot be changed through any row.
+        cell_volume = np.broadcast_to(volume, (coords.shape[0],))
         return PointCloud(
             coords=coords,
             values=values,
