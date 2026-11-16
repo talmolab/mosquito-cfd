@@ -16,7 +16,7 @@ rather than by re-running the extractor's algebra:
 
 The coefficient guard fails with :class:`CoefficientsOnFluid` if a committed corpus carries the
 solver's on-fluid sign (both carried it until that change re-extracted them).
-Design: ``openspec/changes/fix-wing-force-sign-convention/design.md`` D3.
+Design: ``openspec/changes/archive/2026-11-16-fix-wing-force-sign-convention/design.md`` D3.
 """
 
 from __future__ import annotations

@@ -103,8 +103,21 @@ the IAMReX `WriteIBForceAndMoment` definition (resolved from the solver source b
 documented in the analysis with the exact column algebra, and a test SHALL assert the added-mass
 expression matches that definition on a known row of the committed `forces.csv` (kept IB-particle output) — locking the
 formula to the **source**, not to the band. The analysis MAY additionally report the net 6-DOF
-hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's momentum balance), clearly
-labelled, but the gate verdict SHALL rest on `ib_force` alone.
+hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's momentum balance, with
+`ib_force` the solver's on-fluid column) — written with the on-wing IB force `ib_w = −ib_force` as
+`F_hydro = ρ_f·(SumU + ib_w)` — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
+IAMReX's `ib_force` is per unit fluid density (`DiffusedIB.cpp` multiplies it by `euler_fluid_rho`),
+so the IB force on the wing is `ρ_f·ib_w`, and `F_ref = ½·ρ_f·ω²·S_yy` SHALL be built with the same
+`ρ_f` (`compute_force_reference(..., rho=rho_f)`). The density therefore cancels:
+`CF_ib = ρ_f·ib_w/F_ref(ρ_f)`, `CF_added` and `CF_hydro = CF_added + CF_ib` are independent of `ρ_f`, and
+so are every ratio (`added_mass_fraction`) and the gate verdict. `ρ_f = 1` in every committed run, so
+no committed coefficient changes. A `ρ_f` that is not a finite, positive real number (a
+`numbers.Real` other than a boolean) SHALL raise `ValueError` naming `rho_f`, before any file is read;
+so SHALL an integer too large to convert to a float, and a value below the smallest normal float
+(`np.finfo(float).tiny`), where the cancellation is no longer exact. A `rho_f` large enough that
+`F_ref`, or any force or coefficient computed from finite input, overflows SHALL raise a `ValueError`
+that names `rho_f` as a possible cause, never return an `inf`/NaN coefficient. The accepted
+value is converted to a Python `float`, so every coefficient is `float64`.
 
 #### Scenario: Added-mass formula is locked to the IAMReX source, not the band
 
@@ -116,9 +129,26 @@ labelled, but the gate verdict SHALL rest on `ib_force` alone.
 
 - **Given** the `ib_force`, added-mass (`ρ_f·SumU`), and net hydrodynamic coefficients
 - **When** they are computed over the pinned steady window
-- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e. `CF_hydro = CF_added − ρ_f·CF_ib`, within floating tolerance — **not** a naive `ib + added` sum), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed corpus gives ~10% stroke / ~40% lift)
+- **Then** the net hydrodynamic force is the **6-DOF momentum balance** `F_hydro = ρ_f·(SumU − ib_force)` per `WriteIBForceAndMoment` (i.e., with `F_ref` built at the same `ρ_f` and `CF_ib` the **on-wing** IB coefficient `−ρ_f·ib_force/F_ref`, `CF_hydro = CF_added + CF_ib` within floating tolerance, and the raw-column identity `CF_hydro·F_ref = ρ_f·(SumU − ib_force)` checked as well — **not** a sum of `CF_added` with the on-fluid `ib_force`), and the added-mass contribution is reported as a fraction of `ib_force` with the fraction bounded `0 < fraction < 1` and its actual value snapshotted (not hard-coded to "~15%/~33%"; the committed contrast-baseline `forces.csv` gives ~10% stroke / ~40% lift)
 
-> **Why 6-DOF balance, not `ib + added` (implementation deviation):** the proposal's scenario assumed `combined = ib_only + added_mass_only`. Reading the IAMReX source (`DiffusedIB.cpp`) showed the `SumU` columns are already `(sum_u_new − sum_u_old)/dt` and the particle equation of motion combines them as `ρ_f·(SumU − ib_force)`. The gate is unaffected (it is graded on `ib_force` alone); only the *reported* decomposition formula changed to match the solver.
+> **Why 6-DOF balance, not `ib + added` (implementation deviation):** the proposal's scenario assumed `combined = ib_only + added_mass_only`. Reading the IAMReX source (`DiffusedIB.cpp`) showed the `SumU` columns are already `(sum_u_new − sum_u_old)/dt` and the particle equation of motion combines them as `ρ_f·(SumU − ib_force)`. The gate is unaffected (it is graded on `ib_force` alone); only the *reported* decomposition formula changed to match the solver. `fix-wing-force-sign-convention` (#109) later established that `ib_force` is the force on the fluid and moved the analysis to on-wing coefficients, where the same balance reads `F_hydro = ρ_f·(SumU + ib_w)`.
+
+#### Scenario: The density cancels, so no coefficient or verdict depends on it
+
+- **Given** a committed force CSV
+- **When** `reconstruct_wing_forces` and `body_frame_added_mass_subtracted` run at `ρ_f = 0.5`, `2` and
+  `1.3`, and at `ρ_f = 1`
+- **Then** `f_ref` is `ρ_f` times its `ρ_f = 1` value, while `CF_ib`, `CF_added`, `CF_hydro`, every
+  reported peak, `added_mass_fraction`, `*_drop_frac` and `am_rms_share_*` equal their `ρ_f = 1`
+  values (exactly at the powers of two, to `1e-12` relative at `1.3`)
+- **And** `plausibility_gate` gives the same verdict and the same peaks at every one of those densities
+- **And** a `ρ_f` of `Fraction(1, 2)`, `np.float32(2)` or an arbitrary-precision real such as
+  `sympy.Float("1.3", 50)` gives the same `float64` coefficients as the equal `float`, bitwise
+- **And** a `ρ_f` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
+  `Decimal("1")` (not a `numbers.Real`), a 0-d array, or a subnormal such as `1e-320` raises
+  `ValueError` naming `rho_f` in both functions, also when the CSV path does not exist
+- **And** `ρ_f = 5e305` (where `F_ref` is finite but the forces overflow) and `ρ_f = 1e308` (where
+  `F_ref` itself overflows) raise `ValueError` naming `rho_f` in both functions
 
 #### Scenario: Added-mass does not decide the gate
 
@@ -210,9 +240,11 @@ Tier T4 per-component decomposition (`decompose_wing_force`)** — with **no** v
 committed data cannot regenerate. The new-convention headline numbers SHALL recompute from
 `forces_t2a_newconv.csv` (`F_ref = 200.27`, `t ≥ 0.05`); the contrast-baseline numbers from `forces.csv`.
 The recomputation SHALL respect each number's **definition**: coefficient ranges/peaks via
-`compute_force_coefficients`; the phase-table `Fz` are **raw forces** read at the named `time` rows (not
-coefficients); the added-mass fractions are the **RMS** `added_mass_fraction` values (stroke ~37 % / lift
-~29 %); the added-mass-subtracted interim numbers are the total→subtracted body-frame peaks, their % drops,
+`compute_force_coefficients`; the phase-table `Fz` are **raw forces** read at the named `time` rows (not coefficients) — the
+solver's on-fluid `ib_force`, which RESULTS.md SHALL label as such — while the phase table's `CF_z (lab)`
+column is the on-wing coefficient `−Fz/F_ref`; the added-mass fractions are the **RMS** `added_mass_fraction` values (stroke ~37 % / lift
+~29 %); the added-mass-subtracted interim numbers are the 6-DOF and IB-only (`ib_w`) body-frame peaks, their
+signed peak-to-peak fractions,
 and the body-frame added-mass RMS shares (chord ~84 % / normal ~13 %); **the T4 decomposition numbers are
 the per-component + total model coefficients, the graded normal peak magnitude (≈2.48 vs CFD ≈2.61), the
 reported normal peak-phase gap (~0.058 cycle) and curve RMSE, and the known-answer translational-chord peak
@@ -223,7 +255,8 @@ from the two existing headline tables, so their extra-precision totals do not co
 separation load-bearing, the interim and T4 subsections SHALL each use a **distinct `### ` header** whose
 text does **not** contain the substrings `lab-frame magnitudes` or `Body-frame per-component van Veen
 comparison` (the two the existing `test_headline_tables_enumeration_complete` scans by exact-set-equality),
-and SHALL **not add or alter any numeric cell inside those two enumerated tables**; a test SHALL confirm the
+and SHALL **not add or alter any numeric cell inside those two enumerated tables** (except the #109 sign
+flip of the lab-range cells); a test SHALL confirm the
 existing enumeration guard still passes unchanged. A test SHALL assert this reproducibility **before** any
 RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes issue #3 (whose original
 `+0.431` defect is superseded by the T2a regeneration — T2b/T4 re-validate the **current** document).
@@ -232,7 +265,7 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 
 - **Given** `forces_t2a_newconv.csv` and the van Veen `F_ref = 200.27` from `compute_force_reference`
 - **When** the lab-frame coefficients are computed over `t ≥ 0.05`
-- **Then** `CF_x` range ≈ `[−2.35, +2.37]`, `CF_z` range ≈ `[−1.46, +0.03]`, `max|CF_x| ≈ 2.37`, and
+- **Then** the on-wing `CF_x` range ≈ `[−2.37, +2.35]` and `CF_z` range ≈ `[−0.03, +1.46]` (the exact negation of the pre-#109 on-fluid ranges), `max|CF_x| ≈ 2.37`, and
   `max|CF_z| ≈ 1.46` — each matching the RESULTS.md headline as pinned literals to the documented precision
 
 #### Scenario: Body-frame peaks recompute and are interpreted by the T4 decomposition
@@ -249,10 +282,10 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 
 - **Given** `forces_t2a_newconv.csv` and the `body_frame_added_mass_subtracted` diagnostic over `t ≥ 0.05`
 - **When** the interim subsection's numbers are recomputed
-- **Then** total→subtracted peaks (`0.923 → 0.652` chord, `2.606 → 2.285` normal), the % drops (≈ −29 % /
-  −12 %), and the body-frame added-mass RMS shares (chord ~84 % / normal ~13 %) recompute from the committed
-  CSV and appear in `RESULTS.md` as pinned literals; the total peaks additionally equal
-  `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` (the "same peaks" cross-check); the interim
+- **Then** the 6-DOF and `ib_w` peaks (`0.652` / `0.923` chord, `2.285` / `2.606` normal), the signed
+  ratios `drop_frac = 1 − peak_ib/peak_6dof` (≈ −0.42 / −0.14: removing the internal-fluid term raises
+  the peaks 42 % / 14 %), and the body-frame added-mass RMS shares (chord ~84 % / normal ~13 %) recompute from the committed
+  CSV and appear in `RESULTS.md` as pinned literals; the `ib_w` peaks additionally equal `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` (the "same peaks" cross-check); the interim
   subsection's distinct numbers are **asserted complete** (a new interim number absent from the enumeration
   fails); the doc's "same peaks" note and the body-frame-vs-lab-frame disambiguation sentence are asserted
   present; and the guard runs **before** the doc edit while the existing
@@ -274,7 +307,8 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
 
 - **Given** the RESULTS.md headline numbers — CF ranges/peaks (coefficients), the phase-table `Fz` (raw
   forces at named `time` rows), the body-frame `2.61`/`0.92`, the RMS added-mass fractions (~37 %/~29 %),
-  the added-mass-subtracted interim peaks/drops/shares (`0.652`/`2.285`; ~84 %/~13 %), **the T4
+  the added-mass-subtracted interim 6-DOF/`ib_w` peaks (`0.652`/`0.923`, `2.285`/`2.606`), `drop_frac`
+  (≈ −0.42 / −0.14) and shares (~84 %/~13 %), **the T4
   per-component + total coefficients and the translational-chord ≈0.42** — and the contrast-baseline numbers
   (`1.41`/`0.68` from `forces.csv`)
 - **When** the reproducibility test runs
@@ -284,18 +318,33 @@ RESULTS.md edit, and SHALL stand as the **durable regression guard** that closes
   asserted-complete enumeration — fails the test; and the test passes **before** RESULTS.md is edited, so
   the doc is proven against live data, not curated
 
+#### Scenario: Phase-table coefficients are on-wing while raw forces stay as written
+
+- **Given** `forces_t2a_newconv.csv` and the RESULTS.md phase table
+- **When** its rows are recomputed at the named `time` values
+- **Then** each `Fz` cell equals the solver's raw `Fz` (labelled as the force on the fluid) and each `CF_z (lab)` cell equals `−Fz/F_ref`, and the table caption gives the formula as `−Fz / F_ref` with a link to `docs/coordinate-convention.md#force-and-moment-sign`
+
 ### Requirement: Added-mass-subtracted body-frame CF diagnostic (reported; #40 cheap interim)
 
-The flapping-wing analysis SHALL provide a **reported** diagnostic that subtracts the logged added-mass
-force (`ρ_f·SumU`, via the existing `added_mass_force`, #36) from the total `ib_force`, rotates the
-remainder into the instantaneous wing body frame with the **same** analytic `R(t)` and
+The flapping-wing analysis SHALL provide a **reported** diagnostic that compares the **6-DOF
+force** `F_6dof = ρ_f·(SumU + ib_w)` with the IB force on the wing `ρ_f·ib_w` (`ib_w = −ib_force`;
+`ib_force` is per unit density, so both sides carry `ρ_f`; `F_ref` is built with the same `ρ_f`, so
+the diagnostic's peaks and ratios do not depend on it). `F_6dof` is the
+solver's free-body momentum balance `ρ_f·(SumU − ib_force)` applied to the wing's columns; the solver
+itself never evaluates that balance for the prescribed-motion wing. The difference between the two is
+the solver's **internal-fluid momentum term** `ρ_f·SumU` (via the existing `added_mass_force`, #36). For
+the zero-thickness vertex-file wing, that term is the momentum change of fluid within about one grid
+cell of the sheet, so it depends on the grid. This code calls the term "added mass", but it is **not**
+van Veen's added-mass component; which CFD force corresponds to van Veen's model is a follow-up issue. The
+requirement's name is historical: `ρ_f·ib_w` is the 6-DOF force minus `ρ_f·SumU`. The diagnostic rotates
+both forces into the instantaneous wing body frame with the **same** analytic `R(t)` and
 `body_frame_coefficients` the T2a body-frame decomposition uses (CC-V4 — the rotation and the added-mass
 magnitude are **reused, not re-derived**), and reports, over the pinned steady window
-(`STEADY_WINDOW_T0`), the peak `|CF_chord|`/`|CF_normal|` for **both** the total and the
-added-mass-subtracted force (each peak the **independent** window argmax of its `|series|`, since on this
-data the chord total and subtracted peaks fall at different phases), their **signed peak-to-peak** drop
-fraction (`drop_frac = 1 − peak_subtracted/peak_total` — negative if subtraction raises a peak, not unsigned
-in general), and the **body-frame added-mass RMS share** per component (`rms(CF_added,body)/rms(CF_ib,body)` — the
+(`STEADY_WINDOW_T0`), the peak `|CF_chord|`/`|CF_normal|` for **both** the 6-DOF force and `ib_w` (return keys
+`peak_cf_{chord,normal}_{6dof,ib}`; each peak the **independent** window argmax of its `|series|`,
+since on this data the two chord peaks fall at different phases), their **signed peak-to-peak**
+fraction (`drop_frac = 1 − peak_ib/peak_6dof`, the change from removing the internal-fluid term;
+negative when removing it raises a peak, as it does here), and the **body-frame added-mass RMS share** per component (`rms(CF_added,body)/rms(CF_ib,body)` — the
 body-frame analog of the lab-frame `added_mass_fraction`). Because it rotates the **full 3-D** force and
 added-mass vectors, the diagnostic SHALL read `time, Fx, Fy, Fz, SumUx, SumUy, SumUz`;
 no single existing required-column set covers all seven (`_REQUIRED_CSV_COLUMNS` lacks `Fy` and `SumUy`;
@@ -305,14 +354,16 @@ define its **own** required-column set including them and raise if **any** one i
 `compute_force_reference` (`F_ref = ½ρω²S_yy`; no correction factor).
 
 The diagnostic SHALL be **reported, not graded**: it SHALL NOT introduce any new pass/fail against van
-Veen for the subtracted value (CC-V2). Its return value SHALL expose **no** `*_match`/`pass`/`floor`/
+Veen for the diagnostic's values (CC-V2). Its return value SHALL expose **no** `*_match`/`pass`/`floor`/
 `in_band` verdict field, and the existing graders — `plausibility_gate` (lab `ib_force`) and
 `body_frame_overall_match` (body `ib_force` vs `VAN_VEEN_CF_TARGETS` at `VAN_VEEN_MATCH_TOL`, floor
-`VAN_VEEN_BAND`) — SHALL remain **unchanged**; a subtracted value cannot re-grade van Veen.
+`VAN_VEEN_BAND`) — SHALL remain **unchanged**; a diagnostic value cannot re-grade van Veen.
 
-The analysis and docs SHALL frame the drop as **isolating the added-mass share**, NOT as (by itself)
-resolving the `CF_chord` PARTIAL: the added-mass-subtracted `CF_chord ≈ 0.652` remains ~2× van Veen's
-translational ~0.3. That residual is **resolved by the Tier T4 per-component decomposition** (van Veen's
+The analysis and docs SHALL frame the comparison as **isolating the internal-fluid term's share**, NOT
+as (by itself) resolving the `CF_chord` PARTIAL: the IB-only `CF_chord ≈ 0.923` remains ~3× van Veen's
+translational ~0.3, and the 6-DOF `≈ 0.652` ~2×. Which CFD force the van Veen comparison should use
+(`ib_w` or the 6-DOF force) is a follow-up issue, not decided here. T4's resolution of the chord
+PARTIAL below holds on the condition that `ib_w` is the right comparand. That residual is **resolved by the Tier T4 per-component decomposition** (van Veen's
 `transl + AM + Wagner`; see "Per-component decomposition of the CFD force, graded against van Veen's
 model"), which **closes #40**; the chord's remaining **grid** sensitivity is tracked by **#50**. Where
 `RESULTS.md` reports the body-frame added-mass RMS shares (chord ~84 % / normal ~13 %), it SHALL
@@ -323,36 +374,36 @@ by `R(t)`), and **neither supersedes the other**. Malformed input (missing any o
 including `Fy`/`SumUy` — a non-finite row, or an empty steady window) SHALL raise `ValueError`, mirroring
 the existing decomposition guards (never a silent NaN coefficient).
 
-#### Scenario: Added-mass subtracted then rotated reproduces the interim peaks (committed data)
+#### Scenario: 6-DOF and IB-only forces rotated into the body frame reproduce the interim peaks (committed data)
 
 - **Given** `forces_t2a_newconv.csv` (29-col, with `SumUx/SumUy/SumUz`), `ρ_f = RHO = 1.0`, the analytic
   `R(t)` from the wing kinematics, and `F_ref` from `compute_force_reference`
-- **When** the diagnostic subtracts `ρ_f·SumU` from `ib_force` and rotates the remainder into the wing body
-  frame over `t ≥ 0.05`
-- **Then** peak `|CF_chord|` drops `0.923 → 0.652` (≈ −29 %) and peak `|CF_normal|` drops `2.606 → 2.285`
-  (≈ −12 %), reproduced from the committed CSV; the totals `0.923`/`2.606` are the **same peaks** as the
-  body-frame comparison's `0.92`/`2.61` shown to an extra significant figure (a test SHALL assert the total
-  peaks equal `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot
-  drift), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
+- **When** the diagnostic forms `F_6dof = ρ_f·(SumU + ib_w)` and `ρ_f·ib_w`, and rotates both into the wing body frame over `t ≥ 0.05`
+- **Then** the 6-DOF peaks are `|CF_chord| ≈ 0.652` and `|CF_normal| ≈ 2.285` and the `ib_w` peaks
+  `0.923` and `2.606`, so `chord_drop_frac ≈ −0.42` and `normal_drop_frac ≈ −0.14` (removing the
+  internal-fluid term raises both peaks), reproduced from the committed CSV; the `ib_w` peaks
+  `0.923`/`2.606` are the **same peaks** as the body-frame comparison's `0.92`/`2.61` shown to an extra
+  significant figure, because at `ρ_f = RHO = 1` the `ρ_f·ib_w` series is exactly the graded force (a
+  test SHALL assert, at `ρ_f = RHO` and at `ρ_f = 2`, that the `ib_w` peaks equal
+  `body_frame_overall_match`'s `peak_cf_chord`/`peak_cf_normal` so the two precisions cannot drift;
+  the identity holds at any density because `F_ref` carries the same `ρ_f`), and `RESULTS.md` SHALL carry that "same peaks" note so the dual precision is not read as two
   different results
 
 #### Scenario: Body-frame added-mass RMS shares are reported
 
-- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame total `ib_force` over the
+- **Given** the body-frame added-mass force (`Rᵀ·ρ_f·SumU`) and the body-frame on-wing IB force `Rᵀ·ρ_f·ib_w` over the
   pinned steady window
 - **When** the RMS share is formed as `rms(added-mass component)/rms(ib component)` per body axis (the
-  body-frame analog of the lab-frame `added_mass_fraction`, not a peak ratio and not `rms(subtracted)`)
-- **Then** it reports ≈ **84 %** of the chord RMS and ≈ **13 %** of the normal RMS — quantifying that the
-  chord PARTIAL is added-mass-dominated while the normal is barely affected (consistent with added-mass +
-  Wagner roughly cancelling in the normal)
+  body-frame analog of the lab-frame `added_mass_fraction`, not a peak ratio and not `rms(6dof)`)
+- **Then** it reports ≈ **84 %** of the chord RMS and ≈ **13 %** of the normal RMS — quantifying that the internal-fluid term is large relative to `ib_w` in the chord and small in the
+  normal; it SHALL NOT be described as van Veen's added mass
 
 #### Scenario: Reuses the T2a rotation and #36 added-mass, not a re-derivation
 
 - **Given** the diagnostic
-- **When** it computes the subtracted body-frame coefficients
+- **When** it computes the 6-DOF and `ib_w` body-frame coefficients
 - **Then** it calls `added_mass_force` (#36) for `ρ_f·SumU` and `body_frame_coefficients` / the
-  `wing_kinematics` `R(t)` mirror (T2a) — subtract-in-lab-then-rotate equals rotate-then-subtract because
-  the rotation is linear — and it does **not** re-implement the added-mass magnitude or the rotation
+  `wing_kinematics` `R(t)` mirror (T2a) — add-in-lab-then-rotate equals rotate-then-add because the rotation is linear — and it does **not** re-implement the added-mass magnitude or the rotation
   (the magnitude and orientation defect classes stay separate, CC-V4)
 
 #### Scenario: Reported only — no new van Veen pass/fail, existing graders unchanged
@@ -362,24 +413,28 @@ the existing decomposition guards (never a silent NaN coefficient).
 - **When** they are evaluated
 - **Then** the diagnostic exposes **no** `*_match`/`pass`/`floor`/`in_band` field (it is reported, not
   graded), and the plausibility-gate floor verdict and the body-frame van-Veen-target verdict
-  (`cf_normal_match=True`, `cf_chord_match=False`, `match=False`) — both graded on `ib_force` — are
-  **unchanged** (CC-V2); the subtracted value cannot flip any gate
+  (`cf_normal_match=True`, `cf_chord_match=False`, `match=False`) — both graded on the on-wing `ib_w` — are
+  **unchanged** (CC-V2); no diagnostic value can flip any gate
 
 #### Scenario: Honest framing — isolates the share; T4 resolves the PARTIAL
 
-- **Given** the added-mass-subtracted `CF_chord ≈ 0.652`
+- **Given** the 6-DOF `CF_chord ≈ 0.652` and the IB-only `CF_chord ≈ 0.923`
 - **When** `RESULTS.md` reports the interim
-- **Then** it states the drop **isolates the added-mass share** (84 % of the chord RMS), **not** that the
-  interim *by itself* resolves the PARTIAL — `0.652` is still ~2× van Veen's translational ~0.3 — and it
+- **Then** it states the comparison **isolates the internal-fluid term's share** (84 % of the chord RMS),
+  **not** that the interim *by itself* resolves the PARTIAL — `0.923` is still ~3× van Veen's translational
+  ~0.3 (the 6-DOF `0.652` ~2×) — and it
   states the residual is **resolved by the Tier T4 decomposition** (which **closes #40**), with the chord's
   remaining **grid** sensitivity tracked by **#50**
 - **And** the doc SHALL carry a **metric-type caveat** for the chord: the 84 % is an RMS *energy* share
-  over the window, whereas the −29 % is a **peak-to-peak ratio of two window maxima at *different* phases**
-  (not a per-instant subtraction) — so "84 % of RMS" is NOT presented as the cause of "the peak dropped
-  29 %" (they are different metrics on different supports)
+  over the window, whereas `drop_frac ≈ −0.42` (removing the term raises the chord peak 42 %) is a **peak-to-peak ratio
+  of two window maxima at *different* phases**
+  (not a per-instant subtraction) — so "84 % of RMS" is NOT presented as the cause of "the chord peak rose 42 %" (they are different metrics on different
+  supports); the instantaneous ratio at the 6-DOF chord peak (`1 − |ib_w|/|F_6dof|` ≈ −0.39, i.e. `|ib_w|`
+  exceeds `|F_6dof|` by 39 % there) is named as a third metric, and the two chord peaks are ~1094
+  timesteps apart
 - **And** a reproducibility test SHALL assert the load-bearing framing **wording** is present (an
-  `isolat…` phrase, a "does not resolve"/"not … resolve" phrase for the interim-by-itself, the `~2×` / `0.3`
-  residual, the peak-to-peak/different-phase caveat) and that the `RESULTS.md` wing Validation-Status row is
+  `isolat…` phrase, a "does not resolve"/"not … resolve" phrase for the interim-by-itself, the `~3×` / `0.3` residual, a statement that `ρ_f·SumU` is the solver's internal-fluid term and not van
+  Veen's added mass, a pointer to the follow-up issue on which CFD force van Veen's comparison should use, the peak-to-peak/different-phase caveat) and that the `RESULTS.md` wing Validation-Status row is
   updated **by T4** (not by the interim) from **PARTIAL** to **validated against van Veen's quasi-steady
   model (normal) / chord-grid-limited** — the interim subsection SHALL NOT itself be the edit that changed
   the verdict row (T4's decomposition is)
@@ -401,6 +456,13 @@ the existing decomposition guards (never a silent NaN coefficient).
 - **Then** it carries an explicit sentence stating the two are a **different frame and axis pairing**
   (neither supersedes the other), and the reproducibility guard asserts that disambiguation phrase is
   present (not merely that all four percentages coexist in the file)
+
+#### Scenario: Either degenerate denominator raises
+
+- **Given** a synthetic CSV whose `ib_w` is nonzero with `ρ_f·SumU = −ib_w` (a zero 6-DOF force), and another whose `ib_w` is zero with nonzero `SumU`
+- **When** the diagnostic runs on each
+- **Then** the first raises `ValueError` naming the degenerate 6-DOF peak (the `drop_frac` denominator) and the second raises `ValueError` naming the degenerate `ib_w` (the RMS-share denominator), each against `_DEGENERATE_CF_FLOOR`
+- **And** a guard on only one of the two denominators fails this scenario
 
 ### Requirement: Van Veen quasi-steady force model, pinned and guarded
 
@@ -509,8 +571,9 @@ grid-dominated. (The distinct `S_yy` uses the analytic-elliptic area for `F_ref`
 
 The analysis SHALL provide `decompose_wing_force(csv_path, *, f_star, phi_amp_deg, pitch_amp_deg,
 window_t0=STEADY_WINDOW_T0, …)` that builds van Veen's per-component + total model on **our** measured wing
-kinematics, normalizes each by the single-source `compute_force_reference` (`F_ref = ½ρω_ref²S_yy = 200.27`,
-the **same** reference as the CFD `CF`; no correction factor), aligns to the CFD time grid from
+kinematics, normalizes each by the single-source `compute_force_reference` built at the model's density
+`rho` (`F_ref = ½ρω_ref²S_yy`, 200.27 at `ρ = 1`; the same reference formula as the CFD `CF`; no
+correction factor), so the model coefficients, like the CFD's, do not depend on the density, aligns to the CFD time grid from
 `reconstruct_wing_body_forces` (reused, not re-derived, CC-V4), and grades / reports the comparison over
 the pinned steady window. It SHALL be **cluster-free** (committed CSVs) and FP64. Because both sides share
 the **same** kinematics and `F_ref`, the graded claim is **"consistent with / validated against van Veen's
@@ -527,7 +590,10 @@ graded magnitude tolerance SHALL be a **named, test-guarded constant** derived f
 uncertainty) and pinned **before** the committed-run result — never reverse-fit (CC-V2); the magnitude
 grader SHALL be proven on synthetic fixtures to **pass within and fail outside** `T4_NORMAL_MAG_TOL` (both
 directions). The return value SHALL expose **no** chord `*_pass`/`*_match` verdict key, and its key set
-SHALL be exact/enumerated (a later-added chord gate fails a guard).
+SHALL be exact/enumerated (a later-added chord gate fails a guard). A `rho` that is not a finite,
+positive, normal real number SHALL raise `ValueError` naming `rho` before any file is read, and a
+`rho` large enough that the model's `F_ref` or any model force overflows SHALL raise `ValueError`
+naming `rho`, never return an `inf`/NaN number.
 
 #### Scenario: Normal peak MAGNITUDE is the primary graded lever (S_WE-insensitive)
 
@@ -615,6 +681,20 @@ SHALL be exact/enumerated (a later-added chord gate fails a guard).
 - **When** `decompose_wing_force` runs
 - **Then** it raises `ValueError` (mirroring the existing decomposition guards) — never a silent `NaN`
 
+#### Scenario: The model's density cancels, so no T4 number or verdict depends on it
+
+- **Given** `forces_fine.csv` and the production kinematics (`f_star = 1`, `phi_amp_deg = 70`,
+  `pitch_amp_deg = 45`)
+- **When** `decompose_wing_force` runs at `rho = 0.5`, `2` and `1.3`, and at `rho = 1`
+- **Then** every returned number, every `*_pass` verdict and every `series` array equals its `rho = 1`
+  value (exactly at the powers of two, to `1e-12` relative at `1.3`); before this change, `rho = 2`
+  doubled the model normal peak (2.48 → 4.95 against the CFD's 2.23) and flipped `normal_mag_pass`
+- **And** a `rho` of `0`, a negative value, NaN, infinity, a boolean, `None`, a string, `10**400`,
+  `Decimal("1")`, a 0-d array or a subnormal raises `ValueError` naming `rho`, also when the CSV path
+  does not exist
+- **And** `rho = 5e305` (the model forces overflow while `F_ref` is finite) and `rho = 1e308` (`F_ref`
+  overflows) raise `ValueError` naming `rho`
+
 ### Requirement: Erratum-verified coefficient provenance
 
 The pinned van Veen coefficients SHALL carry a **testable provenance literal** recording that they were
@@ -691,4 +771,50 @@ quasi-steady model**" (consistency at matched kinematics), not a bare "validated
   loosened tolerance); every "deferred to T4"/"fig 3–4" string in `coordinate-convention.md`,
   `figures/README.md`, and the `flapping_wing.py` docstring/comment is corrected to `{transl, AM, Wagner}` /
   Fig 13 / delivered
+
+### Requirement: Flapping-wing coefficients report the IB force on the wing
+
+The flapping-wing analysis SHALL report every coefficient series it derives from the IB-particle CSV
+as the IB force **on the wing** (`ib_w = −ib_force`). That covers:
+
+- the lab-frame `cf_*_ib`;
+- the body-frame `CF_chord`/`CF_normal`;
+- the T4 **CFD** series;
+- both series of the added-mass-subtracted diagnostic;
+- the figure scripts that compute coefficients directly from the CSV
+  (`generate_all_figures.plot_f1_forces`, `generate_validation_figures.fig_v1_three_convention`).
+
+Each is obtained through the force-surrogate's single-source `force_on_wing` helper (see the
+force-surrogate requirement "Wing coefficients report the IB force and moment on the wing").
+
+Where other requirements in this capability speak of coefficients "of `ib_force`", or of the CFD
+"total" force, they mean `ib_w`. The solver's 6-DOF force `ρ_f·(SumU + ib_w)` is always named "6-DOF".
+Raw-force values that `RESULTS.md` quotes SHALL remain the solver's values and SHALL be labelled as
+the force on the fluid.
+
+Every magnitude-graded verdict SHALL be unchanged by this convention, because each grades `|·|`:
+`plausibility_gate`, `body_frame_overall_match`, the T4 `normal_mag_pass` and `closure_pass`, and the
+peak phases. Reported signed quantities SHALL be recomputed from committed data, never hand-edited:
+the lab ranges, the T4 `normal_curve_rmse`, and the added-mass-subtracted `drop_frac`.
+
+The `forces` subcommand of `examples/flapping_wing/visualize.py` SHALL be removed. It summed plotfile
+marker increments rather than the accumulated `ib_force`, and labelled `Fy` as lift (pre-T2a axes).
+
+#### Scenario: Lab and body coefficients are on-wing
+
+- **Given** the committed `forces_t2a_newconv.csv`
+- **When** `reconstruct_wing_forces` and `reconstruct_wing_body_forces` run
+- **Then** `cf_x_ib == −Fx/f_ref` and `cf_z_ib == −Fz/f_ref`, and the body-frame series equal `R(t)ᵀ` applied to `−F`, divided by `f_ref`
+
+#### Scenario: Graded verdicts are unchanged by the sign
+
+- **Given** the committed CSVs
+- **When** `plausibility_gate`, `body_frame_overall_match` and `decompose_wing_force` run after this change
+- **Then** the existing graded literals in `tests/test_wing_body_frame.py` and the T4 decomposition tests still pass with no edit to those literals. The independent pin is these literals, which predate this change, not a recomputation by the new code.
+
+#### Scenario: The forces subcommand is gone
+
+- **Given** `examples/flapping_wing/visualize.py`
+- **When** its argument parser is built
+- **Then** its subcommands are exactly `velocity` and `vorticity`
 
