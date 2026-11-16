@@ -495,7 +495,9 @@ def test_an_entry_path_is_dir_would_skip_is_still_skipped(error, tmp_path, monke
 @pytest.mark.parametrize(
     "error",
     [
-        pytest.param(PermissionError("simulated EACCES"), id="EACCES"),
+        # The errno must be set: the code decides by errno, and an errno-less PermissionError
+        # would pass even with EACCES wrongly added to the skip list.
+        pytest.param(PermissionError(errno.EACCES, "simulated EACCES"), id="EACCES"),
         pytest.param(OSError(errno.EIO, "simulated EIO"), id="EIO"),
     ],
 )

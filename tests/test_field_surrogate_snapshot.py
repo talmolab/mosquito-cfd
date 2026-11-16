@@ -1596,8 +1596,10 @@ class _TrackedField:
     """Stand-in for the yt array a covering grid returns, recording every buffer handed out.
 
     Offers the two ways the reader may unwrap it: ``to_ndarray()`` (unyt makes a copy) and
-    ``.d`` (a view of yt's own buffer). Each handed-out array, and yt's array itself, is
-    recorded as ``(weakref, shares_memory_with_yt)``.
+    ``.d`` (a view of yt's own buffer). Recorded as ``(weakref, shares_memory_with_yt)``, three
+    per field: yt's array, the ndarray that OWNS its memory, and the array handed out. The owner
+    matters: a view or slice of ``.d`` keeps the owner alive without keeping yt's wrapper alive,
+    so tracking the wrapper alone would miss a reader that holds on to a slice.
     """
 
     def __init__(self, inner, record):
@@ -1605,7 +1607,9 @@ class _TrackedField:
 
         self._inner = inner
         self._record = record
+        owner = inner.base if inner.base is not None else inner
         record.append((weakref.ref(inner), True))
+        record.append((weakref.ref(owner), True))
 
     def _hand_out(self, arr):
         import weakref
@@ -1634,24 +1638,26 @@ def _tracking_grid(record):
 def test_no_full_domain_buffer_outlives_its_copy(monkeypatch):
     # Refcount-deterministic, unlike the tracemalloc bound: before each field is read, yt's
     # array for every earlier field -- and whatever the reader unwrapped it into -- must already
-    # be dead, and none may outlive the call. Kills a reader that keeps `raw` bound until the
-    # next iteration, which only adds ~1 S of peak and so passes the 7.5 S bound.
+    # be dead, and none may outlive the call. Kills a reader that keeps `raw`, or any slice of
+    # it, bound until the next iteration: that holds a whole field but adds only ~1 S of peak,
+    # so it passes the 7.5 S bound.
     record: list = []
     _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
     read_field_snapshot(FIXTURE, **FULL)
-    # Positive control: yt's array and one unwrapped array per field were tracked.
-    assert len(record) == 12
+    # Positive control: yt's array, its owner and one unwrapped array per field were tracked.
+    assert len(record) == 18
     assert all(ref() is None for ref, _ in record), "a buffer outlived the call"
 
 
-def test_fields_are_unwrapped_without_a_full_domain_copy(monkeypatch):
-    # unyt's to_ndarray() is np.array(self): a full-domain copy, one more S of peak per field,
-    # made only to be sliced and copied again. `.d` is a view of yt's own buffer; the reader's
-    # owning slice copy is the only copy it needs.
+def test_fields_are_unwrapped_through_a_view(monkeypatch):
+    # unyt's to_ndarray() is np.array(self): a transient full-domain copy per field, made only
+    # to be sliced and copied again. It does not raise the measured peak, which yt's read sets
+    # (design.md D4), so this pins the accessor, not a memory figure: `.d` is a view of yt's own
+    # buffer, and the reader's owning slice copy is the only copy it makes.
     record: list = []
     _patch_yt(monkeypatch, grid_cls=_tracking_grid(record))
     read_field_snapshot(FIXTURE, **FULL)
-    handed_out = record[1::2]
+    handed_out = record[2::3]
     assert len(handed_out) == 6
     copies = [i for i, (_, shares) in enumerate(handed_out) if not shares]
     assert not copies, f"fields {copies} were unwrapped into a full-domain copy"
