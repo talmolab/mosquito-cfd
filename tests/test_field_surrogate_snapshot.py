@@ -1449,3 +1449,64 @@ def test_real_multi_fab_read_is_bit_identical_to_a_full_grid_reference(lo, hi, h
     mhi = mapper(hi, ref["dle"], ref["dre"], ref["dx"])
     snap = read_field_snapshot(path, lo=mlo, hi=mhi, halo=halo, fields=ALL_FIELDS)
     _assert_bit_identical(snap, path, mlo, mhi, halo)
+
+
+# --- improve-field-reader-perf-memory: guards before the zero-cell short-circuit ---------------
+
+_OUTSIDE = next(c for c in REGION_CASES if c[0] == "outside_domain")
+OUTSIDE_DOMAIN = {"lo": _OUTSIDE[1], "hi": _OUTSIDE[2], "halo": _OUTSIDE[3]}
+
+
+class _IndexWithoutDtype:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name == "_dtype":
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+
+class _DatasetWithoutDtype:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @property
+    def index(self):
+        return _IndexWithoutDtype(self._inner.index)
+
+
+@pytest.mark.parametrize(
+    "guard", ["multi_level", "no_dtype_attribute", "fp32_on_disk", "missing_field"]
+)
+def test_guards_fire_before_the_zero_cell_short_circuit(guard, monkeypatch, tmp_path):
+    # Anchor (passes before the short-circuit exists): a request with zero cells must still be
+    # refused for the same reason as a non-empty one. A short-circuit placed ahead of any guard
+    # would return empty arrays from a plotfile the reader refuses to read.
+    import yt
+
+    path = FIXTURE
+    if guard == "multi_level":
+        _patch_yt(monkeypatch, max_level=1)
+        match = "CC-F3"
+    elif guard == "no_dtype_attribute":
+        real_load = yt.load
+        monkeypatch.setattr(
+            yt, "load", lambda p, *a, **k: _DatasetWithoutDtype(real_load(str(p)))
+        )
+        match = "cannot determine the plotfile's on-disk precision"
+    elif guard == "fp32_on_disk":
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_fp32", real_dtype="float32"
+        )
+        match = "not 8-byte floats"
+    else:
+        path = _fixture_generator().write_fixture(
+            tmp_path / "plt_reduced", fields=("x_velocity", "y_velocity")
+        )
+        match = r"missing required fields \[\('boxlib', 'z_velocity'\)"
+    with pytest.raises(ValueError, match=match):
+        read_field_snapshot(path, **OUTSIDE_DOMAIN)
