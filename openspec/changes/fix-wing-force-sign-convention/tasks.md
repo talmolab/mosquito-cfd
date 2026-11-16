@@ -17,7 +17,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 ## 0. Blast radius (derived by running the suite, not by reading)
 
-0. [ ] **Before each PR**, re-derive its list by running the CPU suite on a simulated post-change export
+0. [x] **Before each PR**, re-derive its list by running the CPU suite on a simulated post-change export
    of its base. Build the sim as a git repo (`git init` plus commit) with its own `src` first on
    `PYTHONPATH`. Diff the result against the list below. **Any test outside the PR's list that needs
    editing halts the change.**
@@ -79,7 +79,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
      - `test_corpus_guards.py` (peaks 4.015 / 2.880 unchanged)
      - `test_force_surrogate_evidence_figure.py:1214-1261, :1500-1525`
      - the grid-convergence tests and `test_flapping_band_floor.py`
-0a. [ ] Record: **a `_FROZEN_*RAW_FORCE_SHA` trip during PR2b is a HALT, not a re-pin.**
+0a. [x] Record: **a `_FROZEN_*RAW_FORCE_SHA` trip during PR2b is a HALT, not a re-pin.**
 
 ---
 
@@ -728,3 +728,6 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   the variance": correlation is 0.72 (0.79 fine), so it misses the scale, not the shape. The fine
   `CF_y` sentence says the rule *allows* the statement (the rule's disjointness is necessary, not
   sufficient).
+- **Tasks 0 and 0a ticked at pre-merge (`/pre-merge-check`):** task 0 is recorded per PR (PR2a task 17,
+  PR2b task 31, PR3 "Task 0, measured" above); 0a's halt never triggered (PR2b's raw-force tripwire
+  digests held, per its CHANGELOG entry). Only task 53 (post-merge) remains.
