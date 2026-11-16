@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -122,9 +124,14 @@ def _fake_scandir(monkeypatch, root: Path, *, order=(), extra=()) -> list[str]:
 
 
 def _symlink_or_skip(target: Path, link: Path) -> None:
+    # Skip only where the platform needs it: Windows without the symlink privilege. On Linux CI
+    # a failure here is a real error (e.g. a fixture bug), and turning it into a skip would
+    # leave the only real-filesystem symlink tests silently unrun.
     try:
         os.symlink(target, link, target_is_directory=True)
     except (OSError, NotImplementedError) as exc:
+        if sys.platform != "win32":
+            raise
         pytest.skip(f"cannot create a directory symlink here: {exc}")
 
 
@@ -449,25 +456,72 @@ def test_listing_costs_one_scandir_and_no_per_entry_stat(tmp_path, monkeypatch):
     assert counts["small"][1] == counts["large"][1], counts
 
 
-def test_failing_entry_type_check_is_skipped_only_when_gone(tmp_path, monkeypatch):
-    # The propagate half: any OSError from the type check other than a vanished entry propagates,
-    # rather than hiding a damaged filesystem as a missing step. The skip half is
-    # test_a_dangling_symlink_is_skipped.
+def _winerror(code: int) -> OSError:
+    exc = OSError(f"simulated winerror {code}")
+    exc.winerror = code  # set by hand, so the case runs on every OS
+    return exc
+
+
+#: The type-check failures Python 3.11's Path.is_dir() treated as "not a directory"
+#: (pathlib._IGNORED_ERRNOS, _IGNORED_WINERRORS, and ValueError). Written out, not imported:
+#: the test must not trust the list the code uses.
+_SKIPPED_ERRORS = [
+    pytest.param(FileNotFoundError(errno.ENOENT, "gone"), id="ENOENT"),
+    pytest.param(NotADirectoryError(errno.ENOTDIR, "through a file"), id="ENOTDIR"),
+    pytest.param(OSError(errno.EBADF, "bad descriptor"), id="EBADF"),
+    pytest.param(OSError(errno.ELOOP, "symlink loop"), id="ELOOP"),
+    pytest.param(_winerror(21), id="winerror21_not_ready"),
+    pytest.param(_winerror(123), id="winerror123_invalid_name"),
+    pytest.param(_winerror(1921), id="winerror1921_cant_resolve"),
+    pytest.param(ValueError("non-encodable"), id="ValueError"),
+]
+
+
+@pytest.mark.parametrize("error", _SKIPPED_ERRORS)
+def test_an_entry_path_is_dir_would_skip_is_still_skipped(error, tmp_path, monkeypatch):
+    # os.scandir's DirEntry.is_dir() swallows only FileNotFoundError; Path.is_dir() also
+    # treated a symlink loop, a symlink through a file and the rest of this list as "not a
+    # directory". The listing keeps that verdict, so one broken link cannot take down a
+    # config's whole step list.
     root, run = _bare_corpus(tmp_path, ["plt00100"])
-    denied = PermissionError("simulated EACCES on the type check")
-    calls = _fake_scandir(
-        monkeypatch, root, extra=[_StubEntry(run, "plt00200", denied)]
-    )
-    with pytest.raises(PermissionError, match="simulated EACCES"):
+    calls = _fake_scandir(monkeypatch, root, extra=[_StubEntry(run, "plt00200", error)])
+    assert FieldCorpus(root).steps("s35_f085_p30") == [100]
+    assert calls == ["s35_f085_p30"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(PermissionError("simulated EACCES"), id="EACCES"),
+        pytest.param(OSError(errno.EIO, "simulated EIO"), id="EIO"),
+    ],
+)
+def test_failing_entry_type_check_propagates_unless_path_is_dir_ignored_it(
+    error, tmp_path, monkeypatch
+):
+    # Any other OSError from the type check propagates, as it did from Path.is_dir(), rather
+    # than hiding a damaged filesystem as a missing step.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    calls = _fake_scandir(monkeypatch, root, extra=[_StubEntry(run, "plt00200", error)])
+    with pytest.raises(type(error), match="simulated"):
         FieldCorpus(root).steps("s35_f085_p30")
     assert calls == ["s35_f085_p30"]
 
 
 def test_a_dangling_symlink_is_skipped(tmp_path):
-    # The skip half: DirEntry.is_dir() returns False for a target that does not exist (CPython
-    # catches FileNotFoundError itself), as Path.is_dir() did.
+    # Real filesystem: DirEntry.is_dir() returns False for a target that does not exist.
     root, run = _bare_corpus(tmp_path, ["plt00100"])
     _symlink_or_skip(tmp_path / "gone", run / "plt00200")
+    assert FieldCorpus(root).steps("s35_f085_p30") == [100]
+
+
+def test_a_symlink_loop_and_a_symlink_through_a_file_are_skipped(tmp_path):
+    # Real filesystem (Linux CI): the two cases DirEntry.is_dir() raises on (ELOOP, ENOTDIR)
+    # but Path.is_dir() skipped.
+    root, run = _bare_corpus(tmp_path, ["plt00100"])
+    _symlink_or_skip(run / "plt00900", run / "plt00900")
+    (tmp_path / "a_file").write_text("not a directory")
+    _symlink_or_skip(tmp_path / "a_file" / "sub", run / "plt01100")
     assert FieldCorpus(root).steps("s35_f085_p30") == [100]
 
 

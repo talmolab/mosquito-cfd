@@ -14,6 +14,7 @@ every path it takes or returns is a ``pathlib.Path``.
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 from pathlib import Path
@@ -43,6 +44,33 @@ def _validate_step(step: Any) -> int:
     return int(step)
 
 
+#: The type-check failures Python 3.11's ``Path.is_dir()`` reported as "not a directory"
+#: (``pathlib._IGNORED_ERRNOS`` and ``_IGNORED_WINERRORS``): a vanished entry, a symlink through
+#: a file, a bad descriptor, a symlink loop, and three Windows path errors. ``DirEntry.is_dir()``
+#: itself swallows only ``FileNotFoundError``.
+_NOT_A_DIRECTORY_ERRNOS = frozenset(
+    {errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP}
+)
+_NOT_A_DIRECTORY_WINERRORS = frozenset({21, 123, 1921})
+
+
+def _is_dir(entry: os.DirEntry) -> bool:
+    # Keeps the verdict Path.is_dir() gave before the listing moved to os.scandir, so one broken
+    # symlink cannot take down a config's whole step list; any other OSError (e.g. EACCES, EIO)
+    # still propagates. ValueError is Path.is_dir()'s "non-encodable path".
+    try:
+        return entry.is_dir()
+    except OSError as exc:
+        if (
+            exc.errno in _NOT_A_DIRECTORY_ERRNOS
+            or getattr(exc, "winerror", None) in _NOT_A_DIRECTORY_WINERRORS
+        ):
+            return False
+        raise
+    except ValueError:
+        return False
+
+
 def _scan(run: Path) -> dict[int, Path]:
     """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
 
@@ -50,11 +78,13 @@ def _scan(run: Path) -> dict[int, Path]:
     verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
     stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
 
-    One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``, so
-    the cost does not grow by a ``stat`` per entry -- an NFS round trip each. No ``Path`` API keeps
-    the ``DirEntry`` before Python 3.14's ``Path.info`` (improve-field-reader-perf-memory D1).
-    ``DirEntry.is_dir()`` follows symlinks and returns ``False`` for an entry that has vanished;
-    any other ``OSError`` from it propagates.
+    One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``
+    where the filesystem reports it, so there is no Python-level ``stat`` per entry (on NFS the
+    kernel may still stat an entry whose type the server did not return, or a symlink). No
+    ``Path`` API keeps the ``DirEntry`` before Python 3.14's ``Path.info``
+    (improve-field-reader-perf-memory D1). The type check follows symlinks and skips exactly the
+    entries ``Path.is_dir()`` skipped -- vanished, dangling, looping, or through a file; see
+    :func:`_is_dir` -- and any other ``OSError`` propagates.
 
     Raises:
         ValueError: If two directories parse to the same step, naming both in sorted order so the
@@ -65,7 +95,7 @@ def _scan(run: Path) -> dict[int, Path]:
     with os.scandir(run) as entries:
         for entry in entries:
             match = _PLT_PATTERN.fullmatch(entry.name)
-            if not (match and entry.is_dir()):
+            if not (match and _is_dir(entry)):
                 continue
             step = int(match.group(1))
             if step in found:
