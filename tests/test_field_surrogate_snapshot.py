@@ -1260,3 +1260,192 @@ def test_frozen_oracle_is_unmodified():
         "copy of the pre-refactor implementation taken at 86c729e. If the change was "
         "deliberate, the delegation's equivalence claim no longer means what it says."
     )
+
+
+# --- improve-field-reader-perf-memory: bit-identity against a full-grid reference --------------
+
+
+def _ab_script():
+    # scripts/ is not a package; _map is the A/B script's cell-unit -> physical mapping, reused so
+    # the cases mean the same thing here as in the real-plotfile verification.
+    spec = importlib.util.spec_from_file_location(
+        "_verify_eulerian_box_ab", REPO_ROOT / "scripts" / "verify_eulerian_box_ab.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@functools.lru_cache(maxsize=4)
+def _full_grid_reference(path: str) -> dict:
+    """The full level-0 covering grid of all eight fields, read with yt directly, once per file.
+
+    Built independently of ``read_field_snapshot``'s read loop: no cache release, no teardown.
+    Only ``_region_bounds`` is shared, and that arithmetic is pinned against the legacy oracle.
+    """
+    import yt
+
+    from mosquito_cfd.field_surrogate.snapshot import CANONICAL_FIELDS
+
+    yt.set_log_level("error")
+    ds = yt.load(path)
+    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
+    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
+    ddims = np.asarray(ds.domain_dimensions, dtype=np.int64)
+    cg = ds.covering_grid(
+        level=0, left_edge=ds.domain_left_edge, dims=tuple(int(d) for d in ddims)
+    )
+    data = {
+        name: np.array(cg[field].to_ndarray(), copy=True)
+        for name, field in CANONICAL_FIELDS.items()
+    }
+    return {
+        "data": data,
+        "dle": dle,
+        "dre": dre,
+        "ddims": ddims,
+        "dx": (dre - dle) / ddims,
+        "time": float(ds.current_time),
+        "max_level": int(ds.index.max_level),
+    }
+
+
+def _frozen_copy(view: np.ndarray) -> np.ndarray:
+    out = np.array(view, dtype=np.float64, order="C", copy=True)
+    out.setflags(write=False)
+    return out
+
+
+def _expected_snapshot(path, lo, hi, halo) -> dict:
+    from mosquito_cfd.field_surrogate.snapshot import _corner, _region_bounds
+
+    ref = _full_grid_reference(str(path))
+    i_lo, i_hi = _region_bounds(
+        _corner(lo, "lo"),
+        _corner(hi, "hi"),
+        halo,
+        dle=ref["dle"],
+        dre=ref["dre"],
+        ddims=ref["ddims"],
+    )
+    sl = tuple(slice(int(a), int(b)) for a, b in zip(i_lo, i_hi))
+    axes = []
+    for axis in range(3):
+        # The reader's own arithmetic: a linspace reference differs by an ULP on non-dyadic grids.
+        centers = (
+            ref["dle"][axis] + (np.arange(ref["ddims"][axis]) + 0.5) * ref["dx"][axis]
+        )
+        axes.append(_frozen_copy(centers[sl[axis]]))
+    return {
+        "arrays": {name: _frozen_copy(a[sl]) for name, a in ref["data"].items()},
+        "x": axes[0],
+        "y": axes[1],
+        "z": axes[2],
+        "dx": ref["dx"],
+        "time": ref["time"],
+        "max_level": ref["max_level"],
+    }
+
+
+def _assert_same_array(got: np.ndarray, want: np.ndarray, tag: str) -> None:
+    # Bitwise, not numeric: assert_array_equal treats -0.0 == 0.0 and ignores NaN payloads.
+    assert got.dtype == want.dtype == np.float64, tag
+    assert got.shape == want.shape, tag
+    assert got.tobytes() == want.tobytes(), tag
+    assert got.strides == want.strides, tag
+    assert got.flags.c_contiguous == want.flags.c_contiguous, tag
+    assert got.flags.f_contiguous == want.flags.f_contiguous, tag
+    assert got.flags.writeable is False, tag
+    assert got.base is None, tag
+
+
+def _assert_bit_identical(snap, path, lo, hi, halo) -> None:
+    from mosquito_cfd.field_surrogate.snapshot import CANONICAL_FIELDS
+
+    want = _expected_snapshot(path, lo, hi, halo)
+    assert snap.field_names == tuple(CANONICAL_FIELDS)
+    assert list(snap.arrays) == list(CANONICAL_FIELDS)
+    for name in CANONICAL_FIELDS:
+        _assert_same_array(snap.arrays[name], want["arrays"][name], name)
+    for axis in ("x", "y", "z"):
+        _assert_same_array(getattr(snap, axis), want[axis], axis)
+    assert snap.dx.tobytes() == want["dx"].tobytes()
+    assert snap.dx.dtype == np.float64 and snap.dx.shape == (3,)
+    assert snap.dx.flags.writeable is False
+    assert type(snap.time) is float and snap.time == want["time"]
+    assert snap.source == str(path)
+    assert type(snap.max_level) is int and snap.max_level == want["max_level"]
+
+
+ALL_FIELDS = (
+    "u",
+    "v",
+    "w",
+    "gradpx",
+    "gradpy",
+    "gradpz",
+    "density",
+    "tracer",
+)
+_BIT_CASES = [(c[0], c[1], c[2], c[3], c[4]) for c in REGION_CASES] + [
+    (c[0], c[1], c[2], c[3], c[5]) for c in DIVERGENCE_CASES
+]
+
+
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo", "counts"),
+    [c[1:] for c in _BIT_CASES],
+    ids=[c[0] for c in _BIT_CASES],
+)
+def test_read_is_bit_identical_to_a_full_grid_reference(
+    asym_plotfile, lo, hi, halo, counts
+):
+    # Anchor for every speed and memory change in improve-field-reader-perf-memory: the cache
+    # release, the teardown and the zero-cell short-circuit must not change one bit of what is
+    # returned, on the cubic fixture and on an anisotropic, non-zero-origin grid.
+    snap = read_field_snapshot(FIXTURE, lo=lo, hi=hi, halo=halo, fields=ALL_FIELDS)
+    assert (
+        snap.arrays["u"].shape == counts
+    )  # the tables' literal counts, not recomputed
+    _assert_bit_identical(snap, FIXTURE, lo, hi, halo)
+
+    ref = _full_grid_reference(str(asym_plotfile))
+    mapper = _ab_script()._map
+    mlo = mapper(lo, ref["dle"], ref["dre"], ref["dx"])
+    mhi = mapper(hi, ref["dle"], ref["dre"], ref["dx"])
+    snap = read_field_snapshot(
+        asym_plotfile, lo=mlo, hi=mhi, halo=halo, fields=ALL_FIELDS
+    )
+    _assert_bit_identical(snap, asym_plotfile, mlo, mhi, halo)
+
+
+_REAL_BIT_CASES = (
+    "full",
+    "halo2",
+    "x_slab_only",
+    "outside_domain",
+    "above_within_reach_offface_h2",
+)
+
+
+@pytest.mark.requires_plotfile
+@pytest.mark.parametrize(
+    ("lo", "hi", "halo"),
+    [c[1:4] for c in _BIT_CASES if c[0] in _REAL_BIT_CASES],
+    ids=[c[0] for c in _BIT_CASES if c[0] in _REAL_BIT_CASES],
+)
+def test_real_multi_fab_read_is_bit_identical_to_a_full_grid_reference(lo, hi, halo):
+    import os
+
+    plotfiles = sorted(
+        (Path(os.environ["MOSQUITO_CFD_PLOTFILE_ROOT"]) / "t3c-fine").glob("plt*")
+    )
+    if not plotfiles:
+        pytest.skip("no t3c-fine/plt* under $MOSQUITO_CFD_PLOTFILE_ROOT")
+    path = plotfiles[-1]
+    ref = _full_grid_reference(str(path))
+    mapper = _ab_script()._map
+    mlo = mapper(lo, ref["dle"], ref["dre"], ref["dx"])
+    mhi = mapper(hi, ref["dle"], ref["dre"], ref["dx"])
+    snap = read_field_snapshot(path, lo=mlo, hi=mhi, halo=halo, fields=ALL_FIELDS)
+    _assert_bit_identical(snap, path, mlo, mhi, halo)
