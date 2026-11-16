@@ -17,7 +17,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 ## 0. Blast radius (derived by running the suite, not by reading)
 
-0. [ ] **Before each PR**, re-derive its list by running the CPU suite on a simulated post-change export
+0. [x] **Before each PR**, re-derive its list by running the CPU suite on a simulated post-change export
    of its base. Build the sim as a git repo (`git init` plus commit) with its own `src` first on
    `PYTHONPATH`. Diff the result against the list below. **Any test outside the PR's list that needs
    editing halts the change.**
@@ -79,7 +79,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
      - `test_corpus_guards.py` (peaks 4.015 / 2.880 unchanged)
      - `test_force_surrogate_evidence_figure.py:1214-1261, :1500-1525`
      - the grid-convergence tests and `test_flapping_band_floor.py`
-0a. [ ] Record: **a `_FROZEN_*RAW_FORCE_SHA` trip during PR2b is a HALT, not a re-pin.**
+0a. [x] Record: **a `_FROZEN_*RAW_FORCE_SHA` trip during PR2b is a HALT, not a re-pin.**
 
 ---
 
@@ -537,7 +537,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - add docs saying the dataset coefficients are the IB force on the wing (corpus README schema notes,
       the force-surrogate roadmap row describing dataset coefficients);
     - add the CHANGELOG entry.
-42. [ ] Fresh reviewer on the data and docs commits. Then:
+42. [x] Fresh reviewer on the data and docs commits. Then:
     - `git merge-base --is-ancestor` for both recorded corpus commits.
     - The extraction-scope diff since task 37 is empty.
     - Run the suite and ruff, and check one blob per path.
@@ -583,47 +583,151 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
 
 # PR3 — retrain and regenerate (closes #109)
 
-43. [ ] Local commit of the pre-registered literals as tests (docstrings name this change and note that
+43. [x] Local commit of the pre-registered literals as tests (docstrings name this change and note that
     they may be retired by a later OpenSpec change):
     - the 12 `a2e8f64` skill intervals, plus the overlap test that also asserts
       `inputs.hash == sha256(dataset)` and `inputs.hash != pinned` (red until the retrain);
     - exact `overshoot_factor` and `round(baseline_rmse_cf_z, 4)` (red until the figures).
-44. [ ] **Test first, G0**, in `test_force_surrogate_train_gpu.py` (design D7). First verify
+44. [x] **Test first, G0**, in `test_force_surrogate_train_gpu.py` (design D7). First verify
     physicsnemo's final-layer options. Run in WSL with the three mutants.
-45. [ ] Decide the `seed_variation.json` third dataset key and the README seed-table shape. Edit their
+45. [x] Decide the `seed_variation.json` third dataset key and the README seed-table shape. Edit their
     tests.
-46. [ ] Fresh reviewer agent, **before** any render, on:
+46. [x] Fresh reviewer agent, **before** any render, on:
     - the caption;
     - the evidence-figure title (`evidence_figure.py:682` "span-normal" → "lab vertical");
     - the quasi-steady "poor fit" wording (`evidence_figure.py:8, :644, :672`; coarse README `:416-428`);
     - the README wording.
-47. [ ] Commit the code. **Surrogate and figure scopes frozen.** **HUMAN CHECKPOINT before the GPU run.**
-48. [ ] In WSL:
+47. [x] Commit the code. **Surrogate and figure scopes frozen.** **HUMAN CHECKPOINT before the GPU run.**
+48. [x] In WSL:
     - Check that `git status --porcelain` is empty, `test ! -e .venv/bin`, and `git rev-parse HEAD`
       equals the commit.
     - Train each corpus twice, in separate processes, into scratch dirs outside the repo, passing
       `--git-dir` per command.
     - Evaluate G1–G3. Any failure halts for a decision.
-49. [ ] **HUMAN CHECKPOINT before committing binaries.** Surrogate data commit:
+49. [x] **HUMAN CHECKPOINT before committing binaries.** Surrogate data commit:
     - the surrogates and the coarse `seed_variation.json` extension;
     - the `sweep_provenance.json` `retrain` stage (`pull_request: null`) and its test;
     - **both banners removed**, and the section's surrogate phrase removed (its guard flips);
     - check `git diff --exit-code <merge-base> -- uv.lock`.
-50. [ ] Render both evidence figures from the clean tree **after** task 49's commit. Check G4, then
+50. [x] Render both evidence figures from the clean tree **after** task 49's commit. Check G4, then
     commit the figures. Then a re-quote commit:
     - README and caption numbers from the new JSON (what n=5 supports);
     - the Stage-2 sentence plus the `docs/field_surrogate/roadmap.md` link (extend the link-list test);
     - the CHANGELOG entry.
-51. [ ] Fresh reviewer on the artifacts and docs. Run:
+51. [x] Fresh reviewer on the artifacts and docs. Run:
     - the WSL GPU subset (`test_force_surrogate_train{,_gpu}.py`);
     - the CPU suite, ruff and `openspec validate --strict`;
     - `git merge-base --is-ancestor` for the surrogate and figure records;
     - the one-blob check.
 
     **Stop for approval before pushing** tasks 43–50 together.
-52. [ ] Open PR3. Put the hand-written squash message at the top of the PR body and in a PR comment, with
-    "Closes #109." on its own line. Then commit the PR number into `sweep_provenance.json` and its test.
-    Add the stale T4 literals to #115.
+52. [x] Open PR3 with "Closes #109." on its own line in the PR body (a normal PR body; no hand-written
+    squash message, by user decision). Then commit the PR number into `sweep_provenance.json` and its
+    test. Add the stale T4 literals to #115.
 53. [ ] After merge: `/cleanup-merged`, including the OpenSpec archive (a separate `chore(openspec):
     archive …` commit on `main`) and the roadmap update. After the archive, confirm the live spec no
     longer says "not yet verified", and close #19 by hand.
+
+
+### PR3 implementation notes (deviations recorded, not silent)
+
+- **Task 0, measured.** Merge-base `90b2a72`. Sims are exports of it with their own `src` first on
+  `PYTHONPATH`. Control: 0 failures (1861 passed). Simulated retrain (the committed surrogate's
+  outputs exactly negated, hashes re-pointed, banners and the surrogate phrase removed): 3 failures.
+  One is planned (`test_seed_variation_record_matches_the_committed_surrogate`). The other two,
+  `test_committed_sidecar_regenerates_from_committed_inputs[coarse|fine]`, are sim artifacts: the sim
+  rewrote the sidecar JSON with `—` escapes, while the generator writes a raw UTF-8 em-dash.
+  The new G3/G4 tests pass on that sim.
+- **G0 needed a non-zero final bias.** physicsnemo's `FullyConnected` final layer is
+  `FCLayer(activation_fn=None, weight_norm=False, weight_fact=False, activation_par=None)` around a plain
+  `nn.Linear`, as D7 requires (verified in the WSL train venv, physicsnemo 2.1.1). But
+  `FCLayer.reset_parameters` initializes that bias to 0, so negating the bias is a no-op and the
+  "weights negated, bias not" mutant would be equivalent. The test therefore gives the final bias the
+  same non-zero value (`linspace(−0.5, 0.5, 6)`) in both runs, negated in the −y run; equivariance
+  holds for any initial value.
+  - The three D7 defects are permanent in-test controls (an appended SiLU, W-only negation, an
+    asymmetric loss), each asserting `not array_equal`.
+  - Source mutants run in WSL: 3/3 killed (Softplus appended in `build_model`, the bias negation
+    dropped from the patch, an asymmetric loss in `train_model`).
+  - Consequence for the prose: in production the retrain on −y with seed s equals the old seed-s run
+    with only the final **weights** negated, so the two seed sets are paired draws (task-51 review: their per-seed values show no consistent
+    correlation at n=5, so the READMEs say "paired", not "correlated").
+- **Task 43 kill table:** 12/13 killed, plus the non-vacuity mutant (the overlap test turns green on
+  the stale tree without its dataset-identity call). The survivor, a target-set assertion, was
+  redundant: a missing target raises `KeyError`, an extra one is harmless. It was removed. The
+  inverted-range synthetic case was strengthened so the `min <= max` clause is the one that fails.
+- **Task 45 decision (user):** `seed_variation.json` gains `datasets.on_wing`, filled from the retrain's
+  own `metrics.json` `seed_sweep` (no separate GPU runs). The coarse README seed table gets three range
+  columns: on-wing | before #109 | before #108. The shared row regex changes, so
+  `test_skill_and_config_r2_table_patterns_cannot_cross_match` (`:462`) is edited with it, as one of
+  that table's own tests. The seed-record test now also requires every `on_wing` seed to equal the
+  committed `seed_sweep` entry and the surrogate's commit, and pins `hinge_referenced` to the pre-#109 sha
+  permanently.
+- **Task 46 review:** no blocking findings.
+  - The quasi-steady "poor fit" wording is kept. On the sign-corrected holdout lift its pointwise R²
+    is 0.049 / 0.051, its correlation is +0.72 / +0.79 (it was −0.72 / −0.79), and its RMS ratio is
+    unchanged. The caption quotes only the RMS ratio.
+  - The panel title becomes "lab vertical", with a test.
+  - Three README-draft findings are adopted for task 50:
+    - the config-R² columns are reported, not gated (G3 is about skill);
+    - the seed sets are paired, not independent;
+    - the coarse README's unsupported causal sentence about the quasi-steady overshoot ("the CFD
+      `ib_force` itself is correct") takes the fine README's "not investigated here" wording.
+- **Tasks 47-48 (GPU run, user go-ahead given):** trained at `5aeff36` on the RTX A5000, each corpus
+  twice in separate processes, tree clean and HEAD checked before every run. G1: `surrogate.pt` and
+  `holdout_predictions.parquet` byte-identical across the two runs, `metrics.json` equal outside
+  `inference`, `run_metadata.json` equal outside `run_id`. G3: all 12 skill ranges intersect their
+  pre-change ranges. G2 is the CPU suite on the committed tree.
+- **Task 49 (user approval given):** data commit `571f278` from run `a`; `uv.lock` unchanged.
+- **Task 50:** figures `57a5542`, each rendered from a clean tree at `571f278`. The first fine render
+  ran with the coarse outputs already in the tree and recorded `dirty: true`; it was discarded and
+  re-rendered clean. G4 passes. Re-quote: the coarse "seed 1234 is the lowest of the five for every
+  target except `CF_my`" and the fine equivalent are deleted (seed 1234 is now lowest only for
+  `CF_my` coarse and `CF_y`/`CF_mx`/`CF_my` fine); "`CF_x` negative for four of the five seeds"
+  becomes two. The coarse-vs-fine `CF_y` skill ranges are now disjoint (coarse 0.972-0.983, fine
+  0.986-0.990; they overlapped before #109), so the fine README states it in the guarded
+  "higher on fine across 5 seeds" form and says the change from overlapping comes from the
+  initialisation draw alone (the data differ only in sign; G0).
+- **Task 51:** the fresh reviewer found no blocking issues and every quoted number exact; five
+  wording findings fixed in `3e17402` ("paired", not "correlated"; the seed's validation carve; fine
+  `CF_mx` "nearly" robust; G0 named as CPU-checked; two passages dated to the pre-#109 model). WSL:
+  the 16 `gpu`-marked training tests pass. Two CPU-tier tests in `test_force_surrogate_train.py` fail
+  in any torch environment (they assert torch is absent), unrelated to this change. A pre-existing
+  provenance gap (`history` omits #128) is #148.
+- **Task 52:** PR #147 opened with "Closes #109."; `sweep_provenance.json` `retrain.pull_request` is
+  147; the stale T4 literals are on #115.
+- **Task 42 (PR2b):** done in PR2b (#146 opened with "advances #109"; `pull_request: 146` recorded);
+  the box was not ticked there. Ticked in PR3 after the `/review-pr` round.
+- **`/review-pr` on #147 (5 reviewers, no blocking findings):**
+  - The README guard for "`CF_x` negative for <n> of the five seeds" only fired on "four", so after
+    the re-quote it checked nothing. It now parses the count word, requires the sentence, and checks
+    "the committed seed 1234 among them" (3/3 README mutants killed; two of them survived the old
+    guard). The gate docstring now says which literals were copied from `a2e8f64` and which
+    (`baseline_rmse_cf_z`) were predicted.
+  - The paired-draw sentence described the wrong network; it now says what is exact. The pairing was
+    also measured on CUDA: training the pre-#109 parquets (`69d0000^`, the pinned shas) at seed 1234,
+    2000 epochs, on the A5000 with the final Linear's initial weight negated (the bias was asserted
+    zero) gave `holdout_predictions` equal to minus the committed ones, bit for bit, all six targets,
+    both corpora.
+  - The fine README says the pre-registered rule fires on `CF_y` and why it is a seed artifact; it
+    gains a latency-noise caveat (same-size model ~14,900× before) and FP32/FP64; `CF_mx` is "with
+    that caveat". The coarse README names the GPUs on both sides of the speedup and quotes the
+    quasi-steady RMSE change. The CHANGELOG entry names #147.
+  - Nothing CI-checkable tied `surrogate.pt` to the retrain (an old checkpoint swapped in passed the
+    whole suite). The gate file now pins the checkpoint sha256 both G1 runs produced (pinned after
+    the run, said so in the file; the old-checkpoint mutant is killed). The trainer recording output
+    hashes is #149.
+  - Rejected: the "mojibake" in the sidecar note (the bytes are a correct UTF-8 em dash, as on
+    `main`; the reviewer decoded with cp1252).
+- **Focused review of `f2fc827` (2 reviewers, no blocking):** the "seed 1234 among them" check ran
+  only for that exact wording ("including the committed seed 1234" with 1234 positive passed); any
+  other mention of a seed in the sentence now fails (7/7 README mutants and controls behave), and the count word is case-insensitive with
+  digits and "zero". The gate docstring now separates pre-registered from after-the-run literals, its
+  pairing sentence takes the corrected direction (as does the CHANGELOG), and the retirement note says
+  the G1 pin fails on any retrain. The coarse QS sentence no longer reads R² ≈ 0.05 as "explains 5% of
+  the variance": correlation is 0.72 (0.79 fine), so it misses the scale, not the shape. The fine
+  `CF_y` sentence says the rule *allows* the statement (the rule's disjointness is necessary, not
+  sufficient).
+- **Tasks 0 and 0a ticked at pre-merge (`/pre-merge-check`):** task 0 is recorded per PR (PR2a task 17,
+  PR2b task 31, PR3 "Task 0, measured" above); 0a's halt never triggered (PR2b's raw-force tripwire
+  digests held, per its CHANGELOG entry). Only task 53 (post-merge) remains.

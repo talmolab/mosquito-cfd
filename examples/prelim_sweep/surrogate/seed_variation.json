@@ -1,5 +1,5 @@
 {
-  "description": "Seed-variation control for fix-moment-reference-hinge (#108) PR3, tasks 35d/38a: the coarse surrogate trained at seeds 1234-1238 on the pre-#108 parquet (particle-origin CF_mx/CF_mz, blob 55b74a8f at fea817a) and on the committed hinge-referenced parquet. Only the corrected seed-1234 run is committed (surrogate/); the others ran in a scratch directory and were discarded. Pre-#108 seed 1234 is a rerun that reproduced the old committed surrogate bitwise.",
+  "description": "Seed-variation control for fix-moment-reference-hinge (#108) PR3, tasks 35d/38a: the coarse surrogate trained at seeds 1234-1238 on the pre-#108 parquet (particle-origin CF_mx/CF_mz, blob 55b74a8f at fea817a) and on the committed hinge-referenced parquet. Only the corrected seed-1234 run is committed (surrogate/); the others ran in a scratch directory and were discarded. Pre-#108 seed 1234 is a rerun that reproduced the old committed surrogate bitwise. fix-wing-force-sign-convention (#109) PR3 adds on_wing: the five seeds of the committed retrain on the on-wing parquet, copied from that run's metrics.json seed_sweep (the sweep is trained in the same run, so no separate scratch runs).",
   "command": "uv run --frozen --group train python scripts/train_surrogate.py --dataset <parquet> --out-dir <dir> --docker-digest <coarse corpus docker_image> --timestamp <utc> --seed <seed> --epochs 2000 --device cuda --wandb disabled",
   "host": {
     "hostname": "talmo-lab-02",
@@ -24,6 +24,86 @@
     "CF_mz"
   ],
   "datasets": {
+    "on_wing": {
+      "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+      "runs": [
+        {
+          "seed": 1234,
+          "config_mean_r2": {
+            "CF_x": -6.700083314026798,
+            "CF_y": 0.7727883556446958,
+            "CF_z": 0.9946321081255431,
+            "CF_mx": 0.9755069261370743,
+            "CF_my": -0.13734208103428447,
+            "CF_mz": -0.9550588533350295
+          },
+          "git_commit": "5aeff36d8545d7ba005f7c2c749f28cc003635fa",
+          "git_dirty": false,
+          "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+          "epochs": 2000
+        },
+        {
+          "seed": 1235,
+          "config_mean_r2": {
+            "CF_x": 0.09920514521015034,
+            "CF_y": 0.7554310420892913,
+            "CF_z": 0.9949533973535285,
+            "CF_mx": 0.9888154633356007,
+            "CF_my": 0.6682284368369333,
+            "CF_mz": -0.5174461645327701
+          },
+          "git_commit": "5aeff36d8545d7ba005f7c2c749f28cc003635fa",
+          "git_dirty": false,
+          "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+          "epochs": 2000
+        },
+        {
+          "seed": 1236,
+          "config_mean_r2": {
+            "CF_x": 0.6522183614084585,
+            "CF_y": 0.9770887555829093,
+            "CF_z": 0.9940358891157469,
+            "CF_mx": 0.9858315668373361,
+            "CF_my": 0.9167321946907497,
+            "CF_mz": -0.7972818581162293
+          },
+          "git_commit": "5aeff36d8545d7ba005f7c2c749f28cc003635fa",
+          "git_dirty": false,
+          "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+          "epochs": 2000
+        },
+        {
+          "seed": 1237,
+          "config_mean_r2": {
+            "CF_x": 0.34315938916977096,
+            "CF_y": 0.9909641386392878,
+            "CF_z": 0.9547186907532803,
+            "CF_mx": 0.9462738636706641,
+            "CF_my": 0.9473399905858556,
+            "CF_mz": 0.23301850298701232
+          },
+          "git_commit": "5aeff36d8545d7ba005f7c2c749f28cc003635fa",
+          "git_dirty": false,
+          "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+          "epochs": 2000
+        },
+        {
+          "seed": 1238,
+          "config_mean_r2": {
+            "CF_x": -0.2954819670759574,
+            "CF_y": 0.9300997720266032,
+            "CF_z": 0.9962138257355408,
+            "CF_mx": 0.9774768944053515,
+            "CF_my": 0.5788507063055883,
+            "CF_mz": -2.7555911905620953
+          },
+          "git_commit": "5aeff36d8545d7ba005f7c2c749f28cc003635fa",
+          "git_dirty": false,
+          "dataset_sha256": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+          "epochs": 2000
+        }
+      ]
+    },
     "pre_108": {
       "dataset_sha256": "3cabf88bd9123279bf04523688bcb94587b3e7be0c4986ea1b04a8f8290aac0e",
       "runs": [

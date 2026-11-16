@@ -1,13 +1,5 @@
 # Force-surrogate fine-grid kinematic sweep (`prelim_sweep_fine`)
 
-> **Stale surrogate (#109).** `dataset.parquet` now carries the IB force and moment on the
-> wing ([sign convention](../../docs/coordinate-convention.md#force-and-moment-sign)), but
-> the committed `surrogate/` was trained on the previous coefficients, and the evidence figure
-> in `figures/` was drawn from it, so they are stale against `dataset.parquet`: the surrogate
-> predicts the force on the fluid (and the moment on it), so negate its outputs before comparing
-> them with the dataset.
-> The retrain is the last step of #109.
-
 The **256×128×256** counterpart of [`examples/prelim_sweep`](../prelim_sweep/README.md) (which
 this file assumes as background — differences are called out, not re-derived). Same 27-config
 *Aedes aegypti*-anchored kinematic grid (φ ∈ {35,45,55}°, f\* ∈ {0.85,1.0,1.15}, α ∈ {30,45,60}°),
@@ -54,16 +46,15 @@ much of the surrogate's pointwise R² the shared waveform explains. From `surrog
 
 | target | skill, seed 1234 | skill, 5 seeds | phase-only baseline R² |
 |---|---|---|---|
-| `CF_x` | 0.990 | 0.990 to 0.996 | 0.933 |
-| `CF_y` | 0.980 | 0.980 to 0.994 | 0.942 |
-| `CF_z` | 0.977 | 0.977 to 0.991 | 0.907 |
-| `CF_mx` | 0.968 | 0.968 to 0.993 | 0.925 |
-| `CF_my` | 0.985 | 0.975 to 0.986 | 0.944 |
-| `CF_mz` | 0.987 | 0.987 to 0.995 | 0.940 |
+| `CF_x` | 0.992 | 0.988 to 0.995 | 0.933 |
+| `CF_y` | 0.986 | 0.986 to 0.990 | 0.942 |
+| `CF_z` | 0.986 | 0.980 to 0.989 | 0.907 |
+| `CF_mx` | 0.980 | 0.980 to 0.991 | 0.925 |
+| `CF_my` | 0.979 | 0.979 to 0.990 | 0.944 |
+| `CF_mz` | 0.994 | 0.993 to 0.995 | 0.940 |
 
 Every target beats the phase-only baseline at every seed. Five seeds give the spread observed, not
-a confidence interval. The plotted seed 1234 is the lowest of the five for every target except
-`CF_my`, so the panels show the low end of each range. The panels plot `CF_x`, `CF_z` and `CF_my`;
+a confidence interval. The panels plot `CF_x`, `CF_z` and `CF_my`;
 `CF_mx` and `CF_mz` are left off the panels by design (the panel set is fixed, not chosen per
 corpus) and their skill is given in the table above and in the caption. Moments are **lab-frame**
 components about the hinge, so `CF_my` is labelled the M_y component, not a wing-frame moment; the
@@ -79,16 +70,17 @@ near-zero spread of six cycle means and swings with the seed. It stays in `metri
 
 | target | cycle-mean R², 5 seeds |
 |---|---|
-| `CF_x` | −7.21 to 0.80 |
-| `CF_y` | 0.97 to 0.99 |
-| `CF_z` | 0.97 to 1.00 |
-| `CF_mx` | 0.94 to 1.00 |
-| `CF_my` | −0.20 to 0.86 |
-| `CF_mz` | −20.75 to 0.80 |
+| `CF_x` | −2.86 to 0.77 |
+| `CF_y` | 0.94 to 0.98 |
+| `CF_z` | 0.98 to 1.00 |
+| `CF_mx` | 0.95 to 1.00 |
+| `CF_my` | −1.04 to 0.91 |
+| `CF_mz` | −4.70 to 0.75 |
 
-On this corpus `CF_y`, `CF_z` and `CF_mx` are robust to the seed and `CF_x`, `CF_my` and `CF_mz` are
-not; only for the first three does the record support saying the surrogate resolves the per-config
-average force.
+On this corpus `CF_y` and `CF_z` are robust to the seed (spread ≤ 0.05, the coarse README's
+threshold), `CF_mx` nearly so (spread 0.052), and `CF_x`, `CF_my` and `CF_mz` are not. Only for
+`CF_y` and `CF_z`, and with that caveat `CF_mx`, does the record support saying the surrogate
+resolves the per-config average force.
 
 ### Coarse vs fine
 
@@ -96,19 +88,26 @@ The same 5-seed skill ranges for both corpora, each read from its own committed 
 
 | target | skill, 5 seeds, coarse | skill, 5 seeds, fine | ranges overlap |
 |---|---|---|---|
-| `CF_x` | 0.988 to 0.992 | 0.990 to 0.996 | yes |
-| `CF_y` | 0.974 to 0.984 | 0.980 to 0.994 | yes |
-| `CF_z` | 0.984 to 0.990 | 0.977 to 0.991 | yes |
-| `CF_mx` | 0.973 to 0.990 | 0.968 to 0.993 | yes |
-| `CF_my` | 0.970 to 0.984 | 0.975 to 0.986 | yes |
-| `CF_mz` | 0.983 to 0.991 | 0.987 to 0.995 | yes |
+| `CF_x` | 0.986 to 0.994 | 0.988 to 0.995 | yes |
+| `CF_y` | 0.972 to 0.983 | 0.986 to 0.990 | no |
+| `CF_z` | 0.981 to 0.989 | 0.980 to 0.989 | yes |
+| `CF_mx` | 0.978 to 0.988 | 0.980 to 0.991 | yes |
+| `CF_my` | 0.973 to 0.988 | 0.979 to 0.990 | yes |
+| `CF_mz` | 0.985 to 0.993 | 0.993 to 0.995 | yes |
 
 Both corpora use the same six holdout and the same three validation configurations. The rule was
 fixed before the fine run, in the `add-fine-corpus-surrogate` OpenSpec change (design D5 and the
 spec): a target counts as moved only if its two 5-seed ranges are disjoint (computed on the
-unrounded values; touching ranges count as overlapping). Every pair
-overlaps, so for all six targets: no shift detected. Five seeds a side cannot rule out a difference
-as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
+unrounded values; touching ranges count as overlapping). Five of the six pairs overlap, so for
+`CF_x`, `CF_z`, `CF_mx`, `CF_my` and `CF_mz`: no shift detected. The two `CF_y` ranges are
+disjoint, so the rule allows the statement: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
+these only in the sign of every target, the two `CF_y` ranges overlapped (coarse 0.974 to 0.984,
+fine 0.980 to 0.994). Training at a seed on the negated targets is exactly the negation of
+training at that seed on the old targets with the output layer's initial weights negated (checked
+bitwise on CPU, and on the A5000 for the committed seed of both corpora; see the coarse README's
+seed table), so the change from overlapping to disjoint comes from the initialisation draw alone:
+here the rule fires on a seed artifact at n=5, and this `CF_y` difference is not robust to the
+choice of seeds. Five seeds a side cannot rule out a difference as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
 difference would reflect the CFD data as well as the surrogate; this table is not a measurement of
 the effect of grid resolution on its own.
 
@@ -141,12 +140,15 @@ about the fine-grid CFD, all in [`examples/flapping_wing/RESULTS.md`](../flappin
 
 ### Speedup
 
-The headline (≈1.1×10⁸×) is batched GPU throughput (`inference.throughput_rows_per_s`, the
+The headline (≈8.4×10⁷×) is batched GPU throughput (`inference.throughput_rows_per_s`, the
 surrogate timed on the local RTX A5000) divided by the **sequential** fine-grid CFD rate (run on the
 cluster's A40s), so the two sides are on different GPUs. It equals the latency speedup times the
-parallelism factor (~7,510× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
+parallelism factor (~15,460× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
 which a CFD time integration cannot do). The like-for-like per-evaluation latency speedup is
-~14,893×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`.
+~5,434×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`, and
+noisy ones: a network of the same size on the same GPU measured ~14,900× before this retrain
+(#109), so read the latency factor as thousands of ×, not a precise value. The surrogate runs in
+FP32; the CFD is FP64.
 
 The CFD cost is per step: each dataset row is one CFD timestep, so the figure divides by the CFD's
 wall-clock time per step, the median over this corpus's 27 runs, 2.14 s per step

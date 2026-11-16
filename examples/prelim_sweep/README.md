@@ -1,13 +1,5 @@
 # Force-surrogate kinematic sweep (`prelim_sweep`)
 
-> **Stale surrogate (#109).** `dataset.parquet` now carries the IB force and moment on the
-> wing ([sign convention](../../docs/coordinate-convention.md#force-and-moment-sign)), but
-> the committed `surrogate/` was trained on the previous coefficients, and the evidence figure
-> in `figures/` was drawn from it, so they are stale against `dataset.parquet`: the surrogate
-> predicts the force on the fluid (and the moment on it), so negate its outputs before comparing
-> them with the dataset.
-> The retrain is the last step of #109.
-
 A reproducible corpus of **27 IAMReX input decks** over the *Aedes aegypti*-anchored kinematic
 grid, generated for the Track B force-only surrogate (see
 [`docs/force_surrogate/roadmap.md`](../../docs/force_surrogate/roadmap.md), row #2). These decks are
@@ -299,7 +291,7 @@ and CI-tested. The GPU run is not *guaranteed* bitwise (`warn_only` determinism,
 `CUBLAS_WORKSPACE_CONFIG`), so `metrics.json` records `reproducibility.bitwise == "cpu_only"`; on the
 training A5000, three runs at seed 1234 on identical data were nonetheless observed to be
 bitwise-identical (only the wall-clock `inference` timing differed), and the five-seed retrain that
-added `seed_sweep` reproduced the committed checkpoint and predictions byte-for-byte and every
+added `seed_sweep` (on the pre-#109 model, #128) reproduced the committed checkpoint and predictions byte-for-byte and every
 seed's config-resolved R² in `surrogate/seed_variation.json` exactly. The model trains in **FP32** (the A5000 path); the
 predictions are FP32 and `metrics.json` values are computed in float64 on the inverse-transformed
 predictions (the float32→float64 round-off is ≪ the reported RMSE).
@@ -361,50 +353,66 @@ legible without losing any disclosure:
 
   | target | skill, seed 1234 | skill, 5 seeds | phase-only baseline R² |
   |---|---|---|---|
-  | `CF_x` | 0.988 | 0.988 to 0.992 | 0.955 |
-  | `CF_y` | 0.974 | 0.974 to 0.984 | 0.973 |
-  | `CF_z` | 0.984 | 0.984 to 0.990 | 0.897 |
-  | `CF_mx` | 0.973 | 0.973 to 0.990 | 0.913 |
-  | `CF_my` | 0.977 | 0.970 to 0.984 | 0.944 |
-  | `CF_mz` | 0.983 | 0.983 to 0.991 | 0.961 |
+  | `CF_x` | 0.988 | 0.986 to 0.994 | 0.955 |
+  | `CF_y` | 0.975 | 0.972 to 0.983 | 0.973 |
+  | `CF_z` | 0.981 | 0.981 to 0.989 | 0.897 |
+  | `CF_mx` | 0.979 | 0.978 to 0.988 | 0.913 |
+  | `CF_my` | 0.973 | 0.973 to 0.988 | 0.944 |
+  | `CF_mz` | 0.992 | 0.985 to 0.993 | 0.961 |
 
   Every target beats the phase-only baseline at every seed. Five seeds give the spread observed,
-  not a confidence interval. The plotted seed 1234 is the lowest of the five for every target
-  except `CF_my`, so the panels show the low end of each range.
+  not a confidence interval.
 - **Why config-resolved (cycle-mean) R² left the figure.** Earlier versions of the figure reported
   the per-axis **config-resolved** R² instead: R² on the per-config cycle-mean, the phase-removed
   config-to-config skill. With six holdout configurations whose cycle-means barely differ for most
   targets, it divides by a near-zero spread and swings with the training seed. It stays in
-  `metrics.json` (`config_resolved`); the plotted seed's config-resolved R² is CF_x ≈−4.17,
-  CF_z ≈0.98 and CF_my ≈0.07 for the panel targets, and CF_mx ≈0.96 and CF_mz ≈−8.45 off them. Retraining
-  the same data with the same code at seeds 1234–1238 gives (per-seed values, commits and
-  environment in [`surrogate/seed_variation.json`](surrogate/seed_variation.json)):
+  `metrics.json` (`config_resolved`); the plotted seed's config-resolved R² is CF_x ≈−6.70,
+  CF_z ≈0.99 and CF_my ≈−0.14 for the panel targets, and CF_mx ≈0.98 and CF_mz ≈−0.96 off them.
+  Retraining with the same code at seeds 1234–1238 gives these config-resolved R² ranges on the
+  current data and on its two earlier versions (per-seed values, commits and environment in
+  [`surrogate/seed_variation.json`](surrogate/seed_variation.json)):
 
-  | target | config-resolved R², 5 seeds | before #108 (particle-origin moments), 5 seeds |
-  |---|---|---|
-  | `CF_x` | −4.72 to 0.48 | −1.45 to 0.73 |
-  | `CF_y` | 0.63 to 0.99 | 0.81 to 0.98 |
-  | `CF_z` | 0.96 to 1.00 | 0.95 to 1.00 |
-  | `CF_mx` | 0.96 to 1.00 | 0.97 to 1.00 |
-  | `CF_my` | −1.96 to 0.93 | −0.46 to 0.81 |
-  | `CF_mz` | −8.45 to 0.92 | −5.45 to 0.86 |
+  | target | on-wing (current), 5 seeds | before #109 (on-fluid sign), 5 seeds | before #108 (particle-origin moments), 5 seeds |
+  |---|---|---|---|
+  | `CF_x` | −6.70 to 0.65 | −4.72 to 0.48 | −1.45 to 0.73 |
+  | `CF_y` | 0.76 to 0.99 | 0.63 to 0.99 | 0.81 to 0.98 |
+  | `CF_z` | 0.95 to 1.00 | 0.96 to 1.00 | 0.95 to 1.00 |
+  | `CF_mx` | 0.95 to 0.99 | 0.96 to 1.00 | 0.97 to 1.00 |
+  | `CF_my` | −0.14 to 0.95 | −1.96 to 0.93 | −0.46 to 0.81 |
+  | `CF_mz` | −2.76 to 0.23 | −8.45 to 0.92 | −5.45 to 0.86 |
 
-  `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.05), `CF_y` moderately so, and `CF_x`,
-  `CF_my` and `CF_mz` not at all; the committed seed-1234 model is a low draw for `CF_x`, `CF_y` and
-  `CF_mz`. Since the runs are bitwise-reproducible at a fixed seed, the spread is initialisation,
-  not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves
+  On the current data `CF_z` and `CF_mx` are robust to the seed (spread ≤ 0.05), `CF_y` moderately
+  so, and `CF_x`, `CF_my` and `CF_mz` not at all; the committed seed-1234 model is the lowest of the
+  five draws for `CF_x` and `CF_my`. Since the runs are bitwise-reproducible at a fixed seed, the spread comes from the seed's
+  initialisation and its choice of the three validation configurations, not GPU noise. Only for `CF_z` and `CF_mx` does this record support saying the surrogate resolves
   the per-config average force.
 
-  **Reading the two columns.** Under a pre-registered, deliberately conservative rule — a target
-  counts as moved only if its two 5-seed ranges are disjoint — no shift is detected. Five seeds a
-  side cannot rule out shifts as large as the seed spread, though, and the lower tails of `CF_x`,
-  `CF_my` and `CF_mz` are lower on the hinge-referenced data. Only `CF_mx`/`CF_mz` targets differ
-  between the two datasets; `CF_x`, `CF_y`, `CF_z` and `CF_my` are byte-identical, so any change in
+  **Reading the columns.** The pre-registered #109 gate compared **skill**, not config-resolved R²:
+  each target's on-wing 5-seed skill range intersects its range before #109
+  (`tests/test_wing_force_sign_retrain_gate.py`). The config-resolved R² columns are reported, not
+  gated. The on-wing data differ from the before-#109 data only in the sign of all six targets.
+  Training at a seed on the negated targets gives exactly the negation of what training at that
+  seed on the old targets gives when the output layer's initial weights are negated (its bias
+  starts at zero). This was checked bitwise for the trainer's own code path on a small CPU problem
+  (G0), and on the production problem: retraining the before-#109 data at seed 1234 on the A5000
+  with the output-layer initial weights negated reproduced the committed on-wing predictions,
+  negated, bit for bit, on both corpora. Negating those initial weights is an equally likely
+  draw, so each on-wing seed is paired with its before-#109 counterpart (the same hidden-layer
+  initialisation and validation carve), not independent of it; at n=5 their per-seed values show
+  no consistent correlation.
+
+  **Before #108.** Between the before-#109 (hinge-referenced) and before-#108 (particle-origin)
+  columns, under a pre-registered, deliberately conservative rule — a target counts as moved only
+  if its two 5-seed ranges are disjoint — no shift is detected. Five seeds a side cannot rule out
+  shifts as large as the seed spread, though, and the lower tails of `CF_x`, `CF_my` and `CF_mz`
+  are lower in the before-#109 column. Only `CF_mx`/`CF_mz` targets differ between those two
+  datasets; `CF_x`, `CF_y`, `CF_z` and `CF_my` are byte-identical, so any change in
   *their* skill comes from training all six jointly in one shared-trunk network, not from the
   moment re-referencing itself.
 
   The concrete tell that the pointwise aggregate is inflated: `CF_x`'s config-resolved R² is
-  **negative** (worse than predicting the per-config mean) for four of the five seeds, even though
+  **negative** (worse than predicting the per-config mean) for two of the five seeds, the committed
+  seed 1234 among them, even though
   its pointwise scatter looks visually perfect — the config-to-config error is masked by the shared
   waveform. (Earlier captions named whichever target's config-resolved R² was most negative, which
   moved from `CF_y` to `CF_mz` with the corrected hinge geometry, #71.)
@@ -413,9 +421,10 @@ legible without losing any disclosure:
   pre-fix corpus, `CF_my` happened to be the only moment with genuine config-to-config signal
   (≈56% between-config variance, the highest config-resolved R² among the three moments) — that
   empirical ranking has since changed: since the corrected hinge geometry (#71), and still with
-  hinge-referenced moments (#108), `CF_mx` is the one moment whose config-resolved R² is robust
-  across seeds (0.96 to 1.00; seed 1234: CF_mx ≈0.96), while `CF_my` ranges −1.96 to 0.93 (seed
-  1234: CF_my ≈0.07) and `CF_mz` −8.45 to 0.92 (seed 1234: CF_mz ≈−8.45). `CF_my`'s between-config
+  hinge-referenced moments (#108) and the on-wing sign (#109), `CF_mx` is the one moment whose
+  config-resolved R² is robust across seeds (0.95 to 0.99; seed 1234: CF_mx ≈0.98), while `CF_my`
+  ranges −0.14 to 0.95 (seed
+  1234: CF_my ≈−0.14) and `CF_mz` −2.76 to 0.23 (seed 1234: CF_mz ≈−0.96). `CF_my`'s between-config
   variance fraction is a sliver (≈0.005%). The panel set itself does not change (`CF_mx`/`CF_mz`
   stay **omitted** from the
   plotted axes), but the caption discloses their skill and seed range rather than claiming they
@@ -430,20 +439,23 @@ legible without losing any disclosure:
   `compute_force_reference` helper (CC-3). **It is deliberately *not* drawn on the scatter.** At this
   coarse grid it overshoots the CFD lift ~**1.3×** (RMS, in `evidence_figure_metrics.json` as
   `quasi_steady_reference.overshoot_factor` — down from ~2.3× before the corrected hinge geometry (#71), which changed the
-  CFD forces the model is compared against) — the **model's tip-velocity overprediction** under the
-  van Veen convention (lift integrates over the span where inboard sections move slower, while the
-  uncalibrated QS model scales on a single tip-like velocity and over-weights it); the CFD `ib_force`
-  itself is correct. An overlay would mostly **re-display the model's analytic loops, not surrogate
+  CFD forces the model is compared against); why the uncalibrated model over-predicts this grid's
+  lift was not investigated here. Its RMS error against the CFD lift
+  (`quasi_steady_reference.baseline_rmse_cf_z`, 0.517) fell from 1.78 when the CFD coefficients
+  took the on-wing sign (#109), because the two lifts now share a sign; the ratio is an RMS ratio
+  and did not change. Pointwise its R² against the CFD lift is only about 0.05: it tracks the
+  shape (correlation 0.72) but not the scale, so it remains a poor fit. An overlay would mostly **re-display the model's analytic loops, not surrogate
   skill over the analytic model** — a hollow comparison — so it is reported as a
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
-  (≈3.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
-  rate) equals `latency_speedup × parallelism_factor` (~14,620× this run — measured independently from,
+  (≈2.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
+  rate; the surrogate is timed on the local RTX A5000, the CFD ran on the cluster's A40s, so the two
+  sides are on different GPUs) equals `latency_speedup × parallelism_factor` (~7,470× this run — measured independently from,
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
-  **per-evaluation latency speedup is ~257×** and is reported as the like-for-like floor. It is a
-  single wall-clock timing sample and a noisy one: bitwise-identical runs of the same model have
+  **per-evaluation latency speedup is ~372×** and is reported as the like-for-like floor. It is a
+  single wall-clock timing sample and a noisy one: bitwise-identical runs of the pre-#109 model
   measured ~257–470×, so read it as a few hundred ×, not a precise factor. The throughput and
   parallelism factors are likewise single samples. Both
   factors, the batch size, and the parallelism factor are in `evidence_figure_metrics.json`.

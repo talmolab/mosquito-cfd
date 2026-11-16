@@ -1019,14 +1019,13 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
     would wrongly distrust good data).
 
     The dataset was last re-extracted by fix-wing-force-sign-convention (#109), which negated
-    the coefficients; the surrogate and figures are still those fix-moment-reference-hinge (#108)
-    retrained (PR3, #126). #108's own re-extraction (PR2, #118) moves into ``history``, as the
-    fine corpus keeps a supersession_history. None of these re-ran the CFD. The record keeps the
+    the coefficients, and the same change retrained the surrogate and regenerated the figures.
+    #108's re-extraction (PR2, #118) and retrain (PR3, #126) are kept, in that order, in
+    ``history``, as the fine corpus keeps a supersession_history. None of these re-ran the CFD. The record keeps the
     CFD run's own provenance (the corrected-hinge-geometry #71 cluster workflows and their image
     digest) under a key that says so, and states that neither the re-extraction nor the retrain
     ran on the cluster, so the old workflow IDs cannot be read as having produced them.
-    ``pull_request`` is null until the #109 PR exists; the commit after ``gh pr create`` sets the
-    JSON and this test's literal together.
+    ``pull_request`` names the PR of each stage (PR2b #146, PR3 #147).
     """
     provenance = json.loads(
         (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
@@ -1056,9 +1055,9 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
     }
     changes = {
         "re_extraction": "fix-wing-force-sign-convention",  # #109 PR2b
-        "retrain": "fix-moment-reference-hinge",  # #108 PR3, until #109's retrain
+        "retrain": "fix-wing-force-sign-convention",  # #109 PR3
     }
-    prs = {"re_extraction": 146, "retrain": 126}
+    prs = {"re_extraction": 146, "retrain": 147}
     for stage, expected in stages.items():
         step = record[stage]
         assert step["change"] == changes[stage], stage
@@ -1069,16 +1068,35 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
         for prefix in expected:
             assert any(a.startswith(prefix) for a in step["affected"]), (stage, prefix)
 
-    # #108's re-extraction is kept, not overwritten: a list, so later stages accumulate.
+    assert "surrogate/seed_variation.json" in record["retrain"]["affected"]
+
+    # #108's stages are kept, not overwritten: a list, so later stages accumulate.
     history = record["history"]
     assert isinstance(history, list)
-    assert history[0] == {
-        "stage": "re_extraction",
-        "change": "fix-moment-reference-hinge",
-        "pull_request": 118,
-        "cluster_workflows": [],
-        "affected": ["dataset.parquet", "run_metadata.json"],
-    }
+    assert history == [
+        {
+            "stage": "re_extraction",
+            "change": "fix-moment-reference-hinge",
+            "pull_request": 118,
+            "cluster_workflows": [],
+            "affected": ["dataset.parquet", "run_metadata.json"],
+        },
+        {
+            "stage": "retrain",
+            "change": "fix-moment-reference-hinge",
+            "pull_request": 126,
+            "cluster_workflows": [],
+            "affected": [
+                "surrogate/holdout_predictions.parquet",
+                "surrogate/metrics.json",
+                "surrogate/surrogate.pt",
+                "surrogate/run_metadata.json",
+                "figures/evidence_figure.png",
+                "figures/evidence_figure_metrics.json",
+                "figures/run_metadata.json",
+            ],
+        },
+    ]
     assert "affected" not in record, "affected is recorded per stage, not twice"
 
 

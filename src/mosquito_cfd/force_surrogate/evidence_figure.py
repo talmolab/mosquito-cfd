@@ -679,7 +679,7 @@ def _panel_title(coef: str) -> str:
     """Axis title for a panel coefficient (CF_my labeled an M_y component, not 'pitch')."""
     if coef == MOMENT_PANEL:
         return "CF_m  (aerodynamic moment, M_y component)"
-    label = "lift / span-normal" if coef == LIFT_PANEL else "stroke-axis"
+    label = "lift / lab vertical" if coef == LIFT_PANEL else "stroke-axis"
     return f"{coef}  ({label} force)"
 
 
