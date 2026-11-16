@@ -537,7 +537,7 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - add docs saying the dataset coefficients are the IB force on the wing (corpus README schema notes,
       the force-surrogate roadmap row describing dataset coefficients);
     - add the CHANGELOG entry.
-42. [ ] Fresh reviewer on the data and docs commits. Then:
+42. [x] Fresh reviewer on the data and docs commits. Then:
     - `git merge-base --is-ancestor` for both recorded corpus commits.
     - The extraction-scope diff since task 37 is empty.
     - Run the suite and ruff, and check one blob per path.
@@ -696,3 +696,26 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   provenance gap (`history` omits #128) is #148.
 - **Task 52:** PR #147 opened with "Closes #109."; `sweep_provenance.json` `retrain.pull_request` is
   147; the stale T4 literals are on #115.
+- **Task 42 (PR2b):** done in PR2b (#146 opened with "advances #109"; `pull_request: 146` recorded);
+  the box was not ticked there. Ticked in PR3 after the `/review-pr` round.
+- **`/review-pr` on #147 (5 reviewers, no blocking findings):**
+  - The README guard for "`CF_x` negative for <n> of the five seeds" only fired on "four", so after
+    the re-quote it checked nothing. It now parses the count word, requires the sentence, and checks
+    "the committed seed 1234 among them" (3/3 README mutants killed; two of them survived the old
+    guard). The gate docstring now says which literals were copied from `a2e8f64` and which
+    (`baseline_rmse_cf_z`) were predicted.
+  - The paired-draw sentence described the wrong network; it now says what is exact. The pairing was
+    also measured on CUDA: training the pre-#109 parquets (`69d0000^`, the pinned shas) at seed 1234,
+    2000 epochs, on the A5000 with the final Linear's initial weight negated (the bias was asserted
+    zero) gave `holdout_predictions` equal to minus the committed ones, bit for bit, all six targets,
+    both corpora.
+  - The fine README says the pre-registered rule fires on `CF_y` and why it is a seed artifact; it
+    gains a latency-noise caveat (same-size model ~14,900× before) and FP32/FP64; `CF_mx` is "with
+    that caveat". The coarse README names the GPUs on both sides of the speedup and quotes the
+    quasi-steady RMSE change. The CHANGELOG entry names #147.
+  - Nothing CI-checkable tied `surrogate.pt` to the retrain (an old checkpoint swapped in passed the
+    whole suite). The gate file now pins the checkpoint sha256 both G1 runs produced (pinned after
+    the run, said so in the file; the old-checkpoint mutant is killed). The trainer recording output
+    hashes is #149.
+  - Rejected: the "mojibake" in the sidecar note (the bytes are a correct UTF-8 em dash, as on
+    `main`; the reviewer decoded with cp1252).

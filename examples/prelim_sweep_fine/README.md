@@ -78,8 +78,9 @@ near-zero spread of six cycle means and swings with the seed. It stays in `metri
 | `CF_mz` | −4.70 to 0.75 |
 
 On this corpus `CF_y` and `CF_z` are robust to the seed (spread ≤ 0.05, the coarse README's
-threshold), `CF_mx` nearly so (spread 0.052), and `CF_x`, `CF_my` and `CF_mz` are not; only for the first three does the record support saying the surrogate resolves the per-config
-average force.
+threshold), `CF_mx` nearly so (spread 0.052), and `CF_x`, `CF_my` and `CF_mz` are not. Only for
+`CF_y` and `CF_z`, and with that caveat `CF_mx`, does the record support saying the surrogate
+resolves the per-config average force.
 
 ### Coarse vs fine
 
@@ -99,12 +100,14 @@ fixed before the fine run, in the `add-fine-corpus-surrogate` OpenSpec change (d
 spec): a target counts as moved only if its two 5-seed ranges are disjoint (computed on the
 unrounded values; touching ranges count as overlapping). Five of the six pairs overlap, so for
 `CF_x`, `CF_z`, `CF_mx`, `CF_my` and `CF_mz`: no shift detected. The two `CF_y` ranges are
-disjoint: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
+disjoint, so under the rule `CF_y` counts as moved: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
 these only in the sign of every target, the two `CF_y` ranges overlapped (coarse 0.974 to 0.984,
-fine 0.980 to 0.994). Training on negated targets differs only in the sign of the output layer's
-initial weights (G0, checked bitwise on CPU; see the coarse README's seed table), so the change from overlapping to disjoint
-comes from the initialisation draw alone, and this `CF_y` difference is not robust to the choice
-of seeds. Five seeds a side cannot rule out a difference as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
+fine 0.980 to 0.994). Training at a seed on the negated targets is exactly the negation of
+training at that seed on the old targets with the output layer's initial weights negated (checked
+bitwise on CPU, and on the A5000 for the committed seed of both corpora; see the coarse README's
+seed table), so the change from overlapping to disjoint comes from the initialisation draw alone:
+here the rule fires on a seed artifact at n=5, and this `CF_y` difference is not robust to the
+choice of seeds. Five seeds a side cannot rule out a difference as large as the seed spread. Each grid is scored against its own corpus's phase-only baseline, so a
 difference would reflect the CFD data as well as the surrogate; this table is not a measurement of
 the effect of grid resolution on its own.
 
@@ -142,7 +145,10 @@ surrogate timed on the local RTX A5000) divided by the **sequential** fine-grid 
 cluster's A40s), so the two sides are on different GPUs. It equals the latency speedup times the
 parallelism factor (~15,460× this run; the batch is the whole holdout set, N=12,535 rows, evaluated in parallel,
 which a CFD time integration cannot do). The like-for-like per-evaluation latency speedup is
-~5,434×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`.
+~5,434×. Both are single wall-clock timing samples, in `figures/evidence_figure_metrics.json`, and
+noisy ones: a network of the same size on the same GPU measured ~14,900× before this retrain
+(#109), so read the latency factor as thousands of ×, not a precise value. The surrogate runs in
+FP32; the CFD is FP64.
 
 The CFD cost is per step: each dataset row is one CFD timestep, so the figure divides by the CFD's
 wall-clock time per step, the median over this corpus's 27 runs, 2.14 s per step

@@ -319,8 +319,8 @@ _TABLE_ROW = re.compile(
 
 def test_readme_seed_table_is_the_seed_record():
     """The README's 5-seed table is the committed record's per-target min/max (2 dp), one column
-    per dataset (on-wing, before #109, before #108), and "negative for four of the five seeds" is
-    counted on the current dataset, not asserted."""
+    per dataset (on-wing, before #109, before #108), and the "`CF_x` negative for <n> of the five
+    seeds" sentence is counted on the current dataset, not asserted."""
     readme = (COARSE / "README.md").read_text(encoding="utf-8").replace("−", "-")
     rows = {m[0]: m[1:] for m in _TABLE_ROW.findall(readme)}
     assert set(rows) == set(TARGET_COLUMNS), sorted(rows)
@@ -334,9 +334,65 @@ def test_readme_seed_table_is_the_seed_record():
                 round(max(values), 2),
             ), (c, ds)
     current = record[_current_seed_dataset(record)]
-    negative_cf_x = sum(r["config_mean_r2"]["CF_x"] < 0 for r in current["runs"])
-    if "for four of the five seeds" in readme:
-        assert negative_cf_x == 4
+    check_negative_cf_x_count(readme, current["runs"])
+
+
+_COUNT_WORDS = {"none": 0, "one": 1, "two": 2, "three": 3, "four": 4, "all": 5}
+# "negative ... for <word> of the five seeds[, the committed seed 1234 among them]", any wrapping.
+_NEGATIVE_COUNT = re.compile(
+    r"\*\*negative\*\*[^.]*?\bfor\s+(\w+)\s+of\s+the\s+five\s+seeds"
+    r"(,\s+the\s+committed\s+seed\s+1234\s+among\s+them)?"
+)
+
+
+def check_negative_cf_x_count(readme: str, runs: list[dict]) -> None:
+    """The README's count of seeds with negative `CF_x` config-resolved R² is the record's.
+
+    The sentence must be present exactly once (so a reworded or deleted sentence fails here rather
+    than going unchecked), its count word must equal the record's count, and "the committed seed
+    1234 among them" is allowed only if seed 1234's value is negative.
+    """
+    found = _NEGATIVE_COUNT.findall(" ".join(readme.split()))
+    assert len(found) == 1, f"expected one CF_x negative-count sentence, found {found}"
+    word, among = found[0]
+    assert word in _COUNT_WORDS, f"unrecognised count word {word!r}"
+    values = {r["seed"]: r["config_mean_r2"]["CF_x"] for r in runs}
+    assert _COUNT_WORDS[word] == sum(v < 0 for v in values.values()), (word, values)
+    if among:
+        assert values[1234] < 0, f"seed 1234 CF_x is {values[1234]}, not negative"
+
+
+def _negative_runs(*cf_x: float) -> list[dict]:
+    return [
+        {"seed": 1234 + i, "config_mean_r2": {"CF_x": v}} for i, v in enumerate(cf_x)
+    ]
+
+
+_NEG_SENTENCE = "R² is **negative** (worse) for {} of the five seeds{}, even though"
+
+
+@pytest.mark.parametrize(
+    ("word", "among", "values"),
+    [
+        ("three", "", (-1.0, -1.0, 0.5, 0.5, 0.5)),  # count disagrees with the record
+        ("two", ", the committed seed 1234 among them", (0.5, -1.0, -1.0, 0.5, 0.5)),
+        ("twice", "", (-1.0, -1.0, 0.5, 0.5, 0.5)),  # unparseable count
+    ],
+)
+def test_negative_count_check_rejects_each_defect(word, among, values):
+    readme = _NEG_SENTENCE.format(word, among)
+    with pytest.raises(AssertionError):
+        check_negative_cf_x_count(readme, _negative_runs(*values))
+
+
+def test_negative_count_check_requires_the_sentence():
+    with pytest.raises(AssertionError):
+        check_negative_cf_x_count("no such sentence", _negative_runs(-1, 1, 1, 1, 1))
+
+
+def test_negative_count_check_accepts_a_correct_sentence():
+    readme = _NEG_SENTENCE.format("two", ", the committed\n  seed 1234 among them")
+    check_negative_cf_x_count(readme, _negative_runs(-1.0, -1.0, 0.5, 0.5, 0.5))
 
 
 # --- Seed sweep and phase-only baseline skill (replace-config-r2-with-baseline-skill) -----

@@ -1,9 +1,15 @@
 """Pre-registered retrain gate for fix-wing-force-sign-convention (#109), design D7 G3 and G4.
 
 These literals were committed **before** the GPU retrain, so the gate is fixed before its outcome
-is known and survives CI's depth-1 checkout. They are the pre-change (``a2e8f64``) committed
-values: each corpus's 5-seed ``seed_sweep.range.<target>.skill`` interval, and the evidence-figure
-sidecar's sign-invariant quasi-steady reference.
+is known and survives CI's depth-1 checkout. Two sources:
+
+- copied from the pre-change (``a2e8f64``) committed artifacts: each corpus's 5-seed
+  ``seed_sweep.range.<target>.skill`` interval, and the evidence-figure sidecar's sign-invariant
+  ``quasi_steady_reference.overshoot_factor``;
+- predicted, not copied: ``baseline_rmse_cf_z`` (4 dp). The pre-change sidecar holds the on-fluid
+  value (1.7785 coarse, 1.7588 fine). These literals were computed before the retrain from the
+  quasi-steady model against the sign-corrected (negated) pre-change holdout truth, which the
+  retrain does not change because the holdout rows are fixed by the sweep manifest.
 
 Retraining on the negated targets equals retraining on the old targets with the output layer's
 initial weights and bias negated (G0, ``test_force_surrogate_train_gpu.py``), so the retrained
@@ -61,6 +67,15 @@ PRE_CHANGE_SKILL_RANGE = {
 # RMSE drops because the quasi-steady lift and the CFD lift now share a sign.
 OVERSHOOT_FACTOR = {COARSE: 1.3435407346470738, FINE: 1.4074274138248275}
 BASELINE_RMSE_CF_Z_4DP = {COARSE: 0.5175, FINE: 0.4782}
+
+# G1 evidence, pinned AFTER the run (not pre-registered): the checkpoint sha256 that both G1 runs
+# produced, byte-identical, from the clean commit 5aeff36. The trainer records no output hash, so
+# without this pin nothing CI-checkable ties the committed weights to the retrain (a pre-change
+# checkpoint swapped in passes every other test; PR #147 review). The generic fix is #149.
+G1_CHECKPOINT_SHA = {
+    COARSE: "66cfb19fbd61590b99acb5447be089876f06e88bf6c3f074001c7a292674fddd",
+    FINE: "e06045a48344a45e8137ee9d58d5bf758bb92930ab312b9d03b7d99af4446b5b",
+}
 
 
 def _corpora():
@@ -155,6 +170,14 @@ def test_regenerated_quasi_steady_reference_is_sign_consistent(corpus):
         overshoot=OVERSHOOT_FACTOR[corpus],
         rmse_4dp=BASELINE_RMSE_CF_Z_4DP[corpus],
     )
+
+
+@_corpora()
+def test_committed_checkpoint_is_the_one_g1_reproduced(corpus):
+    """G1: the committed surrogate.pt is the checkpoint both G1 runs produced byte-identically."""
+    assert (
+        _sha256(corpus / "surrogate" / "surrogate.pt") == G1_CHECKPOINT_SHA[corpus]
+    ), "committed surrogate.pt is not the checkpoint the #109 retrain reproduced"
 
 
 # --- The checks on synthetic inputs (each must fail on its defect) ---------------------------

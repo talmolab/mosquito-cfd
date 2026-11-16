@@ -391,12 +391,15 @@ legible without losing any disclosure:
   each target's on-wing 5-seed skill range intersects its range before #109
   (`tests/test_wing_force_sign_retrain_gate.py`). The config-resolved R² columns are reported, not
   gated. The on-wing data differ from the before-#109 data only in the sign of all six targets.
-  Training on negated targets is exactly training on the old ones with the output layer's initial
-  weights negated (its bias starts at zero; checked bitwise for the trainer's own code path on a
-  small CPU problem), so each on-wing seed is a seed-matched network that differs from its
-  before-#109 counterpart only in the sign of the output layer's initial weights: the two columns
-  are paired draws (the same hidden-layer initialisation and validation carve per seed), not
-  independent ones; at n=5 their per-seed values show no consistent correlation.
+  Training at a seed on the negated targets gives exactly the negation of what training at that
+  seed on the old targets gives when the output layer's initial weights are negated (its bias
+  starts at zero). This was checked bitwise for the trainer's own code path on a small CPU problem
+  (G0), and on the production problem: retraining the before-#109 data at seed 1234 on the A5000
+  with the output-layer initial weights negated reproduced the committed on-wing predictions,
+  negated, bit for bit, on both corpora. Negating those initial weights is an equally likely
+  draw, so each on-wing seed is paired with its before-#109 counterpart (the same hidden-layer
+  initialisation and validation carve), not independent of it; at n=5 their per-seed values show
+  no consistent correlation.
 
   **Before #108.** Between the before-#109 (hinge-referenced) and before-#108 (particle-origin)
   columns, under a pre-registered, deliberately conservative rule — a target counts as moved only
@@ -437,13 +440,18 @@ legible without losing any disclosure:
   coarse grid it overshoots the CFD lift ~**1.3×** (RMS, in `evidence_figure_metrics.json` as
   `quasi_steady_reference.overshoot_factor` — down from ~2.3× before the corrected hinge geometry (#71), which changed the
   CFD forces the model is compared against); why the uncalibrated model over-predicts this grid's
-  lift was not investigated here. An overlay would mostly **re-display the model's analytic loops, not surrogate
+  lift was not investigated here. Its RMS error against the CFD lift
+  (`quasi_steady_reference.baseline_rmse_cf_z`, 0.517) fell from 1.78 when the CFD coefficients
+  took the on-wing sign (#109), because the two lifts now share a sign; the ratio is an RMS ratio
+  and did not change. Pointwise, the model still explains only about 5% of the CFD lift's
+  variance, so it remains a poor fit. An overlay would mostly **re-display the model's analytic loops, not surrogate
   skill over the analytic model** — a hollow comparison — so it is reported as a
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
   (≈2.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
-  rate) equals `latency_speedup × parallelism_factor` (~7,470× this run — measured independently from,
+  rate; the surrogate is timed on the local RTX A5000, the CFD ran on the cluster's A40s, so the two
+  sides are on different GPUs) equals `latency_speedup × parallelism_factor` (~7,470× this run — measured independently from,
   and not identical to, the nominal batch size N=12,535, the whole holdout set evaluated in parallel;
   the surrogate is a pointwise map, a CFD time integration cannot be batched). The conservative
   **per-evaluation latency speedup is ~372×** and is reported as the like-for-like floor. It is a
