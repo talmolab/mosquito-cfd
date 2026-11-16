@@ -597,19 +597,19 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - the evidence-figure title (`evidence_figure.py:682` "span-normal" → "lab vertical");
     - the quasi-steady "poor fit" wording (`evidence_figure.py:8, :644, :672`; coarse README `:416-428`);
     - the README wording.
-47. [ ] Commit the code. **Surrogate and figure scopes frozen.** **HUMAN CHECKPOINT before the GPU run.**
-48. [ ] In WSL:
+47. [x] Commit the code. **Surrogate and figure scopes frozen.** **HUMAN CHECKPOINT before the GPU run.**
+48. [x] In WSL:
     - Check that `git status --porcelain` is empty, `test ! -e .venv/bin`, and `git rev-parse HEAD`
       equals the commit.
     - Train each corpus twice, in separate processes, into scratch dirs outside the repo, passing
       `--git-dir` per command.
     - Evaluate G1–G3. Any failure halts for a decision.
-49. [ ] **HUMAN CHECKPOINT before committing binaries.** Surrogate data commit:
+49. [x] **HUMAN CHECKPOINT before committing binaries.** Surrogate data commit:
     - the surrogates and the coarse `seed_variation.json` extension;
     - the `sweep_provenance.json` `retrain` stage (`pull_request: null`) and its test;
     - **both banners removed**, and the section's surrogate phrase removed (its guard flips);
     - check `git diff --exit-code <merge-base> -- uv.lock`.
-50. [ ] Render both evidence figures from the clean tree **after** task 49's commit. Check G4, then
+50. [x] Render both evidence figures from the clean tree **after** task 49's commit. Check G4, then
     commit the figures. Then a re-quote commit:
     - README and caption numbers from the new JSON (what n=5 supports);
     - the Stage-2 sentence plus the `docs/field_surrogate/roadmap.md` link (extend the link-list test);
@@ -672,3 +672,18 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - the seed sets are paired, not independent;
     - the coarse README's unsupported causal sentence about the quasi-steady overshoot ("the CFD
       `ib_force` itself is correct") takes the fine README's "not investigated here" wording.
+- **Tasks 47-48 (GPU run, user go-ahead given):** trained at `5aeff36` on the RTX A5000, each corpus
+  twice in separate processes, tree clean and HEAD checked before every run. G1: `surrogate.pt` and
+  `holdout_predictions.parquet` byte-identical across the two runs, `metrics.json` equal outside
+  `inference`, `run_metadata.json` equal outside `run_id`. G3: all 12 skill ranges intersect their
+  pre-change ranges. G2 is the CPU suite on the committed tree.
+- **Task 49 (user approval given):** data commit `571f278` from run `a`; `uv.lock` unchanged.
+- **Task 50:** figures `57a5542`, each rendered from a clean tree at `571f278`. The first fine render
+  ran with the coarse outputs already in the tree and recorded `dirty: true`; it was discarded and
+  re-rendered clean. G4 passes. Re-quote: the coarse "seed 1234 is the lowest of the five for every
+  target except `CF_my`" and the fine equivalent are deleted (seed 1234 is now lowest only for
+  `CF_my` coarse and `CF_y`/`CF_mx`/`CF_my` fine); "`CF_x` negative for four of the five seeds"
+  becomes two. The coarse-vs-fine `CF_y` skill ranges are now disjoint (coarse 0.972-0.983, fine
+  0.986-0.990; they overlapped before #109), so the fine README states it in the guarded
+  "higher on fine across 5 seeds" form and says the change from overlapping comes from the
+  initialisation draw alone (the data differ only in sign; G0).

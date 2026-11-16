@@ -64,6 +64,11 @@ answers**, not an assumption.
 | Model | small PhysicsNeMo MLP | F3 bake-off: windowed MLP / `Mesh_Reduced` + `Sequence_Model` / DoMINO | + MJX-Warp deployment, ablations |
 | In RL loop | no | no (this roadmap trains the surrogate only) | yes |
 
+The force-surrogate outputs are the IB force and moment on the wing
+([sign convention](../coordinate-convention.md#force-and-moment-sign)); the solver's free-body
+balance would add a grid-dependent internal-fluid term, together with its angular counterpart for
+the moments, whose physical status is open (#135).
+
 Framing carried over from Track B CC-4 (scientific honesty): report what this pipeline actually
 achieves at each PR, not the hoped-for end-state.
 

@@ -70,6 +70,7 @@ _LINKED_FILES: tuple[str, ...] = (
     "examples/prelim_sweep/README.md",
     "examples/prelim_sweep_fine/README.md",
     "docs/force_surrogate/roadmap.md",
+    "docs/field_surrogate/roadmap.md",
 )
 
 
