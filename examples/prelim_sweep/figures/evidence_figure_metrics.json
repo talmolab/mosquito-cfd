@@ -1,50 +1,50 @@
 {
   "surrogate_rmse": {
-    "CF_x": 0.04146470971409648,
-    "CF_z": 0.021698391994378757,
-    "CF_my": 0.022527819932718695
+    "CF_x": 0.040976792100323,
+    "CF_z": 0.02326807876862564,
+    "CF_my": 0.02458062624487857
   },
   "primary_seed": 1234,
   "n_seeds": 5,
   "skill": {
     "CF_x": {
-      "committed": 0.9878643917804139,
-      "min": 0.9878643917804139,
-      "max": 0.9923201760348408
+      "committed": 0.9881483122337502,
+      "min": 0.9856809270133265,
+      "max": 0.99418895162973
     },
     "CF_y": {
-      "committed": 0.9744095516037377,
-      "min": 0.9744095516037377,
-      "max": 0.984431230555837
+      "committed": 0.9750767182865777,
+      "min": 0.972251129103097,
+      "max": 0.9828264470516764
     },
     "CF_z": {
-      "committed": 0.9838098377643206,
-      "min": 0.9838098377643206,
-      "max": 0.9902290456972815
+      "committed": 0.981382680587169,
+      "min": 0.9813324253103239,
+      "max": 0.9892435445695313
     },
     "CF_mx": {
-      "committed": 0.9731657705986549,
-      "min": 0.9731657705986549,
-      "max": 0.9895178464470501
+      "committed": 0.9786209512535342,
+      "min": 0.9777550235789267,
+      "max": 0.9879483530636765
     },
     "CF_my": {
-      "committed": 0.9773511542420076,
-      "min": 0.9698341418672275,
-      "max": 0.9841863475193975
+      "committed": 0.973035421961184,
+      "min": 0.973035421961184,
+      "max": 0.9883806631103144
     },
     "CF_mz": {
-      "committed": 0.9832180073641285,
-      "min": 0.9832180073641285,
-      "max": 0.9911490791595372
+      "committed": 0.9920663215979263,
+      "min": 0.9850516147619494,
+      "max": 0.9927277992160615
     }
   },
   "pointwise_r2": {
-    "CF_x": 0.9994493298493718,
-    "CF_y": 0.999313777785918,
-    "CF_z": 0.9983285995529343,
-    "CF_mx": 0.9976600963972865,
-    "CF_my": 0.9987349419218381,
-    "CF_mz": 0.9993522066102364
+    "CF_x": 0.9994622131359757,
+    "CF_y": 0.9993316682343842,
+    "CF_z": 0.9980780306252153,
+    "CF_mx": 0.9981357797745466,
+    "CF_my": 0.9984938853998688,
+    "CF_mz": 0.9996937560075918
   },
   "phase_baseline_pointwise_r2": {
     "CF_x": 0.9546236051243515,
@@ -55,24 +55,24 @@
     "CF_mz": 0.9613994950528715
   },
   "skill_floor": {
-    "value": 0.9698341418672275,
+    "value": 0.972251129103097,
     "targets_below_phase_baseline": []
   },
   "quasi_steady_reference": {
-    "baseline_rmse_cf_z": 1.7784708701047294,
+    "baseline_rmse_cf_z": 0.5174799075783006,
     "overshoot_factor": 1.3435407346470738,
     "note": "uncalibrated translational Sane-Dickinson quasi-steady CF_z; NOT overlaid on the figure — translational-only (omits rotational/added-mass/LEV lift), a poor fit to the coarse-grid CFD lift, so not a quantitative baseline here"
   },
   "speedup": {
-    "throughput_speedup": 3757026.3089224985,
-    "latency_speedup": 256.99266790970785,
+    "throughput_speedup": 2777692.2879675305,
+    "latency_speedup": 371.82422419373864,
     "batch_size": 12535,
-    "parallelism_factor": 14619.196491016222,
+    "parallelism_factor": 7470.44465430046,
     "cfd_rows_per_s": 13.88888888888889,
     "cfd_seconds_per_wingbeat": 144.0,
     "rows_per_wingbeat": 2000,
-    "surrogate_throughput_rows_per_s": 52180920.95725693,
-    "surrogate_latency_ms": 0.28016363496135455,
+    "surrogate_throughput_rows_per_s": 38579059.55510459,
+    "surrogate_latency_ms": 0.19363988496479578,
     "cfd_rate_is_sequential": true
   },
   "rows_per_wingbeat_per_config": {

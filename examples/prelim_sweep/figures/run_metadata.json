@@ -1,9 +1,9 @@
 {
-  "run_id": "894de5fb-dd4f-4562-9513-179375f296ed",
-  "timestamp": "2026-10-27T18:41:33Z",
+  "run_id": "5d98417a-51f3-4d8d-be96-3a5885c2abf0",
+  "timestamp": "2026-11-16T18:32:33Z",
   "git": {
-    "commit": "1e7080eaa8f8c8fb62c603b9793fffb7ab0029ba",
-    "branch": "evidence-figure-skill-metric",
+    "commit": "571f27878fbea69f3002b6d2afbe492b6afe1dc7",
+    "branch": "fix-wing-force-sign-pr3-retrain",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
   },
@@ -21,9 +21,9 @@
   "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
   "inputs": {
     "file": "examples\\prelim_sweep\\surrogate\\holdout_predictions.parquet",
-    "hash": "2762a45e3dc26cc63a776cf4c01004d188039b9bbcc36a84091af5c22d7e0a60"
+    "hash": "f6291f2cfcd8cc86d6ff4a8650a5e177c22347722e3a278efc6e40d87705f12b"
   },
-  "metrics_json_sha256": "07c6ba3a87b84126c75e7f9197cb727072064d8cc3ad2deaa87b6f9ea0f032e7",
+  "metrics_json_sha256": "9a6a0ddc85105c3537bfe4f7592bc9f734f5de51de641881a73624f832dd6359",
   "seeds": {
     "global": 1234,
     "sweep": [
@@ -32,5 +32,8 @@
       1237,
       1238
     ]
-  }
+  },
+  "grid": "coarse",
+  "cfd_seconds_per_step": null,
+  "cfd_seconds_per_wingbeat": 144.0
 }
