@@ -90,7 +90,7 @@
 
 ## 1. Corpus listing with `os.scandir` (#112 item 1; `corpus.py`)
 
-1.1 [ ] **Anchors**, in one `test(field-surrogate)` commit, all passing today:
+1.1 [x] **Anchors**, in one `test(field-surrogate)` commit, all passing today:
     - `test_symlinked_plotfile_directory_counts`, per the spec scenario.
       - The symlink `plt300` uses a non-canonical name, so both `steps()` and `plotfile()` go
         through the listing.
@@ -100,7 +100,7 @@
       `test_manifest_is_parsed_from_disk_only_once_per_instance` already pins it for one instance;
       extend it to the full pass.
 
-1.2 [ ] **Migrate the test infrastructure** in the same commit as 1.4.
+1.2 [x] **Migrate the test infrastructure** in the same commit as 1.4.
     - **The fakes.** `_IoSpy`, `_listing_order` and the nested `reverse_numeric_iterdir` become fake
       `os.scandir`s:
       - each is a context manager over the real `DirEntry`s, in the forced order;
@@ -118,7 +118,7 @@
       The duplicate-message and numeric-sort assertions themselves still pass, because the code
       sorts. That is why liveness is asserted separately.
 
-1.3 [ ] **Red tests:**
+1.3 [x] **Red tests:**
     - `test_listing_costs_one_scandir_and_no_per_entry_stat`, per the spec scenario. It fails
       today: there are 0 `scandir` calls, and `stat` calls grow with the entry count.
     - The scandir half of the corpus-pass test, with `plt7` in the first config as its positive
@@ -137,7 +137,7 @@
       forced-order fake, and asserts the iterator was closed exactly once when `steps()` raises on
       `plt100` beside `plt00100`. It fails today: the spy is never called.
 
-1.4 [ ] **Implement:**
+1.4 [x] **Implement:**
     - `_scan` uses `with os.scandir(run) as it:` and `entry.is_dir()`, and returns
       `run / entry.name` (D1);
     - add `import os`, in isort order;
@@ -148,13 +148,13 @@
 
 ## 2. Plotfile names (#145; `corpus.py`)
 
-2.1 [ ] **Red test:** `test_only_ascii_digit_whole_name_plotfiles_count`, per the spec scenario.
+2.1 [x] **Red test:** `test_only_ascii_digit_whole_name_plotfiles_count`, per the spec scenario.
     - The real directory `plt١٠٠` is tested alone and beside `plt00100`.
     - A fake `scandir` yields stub entries named `plt١٠٠` and `plt100\n`, each with
       `is_dir() → True`, beside the real `plt00100`. This runs on every OS.
     - Fails today: `plt١٠٠` lists as step 100, and both stubs make the scan raise "ambiguous".
 
-2.2 [ ] **Implement:**
+2.2 [x] **Implement:**
     - `_PLT_PATTERN = re.compile(r"plt([0-9]+)")` with `.fullmatch()`;
     - update its comment;
     - fix the `steps()` docstring (`corpus.py:162`): "not one or more ASCII digits", not "not an
@@ -164,7 +164,7 @@
 
 ## 3. Covering-grid release and teardown (#120, #112 item 3; `snapshot.py`)
 
-3.1 [ ] **Anchor**, committed alone before any `snapshot.py` change:
+3.1 [x] **Anchor**, committed alone before any `snapshot.py` change:
     `test_read_is_bit_identical_to_a_full_grid_reference`.
     - **The reference helper:**
       - `yt.load`, then the full level-0 `covering_grid`;
@@ -184,7 +184,7 @@
       - the reference is built once, at module scope;
       - it runs over the spec's named subset.
 
-3.2 [ ] **Anchor**, committed alone: `test_guards_fire_before_the_zero_cell_short_circuit`.
+3.2 [x] **Anchor**, committed alone: `test_guards_fire_before_the_zero_cell_short_circuit`.
     - The request is `REGION_CASES`' `outside_domain`.
     - It is made against four plotfiles, and each must raise its own guard's error:
       - the `max_level=1` proxy;
@@ -193,7 +193,7 @@
       - a fixture written without one of the requested fields.
     - It passes today.
 
-3.3 [ ] **Proxy updates**, in the 3.7 commit:
+3.3 [x] **Proxy updates**, in the 3.7 commit:
     - `_ProxyDataset.covering_grid` records construction in a **separate** `grid_log`, so the
       existing `log == [...]` assertions (test_field_surrogate_snapshot.py:232, :243, :777) are
       unchanged.
@@ -201,7 +201,7 @@
       `test_nan_and_inf_field_values_pass_through_bit_identically`) forward `field_data` and `clear_data`, so the NaN
       test does not hit `AttributeError`.
 
-3.4 [ ] **Red:** `test_each_field_leaves_the_covering_grid_cache_once_copied`. The proxy asserts two
+3.4 [x] **Red:** `test_each_field_leaves_the_covering_grid_cache_once_copied`. The proxy asserts two
     things:
     - inside `__getitem__`, that no earlier field is in `field_data`;
     - inside `clear_data()`, that `field_data` is already empty, and that `clear_data()` is called
@@ -209,17 +209,17 @@
 
     Fails today on the second field read.
 
-3.5 [ ] **Red:** `test_field_cache_release_bounds_the_peak`, on 96³: peak(6) − peak(1) ≤ 7.5·S.
+3.5 [x] **Red:** `test_field_cache_release_bounds_the_peak`, on 96³: peak(6) − peak(1) ≤ 7.5·S.
     Today it measures 9.7–11.0·S.
 
-3.6 [ ] **Red:** `test_dataset_is_dead_when_the_read_returns`, full-extent half.
+3.6 [x] **Red:** `test_dataset_is_dead_when_the_read_returns`, full-extent half.
     - It wraps `yt.load` with `monkeypatch` to record a `weakref.ref` to each real yt `Dataset`,
       never to a `_ProxyDataset`, which dies on return even when the dataset lives.
     - Automatic GC stays enabled.
     - It asserts the reference is dead on return, and that no snapshot attribute is a yt object.
     - Fails today: the dataset is alive.
 
-3.7 [ ] **Implement D4:**
+3.7 [x] **Implement D4:**
     - pop each field after copying it, and `del raw`;
     - `cg.clear_data()`;
     - read `time` and `max_level`, then `del cg, ds`, then `gc.collect()`, with the rationale
@@ -234,33 +234,33 @@
 
 ## 4. Zero-cell short-circuit (#112 item 5; `snapshot.py`)
 
-4.1 [ ] **Red:** `test_zero_cell_region_reads_nothing`.
+4.1 [x] **Red:** `test_zero_cell_region_reads_nothing`.
     - Cases: `upper_edge`, `outside_domain`, `above_beyond_reach_h2` and `x_below_yz_inside_h1`. The
       last is empty on one axis only, which kills the `any → all` mutant.
     - It asserts `grid_log == []` and no field read, and that each array matches 3.1's reference.
 
-4.2 [ ] **Red:** `test_zero_cell_read_costs_no_field_sized_memory`, on 96³: peak(6 fields) −
+4.2 [x] **Red:** `test_zero_cell_read_costs_no_field_sized_memory`, on 96³: peak(6 fields) −
     peak(`fields=()`) < S. Today the gap is at least 6·S.
 
-4.3 [ ] **Anchor**, committed after 3.7 and before 4.4: extend 3.6 with the zero-cell half, the
+4.3 [x] **Anchor**, committed after 3.7 and before 4.4: extend 3.6 with the zero-cell half, the
     dataset is dead after an `outside_domain` read. It already passes after 3.7, because the
     zero-cell request still takes the full read path. Once 4.4 adds the short-circuit, it kills the
     "zero-cell path returns before teardown" mutant.
 
-4.4 [ ] **Implement D5:** the short-circuit after `_region_bounds`, then the shared teardown; update
+4.4 [x] **Implement D5:** the short-circuit after `_region_bounds`, then the shared teardown; update
     the docstring.
 
     Commit: `perf(field-surrogate): zero-cell regions build no covering grid and read no field`.
 
 ## 5. Point cloud (#112 item 5; `snapshot.py`)
 
-5.1 [ ] **Red:** `test_constant_cell_volume_is_a_read_only_broadcast`, per the spec scenario,
+5.1 [x] **Red:** `test_constant_cell_volume_is_a_read_only_broadcast`, per the spec scenario,
     including the zero-cell `(0,)` case. Fails today: strides are `(8,)`.
 
-5.2 [ ] **Red:** `test_point_cloud_peak_is_its_outputs`, at ≤ `1.02 × (coords + values) + 64 KiB`.
+5.2 [x] **Red:** `test_point_cloud_peak_is_its_outputs`, at ≤ `1.02 × (coords + values) + 64 KiB`.
     Today it measures 1.44×.
 
-5.3 [ ] **Implement D6:**
+5.3 [x] **Implement D6:**
     - `del gx, gy, gz`;
     - `cell_volume` as a broadcast over a read-only 0-d array;
     - in the `PointCloud.cell_volume` and `to_point_cloud` docstrings, state that it cannot be made
@@ -273,18 +273,18 @@
 
 ## 6. DoMINO `grid` documentation (#112 item 2)
 
-6.1 [ ] **Red:** `test_grid_paragraph_states_the_upstream_difference`, in
+6.1 [x] **Red:** `test_grid_paragraph_states_the_upstream_difference`, in
     `tests/test_field_surrogate_domino_adapter.py`.
     - It extracts the module-docstring paragraph that contains `` `grid` `` and `interp_res`.
     - In that paragraph it asserts `interp_res`, `sdf_grid`, "snapshot's resolution" and `F3`.
     - Fails today: no such paragraph.
 
-6.2 [ ] **Implement D7's paragraph:**
+6.2 [x] **Implement D7's paragraph:**
     - cite PhysicsNeMo `8211352` (2026-11-12) and the file names;
     - label which claim each verification date covers (2026-09-21 versus 2026-11-12);
     - update `to_domino_volume`'s `grid` description.
 
-6.3 [ ] Reword `docs/field_surrogate/roadmap.md:165-166` to match D7. The current text says "full
+6.3 [x] Reword `docs/field_surrogate/roadmap.md:165-166` to match D7. The current text says "full
     volume" versus "a small SDF bounding grid". It becomes: the snapshot's own cell centres, versus
     a fixed-resolution `interp_res` grid paired with `sdf_grid`. Keep "arm C's to fix", which is
     F3's arm C, so the roadmap stays consistent with itself.
@@ -293,7 +293,7 @@
 
 ## 7. Pathlib pass
 
-7.1 [ ] Read `corpus.py`, `snapshot.py` and `domino_adapter.py` and record the result in the PR body:
+7.1 [x] Read `corpus.py`, `snapshot.py` and `domino_adapter.py` and record the result in the PR body:
     - every path is a `Path`;
     - the only `os` use is `os.scandir`;
     - `str(plotfile_path)` remains only where yt or the `source` field needs a string.
@@ -302,7 +302,7 @@
 
 ## 8. Verification
 
-8.1 [ ] **Mutation-test** each guard and each new test, against the killer listed.
+8.1 [x] **Mutation-test** each guard and each new test, against the killer listed.
 
     **Corpus**
 
@@ -357,7 +357,24 @@
     Record the kill table in the PR body. Each test fix for a surviving mutant is its own `test(...)`
     commit.
 
-8.2 [ ] **CI's commands:**
+    **Result** (scratchpad runner: saved-bytes restore, `PYTHONDONTWRITEBYTECODE=1`, each mutant
+    run against its named killer only). Corpus: 11 of 11 killed; #145: 3 of 3; anchor sanity
+    (3.1 can fail): 3 of 3; teardown: 11 of 12, plus `del cg` / `del ds` / collect-before-del in
+    the zero-cell table; zero-cell: 13 of 13, including the short-circuit before each of the four
+    guards; point cloud: 4 of 4. The one survivor is `del raw` removed, as planned.
+
+    Two killers changed during implementation, both recorded above:
+    - `is_dir(follow_symlinks=False)` first survived on Windows, where the real symlink test skips.
+      It is now killed by `test_listing_follows_symlinks_on_every_os`.
+    - `del cg` omitted first survived the dataset-only check. It is now killed by tracking the
+      real `YTCoveringGrid` as well.
+
+    One runner lesson: after the zero-cell change re-indented the read loop, the old teardown
+    table's edit strings still matched as substrings of the deeper-indented lines and produced
+    different mutants. The table was regenerated for the new layout before its results were
+    counted.
+
+8.2 [x] **CI's commands:**
     - `uv sync --frozen --group viz`;
     - `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`;
     - `uv run ruff format --check` on the same paths;
@@ -366,7 +383,16 @@
     Locally, not in CI, also run `openspec validate improve-field-reader-perf-memory --strict`.
     Report the added test time, locally and on CI.
 
-8.3 [ ] **Real multi-FAB verification over Z:**
+    **Result (local, Windows, Python 3.11.13):**
+    - lint and format are clean;
+    - 1910 passed, 21 skipped, 12 deselected in 307 s;
+    - `--strict` reports valid;
+    - the 50 new or changed tests take 36.5 s together; the slowest are the two 96³ memory tests,
+      at 4.4 s and 3.3 s.
+
+    CI time goes in the PR once it has run.
+
+8.3 [x] **Real multi-FAB verification over Z:**
     - Run `scripts/verify_eulerian_box_ab.py --sphere-root
       Z:/users/eberrigan/mosquito-cfd-benchmarks --wing-root
       Z:/users/eberrigan/mosquito-cfd/examples/flapping_wing`. It must be bit-exact at the expected
@@ -375,10 +401,40 @@
     - Repeat 0.2 with the GC-on method on `plt01000`. The dataset must be dead on return, and held
       memory must stay flat across reads.
 
-8.4 [ ] Re-run 0.1 (including the real-corpus `steps()` pass) and 0.3 and build the before/after tables for the PR body, in #140's format:
+    **Result at `818850d`:**
+    - **A/B.** 159 of 159 comparisons, "ALL BIT-EXACT / DIVERGENCE AS RECORDED": 3 sphere and 3 wing
+      plotfiles, 4 to 1024 FABs. `t3c-fine/plt01000` took 510 s.
+    - **`requires_plotfile` variant.** 5 passed on `t3c-fine`.
+    - **`plt01000`, full extent.** Peak 789–791 MB. Held after each of three reads: 11, 11, 11 MB.
+      The dataset was dead every time.
+    - **`plt01000`, `outside_domain`.** Peak 53 MB, held 3 MB, 1.3 s per read, dataset dead.
+
+8.4 [x] Re-run 0.1 (including the real-corpus `steps()` pass) and 0.3 and build the before/after tables for the PR body, in #140's format:
     environment, file, method, numbers.
 
-8.5 [ ] **`docs/CHANGELOG.md`**, in a last commit of its own. Do not collide with #109 PR3's entries.
+    **Result.** Windows, Python 3.11.13, yt 4.4.2. "Before" is `90b2a72`; "after" is `818850d`.
+    Same scripts and method as task 0. Ranges cover the three traced reads.
+
+    | measurement | before | after |
+    |---|---|---|
+    | synthetic 256×128×256 full read: peak | 926–1330 MB | 927–928 MB |
+    | … held after reads 1, 2, 3 | 457, 511, 565 MB | 9, 9, 9 MB |
+    | … dataset alive on return | yes | no |
+    | real `plt01000` full read: peak | 693–1193 MB | 789–791 MB |
+    | … held after reads 1, 2, 3 | 462, 521, 483 MB | 11, 11, 11 MB |
+    | synthetic `outside_domain`: peak, time | 590–994 MB, ~4 s | 48–49 MB, 1.1–1.3 s |
+    | real `outside_domain`: peak, time | 358–858 MB, 4.1–4.9 s | 53 MB, 1.3 s |
+    | synthetic 27×200 corpus pass: `os.stat` | 10827 | 5427 |
+    | … `os.scandir` / `os.listdir` | 0 / 27 | 27 / 0 |
+    | … wall time | 0.90 s | 0.73 s (1.08 s while the A/B ran) |
+    | real corpus, one `steps()` pass (26 configs, 1098 steps), cold then warm | 2.33 s; 0.32, 0.26 s | 0.42 s; 0.04, 0.04 s |
+    | `to_point_cloud()`, 64³ and 256×128×256, k = 6 | 104 B/cell, 1.444× outputs | 72 B/cell, 1.000× outputs |
+
+    The real-corpus pass reads Z: over SMB. The "cold" figure is the first pass in a fresh
+    process, which also depends on the client's directory cache, so the warm figures are the
+    better comparison.
+
+8.5 [x] **`docs/CHANGELOG.md`**, in a last commit of its own. Do not collide with #109 PR3's entries.
     - Under `### Changed`: peak and retention, the full collection per read, the zero-cell
       short-circuit, the `os.scandir` listing and the `cell_volume` broadcast.
     - Under `### Fixed`: #145 and the trailing-newline name.

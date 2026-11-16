@@ -17,14 +17,13 @@ Method and the other sizes are in design.md D4.
 | full-extent read (each read after a warm-up) | peak per read | held after reads 1, 2, 3¹ | dataset alive on return |
 |---|---|---|---|
 | today | 926–1330 MB | 457, 511, 565 MB | yes |
-| this change | 927 MB (prototype) | 8, 9, 9 MB (prototype) | no |
+| this change | 927–928 MB | 9, 9, 9 MB | no |
 
 ¹ Memory still traced once the call returns, not counting the returned arrays. Today the six cached
 fields (403 MB) sit inside a yt reference cycle. Each read's cycle then waits for Python's
 old-generation collection, which runs irregularly, so at least one read's cache stays held after
-the call returns. The "today" row is `read_field_snapshot` at `90b2a72` (task 0.2). The "this
-change" row comes from a prototype of the teardown, and task 8.4 replaces it with the
-implemented reader's numbers.
+the call returns. Both rows are `read_field_snapshot` itself: "today" at `90b2a72` (task 0.2),
+"this change" at `818850d` (task 8.4).
 
 The full collection costs 69–89 ms of a 4.7–5.5 s read.
 
