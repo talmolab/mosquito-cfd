@@ -498,7 +498,7 @@
 
     Before it, a `docs(openspec)` commit records measurements and the kill table and ticks the boxes.
 
-8.6 [ ] **PR body:**
+8.6 [x] **PR body:**
     - `Closes #120` and `Closes #145`, each on its own line;
     - "advances #112", since item 4 remains;
     - no negated closing keyword;
@@ -511,7 +511,7 @@
     No squash body is drafted: the user merges with GitHub's default. Keep branch commit messages
     clean, since they make up that default body.
 
-8.7 [ ] **After merge**, post a comment on #112 that:
+8.7 [x] **After merge**, post a comment on #112 that:
     - lists what this PR closed;
     - says item 4 remains;
     - corrects the post-#140 comment, which said `_configs()` re-parses and the `grid` is
