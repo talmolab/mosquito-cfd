@@ -1,0 +1,2 @@
+[{"name": ".d -> .to_ndarray()", "file": "src/mosquito_cfd/field_surrogate/snapshot.py", "edits": [["            raw = cg[field].d\n", "            raw = cg[field].to_ndarray()\n"]], "tests": ["tests/test_field_surrogate_snapshot.py::test_fields_are_unwrapped_without_a_full_domain_copy"]},
+ {"name": "del raw removed", "file": "src/mosquito_cfd/field_surrogate/snapshot.py", "edits": [["            del raw\n", ""]], "tests": ["tests/test_field_surrogate_snapshot.py::test_no_full_domain_buffer_outlives_its_copy"]}]

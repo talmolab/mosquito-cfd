@@ -167,8 +167,9 @@ an inference, not a measurement.
    `to_domino_volume` is kept for arm C but is **known incomplete**: `forward()` also reads six keys
    absent from `GEOMETRY_HALF_KEYS` (`pos_volume_closest`, `pos_volume_center_of_mass`,
    `pos_surface_center_of_mass`, `surface_mesh_neighbors`, `surface_neighbors_normals`,
-   `surface_neighbors_areas`), and its `grid` is the full volume where stock DoMINO's is a small
-   SDF bounding grid (#112). Both are arm C's to fix.
+   `surface_neighbors_areas`), and its `grid` is the snapshot's own cell centres where stock
+   DoMINO's is a fixed-resolution `interp_res` grid over the bounding box, paired with `sdf_grid`
+   (#112; see `domino_adapter.py`'s module docstring). Both are arm C's to fix.
 
 > **Framing gap (verified 2026-09-21), resolved 2026-10-15:** stock DoMINO is geometry →
 > fields, not a fields → latent encoder. See "F3 framing decision" below for the finding and

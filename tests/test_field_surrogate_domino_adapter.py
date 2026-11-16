@@ -269,3 +269,21 @@ def test_emitted_keys_are_exactly_the_specified_volume_half():
     out = _adapt(_snapshot())
     assert set(out) == EXPECTED_VOLUME_KEYS
     assert EXPECTED_ABSENT_KEYS.isdisjoint(out)
+
+
+# --- improve-field-reader-perf-memory: the DoMINO grid (#112 item 2) ---------------------------
+
+
+def test_grid_paragraph_states_the_upstream_difference():
+    # #112 item 2 asked whether a full-volume `grid` is right for stock DoMINO. Upstream's grid
+    # is a fixed-resolution interp_res grid over the bounding box, paired with sdf_grid; ours is
+    # the snapshot's own cell centres. The choice is F3's, so the docstring must say all of that
+    # in ONE paragraph -- scattered words elsewhere in the module would not tell a reader.
+    import mosquito_cfd.field_surrogate.domino_adapter as mod
+
+    paragraphs = [p for p in (mod.__doc__ or "").split("\n\n") if "``grid``" in p]
+    paragraphs = [p for p in paragraphs if "interp_res" in p]
+    assert len(paragraphs) == 1, paragraphs
+    text = " ".join(paragraphs[0].split())
+    for claim in ("interp_res", "sdf_grid", "snapshot's resolution", "F3"):
+        assert claim in text, f"the grid paragraph does not state {claim!r}"
