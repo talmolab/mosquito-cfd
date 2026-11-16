@@ -269,8 +269,8 @@ emitting the view. Dropping it would break a dict that F3 has not consumed yet.
    - It runs on the 6³ fixture and on the anisotropic `asym_plotfile`. Coordinates are mapped with
      `scripts/verify_eulerian_box_ab.py`'s `_map`, loaded via importlib.
    - Under `requires_plotfile` it runs on the last `plt*` in `$MOSQUITO_CFD_PLOTFILE_ROOT/t3c-fine`.
-     The reference is built once per module, and the test skips with a reason if the directory is
-     absent.
+     The reference is built once per process (an `lru_cache` keyed by path), and the test skips
+     with a reason if the directory is absent.
 3. **The real multi-FAB A/B.** `scripts/verify_eulerian_box_ab.py` is re-run on the sphere and wing
    roots over Z: (task 8.3). The real wing plotfiles are 256 FABs of 32³. This change alters the
    read loop, so the re-run is required; #140 could skip it.
@@ -291,6 +291,13 @@ Its assertion is either deterministic or differential:
   `weakref.ref` to the real yt `Dataset`, never to a test proxy around it: a proxy dies on return
   even when the dataset it wraps is alive, which would make the test vacuous. With **automatic GC enabled**, the dataset must be dead when
   `read_field_snapshot` returns. This is checked for a full read and for a zero-cell read.
+  For the full read the test also hooks `YTCoveringGrid.__init__` and requires the real covering
+  grid to be dead.
+
+  **Why the grid as well, not the dataset alone (changed during implementation).** The covering
+  grid holds its dataset only through a `weakref.proxy`. A reader that omitted `del cg` therefore
+  still left the dataset dead, and that mutant survived the dataset-only check, while the grid
+  outlived the call in a cycle of its own.
 - **Field-cache release.** Peak(6 fields) − peak(1 field) ≤ 7.5·S, on a 96³ file. Measured
   9.7–11.1·S without the pop and 4.5–5.3·S with it, with GC on and off and in both read orders.
 - **Zero-cell.** Peak(`outside_domain`, 6 fields) − peak(`outside_domain`, `fields=()`) < 1·S, on
@@ -301,4 +308,4 @@ Its assertion is either deterministic or differential:
   snapshot with `k = 6` and no yt. Measured 1.44× before the change and 1.0001× after.
 
 The generated plotfiles come from `tests/fixtures/make_lev_boxlib_fixture.py` via `tmp_path_factory`
-at session scope. They are never committed. The added CI time is estimated at 25–40 s.
+at module scope. They are never committed. The new tests took 36.5 s locally (task 8.2).
