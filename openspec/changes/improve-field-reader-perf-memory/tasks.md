@@ -133,6 +133,15 @@
       **Why a real symlink instead of a stub, changed during implementation.** CPython's
       `DirEntry.is_dir()` catches `FileNotFoundError` itself and returns `False`, so no real entry
       raises it. A stub that raised it would force a `try/except` modelling nothing real.
+
+      **Replaced in pre-PR review (`ca241f2`).** The listing now keeps `Path.is_dir()`'s skip list
+      through `_is_dir()`. This test was split in two:
+      - `test_an_entry_path_is_dir_would_skip_is_still_skipped`, with eight stub errors, which
+        runs on every OS;
+      - `test_failing_entry_type_check_propagates_unless_path_is_dir_ignored_it`, with `EACCES`
+        and `EIO`, each carrying its errno.
+
+      It also gained a real symlink-loop and symlink-through-a-file test, which runs on Linux.
     - `test_scan_closes_the_listing_on_the_duplicate_raise`. A spy wraps the real `os.scandir`, with no
       forced-order fake, and asserts the iterator was closed exactly once when `steps()` raises on
       `plt100` beside `plt00100`. It fails today: the spy is never called.
@@ -384,7 +393,19 @@
       was killed apart from the old `del raw` row, whose original killers do not include the new
       test.
 
-    The only remaining survivor is the documented equivalent mutant: `order="F"` on empty arrays.
+    **Fix re-review.** A fourth review, run by reproduction, covered the fix commits. It found
+    three survivors among its own mutants. Two are now killed:
+    - **Slice kept until the next field.** A slice of `raw` held over to the next field is killed
+      because `_TrackedField` now also tracks the ndarray that owns yt's memory.
+    - **`EACCES` added to the skip list.** Killed now that the `PermissionError` stub carries
+      `errno.EACCES`.
+
+    The third, `raw = np.array(cg[field].d)`, survives. It adds a transient full-domain copy and
+    nothing else, so no output or peak measurement can see it; the `to_ndarray()` row is the same
+    case. `test_fields_are_unwrapped_through_a_view` pins the accessor, not a memory figure.
+
+    The remaining survivors are that one and the documented equivalent mutant, `order="F"` on
+    empty arrays.
 
 8.2 [x] **CI's commands:**
     - `uv sync --frozen --group viz`;

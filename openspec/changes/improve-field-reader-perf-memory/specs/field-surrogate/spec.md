@@ -379,6 +379,8 @@ reported as "not a directory" SHALL be skipped, exactly as before the listing ch
 `ENOENT` (removed mid-listing, or a dangling symlink), `ENOTDIR` (a symlink through a file),
 `EBADF`, `ELOOP` (a symlink loop), Windows errors 21, 123 and 1921, and `ValueError`. Any other
 `OSError` from the check (e.g. `EACCES`, `EIO`) SHALL propagate rather than being silently skipped.
+An entry whose type the listing itself reports is not stat'ed, so a stat-only error on it does
+not arise.
 Returned plotfile paths SHALL be `pathlib.Path` objects equal to `run_dir / name`. This is the only place the corpus uses
 `os` rather than `pathlib`: on Python 3.11–3.13, no `Path` API exposes the `DirEntry`.
 

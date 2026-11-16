@@ -94,7 +94,9 @@ Tests pin all of this:
 
 1. **The field cache.**
    - `cg[field]` caches the field in `cg.field_data` for the life of `cg`.
-   - `to_ndarray()` is a view of that cached buffer.
+   - `to_ndarray()` makes a transient full-domain copy of that cached buffer (unyt's
+     `np.array(self)`; this line first said "a view", corrected in pre-PR review). The reader
+     now unwraps with `.d`, which is a view.
    - All `k` fields therefore stay cached on top of their copies.
    - While each copy is made, one extra field-sized buffer also exists transiently.
 2. **A reference cycle.**
@@ -165,7 +167,14 @@ Windows, Python 3.11.13 and yt 4.4.2:
 | | `outside_domain` | before | 857–858 MB | 462 MB | 5.0–5.3 s | yes |
 | | | after | 52–53 MB | 3 MB | 1.5–1.6 s | no |
 
-The full-extent peak falls by 6 fields of the cache, about 6·S: 1330 − 928 = 402 MB = 6 × 67 MB.
+The full-extent peak falls by 402 MB (1330 − 928), which is 6·S at 67 MB per field. The likely
+cause is the cache release, since at most one field is now cached while yt reads the next. That
+attribution is unverified: before the change, about five fields were cached when the last field
+was read, and yt's read-phase temporaries also sit at the peak.
+
+The switch from `to_ndarray()` to `.d` does not change this peak. A measurement in pre-PR review
+found the same 926–929 MB with either accessor. The copy it removes is transient, and yt's read
+phase sets the peak.
 
 **What the collection costs the caller.** Measured with `measurements/gc_cost.py`:
 - the 128³ synthetic file, three fields, full extent;
@@ -182,8 +191,8 @@ The full-extent peak falls by 6 fields of the cache, about 6·S: 1330 − 928 = 
 | 10.15 M after `gc.freeze()` | 753 ms | 91 ms | 584 ms | 2 ms |
 
 - At 10 M tracked objects the per-read collection adds about 0.5 s; `gc.freeze()` removes it.
-- With a small heap the change is faster overall, because it skips the full-domain copy and holds
-  less memory.
+- With a small heap the change measured faster overall (682 against 816 ms). The cause was not
+  isolated; it is plausibly fewer allocations and less memory held.
 - "Before" pays the same collection cost too, but only when Python's own heuristic decides to run
   it, not on every read.
 
@@ -191,7 +200,7 @@ The full-extent peak falls by 6 fields of the cache, about 6·S: 1330 − 928 = 
 
 ```python
 for name, field in zip(fields, requested):
-    raw = cg[field].to_ndarray()
+    raw = cg[field].d                     # a view of the cached buffer (to_ndarray() copies)
     ...                                   # dtype check, owning copy as today
     del raw
     cg.field_data.pop(field, None)        # drop the cached buffer as soon as it is copied

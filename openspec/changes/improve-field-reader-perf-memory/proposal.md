@@ -50,8 +50,9 @@ The post-#140 comment on #112 says both are still open; task 8.7 corrects it.
   the whole name. This excludes `plt١٠٠` (#145). It also excludes a POSIX name with a trailing
   newline, which today's `$` anchor accepts (D2).
 - **Covering-grid teardown (#120, absorbing #112 item 3).** `read_field_snapshot`:
-  - unwraps each field through `.d`, a view of yt's buffer, instead of `to_ndarray()`, which
-    copies the whole domain (added in pre-PR review);
+  - unwraps each field through `.d`, a view of yt's buffer, instead of `to_ndarray()`, which makes
+    a transient full-domain copy. This saves an allocation and a copy per field, not peak memory
+    (added in pre-PR review);
   - drops each field from yt's cache once it has been copied;
   - clears the covering grid;
   - drops its yt references;
@@ -76,8 +77,11 @@ The post-#140 comment on #112 says both are still open; task 8.7 corrects it.
 
 The one breaking change is `cell_volume`'s array type, marked **BREAKING** as this repository
 marks any change a caller can observe. There are no signature changes and no new dependencies.
-Every returned value is unchanged, and the corpus listing gives the same verdict on every entry,
-including broken symlinks. Nothing changes in the solver, decks, Docker or committed artifacts.
+Every returned value is unchanged. The corpus listing skips and raises on the same entry errors as
+before, broken symlinks included. The one difference: for an entry whose type the listing itself
+reports, no `stat` is made, so a stat-only error there (for example `EACCES` on a directory that is
+readable but not searchable, or `ESTALE` on NFS) no longer surfaces, and the entry counts as a
+directory. Nothing changes in the solver, decks, Docker or committed artifacts.
 Merging to `main` does rebuild and republish the `:fp64` and `:python` images, which copy `src/`.
 
 `cell_volume` is still read-only, as before, but it now differs in four ways:

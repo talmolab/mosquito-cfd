@@ -376,8 +376,10 @@ def read_field_snapshot(
         )
         for name, field in zip(fields, requested):
             # `.d` is a plain-ndarray VIEW of yt's cached buffer. unyt's to_ndarray() is
-            # np.array(self) -- a full-domain copy, one more field of peak memory, made only to
-            # be sliced and copied again below (improve-field-reader-perf-memory D4).
+            # np.array(self) -- a transient full-domain copy, made only to be sliced and copied
+            # again below. Skipping it saves an allocation and a copy per field; it does not
+            # lower the measured peak, which yt's own read sets (improve-field-reader-perf-memory
+            # D4).
             raw = cg[field].d
             if (
                 raw.dtype != np.float64
