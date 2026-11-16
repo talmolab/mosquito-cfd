@@ -374,10 +374,12 @@ make a plotfile name.
 
 Listing a run directory SHALL cost one `os.scandir` call and no per-entry Python-level `stat`. The
 directory filter SHALL use each `DirEntry`'s own `is_dir()`, which follows symlinks as
-`Path.is_dir()` does. An entry whose type check fails with `FileNotFoundError` (removed mid-listing,
-or a dangling symlink) SHALL be skipped; any other `OSError` from the check SHALL propagate rather
-than being silently skipped. Returned plotfile paths
-SHALL be `pathlib.Path` objects equal to `run_dir / name`. This is the only place the corpus uses
+`Path.is_dir()` does. An entry whose type check fails in a way Python 3.11's `Path.is_dir()`
+reported as "not a directory" SHALL be skipped, exactly as before the listing changed: errno
+`ENOENT` (removed mid-listing, or a dangling symlink), `ENOTDIR` (a symlink through a file),
+`EBADF`, `ELOOP` (a symlink loop), Windows errors 21, 123 and 1921, and `ValueError`. Any other
+`OSError` from the check (e.g. `EACCES`, `EIO`) SHALL propagate rather than being silently skipped.
+Returned plotfile paths SHALL be `pathlib.Path` objects equal to `run_dir / name`. This is the only place the corpus uses
 `os` rather than `pathlib`: on Python 3.11–3.13, no `Path` API exposes the `DirEntry`.
 
 The manifest SHALL be read and parsed at most once per `FieldCorpus` instance, whatever the number of
@@ -498,13 +500,15 @@ naming what was looked for and where.
   control that the spy fires, and the two calls record the same number of `os.stat` calls whatever
   the entry count
 
-#### Scenario: A failing entry type check is skipped only when the entry is gone
+#### Scenario: A failing entry type check is skipped exactly where Path.is_dir() skipped it
 
-- **Given** a real `plt00100` beside a dangling symlink `plt00200`, on a platform where creating the
-  symlink succeeds; and, separately, a listing that yields beside `plt00100` one `plt`-named entry
-  whose `is_dir()` raises `PermissionError`
+- **Given** a listing that yields beside a real `plt00100` one `plt`-named entry whose `is_dir()`
+  raises, in turn, each error in the skip list above; separately, one whose `is_dir()` raises
+  `PermissionError` or an `EIO` `OSError`; and, on a platform where creating symlinks succeeds, a
+  real `plt00100` beside a dangling symlink, a symlink loop and a symlink through a file
 - **When** `steps(config_id)` is called
-- **Then** the first returns `[100]`, and the second raises that `PermissionError`
+- **Then** every skip-list error and every real broken symlink yields `[100]`, while
+  `PermissionError` and `EIO` propagate
 
 #### Scenario: A corpus pass reads the manifest once and lists each run directory once
 

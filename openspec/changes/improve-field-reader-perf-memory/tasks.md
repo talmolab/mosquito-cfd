@@ -374,6 +374,18 @@
     different mutants. The table was regenerated for the new layout before its results were
     counted.
 
+    **After pre-PR review.** Three additions, each its own commit:
+    - **`del raw` is no longer a survivor.** `test_no_full_domain_buffer_outlives_its_copy`, a
+      deterministic weakref test, now kills it.
+    - **`.d` → `.to_ndarray()` is killed** by `test_fields_are_unwrapped_without_a_full_domain_copy`.
+    - **The regenerated corpus table: 23 of 23 killed.** It adds the `_is_dir` skip list: each
+      errno or winerror dropped, the `ValueError` branch removed, the helper bypassed, and every
+      `OSError` swallowed. All snapshot tables were re-run after the `.d` change; every mutant
+      was killed apart from the old `del raw` row, whose original killers do not include the new
+      test.
+
+    The only remaining survivor is the documented equivalent mutant: `order="F"` on empty arrays.
+
 8.2 [x] **CI's commands:**
     - `uv sync --frozen --group viz`;
     - `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`;
@@ -433,6 +445,30 @@
     The real-corpus pass reads Z: over SMB. The "cold" figure is the first pass in a fresh
     process, which also depends on the client's directory cache, so the warm figures are the
     better comparison.
+
+    **Superseded by the pre-PR re-measurement below.** The memory rows above compare peaks that
+    started from different baselines (design.md D4), and the cold corpus timings depend on cache
+    state.
+
+8.4b [x] **Re-measurement after pre-PR review**, with the committed scripts in `measurements/`.
+    Every traced read starts from a full collection. "Before" is `90b2a72`, exported with
+    `git archive`, never checked out; "after" is `ca241f2` plus the uncommitted docs, with the
+    same source. The memory and caller-heap tables are in design.md D4. The other rows:
+
+    | measurement | before | after |
+    |---|---|---|
+    | synthetic 27×200 corpus pass: `os.stat` / `os.scandir` / `os.listdir` | 10827 / 0 / 27 | 5427 / 27 / 0 |
+    | … wall time, local NTFS | 1.02 s | 1.12 s |
+    | real corpus, one `steps()` pass, warm (2nd and 3rd pass) | 0.245, 0.287 s | 0.059, 0.059 s |
+    | `to_point_cloud()`, k = 6 | 104 B/cell, 1.444× outputs | 72 B/cell, 1.000× outputs |
+
+    - **Local wall time.** The synthetic corpus shows no wall-time gain on local NTFS (1.02 s
+      before, 1.12 s after), which is within run-to-run noise. The saving is the 5400 avoided
+      `stat` calls, which matter where a `stat` is expensive.
+    - **Real corpus over SMB.** The warm `steps()` pass is about 4–5× faster.
+    - **Cold timings.** Not comparable: the "after" run went first and paid the cold cache
+      (1.78 s), while "before" ran warm.
+    - **NFS.** The saving on the cluster's NFS is unmeasured (design.md D1).
 
 8.5 [x] **`docs/CHANGELOG.md`**, in a last commit of its own. Do not collide with #109 PR3's entries.
     - Under `### Changed`: peak and retention, the full collection per read, the zero-cell

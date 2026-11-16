@@ -7,25 +7,26 @@ F3's training loop will read thousands of field snapshots, from several DataLoad
 not need. This change removes them before F3 is written around them, keeping every returned array
 bit-identical.
 
-Headline, measured on `main` (`90b2a72`). The setup:
+Headline. The setup:
 - a synthetic 256×128×256 single-FAB plotfile with six FP64 fields of 67 MB each;
-- traced with `tracemalloc`;
-- **automatic GC enabled**, as in production.
+- `read_field_snapshot` itself, traced with `tracemalloc`, **automatic GC enabled**;
+- a warm-up read, then three reads, each starting from a full collection;
+- `measurements/reader_memory.py`, run on `90b2a72` (exported) and on this branch.
 
-Method and the other sizes are in design.md D4.
+| full-extent read | peak per read | held on return¹ | time per read | dataset alive on return |
+|---|---|---|---|---|
+| today | 1329–1331 MB | 456–458 MB | 5.3–5.6 s | yes |
+| this change | 927–928 MB | 8–9 MB | 4.4–4.8 s | no |
 
-| full-extent read (each read after a warm-up) | peak per read | held after reads 1, 2, 3¹ | dataset alive on return |
-|---|---|---|---|
-| today | 926–1330 MB | 457, 511, 565 MB | yes |
-| this change | 927–928 MB | 9, 9, 9 MB | no |
+¹ Memory still traced right after the call returns, not counting the returned arrays. Today the
+six cached fields (403 MB) sit inside a yt reference cycle that waits for Python's old-generation
+collection, which runs irregularly; until it does, each read's cycle adds to the last.
 
-¹ Memory still traced once the call returns, not counting the returned arrays. Today the six cached
-fields (403 MB) sit inside a yt reference cycle. Each read's cycle then waits for Python's
-old-generation collection, which runs irregularly, so at least one read's cache stays held after
-the call returns. Both rows are `read_field_snapshot` itself: "today" at `90b2a72` (task 0.2),
-"this change" at `818850d` (task 8.4).
+The real 256-FAB wing plotfile shows the same pattern (D4): peak 1193 → 790 MB, held 462 → 11 MB.
 
-The full collection costs 69–89 ms of a 4.7–5.5 s read.
+The full collection is process-wide, so its cost depends on the caller, not the plotfile: about
+30 ms with only yt loaded, about 0.56 s with 10 M tracked objects, and about 2 ms after
+`gc.freeze()` (D4).
 
 The returned data is unchanged. Each field is copied before yt's cached copy is dropped. The full
 garbage collection added after each read frees only objects nothing can reach any more (D4).
@@ -49,16 +50,19 @@ The post-#140 comment on #112 says both are still open; task 8.7 corrects it.
   the whole name. This excludes `plt١٠٠` (#145). It also excludes a POSIX name with a trailing
   newline, which today's `$` anchor accepts (D2).
 - **Covering-grid teardown (#120, absorbing #112 item 3).** `read_field_snapshot`:
+  - unwraps each field through `.d`, a view of yt's buffer, instead of `to_ndarray()`, which
+    copies the whole domain (added in pre-PR review);
   - drops each field from yt's cache once it has been copied;
   - clears the covering grid;
   - drops its yt references;
-  - runs a full `gc.collect()` before returning, on every path that loaded the plotfile (D4).
+  - runs a full `gc.collect()` before returning a snapshot, on both the full and the zero-cell
+    path (D4). Its cost scales with the caller's tracked objects, and the docstring says so.
 - **Smaller items (#112 item 5).**
   - **Zero-cell regions.** A region with zero cells builds no covering grid and reads no field.
     It still runs every plotfile guard first. Today it reads all six fields (403 MB of field data
     at 256×128×256) to return nothing (D5).
-  - **`cell_volume`.** `PointCloud.cell_volume` becomes a read-only zero-stride broadcast instead
-    of an `N`-element buffer of one repeated value (D6).
+  - **BREAKING (minor): `cell_volume`.** `PointCloud.cell_volume` becomes a read-only zero-stride
+    broadcast instead of an `N`-element buffer of one repeated value (D6).
   - **`to_point_cloud` temporaries.** `to_point_cloud` frees its meshgrid temporaries once `coords`
     is built.
 
@@ -70,14 +74,17 @@ The post-#140 comment on #112 says both are still open; task 8.7 corrects it.
 - **Pathlib.** Paths stay `pathlib.Path` throughout. The one `os` call is `os.scandir`: on the
   version CI pins (3.11), and through 3.13, no `Path` API keeps the `DirEntry` (D1).
 
-Nothing here is breaking. There are no signature changes and no new dependencies. Nothing changes in
-the solver, decks, Docker or committed artifacts. Merging to `main` does rebuild and republish the
-`:fp64` and `:python` images, which copy `src/`.
+The one breaking change is `cell_volume`'s array type, marked **BREAKING** as this repository
+marks any change a caller can observe. There are no signature changes and no new dependencies.
+Every returned value is unchanged, and the corpus listing gives the same verdict on every entry,
+including broken symlinks. Nothing changes in the solver, decks, Docker or committed artifacts.
+Merging to `main` does rebuild and republish the `:fp64` and `:python` images, which copy `src/`.
 
-`cell_volume` is still read-only, as before, but it now differs in three ways:
+`cell_volume` is still read-only, as before, but it now differs in four ways:
 - it can no longer be made writable at all;
-- it is not C-contiguous;
-- its `base` is set.
+- for `N > 1` it is not C-contiguous, so buffer-protocol consumers that need contiguous memory fail;
+- its `base` is set;
+- pickling it produces a dense, writable copy.
 
 No in-repo code consumes it. Callers that need a dense buffer call `np.ascontiguousarray` (D6).
 

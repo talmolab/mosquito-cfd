@@ -20,7 +20,7 @@ After the change:
 with os.scandir(run) as it:          # `with` closes the directory handle deterministically
     for entry in it:
         match = _PLT_PATTERN.fullmatch(entry.name)
-        if not (match and entry.is_dir()):
+        if not (match and _is_dir(entry)):   # DirEntry.is_dir(), with Path.is_dir()'s skip list
             continue
         ...
         found[step] = run / entry.name   # the same Path that iterdir() produced
@@ -31,13 +31,21 @@ with os.scandir(run) as it:          # `with` closes the directory handle determ
     return values are unchanged.
   - `DirEntry.is_dir()` follows symlinks by default, as `Path.is_dir()` does.
   - It takes the type from the listing where the OS provides it: on Windows, and on Linux via
-    `d_type`. On `DT_UNKNOWN` it falls back to `stat()`.
+    `d_type`. On `DT_UNKNOWN` (possible on NFS, e.g. plain v3 `READDIR` or a `nordirplus`
+    mount) and for every symlink it falls back to a C-level `stat()`. So on NFS the saving is a
+    Python-level syscall per entry, and a round trip only where the attribute cache would not
+    have answered; that has not been measured on the cluster.
 - **Errors.** On an entry whose type cannot be read, `Path.is_dir()` (3.11) returns `False` for
   `ENOENT`, `ENOTDIR`, `EBADF` and `ELOOP`, for Windows errors 21, 123 and 1921, and on
   `ValueError`. It raises on any other `OSError`. `DirEntry.is_dir()` returns `False` only for
-  `FileNotFoundError` and raises otherwise. So an entry removed mid-listing is still skipped. An
-  entry that is broken in one of the other ways now raises `OSError` where it was skipped: louder,
-  not quieter, and only on a damaged or racing filesystem. The spec states this.
+  `FileNotFoundError` and raises otherwise, so `_scan` calls it through `_is_dir()`, which applies
+  `Path.is_dir()`'s list. The verdict on every entry is therefore unchanged.
+
+  **Why the list, not `DirEntry.is_dir()` alone (changed in pre-PR review).** The approved design
+  accepted the louder behaviour "only on a damaged or racing filesystem". Review reproduced it on
+  Linux: a symlink loop or a symlink through a file made `steps()` raise, so one broken link took
+  down a config's whole step list where `Path.is_dir()` had skipped it. The user chose to keep
+  the old verdict.
 - **Why `os` here.** CI pins Python 3.11, and through 3.13 no `Path` API exposes the
   `DirEntry`. 3.13 builds `iterdir()` on `scandir` but yields bare `Path` objects; 3.14's
   `Path.info` would cache the type, which can replace this when the floor reaches 3.14. The
@@ -117,10 +125,11 @@ traced after return minus the returned arrays, after reads 1, 2 and 3.
 | 256×128×256 | pop + `clear_data` | 927 MB | 55, 108, 163 MB | yes | — |
 | 256×128×256 | + `gc.collect()` | 927 MB | 8, 9, 9 MB | no | 69–89 ms |
 
-The 256×128×256 read takes 4.7–5.5 s, so the collection adds 1.5–2%. Its cost grows with the number
-of tracked objects in the process, not with the plotfile: a bare `gc.collect()` after `import yt`
-alone (132k tracked objects, no plotfile loaded) took 28 ms, and 54 ms with about 2 M more objects
-added. Measurements taken with GC *disabled* are misleading here: nothing is ever promoted, so
+This table is from the design-time prototype. Its collect-cost column, 69–89 ms, holds only for a
+process with little else in it. The cost grows with the number of tracked objects in the process,
+not with the plotfile. The "54 ms with about 2 M more objects" first quoted here used mostly
+untracked objects, which the collector never walks. The caller-heap table below replaces both
+figures. Measurements taken with GC *disabled* are misleading here: nothing is ever promoted, so
 generation 0 appears to suffice. Every measurement in this table has automatic GC enabled.
 
 The rows above came from a standalone script that copies the reader's covering-grid loop. Task 0.2
@@ -134,6 +143,49 @@ collection sometimes runs during the next read:
 | synthetic 256×128×256 | `outside_domain` | 994, 590, 592 MB | 457, 511, 566 MB |
 | real `plt01000`, 256 FABs | full extent | 1193, 789, 693 MB | 462, 521, 483 MB |
 | real `plt01000`, 256 FABs | `outside_domain` | 858, 453, 358 MB | 462, 520, 483 MB |
+
+**Those "peak" values are not comparable across reads (corrected in pre-PR review).** Each read's
+peak was taken above its own starting level, and that level still held the previous read's
+uncollected cycle. When an old-generation collection freed that cycle in the middle of the next
+read, it offset the peak. That is why reads 2 and 3 above look as low as the change.
+
+The definitive figures come from `measurements/reader_memory.py`. It runs a full collection
+before each traced read, so every read starts clean. Held memory is taken right after return and
+before any collection. Runs were on this branch at `ca241f2` and on `90b2a72` exported, with
+Windows, Python 3.11.13 and yt 4.4.2:
+
+| file | request | version | peak per read | held on return | time per read | `ds` alive |
+|---|---|---|---|---|---|---|
+| synthetic 256×128×256 | full extent | before | 1329–1331 MB | 456–458 MB | 5.3–5.6 s | yes |
+| | | after | 927–928 MB | 8–9 MB | 4.4–4.8 s | no |
+| | `outside_domain` | before | 993–995 MB | 456–458 MB | 5.9–6.5 s | yes |
+| | | after | 49 MB | 0 MB | 1.3–1.4 s | no |
+| real `plt01000`, 256 FABs | full extent | before | 1193 MB | 462 MB | 5.4–6.3 s | yes |
+| | | after | 790–791 MB | 11 MB | 4.4–4.8 s | no |
+| | `outside_domain` | before | 857–858 MB | 462 MB | 5.0–5.3 s | yes |
+| | | after | 52–53 MB | 3 MB | 1.5–1.6 s | no |
+
+The full-extent peak falls by 6 fields of the cache, about 6·S: 1330 − 928 = 402 MB = 6 × 67 MB.
+
+**What the collection costs the caller.** Measured with `measurements/gc_cost.py`:
+- the 128³ synthetic file, three fields, full extent;
+- the mean of five reads after a warm-up;
+- the process first allocates the stated number of dict+list pairs, each pair two tracked
+  objects;
+- the bare `gc.collect()` column is one collection timed afterwards in the same process.
+
+| tracked objects in the process | before: read | before: bare collect | after: read | after: bare collect |
+|---|---|---|---|---|
+| 0.15 M (yt only) | 816 ms | 118 ms | 682 ms | 31 ms |
+| 2.15 M | 852 ms | 262 ms | 775 ms | 125 ms |
+| 10.15 M | 771 ms | 702 ms | 1290 ms | 563 ms |
+| 10.15 M after `gc.freeze()` | 753 ms | 91 ms | 584 ms | 2 ms |
+
+- At 10 M tracked objects the per-read collection adds about 0.5 s; `gc.freeze()` removes it.
+- With a small heap the change is faster overall, because it skips the full-domain copy and holds
+  less memory.
+- "Before" pays the same collection cost too, but only when Python's own heuristic decides to run
+  it, not on every read.
 
 ### After
 
@@ -155,10 +207,23 @@ the zero-cell read (D5):
 The returned snapshot references no yt object.
 
 **Data safety.** A collection frees only objects unreachable from any live reference. It cannot free
-anything the caller or the snapshot holds. Its side effects are timing only:
-- the caller's own unreachable garbage is freed earlier;
+anything the caller or the snapshot holds. Its side effects fall on the caller's process (amended
+in pre-PR review; this paragraph first said "timing only"):
+- the caller's own unreachable garbage is freed earlier, and its finalizers run at that point;
+- it runs even when the caller has disabled automatic GC (`gc.isenabled()` is left unchanged);
+- its cost scales with every tracked object in the process, not with the plotfile (measurements
+  below);
+- in a forked DataLoader worker, a full collection writes the GC header of every inherited tracked
+  object and so can break copy-on-write sharing of the parent's heap (reasoned, not measured);
 - yt's `WeakValueDictionary` dataset cache no longer hands the next `yt.load` of the same file the
-  previous `Dataset`, so the header is re-parsed.
+  previous `Dataset`. In yt 4.4.2, `yt.load` returned a fresh dataset regardless (checked in
+  review), so nothing changes there.
+
+The user kept the full collection after reviewing these costs, over two alternatives: disabling
+automatic GC around the read and collecting generation 0 (flat cost, but about 0.9 MB of small
+garbage per read left behind), and a keyword to skip the collection. The docstring documents the
+cost and recommends `gc.freeze()` once after setup in long-lived callers: frozen objects are not
+scanned, which removes the cost and the copy-on-write effect.
 
 ### Not done
 
