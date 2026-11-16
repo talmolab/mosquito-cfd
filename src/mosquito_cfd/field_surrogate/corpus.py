@@ -24,9 +24,11 @@ import numpy as np
 from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
 
-#: Plotfile directory names are ``plt`` followed by digits only. ``plt00300.old`` and ``pltXXXXX``
-#: are deliberately not matched.
-_PLT_PATTERN = re.compile(r"^plt(\d+)$")
+#: Plotfile directory names are ``plt`` followed by ASCII digits only, matched with ``fullmatch``
+#: against the whole name. ``plt00300.old`` and ``pltXXXXX`` are deliberately not matched, nor are
+#: ``plt`` + non-ASCII decimal digits (``\d`` would match them, and ``int()`` parses them) or a
+#: name with a trailing newline (``$`` would match before it) -- #145.
+_PLT_PATTERN = re.compile(r"plt([0-9]+)")
 
 
 def _validate_step(step: Any) -> int:
@@ -62,7 +64,7 @@ def _scan(run: Path) -> dict[int, Path]:
     # `with` closes the directory handle on the duplicate raise too, not only on exhaustion.
     with os.scandir(run) as entries:
         for entry in entries:
-            match = _PLT_PATTERN.match(entry.name)
+            match = _PLT_PATTERN.fullmatch(entry.name)
             if not (match and entry.is_dir()):
                 continue
             step = int(match.group(1))
@@ -170,8 +172,8 @@ class FieldCorpus:
     def steps(self, config_id: str) -> list[int]:
         """Return the timesteps whose plotfiles are actually present on disk, ascending.
 
-        Non-directories and names whose suffix after ``plt`` is not an integer are ignored, so a
-        stray file or a ``.old`` copy cannot masquerade as a step.
+        Non-directories and names whose suffix after ``plt`` is not one or more ASCII digits are
+        ignored, so a stray file or a ``.old`` copy cannot masquerade as a step.
 
         Args:
             config_id: Config name as listed in the manifest.

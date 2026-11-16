@@ -369,6 +369,34 @@ def test_symlinked_plotfile_directory_counts(tmp_path):
     assert corpus.plotfile("s35_f085_p30", 300) == run / "plt300"
 
 
+_ARABIC_INDIC_100 = "plt١٠٠"  # int("١٠٠") == 100
+
+
+def test_only_ascii_digit_whole_name_plotfiles_count(tmp_path, monkeypatch):
+    # #145: `\d` matched any Unicode decimal digit, and `$` matches before a trailing newline, so
+    # both names below parsed as step 100 and, beside plt00100, made steps() raise "ambiguous".
+    # AMReX writes neither name.
+    root, run = _bare_corpus(tmp_path / "alone", [_ARABIC_INDIC_100])
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == []
+    with pytest.raises(ValueError, match="no plotfile for step 100"):
+        corpus.plotfile("s35_f085_p30", 100)
+
+    root, run = _bare_corpus(tmp_path / "beside", [_ARABIC_INDIC_100, "plt00100"])
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == [100]
+    assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
+
+    # Simulated, so it runs on Windows too, which forbids a newline in a name.
+    root, run = _bare_corpus(tmp_path / "stubs", ["plt00100"])
+    stubs = [_StubEntry(run, _ARABIC_INDIC_100), _StubEntry(run, "plt100\n")]
+    calls = _fake_scandir(monkeypatch, root, extra=stubs)
+    corpus = FieldCorpus(root)
+    assert corpus.steps("s35_f085_p30") == [100]
+    assert corpus.plotfile("s35_f085_p30", 100) == run / "plt00100"
+    assert calls == ["s35_f085_p30"]
+
+
 class _SymlinkToDirEntry(_StubEntry):
     """A symlink to a directory: a directory only when the type check follows symlinks."""
 
