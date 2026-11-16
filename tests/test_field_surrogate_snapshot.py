@@ -1697,3 +1697,43 @@ def test_dataset_is_dead_when_the_read_returns(plotfile_64, monkeypatch):
     finally:
         if not gc_was_enabled:
             gc.disable()
+
+
+def _mapped_case(name: str, path) -> dict:
+    """A REGION_CASES / DIVERGENCE_CASES request, mapped onto ``path``'s domain (cell units)."""
+    import yt
+
+    case = next(c for c in REGION_CASES + DIVERGENCE_CASES if c[0] == name)
+    yt.set_log_level("error")
+    ds = yt.load(str(path))
+    dle = np.asarray(ds.domain_left_edge.to_ndarray(), dtype=np.float64)
+    dre = np.asarray(ds.domain_right_edge.to_ndarray(), dtype=np.float64)
+    dx = (dre - dle) / np.asarray(ds.domain_dimensions, dtype=np.float64)
+    mapper = _ab_script()._map
+    return {
+        "lo": mapper(case[1], dle, dre, dx),
+        "hi": mapper(case[2], dle, dre, dx),
+        "halo": case[3],
+    }
+
+
+def test_dataset_is_dead_after_a_zero_cell_read(plotfile_64, monkeypatch):
+    # Anchor (task 4.3): the zero-cell half of the test above. It passes before the zero-cell
+    # short-circuit exists, because that request still takes the full read path; once the
+    # short-circuit lands it pins that the early return still tears down.
+    import gc
+
+    request = _mapped_case("outside_domain", plotfile_64)
+    datasets, _ = _yt_object_refs(monkeypatch)
+    gc_was_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        read_field_snapshot(plotfile_64, **request)  # warm-up
+        snap = read_field_snapshot(plotfile_64, **request)
+        assert snap.arrays["u"].shape == (0, 0, 0)
+        assert len(datasets) == 2
+        assert datasets[-1]() is None, "the yt dataset outlived a zero-cell read"
+        _assert_no_yt_object(snap)
+    finally:
+        if not gc_was_enabled:
+            gc.disable()
