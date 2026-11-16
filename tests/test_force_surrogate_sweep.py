@@ -1025,8 +1025,7 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
     CFD run's own provenance (the corrected-hinge-geometry #71 cluster workflows and their image
     digest) under a key that says so, and states that neither the re-extraction nor the retrain
     ran on the cluster, so the old workflow IDs cannot be read as having produced them.
-    ``pull_request`` is null until the #109 PR exists; the commit after ``gh pr create`` sets the
-    JSON and this test's literal together.
+    ``pull_request`` names the PR of each stage (PR2b #146, PR3 #147).
     """
     provenance = json.loads(
         (PRELIM_SWEEP / "sweep_provenance.json").read_text(encoding="utf-8")
@@ -1058,7 +1057,7 @@ def test_coarse_corpus_provenance_flags_downstream_regeneration_source():
         "re_extraction": "fix-wing-force-sign-convention",  # #109 PR2b
         "retrain": "fix-wing-force-sign-convention",  # #109 PR3
     }
-    prs = {"re_extraction": 146, "retrain": None}
+    prs = {"re_extraction": 146, "retrain": 147}
     for stage, expected in stages.items():
         step = record[stage]
         assert step["change"] == changes[stage], stage

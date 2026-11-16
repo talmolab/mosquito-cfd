@@ -24,7 +24,7 @@
     },
     "retrain": {
       "change": "fix-wing-force-sign-convention",
-      "pull_request": null,
+      "pull_request": 147,
       "host": "local A5000 workstation talmo-lab-02 (training under WSL2; figure rendered natively)",
       "cluster_workflows": [],
       "affected": [

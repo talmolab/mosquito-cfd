@@ -614,14 +614,14 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     - README and caption numbers from the new JSON (what n=5 supports);
     - the Stage-2 sentence plus the `docs/field_surrogate/roadmap.md` link (extend the link-list test);
     - the CHANGELOG entry.
-51. [ ] Fresh reviewer on the artifacts and docs. Run:
+51. [x] Fresh reviewer on the artifacts and docs. Run:
     - the WSL GPU subset (`test_force_surrogate_train{,_gpu}.py`);
     - the CPU suite, ruff and `openspec validate --strict`;
     - `git merge-base --is-ancestor` for the surrogate and figure records;
     - the one-blob check.
 
     **Stop for approval before pushing** tasks 43–50 together.
-52. [ ] Open PR3 with "Closes #109." on its own line in the PR body (a normal PR body; no hand-written
+52. [x] Open PR3 with "Closes #109." on its own line in the PR body (a normal PR body; no hand-written
     squash message, by user decision). Then commit the PR number into `sweep_provenance.json` and its
     test. Add the stale T4 literals to #115.
 53. [ ] After merge: `/cleanup-merged`, including the OpenSpec archive (a separate `chore(openspec):
@@ -688,3 +688,11 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
   0.986-0.990; they overlapped before #109), so the fine README states it in the guarded
   "higher on fine across 5 seeds" form and says the change from overlapping comes from the
   initialisation draw alone (the data differ only in sign; G0).
+- **Task 51:** the fresh reviewer found no blocking issues and every quoted number exact; five
+  wording findings fixed in `3e17402` ("paired", not "correlated"; the seed's validation carve; fine
+  `CF_mx` "nearly" robust; G0 named as CPU-checked; two passages dated to the pre-#109 model). WSL:
+  the 16 `gpu`-marked training tests pass. Two CPU-tier tests in `test_force_surrogate_train.py` fail
+  in any torch environment (they assert torch is absent), unrelated to this change. A pre-existing
+  provenance gap (`history` omits #128) is #148.
+- **Task 52:** PR #147 opened with "Closes #109."; `sweep_provenance.json` `retrain.pull_request` is
+  147; the stale T4 literals are on #115.
