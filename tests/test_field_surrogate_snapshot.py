@@ -117,6 +117,16 @@ class _RecordingGrid:
             return value.astype("float32")
         return value
 
+    # The reader releases yt's per-field cache as it goes (improve-field-reader-perf-memory D4),
+    # so the proxy forwards exactly the two members that touches -- explicitly, not through a
+    # catch-all __getattr__.
+    @property
+    def field_data(self):
+        return self._inner.field_data
+
+    def clear_data(self):
+        self._inner.clear_data()
+
 
 class _ProxyIndex:
     def __init__(self, inner, max_level):
@@ -128,11 +138,17 @@ class _ProxyIndex:
 
 
 class _ProxyDataset:
-    def __init__(self, inner, log, max_level=None, fp32_field=None):
+    def __init__(
+        self, inner, log, max_level=None, fp32_field=None, grid_log=None, grid_cls=None
+    ):
         self._inner = inner
         self._log = log
         self._max_level = max_level
         self._fp32_field = fp32_field
+        # Covering-grid construction is recorded in its OWN log, so the field-read logs that
+        # existing tests compare with == are unchanged.
+        self._grid_log = grid_log
+        self._grid_cls = grid_cls or _RecordingGrid
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -142,7 +158,9 @@ class _ProxyDataset:
         return _ProxyIndex(self._inner.index, self._max_level)
 
     def covering_grid(self, *args, **kwargs):
-        return _RecordingGrid(
+        if self._grid_log is not None:
+            self._grid_log.append(kwargs.get("level", args[0] if args else None))
+        return self._grid_cls(
             self._inner.covering_grid(*args, **kwargs), self._log, self._fp32_field
         )
 
@@ -158,15 +176,29 @@ def _fixture_generator():
     return mod
 
 
-def _patch_yt(monkeypatch, *, max_level=None, fp32_field=None, path=FIXTURE):
-    """Return the list that records every ('boxlib', name) tuple actually read."""
+def _patch_yt(
+    monkeypatch,
+    *,
+    max_level=None,
+    fp32_field=None,
+    path=FIXTURE,
+    grid_log=None,
+    grid_cls=None,
+):
+    """Return the list that records every ('boxlib', name) tuple actually read.
+
+    ``grid_log``, when given, records each covering-grid construction; ``grid_cls`` replaces
+    the recording grid proxy.
+    """
     import yt
 
     log = []
     real_load = yt.load
 
     def fake_load(_path, *args, **kwargs):
-        return _ProxyDataset(real_load(str(path)), log, max_level, fp32_field)
+        return _ProxyDataset(
+            real_load(str(path)), log, max_level, fp32_field, grid_log, grid_cls
+        )
 
     monkeypatch.setattr(yt, "load", fake_load)
     return log
@@ -1188,6 +1220,14 @@ def test_nan_and_inf_field_values_pass_through_bit_identically(monkeypatch):
             value.reshape(-1)[: poisoned.size] = poisoned
             return _Unyt(value)
 
+        # Forwarded for the reader's cache release (improve-field-reader-perf-memory D4).
+        @property
+        def field_data(self):
+            return self._inner.field_data
+
+        def clear_data(self):
+            self._inner.clear_data()
+
     class _PoisonDataset:
         def __init__(self, inner):
             self._inner = inner
@@ -1510,3 +1550,150 @@ def test_guards_fire_before_the_zero_cell_short_circuit(guard, monkeypatch, tmp_
         match = r"missing required fields \[\('boxlib', 'z_velocity'\)"
     with pytest.raises(ValueError, match=match):
         read_field_snapshot(path, **OUTSIDE_DOMAIN)
+
+
+# --- improve-field-reader-perf-memory: covering-grid release and teardown (#120) ---------------
+
+
+def test_each_field_leaves_the_covering_grid_cache_once_copied(monkeypatch):
+    # #120 / #112 item 3: yt caches every field read through a covering grid in cg.field_data, so
+    # a six-field read held all six full-domain buffers at once. Each must be dropped once copied.
+    # Checked AT the calls, not after the read: clear_data() empties field_data, so "empty
+    # afterwards" holds whether or not the per-field release happened.
+    clears: list[int] = []
+
+    class _CacheCheckingGrid(_RecordingGrid):
+        def __getitem__(self, key):
+            stale = [f for f in self._log if f in self._inner.field_data]
+            assert not stale, f"reading {key} with earlier fields still cached: {stale}"
+            return super().__getitem__(key)
+
+        def clear_data(self):
+            assert not self._inner.field_data, list(self._inner.field_data)
+            clears.append(1)
+            super().clear_data()
+
+    log = _patch_yt(monkeypatch, grid_cls=_CacheCheckingGrid)
+    read_field_snapshot(FIXTURE, **FULL)
+    assert len(log) == 6
+    assert clears == [1]
+
+
+@pytest.fixture(scope="module")
+def plotfile_96(tmp_path_factory):
+    root = tmp_path_factory.mktemp("p96") / "plt96"
+    return _fixture_generator().write_fixture(root, shape=(96, 96, 96))
+
+
+@pytest.fixture(scope="module")
+def plotfile_64(tmp_path_factory):
+    root = tmp_path_factory.mktemp("p64") / "plt64"
+    return _fixture_generator().write_fixture(root, shape=(64, 64, 64))
+
+
+def _traced_peak(read) -> int:
+    """``tracemalloc`` peak of one call above its starting level, after a warm-up call.
+
+    Automatic GC stays enabled, as in production; a full collection runs before the traced call
+    so an earlier read's garbage is not counted. Restores the prior tracing and GC state.
+    """
+    import gc
+    import tracemalloc
+
+    if tracemalloc.is_tracing():
+        pytest.skip(
+            "tracemalloc is already tracing; a nested trace would be meaningless"
+        )
+    gc_was_enabled = gc.isenabled()
+    try:
+        gc.enable()
+        read()  # warm-up: yt's lazy imports and per-process caches
+        gc.collect()
+        tracemalloc.start()
+        start = tracemalloc.get_traced_memory()[0]
+        tracemalloc.reset_peak()
+        result = read()
+        peak = tracemalloc.get_traced_memory()[1] - start
+        del result
+        return peak
+    finally:
+        tracemalloc.stop()
+        if not gc_was_enabled:
+            gc.disable()
+
+
+def test_field_cache_release_bounds_the_peak(plotfile_96):
+    # Differential in units of one field's bytes S, never an absolute MB figure: yt's own
+    # overhead varies by version and platform, the per-field growth is what this change removes.
+    # Measured on 96^3 before the change: 9.7-11.1 S; after: 4.5-5.3 S.
+    field_bytes = 8 * 96**3
+    one = _traced_peak(lambda: read_field_snapshot(plotfile_96, **FULL, fields=("u",)))
+    six = _traced_peak(lambda: read_field_snapshot(plotfile_96, **FULL))
+    growth = (six - one) / field_bytes
+    assert growth <= 7.5, f"six-field peak exceeds one-field peak by {growth:.2f} S"
+
+
+def _yt_object_refs(monkeypatch) -> tuple[list, list]:
+    """Keep weak references to each REAL yt Dataset and covering grid the reader creates.
+
+    Never to a test proxy around one: a proxy dies on return even while the object it wraps
+    lives, which would make the assertion vacuous. The covering grid is tracked separately
+    because it holds its dataset only through a ``weakref.proxy``: a reader that dropped the
+    dataset but kept the grid would still pass a dataset-only check, while the grid -- in its own
+    cycle -- outlived the call.
+
+    Returns:
+        ``(datasets, grids)``, lists of weak references in creation order.
+    """
+    import weakref
+
+    import yt
+    from yt.data_objects.construction_data_containers import YTCoveringGrid
+
+    datasets: list = []
+    grids: list = []
+    real_load = yt.load
+    real_init = YTCoveringGrid.__init__
+
+    def load(*args, **kwargs):
+        ds = real_load(*args, **kwargs)
+        assert type(ds).__module__.startswith("yt."), type(ds)
+        datasets.append(weakref.ref(ds))
+        return ds
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        grids.append(weakref.ref(self))
+
+    monkeypatch.setattr(yt, "load", load)
+    monkeypatch.setattr(YTCoveringGrid, "__init__", init)
+    return datasets, grids
+
+
+def _assert_no_yt_object(snap) -> None:
+    values = [getattr(snap, f) for f in snap.__dataclass_fields__]
+    values += list(snap.arrays.values())
+    for value in values:
+        module = type(value).__module__
+        assert not module.startswith(("yt", "unyt")), (type(value), value)
+
+
+def test_dataset_is_dead_when_the_read_returns(plotfile_64, monkeypatch):
+    # #120: yt's dataset, index, field-info and covering grid form reference cycles. With
+    # automatic GC on they are promoted to the oldest generation during the read, so they -- and
+    # every cached field -- outlive the call until Python's next full collection.
+    import gc
+
+    datasets, grids = _yt_object_refs(monkeypatch)
+    gc_was_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        read_field_snapshot(plotfile_64, **FULL)  # warm-up
+        snap = read_field_snapshot(plotfile_64, **FULL)
+        assert len(datasets) == 2 and len(grids) == 2
+        assert datasets[-1]() is None, "the yt dataset outlived read_field_snapshot"
+        assert grids[-1]() is None, "the covering grid outlived read_field_snapshot"
+        _assert_no_yt_object(snap)
+    finally:
+        if not gc_was_enabled:
+            gc.disable()

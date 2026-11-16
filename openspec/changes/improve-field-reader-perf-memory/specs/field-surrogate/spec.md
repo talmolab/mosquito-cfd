@@ -58,12 +58,15 @@ cycle on any version. The returned snapshot SHALL reference no yt object.
 
 #### Scenario: The dataset is dead when the read returns, with automatic GC enabled
 
-- **Given** a generated 64³ single-level plotfile, `yt.load` wrapped to keep a weak reference to each
-  real `yt` `Dataset` it creates (never to a test proxy around one), automatic garbage collection **enabled**, and a warm-up read
+- **Given** a generated 64³ single-level plotfile; weak references kept to each real `yt` `Dataset`
+  that `yt.load` creates and to each real `YTCoveringGrid` (never to a test proxy around one);
+  automatic garbage collection **enabled**; and a warm-up read
 - **When** `read_field_snapshot` returns a full-extent snapshot, and separately a zero-cell snapshot
   (`REGION_CASES`' `outside_domain`)
-- **Then** in both cases the dataset's weak reference is dead on return, and no attribute of the
-  returned snapshot is a `yt` object
+- **Then** in both cases the dataset's weak reference is dead on return, as is the covering grid's
+  for the full-extent read, and no attribute of the returned snapshot is a `yt` object. The covering
+  grid is checked on its own because it holds its dataset only through a `weakref.proxy`: a reader
+  that kept the grid would leave the grid's cycle alive while the dataset still died
 
 ### Requirement: Zero-cell regions read no field data
 

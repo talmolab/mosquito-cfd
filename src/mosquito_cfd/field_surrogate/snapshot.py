@@ -9,6 +9,7 @@ conversion, unwrapped from yt's ``unyt_array`` to bare FP64 numpy.
 
 from __future__ import annotations
 
+import gc
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -233,6 +234,11 @@ def read_field_snapshot(
     Returned arrays are read-only against accidental writes, not tamper-proof: numpy lets the
     owner call ``setflags(write=True)``. Copy an array before modifying it.
 
+    Memory: each field is copied out of yt's covering-grid cache and dropped from it before the
+    next is read, so at most one full-domain field is cached at a time. Before returning, the
+    reader drops its yt references and runs a full ``gc.collect()``, so no yt object -- and no
+    cached field -- outlives the call. The returned snapshot references no yt object.
+
     This matches the pre-refactor ``benchmarks.stress_integral.extract_eulerian_box`` (frozen
     in ``tests/fixtures/legacy_extract_eulerian_box.py``; the current one delegates here)
     whenever ``lo <= hi``, ``lo <= domain_right_edge`` and ``hi > domain_left_edge`` on every
@@ -341,6 +347,13 @@ def read_field_snapshot(
         arr = np.array(raw[sl], dtype=np.float64, order="C", copy=True)
         arr.setflags(write=False)
         arrays[name] = arr
+        # The copy is the only reference this reader keeps. yt caches every field read through
+        # a covering grid in cg.field_data, so without this all requested full-domain buffers
+        # are held at once (#120); dropped here, at most one is (improve-field-reader-perf-memory
+        # D4). `raw` is a view of that cached buffer.
+        del raw
+        cg.field_data.pop(field, None)
+    cg.clear_data()
 
     axes = []
     for axis in range(3):
@@ -352,14 +365,26 @@ def read_field_snapshot(
     dx_out = np.array(dx, dtype=np.float64)
     dx_out.setflags(write=False)
 
+    time = float(ds.current_time)
+    max_level = int(ds.index.max_level)
+    # yt's dataset, index, field-info and covering-grid objects form reference cycles, which
+    # reference counting cannot free. With automatic GC enabled they are promoted to the oldest
+    # generation during the read itself, so a young-generation collect (gc.collect(0) or (1))
+    # frees none of them, and each read's cycle -- with any field still cached in it -- would
+    # wait for Python's next full collection. Measured on CPython 3.11: held memory grew with
+    # every read until the full collection was added; it costs ~70-90 ms of a ~5 s read at
+    # 256x128x256 (improve-field-reader-perf-memory D4). It frees only unreachable objects.
+    del cg, ds
+    gc.collect()
+
     return FieldSnapshot(
         arrays=MappingProxyType(arrays),
         x=axes[0],
         y=axes[1],
         z=axes[2],
         dx=dx_out,
-        time=float(ds.current_time),
+        time=time,
         source=str(plotfile_path),
-        max_level=int(ds.index.max_level),
+        max_level=max_level,
         field_names=fields,
     )

@@ -333,7 +333,7 @@
     | `gc.collect()` → `gc.collect(0)` or `gc.collect(1)` | 3.6 |
     | `gc.collect()` before `del cg, ds` | 3.6 |
     | `del ds` omitted | 3.6 |
-    | `del cg` omitted | 3.6 (the covering grid references the dataset) |
+    | `del cg` omitted | 3.6, through its covering-grid weak reference. **Changed during implementation:** the covering grid holds its dataset only through a `weakref.proxy`, so this mutant left the dataset dead and survived the dataset-only check; the grid itself stayed alive in its own cycle |
     | short-circuit removed | 4.1, 4.2 |
     | condition `any` → `all` | 4.1 (`x_below_yz_inside_h1`) |
     | short-circuit before each of the four guards | 3.2 |

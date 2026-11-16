@@ -249,8 +249,8 @@ def extract_eulerian_box(
     out["dx"] = snap.dx
     # The snapshot exposes read-only arrays; the pre-refactor adapter returned writable ones and
     # callers may rely on that. Flipping the flag back is safe because read_field_snapshot
-    # copies each array (np.array(..., copy=True)), so every array here owns its data and the
-    # discarded snapshot is its only other referent. That is a property of the callee, not of
+    # copies each array (np.array(..., copy=True)) or freshly allocates it (a zero-cell region),
+    # so every array here owns its data and the discarded snapshot is its only other referent. That is a property of the callee, not of
     # this wrapper: if the reader is ever changed to return views or to memoize snapshots, this
     # line would un-freeze shared state and must be revisited.
     for key, value in out.items():
