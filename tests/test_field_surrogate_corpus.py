@@ -453,6 +453,9 @@ def test_listing_costs_one_scandir_and_no_per_entry_stat(tmp_path, monkeypatch):
         assert len(corpus.steps(name)) == count
         counts[name] = (calls.count("scandir"), calls.count("stat"))
     assert counts["small"][0] == counts["large"][0] == 1, counts
+    # Positive control for the stat spy: run_dir()'s is_dir() must register, or an equal count
+    # would be 0 == 0 (e.g. on a Python whose Path.is_dir() no longer calls os.stat).
+    assert counts["small"][1] >= 1, counts
     assert counts["small"][1] == counts["large"][1], counts
 
 
@@ -588,7 +591,8 @@ class _IoSpy:
     Installed AFTER construction: ``FieldCorpus.__init__`` itself calls ``root.is_dir()``, so a spy
     installed before construction would record that call. An ``os.path.isdir`` call would not be
     seen, which is why every zero-call assertion below has a positive control showing the same spy
-    DOES see a real lookup.
+    DOES see a real lookup. Unlike the other spies it records calls on every path, not only under
+    the corpus root: its tests assert exact or zero counts, which that only makes stricter.
     """
 
     def __init__(self, monkeypatch):

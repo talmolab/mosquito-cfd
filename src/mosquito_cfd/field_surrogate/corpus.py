@@ -7,9 +7,9 @@ Windows, ``/mnt/hpi_dev/users/eberrigan/...`` under WSL, and
 directories actually present on disk rather than assumed from a deck's ``plot_int`` -- a run
 can be truncated, as 15 of 27 configs were at ``ns.cfl = 0.3``. ``plotfile()`` first tries the
 canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the run directory
-only when that name is not a directory. A listing is one ``os.scandir`` with no per-entry
-``stat``: each entry's type comes from its ``DirEntry``. That is the module's only ``os`` call;
-every path it takes or returns is a ``pathlib.Path``.
+only when that name is not a directory. A listing is one ``os.scandir`` with no Python-level
+``stat`` per entry: each entry's type comes from its ``DirEntry``. Every path the module takes
+or returns is a ``pathlib.Path``.
 """
 
 from __future__ import annotations
@@ -122,7 +122,8 @@ class FieldCorpus:
     The manifest is parsed once per instance and cached. Plotfile presence is never cached, since
     which plotfiles exist can change while a run is in progress: ``steps()`` lists the ``plt*``
     directories on every call (one ``os.scandir``, no per-entry ``stat``), and ``plotfile()``
-    stats the canonical ``plt{step:05d}`` first and lists only on a miss. Construct a new ``FieldCorpus`` to pick up a manifest edited on disk.
+    stats the canonical ``plt{step:05d}`` first and lists only on a miss. Construct a new
+    ``FieldCorpus`` to pick up a manifest edited on disk.
     """
 
     def __init__(

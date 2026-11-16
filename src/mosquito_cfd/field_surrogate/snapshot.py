@@ -51,8 +51,10 @@ class PointCloud:
             While constant it is a read-only, zero-stride broadcast of a read-only 0-d array
             (8 bytes, not ``N``), which differs from a dense array in four ways: it cannot be
             made writable, it is not C-contiguous for ``N > 1``, its ``base`` is the 0-d array,
-            and pickling it produces a dense, writable copy. Call ``np.ascontiguousarray`` on it
-            where a dense buffer is needed.
+            and pickling it produces a dense, writable copy. Buffer-protocol consumers that need
+            contiguous memory (``memoryview(...).cast``, ``np.frombuffer``, a ``double[::1]``
+            argument) therefore fail on it: call ``np.ascontiguousarray`` first. Its ``nbytes``
+            still reports ``8 * N``, computed from the shape, though 8 bytes are allocated.
     """
 
     coords: np.ndarray
@@ -251,9 +253,19 @@ def read_field_snapshot(
     owner call ``setflags(write=True)``. Copy an array before modifying it.
 
     Memory: each field is copied out of yt's covering-grid cache and dropped from it before the
-    next is read, so at most one full-domain field is cached at a time. Before returning, the
-    reader drops its yt references and runs a full ``gc.collect()``, so no yt object -- and no
-    cached field -- outlives the call. The returned snapshot references no yt object.
+    next is read, so at most one full-domain field is cached at a time. Before returning a
+    snapshot, the reader drops its yt references and runs a full ``gc.collect()``, so no yt
+    object -- and no cached field -- outlives a successful call, and the returned snapshot
+    references no yt object. A read that raises skips this; its yt objects wait for the next
+    collection.
+
+    That collection is process-wide. It runs even if the caller has disabled automatic GC
+    (``gc.isenabled()`` is left as it was), it may run unrelated finalizers, and its cost grows
+    with every tracked object in the calling process, not with the plotfile (design.md D4 of
+    improve-field-reader-perf-memory has the measurements). A long-lived caller with a large
+    heap, such as a DataLoader worker, should call ``gc.freeze()`` once after setup: frozen
+    objects are not scanned, and in a forked worker that also avoids touching the inherited
+    parent heap.
 
     This matches the pre-refactor ``benchmarks.stress_integral.extract_eulerian_box`` (frozen
     in ``tests/fixtures/legacy_extract_eulerian_box.py``; the current one delegates here)
@@ -348,7 +360,9 @@ def read_field_snapshot(
     if np.any(i_hi == i_lo):
         # Zero cells on some axis: every slice of the covering grid would be empty, so building
         # it -- a full read of every requested field -- buys nothing (#112 item 5). Reached only
-        # after every plotfile guard above, so a request the reader refuses is still refused.
+        # after every plotfile guard above, so a request the reader refuses is still refused;
+        # only the loop's redundant per-field dtype re-check is skipped (the on-disk precision
+        # guard above is the real one).
         # A fresh array is exactly what the full read's copy of an empty slice is: owning,
         # C-ordered, with the same shape and strides (improve-field-reader-perf-memory D5).
         shape = tuple(int(b - a) for a, b in zip(i_lo, i_hi))
@@ -405,10 +419,11 @@ def read_field_snapshot(
     # reference counting cannot free. With automatic GC enabled they are promoted to the oldest
     # generation during the read itself, so a young-generation collect (gc.collect(0) or (1))
     # frees none of them, and each read's cycle -- with any field still cached in it -- would
-    # wait for Python's next full collection. Measured on CPython 3.11: held memory grew with
-    # every read until the full collection was added; it costs ~70-90 ms of a ~5 s read at
-    # 256x128x256 (improve-field-reader-perf-memory D4). It frees only unreachable objects. Both
-    # paths -- the full read and the zero-cell one -- reach this teardown.
+    # wait for Python's next full collection (measured on CPython 3.11). It frees only
+    # unreachable objects. Its cost scales with the caller's tracked objects, not with this
+    # read; the docstring says so and points to gc.freeze() (improve-field-reader-perf-memory
+    # D4 has the numbers). Both paths -- the full read and the zero-cell one -- reach this
+    # teardown.
     del ds
     gc.collect()
 

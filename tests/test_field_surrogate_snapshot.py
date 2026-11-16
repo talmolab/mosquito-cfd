@@ -1496,6 +1496,14 @@ def test_real_multi_fab_read_is_bit_identical_to_a_full_grid_reference(lo, hi, h
     _assert_bit_identical(snap, path, mlo, mhi, halo)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _release_full_grid_references():
+    # The real t3c-fine reference holds eight full 256x128x256 fields (~1 GB); drop the cache
+    # when this module finishes rather than for the rest of the session.
+    yield
+    _full_grid_reference.cache_clear()
+
+
 # --- improve-field-reader-perf-memory: guards before the zero-cell short-circuit ---------------
 
 _OUTSIDE = next(c for c in REGION_CASES if c[0] == "outside_domain")
