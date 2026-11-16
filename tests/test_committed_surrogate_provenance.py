@@ -337,7 +337,10 @@ def test_readme_seed_table_is_the_seed_record():
     check_negative_cf_x_count(readme, current["runs"])
 
 
-_COUNT_WORDS = {"none": 0, "one": 1, "two": 2, "three": 3, "four": 4, "all": 5}
+_COUNT_WORDS = {
+    **{"none": 0, "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "all": 5},
+    **{str(n): n for n in range(6)},
+}
 # "negative ... for <word> of the five seeds[, the committed seed 1234 among them]", any wrapping.
 _NEGATIVE_COUNT = re.compile(
     r"\*\*negative\*\*[^.]*?\bfor\s+(\w+)\s+of\s+the\s+five\s+seeds"
@@ -350,11 +353,19 @@ def check_negative_cf_x_count(readme: str, runs: list[dict]) -> None:
 
     The sentence must be present exactly once (so a reworded or deleted sentence fails here rather
     than going unchecked), its count word must equal the record's count, and "the committed seed
-    1234 among them" is allowed only if seed 1234's value is negative.
+    1234 among them" is allowed only if seed 1234's value is negative. Any other mention of a seed
+    in that sentence fails, so a reworded claim about one cannot go unchecked.
     """
-    found = _NEGATIVE_COUNT.findall(" ".join(readme.split()))
+    text = " ".join(readme.split())
+    matches = list(_NEGATIVE_COUNT.finditer(text))
+    found = [m.groups() for m in matches]
     assert len(found) == 1, f"expected one CF_x negative-count sentence, found {found}"
     word, among = found[0]
+    rest = text[matches[0].end() :].split(". ", 1)[0]
+    assert "seed" not in rest.lower(), (
+        f"a seed is named other than as 'the committed seed 1234 among them': {rest!r}"
+    )
+    word = word.lower()
     assert word in _COUNT_WORDS, f"unrecognised count word {word!r}"
     values = {r["seed"]: r["config_mean_r2"]["CF_x"] for r in runs}
     assert _COUNT_WORDS[word] == sum(v < 0 for v in values.values()), (word, values)
@@ -377,6 +388,10 @@ _NEG_SENTENCE = "R² is **negative** (worse) for {} of the five seeds{}, even th
         ("three", "", (-1.0, -1.0, 0.5, 0.5, 0.5)),  # count disagrees with the record
         ("two", ", the committed seed 1234 among them", (0.5, -1.0, -1.0, 0.5, 0.5)),
         ("twice", "", (-1.0, -1.0, 0.5, 0.5, 0.5)),  # unparseable count
+        # a reworded claim about seed 1234, false here (1234 is positive), must not pass
+        ("two", ", including the committed seed 1234", (0.5, -1.0, -1.0, 0.5, 0.5)),
+        ("two", ", including the committed seed 1234", (-1.0, -1.0, 0.5, 0.5, 0.5)),
+        ("two", ", including seed 1235", (-1.0, 0.5, -1.0, 0.5, 0.5)),
     ],
 )
 def test_negative_count_check_rejects_each_defect(word, among, values):
@@ -390,8 +405,18 @@ def test_negative_count_check_requires_the_sentence():
         check_negative_cf_x_count("no such sentence", _negative_runs(-1, 1, 1, 1, 1))
 
 
-def test_negative_count_check_accepts_a_correct_sentence():
-    readme = _NEG_SENTENCE.format("two", ", the committed\n  seed 1234 among them")
+@pytest.mark.parametrize(
+    ("word", "among"),
+    [
+        ("two", ", the committed\n  seed 1234 among them"),
+        ("Two", ""),
+        ("2", ""),
+    ],
+)
+def test_negative_count_check_accepts_a_correct_sentence(word, among):
+    readme = (
+        _NEG_SENTENCE.format(word, among) + " the scatter looks perfect. Seed 1234 is"
+    )
     check_negative_cf_x_count(readme, _negative_runs(-1.0, -1.0, 0.5, 0.5, 0.5))
 
 

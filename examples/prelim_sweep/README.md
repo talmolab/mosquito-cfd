@@ -443,8 +443,8 @@ legible without losing any disclosure:
   lift was not investigated here. Its RMS error against the CFD lift
   (`quasi_steady_reference.baseline_rmse_cf_z`, 0.517) fell from 1.78 when the CFD coefficients
   took the on-wing sign (#109), because the two lifts now share a sign; the ratio is an RMS ratio
-  and did not change. Pointwise, the model still explains only about 5% of the CFD lift's
-  variance, so it remains a poor fit. An overlay would mostly **re-display the model's analytic loops, not surrogate
+  and did not change. Pointwise its R² against the CFD lift is only about 0.05: it tracks the
+  shape (correlation 0.72) but not the scale, so it remains a poor fit. An overlay would mostly **re-display the model's analytic loops, not surrogate
   skill over the analytic model** — a hollow comparison — so it is reported as a
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
   to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.

@@ -719,3 +719,12 @@ Order: **PR1 → PR2a → PR2b → PR3**. Each PR is opened off `main` after its
     hashes is #149.
   - Rejected: the "mojibake" in the sidecar note (the bytes are a correct UTF-8 em dash, as on
     `main`; the reviewer decoded with cp1252).
+- **Focused review of `f2fc827` (2 reviewers, no blocking):** the "seed 1234 among them" check ran
+  only for that exact wording ("including the committed seed 1234" with 1234 positive passed); any
+  other mention of a seed in the sentence now fails (7/7 README mutants and controls behave), and the count word is case-insensitive with
+  digits and "zero". The gate docstring now separates pre-registered from after-the-run literals, its
+  pairing sentence takes the corrected direction (as does the CHANGELOG), and the retirement note says
+  the G1 pin fails on any retrain. The coarse QS sentence no longer reads R² ≈ 0.05 as "explains 5% of
+  the variance": correlation is 0.72 (0.79 fine), so it misses the scale, not the shape. The fine
+  `CF_y` sentence says the rule *allows* the statement (the rule's disjointness is necessary, not
+  sufficient).

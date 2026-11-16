@@ -1,7 +1,7 @@
 """Pre-registered retrain gate for fix-wing-force-sign-convention (#109), design D7 G3 and G4.
 
-These literals were committed **before** the GPU retrain, so the gate is fixed before its outcome
-is known and survives CI's depth-1 checkout. Two sources:
+The G3 and G4 literals were committed **before** the GPU retrain, so the gate is fixed before its
+outcome is known and survives CI's depth-1 checkout. Three sources:
 
 - copied from the pre-change (``a2e8f64``) committed artifacts: each corpus's 5-seed
   ``seed_sweep.range.<target>.skill`` interval, and the evidence-figure sidecar's sign-invariant
@@ -9,15 +9,18 @@ is known and survives CI's depth-1 checkout. Two sources:
 - predicted, not copied: ``baseline_rmse_cf_z`` (4 dp). The pre-change sidecar holds the on-fluid
   value (1.7785 coarse, 1.7588 fine). These literals were computed before the retrain from the
   quasi-steady model against the sign-corrected (negated) pre-change holdout truth, which the
-  retrain does not change because the holdout rows are fixed by the sweep manifest.
+  retrain does not change because the holdout rows are fixed by the sweep manifest;
+- pinned **after** the run, not pre-registered: ``G1_CHECKPOINT_SHA``, the checkpoint both G1
+  runs produced byte-identically (G1 evidence, so CI can tell the retrained weights apart).
 
-Retraining on the negated targets equals retraining on the old targets with the output layer's
-initial weights and bias negated (G0, ``test_force_surrogate_train_gpu.py``), so the retrained
-networks are new draws. G3 therefore asks only that each new 5-seed range intersect the old one,
+Training at a seed on the negated targets gives exactly the negation of training at that seed on
+the old targets with the output layer's initial weights negated (G0,
+``test_force_surrogate_train_gpu.py``), so the retrained networks are new draws. G3 therefore asks only that each new 5-seed range intersect the old one,
 never that a single seed reproduce. Config-resolved R² is not gated.
 
-A later change that legitimately retrains (#114, #125) MAY retire these tests through its own
-OpenSpec proposal; they belong to fix-wing-force-sign-convention.
+A later change that legitimately retrains (#114, #125) MUST update or retire these tests through
+its own OpenSpec proposal (the G1 checkpoint pin fails on any retrain; output hashing that
+outlives this gate is #149); they belong to fix-wing-force-sign-convention.
 """
 
 from __future__ import annotations

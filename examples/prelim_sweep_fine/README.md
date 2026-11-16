@@ -100,7 +100,7 @@ fixed before the fine run, in the `add-fine-corpus-surrogate` OpenSpec change (d
 spec): a target counts as moved only if its two 5-seed ranges are disjoint (computed on the
 unrounded values; touching ranges count as overlapping). Five of the six pairs overlap, so for
 `CF_x`, `CF_z`, `CF_mx`, `CF_my` and `CF_mz`: no shift detected. The two `CF_y` ranges are
-disjoint, so under the rule `CF_y` counts as moved: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
+disjoint, so the rule allows the statement: `CF_y` skill is higher on fine across 5 seeds. On the before-#109 data, which differ from
 these only in the sign of every target, the two `CF_y` ranges overlapped (coarse 0.974 to 0.984,
 fine 0.980 to 0.994). Training at a seed on the negated targets is exactly the negation of
 training at that seed on the old targets with the output layer's initial weights negated (checked
