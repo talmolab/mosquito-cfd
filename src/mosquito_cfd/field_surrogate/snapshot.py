@@ -263,6 +263,46 @@ def _check_not_inverted(lo: np.ndarray, hi: np.ndarray) -> None:
         raise ValueError("inverted region request (lo > hi): " + "; ".join(inverted))
 
 
+def _validate_request(
+    lo, hi, halo, fields
+) -> tuple[np.ndarray, np.ndarray, int, tuple[str, ...]]:
+    """Every argument check of :func:`read_field_snapshot`, in order, with no I/O.
+
+    Shared with ``FieldCorpus.snapshot``, which runs it before touching the corpus, so an argument
+    error is reported as such whatever the corpus's state (harden-field-reader-pre-f3 D4).
+
+    Returns:
+        ``(lo, hi, halo, fields)`` normalized: FP64 corners, an ``int`` halo, a ``tuple`` of names.
+    """
+    fields = tuple(fields)
+    _validate_fields(fields)
+    halo = _validate_halo(halo)
+    lo_v = _corner(lo, "lo")
+    hi_v = _corner(hi, "hi")
+    _check_not_inverted(lo_v, hi_v)
+    return lo_v, hi_v, halo, fields
+
+
+def _check_plotfile_dir(path: Path) -> None:
+    """Refuse a path that is not a plotfile directory, before ``yt`` is imported.
+
+    Without this, a run directory or an empty directory surfaces as yt's ~40-line format-sniffing
+    dump (#113). Two ``stat``s; both follow symlinks, and any other ``OSError`` propagates.
+    """
+    if not path.is_dir():
+        if path.exists():
+            raise NotADirectoryError(
+                f"plotfile path is not a directory: {path}; a plotfile is a pltNNNNN "
+                f"directory containing a Header file"
+            )
+        raise FileNotFoundError(f"plotfile directory does not exist: {path}")
+    if not (path / "Header").is_file():
+        raise FileNotFoundError(
+            f"no Header file in {path}: not an AMReX plotfile directory (a run directory "
+            f"instead of a pltNNNNN, or a plotfile still being written)"
+        )
+
+
 def _region_bounds(
     lo: np.ndarray,
     hi: np.ndarray,
@@ -360,13 +400,12 @@ def read_field_snapshot(
             NaN, if ``lo > hi`` on any axis (checked before ``yt`` is imported), if the plotfile
             is multi-level (the open CC-F3 decision), or if a field is not FP64 (the fp32-build
             guard).
+        FileNotFoundError: If ``plotfile_path`` does not exist, or is a directory without a
+            ``Header`` file (checked after the argument checks, before ``yt`` is imported).
+        NotADirectoryError: If ``plotfile_path`` exists but is not a directory.
     """
-    fields = tuple(fields)
-    _validate_fields(fields)
-    halo = _validate_halo(halo)
-    lo_v = _corner(lo, "lo")
-    hi_v = _corner(hi, "hi")
-    _check_not_inverted(lo_v, hi_v)
+    lo_v, hi_v, halo, fields = _validate_request(lo, hi, halo, fields)
+    _check_plotfile_dir(Path(plotfile_path))
 
     import yt
 

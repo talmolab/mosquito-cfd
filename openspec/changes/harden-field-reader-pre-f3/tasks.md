@@ -165,7 +165,7 @@ receipt`. Files: `snapshot.py`, `tests/test_field_surrogate_snapshot.py`, new
 
 Commit: `fix(field-surrogate): read_field_snapshot rejects a non-plotfile path before importing yt`.
 
-- [ ] 3.1 **Red tests**, every case with `sys.modules["yt"] = None`.
+- [x] 3.1 **Red tests**, every case with `sys.modules["yt"] = None`.
   - Exact types:
     - nonexistent → `FileNotFoundError`;
     - regular file → `NotADirectoryError`;
@@ -187,11 +187,11 @@ Commit: `fix(field-surrogate): read_field_snapshot rejects a non-plotfile path b
   - **Expected red:** `ModuleNotFoundError` for every case under the poisoned import. Unpoisoned,
     the nonexistent case is already a yt `FileNotFoundError`, which is why every case is run
     poisoned.
-- [ ] 3.2 **Green.**
+- [x] 3.2 **Green.**
   - Extract `_validate_request(lo, hi, halo, fields)` from `read_field_snapshot` unchanged.
   - Add `_check_plotfile_dir(path)` after it and before `import yt`.
   - Update the `Raises:` docstring.
-- [ ] 3.3 **Regression.** Run `test_stress_integral.py`, `test_wing_lev.py`, `test_flow_video*.py`
+- [x] 3.3 **Regression.** Run `test_stress_integral.py`, `test_wing_lev.py`, `test_flow_video*.py`
   and `test_make_flow_video_cli.py`. They must be green.
 
 ## 4. #113: corpus provenance (D4)

@@ -2140,3 +2140,78 @@ def test_dataloader_workers_return_snapshots(context, collate):
     assert len(items) == 4
     for item in items:
         _assert_snapshot_equivalent(want, item)
+
+
+# --- harden-field-reader-pre-f3 §3: plotfile path pre-check (#113) ----------------------------
+
+
+def _not_a_plotfile(kind: str, tmp_path: Path) -> Path:
+    if kind == "missing":
+        return tmp_path / "no_such_plotfile"
+    if kind == "regular_file":
+        path = tmp_path / "plt00100"
+        path.write_text("not a plotfile\n")
+        return path
+    path = tmp_path / "plt00100"
+    path.mkdir()
+    if kind == "header_is_a_directory":
+        (path / "Header").mkdir()
+    return path
+
+
+@pytest.mark.parametrize(
+    ("kind", "error", "names_header"),
+    [
+        ("missing", FileNotFoundError, False),
+        ("regular_file", NotADirectoryError, False),
+        ("empty_dir", FileNotFoundError, True),
+        ("header_is_a_directory", FileNotFoundError, True),
+    ],
+)
+def test_non_plotfile_path_fails_before_yt_is_imported(
+    monkeypatch, tmp_path, kind, error, names_header
+):
+    path = _not_a_plotfile(kind, tmp_path)
+    # Poisoned: `import yt` raises ImportError, so a check placed after the import surfaces as
+    # ImportError -- and the unpoisoned nonexistent case would already be yt's own error.
+    monkeypatch.setitem(sys.modules, "yt", None)
+    with pytest.raises(OSError) as excinfo:
+        read_field_snapshot(path, **FULL)
+    assert type(excinfo.value) is error
+    assert str(path) in str(excinfo.value)
+    if names_header:
+        assert "Header" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"fields": ("nope",)},
+        {"fields": ("u", "u")},
+        {"halo": -1},
+        {"halo": 1.5},
+        {"lo": (0.0, 0.0), "hi": (np.inf,) * 3},
+        {"lo": (np.nan, 0.0, 0.0), "hi": (np.inf,) * 3},
+        {"lo": (4.0, 4.0, 4.0), "hi": (2.0, 2.0, 2.0)},
+    ],
+    ids=[
+        "unknown_field",
+        "duplicate_field",
+        "neg_halo",
+        "float_halo",
+        "corner_shape",
+        "nan_corner",
+        "inverted",
+    ],
+)
+def test_argument_errors_win_over_the_path_check(monkeypatch, tmp_path, bad):
+    monkeypatch.setitem(sys.modules, "yt", None)
+    kwargs = {**FULL, **bad}
+    with pytest.raises(ValueError):
+        read_field_snapshot(tmp_path / "no_such_plotfile", **kwargs)
+
+
+def test_reader_docstring_lists_the_path_errors():
+    raises = read_field_snapshot.__doc__.split("Raises:", 1)[1]
+    assert "FileNotFoundError" in raises
+    assert "NotADirectoryError" in raises
