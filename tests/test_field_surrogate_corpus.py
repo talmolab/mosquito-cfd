@@ -1075,3 +1075,45 @@ def test_provenance_module_imports_only_the_standard_library():
             continue
         for name in names:
             assert name.split(".")[0] in sys.stdlib_module_names, name
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell refusal at the corpus entry point ---------------
+
+_ZERO_CELL = {
+    "beyond_domain_by_more_than_halo": (
+        {"lo": (10.0, 0.0, 0.0), "hi": (11.0, 6.0, 6.0), "halo": 1},
+        "(0, 6, 6)",
+    ),
+    "point_on_upper_edge": (
+        {"lo": (6.0, 3.0, 3.0), "hi": (6.0, 3.0, 3.0)},
+        "(0, 1, 1)",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_ZERO_CELL))
+def test_corpus_snapshot_refuses_a_zero_cell_region(tmp_path, case):
+    region, counts = _ZERO_CELL[case]
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    with pytest.raises(ValueError) as excinfo:
+        FieldCorpus(root).snapshot(_CFG, 100, **region)
+    message = str(excinfo.value)
+    assert f"config {_CFG!r}" in message
+    assert "step=100" in message
+    assert f"lo={tuple(float(v) for v in region['lo'])}" in message
+    assert f"hi={tuple(float(v) for v in region['hi'])}" in message
+    assert f"halo={region.get('halo', 0)}" in message
+    assert counts in message
+
+
+def test_corpus_snapshot_accepts_one_cell_and_zero_column_requests(tmp_path):
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    corpus = FieldCorpus(root)
+    one = corpus.snapshot(_CFG, 100, lo=(2.5, 2.5, 2.5), hi=(2.5, 2.5, 2.5))
+    assert one.arrays["u"].shape == (1, 1, 1)
+    # Cells but no columns: the guard is on the axes, not on values.size.
+    no_columns = corpus.snapshot(_CFG, 100, fields=())
+    assert (no_columns.x.size, no_columns.y.size, no_columns.z.size) == (6, 6, 6)
+    assert no_columns.field_names == ()

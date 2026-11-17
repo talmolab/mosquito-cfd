@@ -287,3 +287,37 @@ def test_grid_paragraph_states_the_upstream_difference():
     text = " ".join(paragraphs[0].split())
     for claim in ("interp_res", "sdf_grid", "snapshot's resolution", "F3"):
         assert claim in text, f"the grid paragraph does not state {claim!r}"
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell refusal at the DoMINO adapter -------------------
+
+
+def _zero_cell_snapshot():
+    snap = read_field_snapshot(
+        FIXTURE, lo=(10.0, 0.0, 0.0), hi=(11.0, 6.0, 6.0), halo=1
+    )
+    assert snap.arrays["u"].shape == (0, 6, 6)
+    return snap
+
+
+def test_zero_cell_snapshot_cannot_become_a_domino_example():
+    snap = _zero_cell_snapshot()
+    with pytest.raises(ValueError) as excinfo:
+        _adapt(snap)
+    message = str(excinfo.value)
+    assert "(0, 6, 6)" in message
+    assert snap.source in message
+
+
+def test_one_cell_snapshot_is_a_domino_example():
+    out = _adapt(read_field_snapshot(FIXTURE, lo=(2.5, 2.5, 2.5), hi=(2.5, 2.5, 2.5)))
+    assert out["volume_mesh_centers"].shape == (1, 3)
+
+
+def test_global_params_are_checked_before_the_zero_cell_guard():
+    with pytest.raises(ValueError, match="same length"):
+        to_domino_volume(
+            _zero_cell_snapshot(),
+            global_params_values=(1.0, 2.0, 3.0),
+            global_params_reference=(1.0, 2.0),
+        )

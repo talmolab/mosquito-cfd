@@ -258,7 +258,7 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
   - `read_field_snapshot` on a region beyond the domain by more than `halo`, and on a point on the
     upper edge, returns `(0, …)` arrays.
   - This passes on the branch as it stands.
-- [ ] 5.2 **Red tests.**
+- [x] 5.2 **Red tests.**
   - `FieldCorpus.snapshot` with valid metadata, on those two requests, raises exactly `ValueError`
     naming `f"config {cfg!r}"`, `step=100`, `lo`, `hi`, `halo` and the per-axis counts.
   - A one-cell request succeeds.
@@ -267,7 +267,7 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
     - a zero-cell snapshot raises, naming the counts and `source`;
     - a one-cell snapshot gives `(1, 3)`;
     - a zero-cell snapshot with 2-D global params raises the params error (ordering).
-- [ ] 5.3 **Green.** Commit: `fix(field-surrogate): FieldCorpus.snapshot and to_domino_volume
+- [x] 5.3 **Green.** Commit: `fix(field-surrogate): FieldCorpus.snapshot and to_domino_volume
   refuse zero-cell snapshots`.
   - Add the two guards.
   - Update both `Raises:` docstrings.

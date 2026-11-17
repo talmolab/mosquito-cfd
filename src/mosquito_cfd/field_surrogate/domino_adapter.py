@@ -101,7 +101,8 @@ def to_domino_volume(
 
     Raises:
         ValueError: If ``global_params_values`` and ``global_params_reference`` differ in
-            length, or if either contains a non-finite value (NaN or +/-inf).
+            length, or if either contains a non-finite value (NaN or +/-inf); or, after those
+            checks, if the snapshot has zero cells on any axis.
     """
     values = np.array(global_params_values, dtype=np.float64).reshape(-1, 1)
     reference = np.array(global_params_reference, dtype=np.float64).reshape(-1, 1)
@@ -118,6 +119,15 @@ def to_domino_volume(
         )
     for arr in (values, reference):
         arr.setflags(write=False)
+
+    counts = (snapshot.x.size, snapshot.y.size, snapshot.z.size)
+    if 0 in counts:
+        # Zero points with well-formed global params is a structurally valid dict that batches and
+        # trains on nothing (#113; harden-field-reader-pre-f3 D5).
+        raise ValueError(
+            f"zero-cell snapshot ({counts} cells per axis) from {snapshot.source} cannot be a "
+            f"DoMINO volume example"
+        )
 
     cloud = snapshot.to_point_cloud()
     # cloud.coords is the C-order ravel over (nx, ny, nz), so this reshape is a zero-copy view.

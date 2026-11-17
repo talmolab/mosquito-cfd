@@ -343,13 +343,14 @@ class FieldCorpus:
                 :meth:`plotfile` raises; a missing or unverifiable ``run_metadata.json`` (absent,
                 unreadable, not a JSON object, a ``config`` naming another run, a commit that is
                 not 40 lowercase hex characters, or an image that is not ``<repo>@sha256:<64
-                hex>``); and anything ``read_field_snapshot`` raises.
+                hex>``); anything ``read_field_snapshot`` raises; and a region with zero cells
+                on any axis (refused after the read, which costs nothing for such a region).
             FileNotFoundError: If the resolved plotfile directory has no ``Header``.
         """
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
         step = _validate_step(step)
-        _validate_request(lo, hi, halo, fields)
+        lo_v, hi_v, halo_v, _ = _validate_request(lo, hi, halo, fields)
         plotfile = self.plotfile(config_id, step)
         meta_path = self.runs_dir / config_id / "run_metadata.json"
         meta = read_run_metadata(meta_path, config_id=config_id)
@@ -357,6 +358,17 @@ class FieldCorpus:
             meta, config_id=config_id, path=meta_path
         )
         snap = read_field_snapshot(plotfile, lo=lo, hi=hi, halo=halo, fields=fields)
+        counts = (snap.x.size, snap.y.size, snap.z.size)
+        if 0 in counts:
+            # A zero-point example is structurally valid, batches, and trains on nothing: refuse it
+            # here, at the corpus entry point every field consumer uses (harden-field-reader-pre-f3
+            # D5). read_field_snapshot itself keeps returning it, as specified.
+            raise ValueError(
+                f"zero-cell snapshot for config {config_id!r} step={step}: region "
+                f"lo={tuple(float(v) for v in lo_v)} hi={tuple(float(v) for v in hi_v)} "
+                f"halo={halo_v} has {counts} cells per axis; a training example needs at least "
+                f"one cell on every axis"
+            )
         return dataclasses.replace(
             snap,
             config_id=config_id,
