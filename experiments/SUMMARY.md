@@ -29,6 +29,7 @@ its folder; the surrogate recommendation is in
 | E5 | Lab-frame POD of near-wing velocity has no sharp cut-off (held-out error 16% at 64 modes, 9% at 256), but forces are linearly readable from 16 modes (R² 0.92). | `e5_pod/figures/pod_spectrum_and_error.png` | **Yes.** |
 | E5 (wing frame) | For the same fluid at full resolution, a wing-fixed frame reconstructs held-out flow about four times better than the lab frame at equal size: 4.3% against 17.8% at 64 modes. | `e5_pod/figures/pod_matched_region.png` | **Yes.** Both frames are scored on the fluid inside one wing-fixed box; a smoothing control rules out the resample as the cause. Say that the box stops at the wing tip, so the tip vortex outside it is not covered. The earlier 4× figure (`pod_lab_vs_wing_frame.png`, 30 modes against 67) compared different regions and is superseded. |
 | E6 | Stock `Mesh_Reduced` fits at most about 18k nodes on the A5000 and, at 216 latent values, reconstructs held-out flow at 16% error against 4.6% for POD. | `e6_mesh_reduced/figures/mesh_reduced_vs_pod.png` | **The memory limit: yes.** The 16% vs 4.6%: **only as "stock, untuned, one seed, 8× block-averaged"** — it is not a verdict on tuned graph encoders. |
+| E7 | A ridge model given only kinematics and phase predicts the near-wing velocity field of unseen configs to 8.1% error in the wing frame at 64 modes, against a 4.3% reconstruction floor and 19.2% for reusing the nearest training snapshot. | `e7_kin2field/figures/kin2field_error.png` | **Yes, as interpolation.** Six holdout configs inside the 3 × 3 × 3 grid, second beat only, box stops at the wing tip. The lab-frame equivalent is 24%. Report is `e7_kin2field/REPORT.md`, not a notebook. |
 
 ## Issue drafts (not filed, nothing fixed)
 
@@ -59,7 +60,7 @@ its folder; the surrogate recommendation is in
 
 ## Reproducing
 
-`uv run pytest experiments/tests -q` (46 tests). Each `report.html` regenerates from its
+`uv run pytest experiments/tests -q` (50 tests). Each `report.html` regenerates from its
 `outputs/` in a few seconds with
 `uv run --with marimo marimo export html experiments/<exp>/report.py -o experiments/<exp>/report.html`.
 The field cache (about 35 GB) and the 6-beat run folders are not in git. They are kept on the

@@ -1,0 +1,21 @@
+{
+  "written_utc": "2026-11-17T22:27:42+00:00",
+  "git_commit": "f96e7ae5025c00ec46481aaa97c374f2272282b7",
+  "git_dirty": true,
+  "inputs": {
+    "experiments\\e5_pod\\outputs\\index.parquet": "c8b7135f3798188b82c11cc841b2c7b13333a254c5330c14e2adc918fc7a6035",
+    "experiments\\e5_pod\\outputs\\gram_matched_wing.npy": "dfb9c325bcae21ce3b2a302172040d9eca8567b0064f5656f240463d09fb6ff2",
+    "experiments\\e5_pod\\outputs\\gram_matched_lab_masked.npy": "87bb26d9530493abc95bb6b68992489c5dafe2d48f2912ef3b0051e8bf3b1f33",
+    "experiments\\e5_pod\\outputs\\gram_patch_u.npy": "9e631007d6f557170eb45c746497307ba7ed72c75daed97b98c90407ae87c689"
+  },
+  "experiment": "e7_kin2field",
+  "ranks": [
+    8,
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
+  "r_select": 64
+}
