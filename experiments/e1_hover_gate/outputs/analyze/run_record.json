@@ -1,0 +1,18 @@
+{
+  "written_utc": "2026-11-17T00:23:13+00:00",
+  "git_commit": "b7220903a5f4961824cbc49e3d2efa7757c9704d",
+  "git_dirty": true,
+  "inputs": {
+    "examples\\prelim_sweep_fine\\dataset.parquet": "e248f3315eb65d1584e0d3743c29249592f2f6be89229a21114425886620037c",
+    "examples\\prelim_sweep\\dataset.parquet": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f",
+    "experiments\\e0_periodicity\\outputs\\beat_diff.parquet": "d1e8e22c9b10d183d198995dc5a3e0a4c4b9f82da27c37b57725e3f88c26c2fb"
+  },
+  "seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238
+  ],
+  "stage": "analyze"
+}
