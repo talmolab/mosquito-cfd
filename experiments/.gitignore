@@ -1,3 +1,4 @@
 _cache/
 **/outputs/*.pt
 __pycache__/
+e6_mesh_reduced/outputs/patch_ds*.npy

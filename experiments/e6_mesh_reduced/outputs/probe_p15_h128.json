@@ -1,0 +1,110 @@
+[
+  {
+    "shape": [
+      12,
+      12,
+      12
+    ],
+    "n_nodes": 1728,
+    "stride": 4,
+    "processor_size": 15,
+    "hidden": 128,
+    "n_edges": 9504,
+    "n_pivotal": 27,
+    "n_params": 4664332,
+    "ok": true,
+    "latent_shape": [
+      27,
+      3
+    ],
+    "latent_size": 81,
+    "seconds_per_step": 0.12443872995208949,
+    "peak_gib": 1.0644192695617676,
+    "loss_finite": true
+  },
+  {
+    "shape": [
+      24,
+      16,
+      12
+    ],
+    "n_nodes": 4608,
+    "stride": 4,
+    "processor_size": 15,
+    "hidden": 128,
+    "n_edges": 25920,
+    "n_pivotal": 72,
+    "n_params": 4664332,
+    "ok": true,
+    "latent_shape": [
+      72,
+      3
+    ],
+    "latent_size": 216,
+    "seconds_per_step": 0.17307647201232612,
+    "peak_gib": 2.7822012901306152,
+    "loss_finite": true
+  },
+  {
+    "shape": [
+      48,
+      32,
+      12
+    ],
+    "n_nodes": 18432,
+    "stride": 4,
+    "processor_size": 15,
+    "hidden": 128,
+    "n_edges": 105600,
+    "n_pivotal": 288,
+    "n_params": 4664332,
+    "ok": true,
+    "latent_shape": [
+      288,
+      3
+    ],
+    "latent_size": 864,
+    "seconds_per_step": 0.5471779270446859,
+    "peak_gib": 11.08650016784668,
+    "loss_finite": true
+  },
+  {
+    "shape": [
+      48,
+      32,
+      24
+    ],
+    "n_nodes": 36864,
+    "stride": 4,
+    "processor_size": 15,
+    "hidden": 128,
+    "n_edges": 214272,
+    "n_pivotal": 576,
+    "n_params": 4664332,
+    "ok": true,
+    "latent_shape": [
+      576,
+      3
+    ],
+    "latent_size": 1728,
+    "seconds_per_step": 25.55172773299273,
+    "peak_gib": 22.302353382110596,
+    "loss_finite": true
+  },
+  {
+    "shape": [
+      96,
+      64,
+      24
+    ],
+    "n_nodes": 147456,
+    "stride": 8,
+    "processor_size": 15,
+    "hidden": 128,
+    "n_edges": 864768,
+    "n_pivotal": 288,
+    "n_params": 4664332,
+    "ok": false,
+    "error": "OutOfMemoryError: CUDA out of memory. Tried to allocate 424.00 MiB. GPU 0 has a total capacity of 23.99 GiB of which 0 bytes is free. Of the allocated memory 36.90 GiB is allocated by PyTorch, and 1.26 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALL"
+  }
+]
