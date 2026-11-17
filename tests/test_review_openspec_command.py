@@ -153,9 +153,16 @@ def _collapse(text: str) -> str:
 
 
 def _has(text: str, anchor: str) -> bool:
-    """Case-insensitive, whitespace-collapsed, word-bounded (prefix-only for STEMS) match."""
-    pattern = r"(?<!\w)" + re.escape(_collapse(anchor))
-    if anchor not in STEMS:
+    """Case-insensitive, whitespace-collapsed, word-bounded (prefix-only for STEMS) match.
+
+    A boundary is enforced only at an end of the anchor that is a word character, so an anchor
+    ending in punctuation (``launched: <``) still matches when a letter follows it.
+    """
+    collapsed = _collapse(anchor)
+    pattern = re.escape(collapsed)
+    if re.match(r"\w", collapsed):
+        pattern = r"(?<!\w)" + pattern
+    if anchor not in STEMS and re.search(r"\w$", collapsed):
         pattern += r"(?!\w)"
     return re.search(pattern, _collapse(text), re.IGNORECASE) is not None
 
@@ -618,6 +625,8 @@ def test_anchor_matches_on_word_boundary():
     assert _has("reference points and normalization", "reference point")
     assert _has("Subagent 2 inherits the model", "inherit")
     assert _has("a force\n  coefficient", "force coefficient")
+    assert _has("[launched: <matched item>", "launched: <")
+    assert not _has("relaunched: <matched item>", "launched: <")
 
 
 # --- Skill-content tests (the real file) ------------------------------------------------------

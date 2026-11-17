@@ -88,7 +88,9 @@ Helpers (all headings matched at line start, never by `str.find`):
   `## Summary` lines do not end it.
 
 Matching: case-insensitive, whitespace collapsed, word-bounded (`(?<!\w)anchor(?!\w)`), so `sign`
-does not match `design` and `force` does not match `enforce`. Stem anchors (marked "(stem)" in the
+does not match `design` and `force` does not match `enforce`. A boundary is enforced only at an end
+of the anchor that is a word character, so an anchor ending in punctuation (`launched: <`) still
+matches when a letter follows it (found in the green phase of the revision). Stem anchors (marked "(stem)" in the
 spec) match as a word prefix (`(?<!\w)anchor`): `normaliz`, `reference point` (the spec prose says
 "reference points"), and the forbidden `inherit` (so "inherits"/"inheriting" are caught).
 Run-condition items are pinned as multi-word phrases (`force, moment and coefficient computation`,
