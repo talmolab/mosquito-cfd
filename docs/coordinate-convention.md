@@ -52,11 +52,25 @@ a wing-pitch angle"):
 R(t) = Rz(φ) · Ry(α) · Rx(θ)        (body-frame point → lab frame)
 ```
 
-| Angle | Rotation axis | Meaning | van Veen kinematics |
+| Angle | Rotation axis | Meaning | This project's validation waveform |
 |-------|---------------|---------|---------------------|
 | **φ** stroke | lab vertical **z** (⊥ span) | horizontal sweep — the span-tip traces a ±φ_amp arc | `φ(t) = φ_amp·sin(ωt)` |
-| **α** pitch (angle of attack) | span **y** | wing-pitch about its own span | `α(t) = α_amp·cos(ωt)` (90° lead) |
+| **α** geometric pitch | span **y** | wing-pitch about its own span | `α(t) = α_amp·cos(ωt)` (90° lead) |
 | **θ** deviation | chord **x** | out-of-stroke-plane, usually 0 | `θ(t) = θ_amp·sin(2ωt)` |
+
+**Pitch and angle of attack.** `α` in `R(t)` is the wing's **geometric pitch**. It equals van Veen's
+angle of attack only while the wing moves in the positive stroke direction. Van Veen et al. (2022,
+§2.4) use the two names for one angle because the wing in their simulations never reverses. With
+the waveform above the pitch changes sign with the stroke rate, so the angle of attack is `|α|`.
+`decompose_wing_force` derives the angle of attack for the van Veen model, through
+`van_veen_model.model_inputs`.
+
+**The waveform is not from the paper.** Van Veen et al. (2022) supply the axes and the rotation
+order used here. Each of their simulations is one stroke at a constant angle of attack; they
+prescribe no flapping waveform. The sinusoids in the table are generic validation kinematics. With
+them the wing is flat at each stroke reversal and the opposite edge leads on the return stroke,
+whereas an insect wing passes through vertical and keeps the same leading edge
+([#142](https://github.com/talmolab/mosquito-cfd/issues/142)).
 
 > **Notation note.** van Veen labels the stroke angle `γ` and the pitch angle `φ`; this repository uses
 > `φ` (stroke) and `α` (pitch). The *composition* is identical — only the letters differ. Do not

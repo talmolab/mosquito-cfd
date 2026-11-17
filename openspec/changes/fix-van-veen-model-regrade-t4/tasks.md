@@ -252,21 +252,21 @@ Any failure here: stop and ask the user. Nothing is committed.
 
 ## 4. #142 attribution relabel (`docs(kinematics)`, last commit)
 
-- [ ] 4.1 Grep `tests/` for every phrase to be relabelled (`_HEADLINE_TABLES` keys on the header
+- [x] 4.1 Grep `tests/` for every phrase to be relabelled (`_HEADLINE_TABLES` keys on the header
       "Body-frame per-component van Veen comparison"; `test_new_convention_deck_and_docs` requires
       "van veen" in the convention page).
-- [ ] 4.2 Test first: the `coordinate-convention.md` guard (phrases `geometric pitch`, `|α|`,
+- [x] 4.2 Test first: the `coordinate-convention.md` guard (phrases `geometric pitch`, `|α|`,
       `decompose_wing_force`; the kinematics table located by header, asserted found, with no
       `van Veen kinematics` column; van Veen still cited for axes and normalization), plus
       `euler_angles.__doc__`, `benchmarks/METHODS.md` and the K1 title (via `plot_k1_kinematics` into
       `tmp_path`) no longer attributing the waveform. Fails today.
-- [ ] 4.3 Relabel the places in design D12. Keep-list: every van Veen citation for the axes, rotation
+- [x] 4.3 Relabel the places in design D12. Keep-list: every van Veen citation for the axes, rotation
       order, normalization, `S_yy`, hinge and model. `inputs.3d.production` comments are relabelled
       (no test or metadata file hashes that deck; re-check before editing).
-- [ ] 4.4 Add `CreationDate: None` to K1's PDF `savefig`. Render `generate_all_figures.py` into a
+- [x] 4.4 Add `CreationDate: None` to K1's PDF `savefig`. Render `generate_all_figures.py` into a
       scratch `--output-dir`; copy back only `fig_kinematics.{png,pdf}`; a test compares the plotted
       line data with the pre-change values so only the title differs.
-- [ ] 4.5 Mutation-test 4.2.
+- [x] 4.5 Mutation-test 4.2.
 
 ## 5. Close-out
 
@@ -345,3 +345,16 @@ saying so is added to the T4 limits, with a test that asserts the peak's phase a
 
 Mutation testing: renaming the `RESULTS.md` T4 header to a shorter one left the README link
 matching as a prefix. The anchor the guard requires is the full link target, parenthesis included.
+
+### Why were three rows removed from the "Comparison with van Veen" table in `RESULTS.md`?
+
+Design D12 called for relabelling lines 535–538. Three of those rows compared this project's
+stroke amplitude, pitch amplitude and peak-lift phase with "van Veen" and marked each MATCH. The
+paper has no flapping simulation to compare them with, so the rows are deleted and one sentence
+says why. The Reynolds-number row is left as it was: it is not a waveform attribution, and its
+range was not re-checked in this change.
+
+### Why is `inputs.3d.validation` still labelled "van Veen kinematics"?
+
+Its SHA-256 is pinned by `run_metadata_t2a.json`, so editing its comment would break the provenance
+of the committed run. A test records it as the one known exception.

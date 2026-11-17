@@ -17,7 +17,7 @@ Kinematics + forces + flow for the validated **new-convention** run
 |------|-------|
 | `fig_planform` | Elliptic planform, 908 Lagrangian markers, span along **y**, chord along x (span 3c × chord 1c, 0.05c spacing). |
 | `fig_kinematics` | Prescribed Euler angles over one wingbeat: stroke `φ(t) = 70°·sin(2πt)`, pitch `α(t) = 45°·cos(2πt)` (90° phase lead). |
-| `fig_wing_phases` | Marker positions at t = 0, T/4, T/2, 3T/4 in the **x–y stroke plane** — the span-tip sweeps a ±70° arc (the van Veen translational stroke). |
+| `fig_wing_phases` | Marker positions at t = 0, T/4, T/2, 3T/4 in the **x–y stroke plane** — the span-tip sweeps a ±70° arc (a stroke about the vertical axis, van Veen's rotation order). |
 | `fig_forces` | Lab-frame force coefficients `CF_x, CF_y, CF_z` (steady window t ≥ 0.05), normalized by the van Veen `F_ref = ½ρω²S_yy = 200.27`. |
 | `fig_velocity` | Induced x-velocity, top-down z-slice at the wing/stroke plane (z = 4). Confirms real fluid coupling (induced dipole, `u ∈ [−10, +1.9]`). |
 

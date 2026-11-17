@@ -54,8 +54,8 @@ Forces `forces_t2a_newconv.csv`; provenance `run_metadata_t2a.json`.
 
 We demonstrate IAMReX's capability to simulate prescribed flapping wing kinematics
 using the new `geometry_type = 4` immersed boundary extension. A 3-chord-span
-elliptic wing follows van Veen et al. (2022) sinusoidal kinematics for one complete
-wingbeat at coarse resolution.
+elliptic wing follows generic sinusoidal validation kinematics, in the axis convention of van
+Veen et al. (2022), for one complete wingbeat at coarse resolution.
 
 **Key result**: The simulation runs stably, produces periodic aerodynamic forces, and
 completes 2000 timesteps (1 wingbeat) in under 5 minutes on a single A40 GPU.
@@ -82,7 +82,7 @@ See **fig_planform.pdf** for the marker scatter plot.
 
 ---
 
-## Kinematics (van Veen et al. 2022)
+## Kinematics (generic sinusoidal validation waveform)
 
 | Parameter | Value |
 |-----------|-------|
@@ -92,7 +92,9 @@ See **fig_planform.pdf** for the marker scatter plot.
 | Phase lead (pitch vs. stroke) | 90° |
 | Deviation amplitude | 0° |
 
-Kinematics equations (van Veen Eq. 1–2):
+Kinematics equations (this project's waveform, not from van Veen 2022, whose simulations hold
+the angle of attack constant in each stroke; see
+[#142](https://github.com/talmolab/mosquito-cfd/issues/142)):
 ```
 phi(t)   = phi_amp * sin(2*pi*f*t)     [stroke]
 alpha(t) = alpha_amp * cos(2*pi*f*t)   [pitch, 90-deg lead]
@@ -533,12 +535,13 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 
 | Quantity | Simulation (new convention) | van Veen | Status |
 |----------|-----------|---------------------|--------|
-| Stroke amplitude | 70 deg | 70 deg | MATCH |
-| Pitch amplitude | 45 deg | 45 deg | MATCH |
 | Re (midspan) | ~100 | 100–500 | MATCH |
-| Peak-lift phase | mid-stroke (t≈0.5, φ̇ max) | mid-stroke | MATCH |
 | **Body-frame CF_normal** | **2.61** | ~2.4 (T2a target) | within tol (gap +0.21) |
 | Body-frame CF_chord | 0.92 | ~0.3 (T2a target) | above target; not explained by T4 (#40) |
+
+The stroke and pitch amplitudes (70°, 45°) and the sinusoidal waveform are this project's
+validation kinematics. They are not compared with the paper here, because the paper does not
+simulate a flapping wing: each of its simulations is one stroke at a constant angle of attack.
 
 The **body-frame per-component** comparison (issue #1 / T2a) is **delivered**: `CF_normal`
 is within tolerance of its T2a target, and the peak-lift phase is now at mid-stroke
