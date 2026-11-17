@@ -1,0 +1,36 @@
+{
+  "written_utc": "2026-11-17T18:38:44+00:00",
+  "git_commit": "117cf69df8e5faf8c3fb2f7d92e749fd3ff699fa",
+  "git_dirty": true,
+  "inputs": {
+    "experiments\\e5_pod\\outputs\\index.parquet": "c8b7135f3798188b82c11cc841b2c7b13333a254c5330c14e2adc918fc7a6035"
+  },
+  "box_lo": [
+    -0.75,
+    0.0,
+    -0.875
+  ],
+  "box_hi": [
+    0.75,
+    3.0,
+    0.875
+  ],
+  "ranks": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
+  "n_train": 430,
+  "n_test": 128,
+  "wing_over_lab_energy": [
+    0.987031743312976,
+    0.9941336388635476,
+    1.0217399340447164
+  ]
+}

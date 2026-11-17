@@ -266,11 +266,94 @@ def _(FIG, HERE_WING, mo, pd, plotting, plt):
         grid, as expected. The two columns are not the same region: the wing box is smaller and
         holds only the flow next to the wing, while the fixed patch also holds the wake the wing
         has left behind. Part of the gain is therefore the easier region, not only the frame.
+        The next section removes that difference.
         """
         return FIG / "pod_lab_vs_wing_frame.png", text
 
     wing_png, wing_text = wing_frame()
     mo.vstack([mo.md(wing_text), mo.image(src=str(wing_png))])
+    return
+
+
+@app.cell
+def _(FIG, HERE_WING, mo, np, pd, plotting, plt):
+    def matched_region():
+        out = HERE_WING.parent
+        m = pd.read_parquet(out / "matched.parquet")
+        c = pd.read_parquet(out / "matched_control.parquet")
+        box = m[m.scored_on == "box"].pivot(index="r", columns="frame", values="heldout_error")
+        smooth = c[c.scored_on == "box"].set_index("r").heldout_error
+        whole = m[(m.frame == "lab_patch") & (m.scored_on == "whole patch")].set_index("r").heldout_error
+        first = m.dropna(subset=["modes_90"]).groupby("frame")[["modes_90", "modes_99"]].first().astype(int)
+        s = np.load(out / "matched_spectra.npz")
+        ratio = float(np.median(s["energy_wing"] / s["energy_lab_masked"]))
+        smooth_ratio = float(c[c.scored_on == "box"].total_energy.iloc[0] / s["box_total"].sum())
+        n_pts = int(np.load(out / "matched_shapes.npz")["n_box_points"])
+        fig, ax = plt.subplots(figsize=(7.2, 4.3))
+        ax.plot(box.index, box["lab_masked"], "^-", color=plotting.SERIES[2], label="lab frame, field cut to the box")
+        ax.plot(box.index, box["lab_patch"], "o-", color=plotting.SERIES[0], label="lab frame, whole-patch basis")
+        ax.plot(smooth.index, smooth, ":", color=plotting.INK2, lw=1.5, label="same, on a smoothed field (control)")
+        ax.plot(box.index, box["wing"], "s-", color=plotting.SERIES[1], label="wing frame")
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log")
+        ax.set_xticks(list(box.index), [str(int(r)) for r in box.index])
+        ax.set_yticks([0.01, 0.02, 0.05, 0.1, 0.2, 0.5])
+        ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:g}%")
+        ax.yaxis.set_minor_formatter(lambda v, _: "")
+        ax.set_xlabel("number of modes (latent size)")
+        ax.set_ylabel("held-out error inside the wing-fixed box")
+        ax.set_title("Same fluid, full resolution: lab frame against wing frame")
+        ax.legend(loc="lower left", fontsize=8)
+        plotting.save(fig, FIG / "pod_matched_region.png")
+        text = f"""
+        ## Follow-up 2: the same fluid in both frames, at full resolution
+
+        The comparison above mixes two things: the frame and the region. This one fixes the
+        region. A box that moves with the wing (chord ±0.75, span 0 to 3.0, normal ±0.875;
+        {n_pts:,} points at the corpus's own cell size) is described three ways, and every error
+        is counted only over the fluid inside that box:
+
+        - **Wing frame:** the field resampled onto the box, in wing axes, then POD.
+        - **Lab frame, whole-patch basis:** the E5 basis of the whole fixed patch, with its error
+          counted only over the cells inside the box.
+        - **Lab frame, field cut to the box:** POD of the lab field with every cell outside the box
+          set to zero. Exactly the same fluid and energy as the wing-frame field, in lab coordinates.
+
+        **For the same fluid, the wing frame needs about a quarter of the error at equal size, and
+        far fewer modes.**
+
+        | | wing frame | lab, whole-patch basis | lab, field cut to the box |
+        |---|---|---|---|
+        | held-out error at 16 modes | {box.loc[16, "wing"]:.1%} | {box.loc[16, "lab_patch"]:.1%} | {box.loc[16, "lab_masked"]:.1%} |
+        | held-out error at 64 modes | {box.loc[64, "wing"]:.1%} | {box.loc[64, "lab_patch"]:.1%} | {box.loc[64, "lab_masked"]:.1%} |
+        | held-out error at 256 modes | {box.loc[256, "wing"]:.1%} | {box.loc[256, "lab_patch"]:.1%} | {box.loc[256, "lab_masked"]:.1%} |
+        | modes for 90% of fluctuation energy | {first.loc["wing", "modes_90"]} | — | {first.loc["lab_masked", "modes_90"]} |
+        | modes for 99% | {first.loc["wing", "modes_99"]} | — | {first.loc["lab_masked", "modes_99"]} |
+
+        - The fair lab comparator is the whole-patch basis. Cutting the lab field to the box adds a
+          sharp edge that moves through the grid, which costs modes of its own; that column is the
+          upper end, not the typical case.
+        - **Check.** The whole-patch basis scored on the whole patch gives {whole.loc[64]:.1%} at
+          64 modes, the E5 number.
+        - **Control for the resample.** Interpolating onto the wing grid smooths the field a little
+          (the wing-frame field holds {ratio:.1%} of the lab energy in the box, median over
+          snapshots), and fine structure is what POD finds hard. So the lab basis was refitted on a
+          field averaged over each 2 × 2 × 2 group of cells, the most a trilinear resample can
+          smooth. That removes more energy ({1 - smooth_ratio:.1%}) and moves the lab error at 64
+          modes only from {box.loc[64, "lab_patch"]:.1%} to {smooth.loc[64]:.1%}. The smoothing
+          does not explain the gap.
+        - The box stops at the wing tip and is narrower than the 4× box above, because a larger box
+          leaves the cached patch at some poses. The tip vortex outside the box is not covered.
+        - Errors are relative to each description's own training mean. Relative to the total
+          energy in the box the same ordering holds (at 64 modes:
+          {m[(m.frame == "wing") & (m.r == 64)].heldout_error_vs_total.iloc[0]:.1%},
+          {m[(m.frame == "lab_patch") & (m.scored_on == "box") & (m.r == 64)].heldout_error_vs_total.iloc[0]:.1%},
+          {m[(m.frame == "lab_masked") & (m.r == 64)].heldout_error_vs_total.iloc[0]:.1%}).
+        """
+        return FIG / "pod_matched_region.png", text
+
+    matched_png, matched_text = matched_region()
+    mo.vstack([mo.md(matched_text), mo.image(src=str(matched_png))])
     return
 
 
@@ -301,8 +384,9 @@ def _(mo):
 
         ## Next step
         Compare against a nonlinear encoder at the same latent size on the same patch (E6). The
-        wing-frame result suggests any encoder should be given the wing pose, or work in wing
-        coordinates, before it is asked to compress the field. For a future corpus, a plotfile interval of 25 to 50 steps
+        matched-region wing-frame result says any encoder should be given the wing pose, or work in wing
+        coordinates, before it is asked to compress the field. A wing-fixed box that reaches past
+        the tip needs a wider cached patch than this one. For a future corpus, a plotfile interval of 25 to 50 steps
         would lift the snapshot-count cap that limits every number here.
         """
     )

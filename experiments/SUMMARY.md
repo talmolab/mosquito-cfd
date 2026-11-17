@@ -27,7 +27,7 @@ its folder; the surrogate recommendation is in
 | E3 | The MLP holds median skill 0.984 with 15 of 21 training configs; at 12 the median is 0.957 but the worst subset is 0.65; designed subsets were no better than random ones; 20 force samples per beat suffice. | `e3_data_efficiency/figures/data_efficiency.png` | **Yes** for the curve. The designed-subset comparison is small (one design each) — say "no evidence designed is better", not "random is better". |
 | E4 | A cross-validated Fourier-polynomial ridge model (3,960 coefficients) beats the MLP on holdout skill (0.9991 vs 0.987); 3 phase harmonics lift the MLP to 0.995; frequency barely matters. | `e4_ablations/figures/ablation_arms.png` | **Yes.** The ridge size was chosen inside the training configs, not on holdout. Add that it is reliable only on the full 21 configs: at 18, one of five random subsets fell to skill 0.41. |
 | E5 | Lab-frame POD of near-wing velocity has no sharp cut-off (held-out error 16% at 64 modes, 9% at 256), but forces are linearly readable from 16 modes (R² 0.92). | `e5_pod/figures/pod_spectrum_and_error.png` | **Yes.** |
-| E5 (wing frame) | In a wing-fixed frame 99% of energy needs 30 modes instead of 67. | `e5_pod/figures/pod_lab_vs_wing_frame.png` | **Indicative only.** 4× block-averaged, and the two frames cover different regions. Present as a direction, not a number. |
+| E5 (wing frame) | For the same fluid at full resolution, a wing-fixed frame reconstructs held-out flow about four times better than the lab frame at equal size: 4.3% against 17.8% at 64 modes. | `e5_pod/figures/pod_matched_region.png` | **Yes.** Both frames are scored on the fluid inside one wing-fixed box; a smoothing control rules out the resample as the cause. Say that the box stops at the wing tip, so the tip vortex outside it is not covered. The earlier 4× figure (`pod_lab_vs_wing_frame.png`, 30 modes against 67) compared different regions and is superseded. |
 | E6 | Stock `Mesh_Reduced` fits at most about 18k nodes on the A5000 and, at 216 latent values, reconstructs held-out flow at 16% error against 4.6% for POD. | `e6_mesh_reduced/figures/mesh_reduced_vs_pod.png` | **The memory limit: yes.** The 16% vs 4.6%: **only as "stock, untuned, one seed, 8× block-averaged"** — it is not a verdict on tuned graph encoders. |
 
 ## Issue drafts (not filed, nothing fixed)
@@ -59,7 +59,7 @@ its folder; the surrogate recommendation is in
 
 ## Reproducing
 
-`uv run pytest experiments/tests -q` (38 tests). Each `report.html` regenerates from its
+`uv run pytest experiments/tests -q` (46 tests). Each `report.html` regenerates from its
 `outputs/` in a few seconds with
 `uv run --with marimo marimo export html experiments/<exp>/report.py -o experiments/<exp>/report.html`.
 The field cache (`experiments/_cache/`, about 32 GB) and the 6-beat run folder are git-ignored and

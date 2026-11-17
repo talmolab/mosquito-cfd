@@ -12,8 +12,9 @@ touched are marked **untested**.
 2. The limit on hover-force accuracy is now the training data, not the model: the training beat is
    still 1–3% of peak away from settled flapping (coarse grid, one config), which is as large as
    the surrogate's error.
-3. If a flow latent is needed, start from POD, and try it in a wing-fixed frame. An indicative
-   test (smaller region, 4× block-averaged grid) needed about half the modes of lab-frame POD.
+3. If a flow latent is needed, start from POD in a wing-fixed frame. For the same fluid at full
+   resolution it reconstructs held-out flow about four times better than lab-frame POD at equal
+   size (4.3% against 17.8% at 64 modes).
 4. Stock `Mesh_Reduced` is not a good first encoder here: it trains usefully only up to about 18k
    nodes on a 24 GB GPU and, at equal latent size, reconstructed held-out flow 3.4 times worse
    than POD (stock model, untuned, one seed, 8× block-averaged patch).
@@ -65,11 +66,18 @@ step change, and should be at least 4 beats long after the change.
 - E5 follow-up: in a wing-fixed frame the same energy needs about half the modes (99% in 30
   instead of 67; held-out error at 64 modes 5.8% instead of 14.3%, on a 4× block-averaged grid and
   a smaller region). Much of the lab-frame cost is the wing moving through a fixed grid.
+- E5 follow-up 2 (2026-11-17): the comparison repeated on matched regions at full resolution.
+  Both frames describe the fluid inside one wing-fixed box (chord ±0.75, span 0 to 3.0, normal
+  ±0.875). Held-out error at 64 modes is 4.3% in the wing frame against 17.8% for the lab-frame
+  basis scored on the same fluid; 99% of the energy needs 24 modes in the wing frame against 180
+  for the lab field cut to the same box. Smoothing the lab field as hard as the wing-frame
+  resample can smooth it moves the lab error only to 17.0%, so the resample is not the cause.
+  The box stops at the wing tip; a box reaching past the tip needs a wider cached patch.
 - Not tested: a convolutional autoencoder or FNO, and any latent dynamics model.
 
-**Recommendation:** make POD the baseline latent and repeat the wing-frame comparison on matched
-regions at full resolution before committing to that frame. Any learned encoder is judged against
-POD at equal latent size on held-out configs.
+**Recommendation:** make wing-frame POD the baseline latent. Any learned encoder is judged against
+it at equal latent size on held-out configs, and should be given the wing pose or work in wing
+coordinates.
 
 ### 4. `Mesh_Reduced` — **measured: feasible only when small, and worse than POD as run**
 

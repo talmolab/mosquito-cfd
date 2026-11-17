@@ -229,8 +229,8 @@ def _(mo):
 
         ## Next step
         Do not adopt stock `Mesh_Reduced` as the F3 encoder on this evidence. Use POD as the baseline latent, preferably in the
-        wing-fixed frame (E5, indicative only: 99% of energy in 30 modes instead of 67, on a smaller
-        region and a 4× block-averaged grid), and
+        wing-fixed frame (E5 follow-up 2: for the same fluid at full resolution, 4.3% held-out error
+        at 64 modes against 17.8% in the lab frame), and
         make any neural encoder beat it at equal size before it earns a place. If a neural arm is
         wanted, a 3-D convolutional autoencoder on the wing-frame box is the cheaper experiment,
         and it can run at 4× rather than 8× block-averaging on this GPU.
