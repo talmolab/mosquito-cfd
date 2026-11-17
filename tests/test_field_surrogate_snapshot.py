@@ -1978,3 +1978,165 @@ def test_provenance_fields_trail_and_default_to_none():
     assert tuple(names[-4:]) == PROVENANCE_FIELDS
     for f in dataclasses.fields(FieldSnapshot)[-4:]:
         assert f.default is None, f.name
+
+
+# --- harden-field-reader-pre-f3 §2: pickle / copy round-trip (#151) ----------------------------
+
+_ROUND_TRIP_FIELDS = ("w", "u", "density")  # deliberately not alphabetical
+_PROVENANCE_SET = {
+    "config_id": "s35_f085_p30",
+    "step": 100,
+    "git_commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
+    "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:" + "0" * 64,
+}
+
+
+def _snapshot_arrays(snap):
+    yield from ((f"arrays[{n}]", a) for n, a in snap.arrays.items())
+    for axis in ("x", "y", "z", "dx"):
+        yield axis, getattr(snap, axis)
+
+
+def _assert_snapshot_equivalent(original, result) -> None:
+    """Every round-trip property of the snapshot contract, asserted on ``result``."""
+    from types import MappingProxyType
+
+    assert type(result.arrays) is MappingProxyType
+    assert list(result.arrays) == list(result.field_names) == list(original.field_names)
+    for (name, want), (_, got) in zip(
+        _snapshot_arrays(original), _snapshot_arrays(result), strict=True
+    ):
+        assert got.dtype == np.float64, name
+        assert got.shape == want.shape, name
+        assert got.strides == want.strides, (name, got.strides, want.strides)
+        assert got.tobytes() == want.tobytes(), name
+        assert got.flags.writeable is False, name
+        assert got.base is None, (name, type(got.base))
+    assert type(result.time) is float and result.time == original.time
+    assert type(result.max_level) is int and result.max_level == original.max_level
+    if result.step is not None:
+        assert type(result.step) is int
+    for attr in ("source", "config_id", "step", "git_commit", "docker_image"):
+        assert getattr(result, attr) == getattr(original, attr), attr
+    want_pc, got_pc = original.to_point_cloud(), result.to_point_cloud()
+    assert got_pc.field_names == want_pc.field_names
+    for attr in ("coords", "values", "cell_volume"):
+        w, g = getattr(want_pc, attr), getattr(got_pc, attr)
+        assert g.shape == w.shape and g.tobytes() == w.tobytes(), attr
+
+
+@functools.cache
+def _round_trip_snapshots():
+    import dataclasses
+
+    def read(**region):
+        return read_field_snapshot(FIXTURE, fields=_ROUND_TRIP_FIELDS, **region)
+
+    full = read(**FULL)
+    snaps = {
+        "full": full,
+        "sub_box": read(lo=(1.0, 1.2, 0.4), hi=(3.2, 4.0, 2.5)),
+        "zero_cell": read(lo=(1e9,) * 3, hi=(1e9,) * 3),
+        "x_empty": read(lo=(6.2, -np.inf, -np.inf), hi=(6.3, np.inf, np.inf)),
+        "provenance": dataclasses.replace(full, **_PROVENANCE_SET),
+        "numpy_scalars": dataclasses.replace(
+            full, time=np.float64(0.5), max_level=np.int64(0), step=np.int64(100)
+        ),
+    }
+    assert snaps["zero_cell"].arrays["u"].shape == (0, 0, 0)
+    assert snaps["x_empty"].arrays["u"].shape == (0, 6, 6)
+    return snaps
+
+
+def _via_pickle(protocol):
+    import pickle
+
+    return lambda s: pickle.loads(pickle.dumps(s, protocol=protocol))
+
+
+def _via_forking_pickler(s):
+    import pickle
+    from multiprocessing.reduction import ForkingPickler
+
+    return pickle.loads(bytes(ForkingPickler.dumps(s)))
+
+
+def _transports():
+    import copy
+    import pickle
+
+    out = {f"pickle{p}": _via_pickle(p) for p in range(2, pickle.HIGHEST_PROTOCOL + 1)}
+    out["forking_pickler"] = _via_forking_pickler
+    out["copy"] = copy.copy
+    out["deepcopy"] = copy.deepcopy
+    return out
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize(
+    "variant",
+    ["full", "sub_box", "zero_cell", "x_empty", "provenance", "numpy_scalars"],
+)
+def test_snapshot_round_trips_with_every_property(variant, transport):
+    original = _round_trip_snapshots()[variant]
+    result = _transports()[transport](original)
+    _assert_snapshot_equivalent(original, result)
+    with pytest.raises(ValueError):
+        result.arrays["u"][...] = 0.0
+    with pytest.raises(TypeError):
+        result.arrays["u"] = np.zeros(1)  # type: ignore[index]
+
+
+def test_snapshot_crosses_a_spawned_worker_process():
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import get_context
+
+    from _spawn_workers import read_fixture_snapshot
+
+    with ProcessPoolExecutor(1, mp_context=get_context("spawn")) as pool:
+        pid, result = pool.submit(
+            read_fixture_snapshot, str(FIXTURE.absolute())
+        ).result(timeout=180)
+    assert pid != os.getpid()
+    _assert_snapshot_equivalent(read_field_snapshot(FIXTURE, **FULL), result)
+
+
+def _dataloader_contexts():
+    import multiprocessing
+
+    return [
+        pytest.param(
+            m,
+            marks=pytest.mark.skipif(
+                m not in multiprocessing.get_all_start_methods(),
+                reason=f"start method {m!r} unavailable here",
+            ),
+        )
+        for m in ("spawn", "fork")
+    ]
+
+
+@pytest.mark.parametrize("collate", ["identity", "default_convert"])
+@pytest.mark.parametrize("context", _dataloader_contexts())
+def test_dataloader_workers_return_snapshots(context, collate):
+    pytest.importorskip(
+        "torch",
+        reason="torch is only in the Linux-gated `train` group; run with "
+        "`uv sync --group train` (Linux/WSL) or `uv run --with torch`",
+    )
+    from _torch_workers import SnapshotDataset, identity
+    from torch.utils.data import DataLoader
+
+    loader = DataLoader(
+        SnapshotDataset(str(FIXTURE.absolute())),
+        batch_size=None,
+        num_workers=2,
+        collate_fn=identity if collate == "identity" else None,
+        multiprocessing_context=context,
+    )
+    want = read_field_snapshot(FIXTURE, **FULL)
+    items = list(loader)
+    assert len(items) == 4
+    for item in items:
+        _assert_snapshot_equivalent(want, item)

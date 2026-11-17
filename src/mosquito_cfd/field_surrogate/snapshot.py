@@ -9,6 +9,7 @@ conversion, unwrapped from yt's ``unyt_array`` to bare FP64 numpy.
 
 from __future__ import annotations
 
+import dataclasses
 import gc
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -90,7 +91,25 @@ class FieldSnapshot:
         docker_image: Digest-pinned image reference (``<repo>@sha256:<64 hex>``) the run used,
             copied from the run's ``run_metadata.json``; ``None`` unless set by
             ``FieldCorpus.snapshot``. Never inferred or fabricated.
+
+    A snapshot survives ``pickle`` (every protocol), ``multiprocessing``'s ``ForkingPickler``,
+    ``copy.copy`` and ``copy.deepcopy``, so a ``DataLoader`` worker can return one. On receipt its
+    arrays are re-frozen and own their data again, whatever the transport did to them: protocols
+    2-4 hand large arrays back writable over the pickle's bytes, protocol 5 as views, deepcopy as
+    writable copies. Restoring that costs one extra copy of each field array on receipt. With
+    ``batch_size >= 1``, torch's ``default_collate`` cannot batch snapshots: pass a ``collate_fn``
+    or convert to arrays first.
+
+    The generated ``==`` compares numpy arrays, so it can raise on two distinct snapshots; compare
+    fields explicitly.
     """
+
+    def __reduce__(self):
+        """Pickle as a plain-dict state rebuilt by :func:`_rebuild_field_snapshot` (#151)."""
+        state = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        # MappingProxyType cannot be pickled; a plain dict in field order can.
+        state["arrays"] = {name: self.arrays[name] for name in self.arrays}
+        return _rebuild_field_snapshot, (state,)
 
     arrays: Mapping[str, np.ndarray]
     x: np.ndarray
@@ -146,6 +165,39 @@ class FieldSnapshot:
             field_names=self.field_names,
             cell_volume=cell_volume,
         )
+
+
+def _refreeze(arr: np.ndarray) -> np.ndarray:
+    """Restore the snapshot array invariant -- read-only, owning, reader's layout -- on receipt."""
+    if arr.size == 0:
+        # The reader allocates zero-size arrays with np.empty (all-zero strides); a pickle hands
+        # them back with C strides. Rebuild them the reader's way (harden-field-reader-pre-f3 D1).
+        arr = np.empty(arr.shape, dtype=np.float64)
+    elif arr.base is not None:
+        # Protocols 2-4 return large arrays over the pickle's bytes, protocol 5 as a view of its
+        # buffer: copy so the array owns its data (`base is None`, the spec's invariant).
+        arr = np.array(arr, dtype=np.float64, order="C", copy=True)
+    arr.setflags(write=False)
+    return arr
+
+
+def _rebuild_field_snapshot(state: dict) -> FieldSnapshot:
+    """Unpickle target of :meth:`FieldSnapshot.__reduce__`.
+
+    Module-level so pickle can import it. Goes through the constructor, so a field added later is
+    carried (``__reduce__`` enumerates ``dataclasses.fields``) rather than silently defaulted.
+    """
+    state = dict(state)
+    state["arrays"] = MappingProxyType(
+        {name: _refreeze(arr) for name, arr in state["arrays"].items()}
+    )
+    for axis in ("x", "y", "z", "dx"):
+        state[axis] = _refreeze(state[axis])
+    state["time"] = float(state["time"])
+    state["max_level"] = int(state["max_level"])
+    if state.get("step") is not None:
+        state["step"] = int(state["step"])
+    return FieldSnapshot(**state)
 
 
 def _validate_fields(fields: tuple[str, ...]) -> None:

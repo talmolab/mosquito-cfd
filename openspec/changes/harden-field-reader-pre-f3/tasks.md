@@ -91,7 +91,7 @@ Commit: `fix(field-surrogate): FieldSnapshot pickles and deep-copies, re-frozen 
 receipt`. Files: `snapshot.py`, `tests/test_field_surrogate_snapshot.py`, new
 `tests/_spawn_workers.py` and new `tests/_torch_workers.py`.
 
-- [ ] 2.1 **Red tests.**
+- [x] 2.1 **Red tests.**
   - **Helper `_assert_snapshot_equivalent(original, result)`.** On **`result`**, it asserts, for
     every array (`arrays[*]`, `x`, `y`, `z`, `dx`):
     - `tobytes()` and `strides` equal to the original's;
@@ -126,7 +126,7 @@ receipt`. Files: `snapshot.py`, `tests/test_field_surrogate_snapshot.py`, new
     - the `copy.copy` rows are **green on main**, which is recorded;
     - the hand-built numpy-scalar row is red on `type(time)` once pickling works. Confirm this by
       temporarily dropping `float()`.
-- [ ] 2.2 **Red test: spawn worker.**
+- [x] 2.2 **Red test: spawn worker.**
   - The worker `read_fixture_snapshot(path: str)` is in `tests/_spawn_workers.py` and returns
     `(os.getpid(), read_field_snapshot(path, full extent))`.
   - Run it with
@@ -135,7 +135,7 @@ receipt`. Files: `snapshot.py`, `tests/test_field_surrogate_snapshot.py`, new
   - Assert the child PID differs from the parent's, and compare the result with
     `_assert_snapshot_equivalent` against a parent read.
   - **Expected red:** `cannot pickle 'mappingproxy'`, carried in the future's exception.
-- [ ] 2.3 **Red test: DataLoader** (`pytest.importorskip("torch")`).
+- [x] 2.3 **Red test: DataLoader** (`pytest.importorskip("torch")`).
   - `tests/_torch_workers.py` defines a module-level `SnapshotDataset` (`__len__` 4, `__getitem__`
     reads the fixture) and a module-level `identity(x)`.
   - Parametrize `multiprocessing_context` over `"spawn"` and `"fork"`, skipping fork where
@@ -149,7 +149,7 @@ receipt`. Files: `snapshot.py`, `tests/test_field_surrogate_snapshot.py`, new
     `unset VIRTUAL_ENV; PYTHONPATH=src uv run --with torch pytest tests/test_field_surrogate_snapshot.py -k dataloader -p no:cacheprovider`.
     Paste the result in the commit body and the PR body. If torch cannot be installed here, say so
     and rely on 2.2, which goes through the same `ForkingPickler` queue.
-- [ ] 2.4 **Green.**
+- [x] 2.4 **Green.**
   - Add `FieldSnapshot.__reduce__`, whose `state` is built from `dataclasses.fields`.
   - Add `_rebuild_field_snapshot`, per D1:
     - a zero-size array becomes `np.empty(shape)`;
