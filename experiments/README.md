@@ -14,3 +14,6 @@ Exploratory experiments; nothing here is production code. Design:
 | E4 | Ablations and ridge comparator | done: a cross-validated Fourier-polynomial ridge model beats the MLP (skill 0.9991 vs 0.987) on the full grid; more phase harmonics lift the MLP to 0.995; frequency barely matters | [report](e4_ablations/report.html) |
 | E5 | POD of the velocity field | done: held-out near-wing reconstruction error is 16% at 64 modes and 9% at 256; no sharp low-rank cut-off; forces need far fewer modes (linear probe R² 0.92 at 16) | [report](e5_pod/report.html) |
 | E6 | Stock `Mesh_Reduced` vs POD | done: trains on the A5000 only up to about 18k nodes; at 216 latent values its held-out error is 16% vs 4.6% for POD (8× block-averaged patch, one seed, untuned) | [report](e6_mesh_reduced/report.html) |
+
+Start with [SUMMARY.md](SUMMARY.md) (one page, with slide-readiness per result) and
+[surrogate-recommendation.md](surrogate-recommendation.md).
