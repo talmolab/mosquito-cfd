@@ -162,7 +162,7 @@ Test and scenario names in 1.2 are the original ones; 6.1 renamed and extended t
       wording and the per-section Step 4 records are now pinned; two missing-heading guards, the
       label-in-quote rule and the missing-section branch have tests; spec anchors added for the
       fallback, always-run, background-mention and recompute clauses; stale text corrected.
-- [ ] 6.5 Re-run 4.1-4.5.
+- [x] 6.5 Re-run 4.1-4.5. Clean run at `d67719e` (nothing else touching the tree): pytest exit 0, 2004 passed, 22 skipped, 16 deselected; ruff clean; openspec valid. An earlier "1 failed" was a false failure from running the in-place mutation script concurrently with the full suite.
 - Note on 3.2: the smoke run was on the pre-revision skill (`052cdb3`), where Subagent 3 always ran.
   It does not change any `model` line, so the evidence that each subagent ran on its declared model
   carries over; Step 3's launch wording was reworded, so the carry-over covers only the declared
