@@ -1,0 +1,34 @@
+{
+  "written_utc": "2026-11-17T01:36:37+00:00",
+  "git_commit": "b125f55d2343a264e9a880582e562a3e8d329ab7",
+  "git_dirty": null,
+  "inputs": {
+    "examples/prelim_sweep_fine/dataset.parquet": "e248f3315eb65d1584e0d3743c29249592f2f6be89229a21114425886620037c"
+  },
+  "device": "cuda",
+  "seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238
+  ],
+  "arms": [
+    "baseline",
+    "drop_stroke_amp_deg",
+    "drop_frequency_fstar",
+    "drop_pitch_amp_deg",
+    "re_instead_of_fstar",
+    "harmonics_2",
+    "harmonics_3",
+    "harmonics_4",
+    "width16_depth1",
+    "width16_depth3",
+    "width16_depth5",
+    "width64_depth1",
+    "width64_depth5",
+    "width256_depth1",
+    "width256_depth3",
+    "width256_depth5"
+  ]
+}
