@@ -5,11 +5,11 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
 
 ## 1. Red phase: tests first, against `main`'s skill file
 
-- [ ] 1.1 Discard the pre-applied 5-line edit: in the worktree,
+- [x] 1.1 Discard the pre-applied 5-line edit: in the worktree,
       `git restore .claude/commands/review-openspec.md` (that one path only; never `git restore .`,
       `git checkout -- .`, `git clean` or bare `git stash`). Confirm
       `git diff --quiet -- .claude/commands/review-openspec.md`. It is re-typed in 2.1. (design D5)
-- [ ] 1.2 Write `tests/test_review_openspec_command.py` with the helpers and matching rules in
+- [x] 1.2 Write `tests/test_review_openspec_command.py` with the helpers and matching rules in
       design D4, holding the spec's anchors as module-level constants.
       Parser unit tests (synthetic markdown; each must raise `AssertionError` naming the subagent
       or anchor):
@@ -48,22 +48,22 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
       "Orchestrator Applies Launch Rules" (3.2 covers the first; the other two by text inspection
       only). "Removing an anchor fails the test" is shown by 3.1; "Test does not depend on the
       working directory" by 4.4.
-- [ ] 1.3 Run `uv run pytest tests/test_review_openspec_command.py -v`. Record per test: parser unit
+- [x] 1.3 Run `uv run pytest tests/test_review_openspec_command.py -v`. Record per test: parser unit
       tests PASS; `test_subagent_models_exact` FAILS naming a subagent (Subagent 1's missing model
       or the missing Subagent 6); `test_step3_model_pass_through`, `test_team_size_wording` and
       `test_ci_command_in_subagents_2_and_3` FAIL naming their anchor;
       `test_step3_has_no_inherit_wording` PASSES on `main` (expected; 3.1 proves it can fail);
       the Subagent 6 and Step 4 tests FAIL with "no Subagent 6 section" or the missing Step 4 anchor.
       No test may ERROR (KeyError/AttributeError/FileNotFoundError).
-- [ ] 1.4 Commit the red test (commit 2 below). Do not push.
+- [x] 1.4 Commit the red test (commit 2 below). Do not push.
 
 ## 2. Green phase: implement the skill changes
 
-- [ ] 2.1 Add `model: "sonnet"` to Subagents 1, 4, 5 and `model: "opus"` to Subagents 2, 3.
-- [ ] 2.2 Step 3: the pass-through sentence (spec "Step 3 states the pass-through rule"),
+- [x] 2.1 Add `model: "sonnet"` to Subagents 1, 4, 5 and `model: "opus"` to Subagents 2, 3.
+- [x] 2.2 Step 3: the pass-through sentence (spec "Step 3 states the pass-through rule"),
       "Launch ALL applicable subagents" wording, "single message", and "decide whether Subagent 6
       runs" before launching; no `inherit`, no `Launch ALL 5 subagents`.
-- [ ] 2.3 Add the Subagent 6 section after Subagent 5: spec block (`model: "opus"`); the three
+- [x] 2.3 Add the Subagent 6 section after Subagent 5: spec block (`model: "opus"`); the three
       labelled paragraphs outside the `> ` prompt template, each a single paragraph separated by a
       blank line; and the prompt template with the authority, flag-do-not-resolve and
       recompute/VERIFIED/CONTRADICTED/UNVERIFIABLE instructions and a `**Failure classes:**` list
@@ -72,16 +72,16 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
       other lists, which would make this list read as empty). No item may start with a bold label
       (`**Units:**`); `- **Units:** ...` is fine. No `---` line inside the section. (Spec requirements "Subagent 6
       Launch Rules Are Stated" and "Math and Physics Review Checklist"; design D3, D4.)
-- [ ] 2.4 Intro sentence wording; Step 4 BLOCKING definition adds physics/convention/units errors;
+- [x] 2.4 Intro sentence wording; Step 4 BLOCKING definition adds physics/convention/units errors;
       Risk Assessment line with its N/A value; `### 6. Math & Physics` in Review Details with the
       skipped text.
-- [ ] 2.5 Subagents 2 and 3: replace the quoted test command `pytest -v` with
+- [x] 2.5 Subagents 2 and 3: replace the quoted test command `pytest -v` with
       `uv run pytest -v -m "not gpu"`.
-- [ ] 2.6 Run `uv run pytest tests/test_review_openspec_command.py -v`: all pass.
+- [x] 2.6 Run `uv run pytest tests/test_review_openspec_command.py -v`: all pass.
 
 ## 3. Verify
 
-- [ ] 3.1 Mutation check from a scratchpad script that loops over (description, old, new) triples,
+- [x] 3.1 Mutation check from a scratchpad script that loops over (description, old, new) triples,
       saves the skill's bytes first, restores from those bytes after each mutant (not
       `git checkout`), and prints PASS/FAIL per mutant. Mutants: each of the six `model` lines
       (remove; change value), `"opus"` → `opus` (unquoted), a `model` line moved into prompt prose,
@@ -98,7 +98,7 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
       duplicated. Every mutant must fail the test. One control must PASS: the spec's checklist
       prose copied word for word (plural "reference points", "worst case rather than first case"). (`PYTHONDONTWRITEBYTECODE`
       does not apply: only the `.md` is mutated.) Paste the output into the PR description.
-- [ ] 3.2 Manual smoke run of the launch path (runtime behaviour, not machine-checkable). Expected
+- [x] 3.2 Manual smoke run of the launch path (runtime behaviour, not machine-checkable). Expected
       outcome, written down before running: six Agent calls in one assistant message; models
       1 sonnet, 2 opus, 3 opus, 4 sonnet, 5 sonnet, 6 opus; synthesis contains the
       `Numerical/physical correctness risk` line and `### 6. Math & Physics`. Procedure: from this
@@ -112,12 +112,12 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
 
 ## 4. Verification commands
 
-- [ ] 4.1 `uv run pytest -v -m "not gpu"` (full suite green)
-- [ ] 4.2 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`
-- [ ] 4.3 `uv run ruff format --check` on the same paths
-- [ ] 4.4 From `tests/`: `uv run pytest test_review_openspec_command.py` (working-directory
+- [x] 4.1 `uv run pytest -v -m "not gpu"` (full suite green)
+- [x] 4.2 `uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`
+- [x] 4.3 `uv run ruff format --check` on the same paths
+- [x] 4.4 From `tests/`: `uv run pytest test_review_openspec_command.py` (working-directory
       independence)
-- [ ] 4.5 `openspec validate update-review-openspec-reviewers --strict`
+- [x] 4.5 `openspec validate update-review-openspec-reviewers --strict`
 - Not applicable: `uv build`, hadolint and a CLI smoke test (no `src/`, Dockerfile or entry-point
   change).
 
