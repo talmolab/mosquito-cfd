@@ -254,7 +254,7 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
 
 ## 5. Zero-cell anchor and refusal (D5)
 
-- [ ] 5.1 **Anchor commit:** `test(field-surrogate): anchor read_field_snapshot's zero-cell result`.
+- [x] 5.1 **Anchor commit:** `test(field-surrogate): anchor read_field_snapshot's zero-cell result`.
   - `read_field_snapshot` on a region beyond the domain by more than `halo`, and on a point on the
     upper edge, returns `(0, …)` arrays.
   - This passes on the branch as it stands.

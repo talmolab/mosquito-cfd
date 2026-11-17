@@ -2215,3 +2215,26 @@ def test_reader_docstring_lists_the_path_errors():
     raises = read_field_snapshot.__doc__.split("Raises:", 1)[1]
     assert "FileNotFoundError" in raises
     assert "NotADirectoryError" in raises
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell anchor ------------------------------------------
+
+#: Regions with zero cells on some axis (fixture domain [0, 6)^3, dx = 1). Shared by the anchor
+#: below and by the training-entry-point refusals in the corpus and DoMINO tests.
+ZERO_CELL_REQUESTS = {
+    "beyond_domain_by_more_than_halo": (
+        {"lo": (10.0, 0.0, 0.0), "hi": (11.0, 6.0, 6.0), "halo": 1},
+        (0, 6, 6),
+    ),
+    "point_on_upper_edge": ({"lo": (6.0, 3.0, 3.0), "hi": (6.0, 3.0, 3.0)}, (0, 1, 1)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ZERO_CELL_REQUESTS))
+def test_reader_still_returns_zero_cell_snapshots(case):
+    # Anchor: read_field_snapshot keeps its specified zero-cell result; only the training-facing
+    # entry points (FieldCorpus.snapshot, to_domino_volume) refuse one.
+    region, shape = ZERO_CELL_REQUESTS[case]
+    snap = read_field_snapshot(FIXTURE, **region)
+    assert snap.arrays["u"].shape == shape
+    assert (snap.x.size, snap.y.size, snap.z.size) == shape
