@@ -54,6 +54,8 @@ def train(args) -> None:
     from physicsnemo.models.mesh_reduced.mesh_reduced import Mesh_Reduced
 
     tag = f"ds{args.down}_enc{args.encode_dim}_piv{args.pivot_stride}_p{args.processor_size}_h{args.hidden}_s{args.seed}"
+    if args.epochs != 150:
+        tag += f"_e{args.epochs}"
     idx = pd.read_parquet(E5 / "index.parquet")
     raw = np.load(OUT / f"patch_ds{args.down}.npy")
     grid = raw.shape[1:4]

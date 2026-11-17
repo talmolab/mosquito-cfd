@@ -1,0 +1,9 @@
+{
+  "written_utc": "2026-11-17T08:04:13+00:00",
+  "git_commit": "fe885110bdf05f09239372cf0a0317ab5f2d5944",
+  "git_dirty": null,
+  "inputs": {},
+  "seed": 1234,
+  "tag": "ds8_enc3_piv4_p15_h128_s1234",
+  "environment": "~/.venvs/mosquito-explore-e6: torch 2.12.1+cu126, torch_geometric 2.8.1, torch_scatter 2.1.2+pt211cu126, torch_cluster 1.6.3+pt211cu126"
+}
