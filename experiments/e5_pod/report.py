@@ -22,8 +22,9 @@ def _():
     spec = np.load(HERE / "outputs" / "spectra.npz")
     idx = pd.read_parquet(HERE / "outputs" / "index.parquet")
     FIG = HERE / "figures"
+    HERE_WING = HERE / "outputs" / "wingframe.parquet"
     NAME = {"patch_u": "near-wing patch (full resolution)", "full4_u": "whole domain (4x downsampled)"}
-    return FIG, NAME, idx, mo, np, pd, plotting, plt, res, spec
+    return FIG, HERE_WING, NAME, idx, mo, np, pd, plotting, plt, res, spec
 
 
 @app.cell
@@ -228,6 +229,53 @@ def _(mo, per_cfg):
 
 
 @app.cell
+def _(FIG, HERE_WING, mo, pd, plotting, plt):
+    def wing_frame():
+        w = pd.read_parquet(HERE_WING)
+        piv = w.pivot(index="r", columns="frame", values="heldout_error")
+        lab, wing = "lab frame, patch 4x", "wing frame, box 4x"
+        first = w.groupby("frame")[["modes_90", "modes_99"]].first()
+        fig, ax = plt.subplots(figsize=(6.2, 4))
+        ax.plot(piv.index, piv[lab], "o-", color=plotting.SERIES[0], label="lab frame (fixed patch)")
+        ax.plot(piv.index, piv[wing], "s-", color=plotting.SERIES[1], label="wing frame (box moving with the wing)")
+        ax.set_xscale("log", base=2)
+        ax.set_yscale("log")
+        ax.set_xticks(list(piv.index), [str(int(r)) for r in piv.index])
+        ax.set_yticks([0.02, 0.05, 0.1, 0.2, 0.5])
+        ax.yaxis.set_major_formatter(lambda v, _: f"{100 * v:g}%")
+        ax.set_xlabel("number of modes (latent size)")
+        ax.set_ylabel("held-out relative reconstruction error")
+        ax.set_title("Same snapshots, two frames of reference (4x downsampled)")
+        ax.legend(loc="lower left", fontsize=8)
+        plotting.save(fig, FIG / "pod_lab_vs_wing_frame.png")
+        text = f"""
+        ## Follow-up: the same POD in a wing-fixed frame
+
+        The velocity was resampled onto a box that moves with the wing (2 chords x 3.2 span x 2
+        normal, velocity expressed in wing axes) and the decomposition repeated, on the patch
+        block-averaged 4x. **Moving with the wing roughly halves the number of modes needed.**
+
+        | | lab frame (fixed patch) | wing frame (moving box) |
+        |---|---|---|
+        | modes for 90% of fluctuation energy | {int(first.loc[lab, "modes_90"])} | {int(first.loc[wing, "modes_90"])} |
+        | modes for 99% | {int(first.loc[lab, "modes_99"])} | {int(first.loc[wing, "modes_99"])} |
+        | held-out error at 16 modes | {piv.loc[16, lab]:.0%} | {piv.loc[16, wing]:.0%} |
+        | held-out error at 64 modes | {piv.loc[64, lab]:.0%} | {piv.loc[64, wing]:.1%} |
+        | held-out error at 256 modes | {piv.loc[256, lab]:.1%} | {piv.loc[256, wing]:.1%} |
+
+        So a good part of the slow decay in the lab frame is the wing sweeping through a fixed
+        grid, as expected. The two columns are not the same region: the wing box is smaller and
+        holds only the flow next to the wing, while the fixed patch also holds the wake the wing
+        has left behind. Part of the gain is therefore the easier region, not only the frame.
+        """
+        return FIG / "pod_lab_vs_wing_frame.png", text
+
+    wing_png, wing_text = wing_frame()
+    mo.vstack([mo.md(wing_text), mo.image(src=str(wing_png))])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(
         """
@@ -253,9 +301,9 @@ def _(mo):
         - Second beat only, from runs that are not yet periodic (E0).
 
         ## Next step
-        Compare against a nonlinear encoder at the same latent size on the same patch (E6), and if
-        time allows repeat this spectrum in the wing-fixed frame to separate the moving-body effect
-        from the flow's own complexity. For a future corpus, a plotfile interval of 25 to 50 steps
+        Compare against a nonlinear encoder at the same latent size on the same patch (E6). The
+        wing-frame result suggests any encoder should be given the wing pose, or work in wing
+        coordinates, before it is asked to compress the field. For a future corpus, a plotfile interval of 25 to 50 steps
         would lift the snapshot-count cap that limits every number here.
         """
     )
