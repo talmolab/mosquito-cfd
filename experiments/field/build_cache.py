@@ -11,6 +11,7 @@ import shutil
 import time
 from pathlib import Path
 
+from experiments.common.data import CORPUS_DIR
 from experiments.field import cache
 from experiments.field.probe import CORPUS_ROOT
 from experiments.field.provenance import DT, ProvenanceError, check_plotfile
@@ -28,7 +29,9 @@ def main() -> int:
     ap.add_argument("--root", type=Path, default=cache.CACHE_ROOT)
     args = ap.parse_args()
     args.root.mkdir(parents=True, exist_ok=True)
-    corpus = FieldCorpus(CORPUS_ROOT)
+    # The manifest copy on Z: lists 26 configs (s55_f115_p30 is absent, a leftover of a trimmed
+    # resubmission); the committed manifest lists all 27, so that one addresses the runs.
+    corpus = FieldCorpus(CORPUS_ROOT, manifest=CORPUS_DIR["fine"] / "sweep_manifest.json")
     fail_path = args.root / f"failures_worker{args.worker}.json"
     failures: list[dict] = []
     configs = [c for i, c in enumerate(corpus.config_ids()) if i % args.n_workers == args.worker]

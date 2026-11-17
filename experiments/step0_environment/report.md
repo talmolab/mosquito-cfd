@@ -57,3 +57,16 @@ About 3.5 GPU-hours in total, inside the 10-hour budget.
   `wing.vertex` and the kinematics match them to round-off at `t - 2 dt` and to 0.02 length units
   (under one cell) at `t`. The wing-frame POD variant is therefore possible. The exact two-step lag
   is written up in `experiments/issue-drafts/plotfile-markers-lag-header-time-by-two-steps.md`.
+
+## Field cache: final state (2026-11-16)
+
+- **558 snapshots cached, all 27 configs, second beat only** (24, 20 and 18 per config for
+  f* = 0.85, 1.0 and 1.15). Every one passed the provenance check. About 16 GB locally.
+- **Each run's final plotfile is excluded.** For the f* = 0.85 group it sits at the deck's
+  `stop_time`, not at step x 5e-4 (the solver shortens its last step), so the time test refused it
+  and stopped the cache. The test was left as strict as it was and the final plotfile (start of a
+  third beat) is simply not cached.
+- **The manifest copy on `Z:` lists 26 configs**; `s55_f115_p30` is missing from it although its run
+  directory is complete. The cache uses the committed 27-config manifest. Written up in
+  `experiments/issue-drafts/cluster-manifest-copy-lists-26-configs.md`.
+- The first beat is not cached.
