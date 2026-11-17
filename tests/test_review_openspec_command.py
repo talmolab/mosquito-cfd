@@ -514,6 +514,12 @@ def test_parser_rejects_colonless_extra_heading():
         check_models(_doc(*_six(), extra))
 
 
+def test_parser_rejects_extra_spec_block():
+    extra = '#### Extra reviewer\n\n```\nsubagent_type: "general-purpose"\n```\n'
+    with pytest.raises(AssertionError, match="expected 6 subagent_type lines, found 7"):
+        check_models(_doc(*_six(), extra))
+
+
 def test_parser_rejects_section_after_step4():
     text = _doc(*_six(skip=6), step4=_subagent(6))
     with pytest.raises(AssertionError, match="Subagent 6: section is after"):
