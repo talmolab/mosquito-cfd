@@ -121,13 +121,44 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
 - Not applicable: `uv build`, hadolint and a CLI smoke test (no `src/`, Dockerfile or entry-point
   change).
 
+## 6. Revision after the pre-PR `/review-pr` self-review (do before section 5)
+
+The self-review found 1 BLOCKING and 12 IMPORTANT issues; all are fixed here (proposal
+"Deviations"). Follow-ups #161, #162, #163 filed.
+
+- [ ] 6.1 Red: extend `tests/test_review_openspec_command.py` with the new spec anchors (Step 1,
+      Step 2, Step 3 fallback, Subagent 3 launch rules, the extended Subagent 6 run condition,
+      authority and failure classes, Step 4 severity/recording) and the missing parser tests:
+      `test_last_section_does_not_swallow_step4` fixed (label only in Step 4),
+      `test_subagent_anchor_not_satisfied_by_next_subagent`, `test_parser_rejects_out_of_order`,
+      `test_parser_rejects_missing_subagent`, `test_parser_rejects_seventh_subagent`,
+      `test_parser_rejects_colonless_extra_heading`, `test_parser_rejects_section_after_step4`,
+      `test_rule_line_ends_section`, `test_missing_step_heading_is_assertion`,
+      `test_missing_skill_file_is_assertion` (monkeypatched path), `test_undecodable_skill_is_assertion`.
+      Use `check_step3` from the tests and split the Step 3 constants (pass-through vs team size).
+      Run against the current skill: every new content test fails naming its anchor; parser tests
+      pass; nothing errors. Commit red, do not push.
+- [ ] 6.2 Green: edit the skill for every requirement change (authority, frames, CFL realized dt,
+      new failure classes, run-condition additions and decision inputs, Subagent 3 launch rules,
+      Step 1/2/3 additions, Step 4 severity mapping, `Reviewers:` and `launched:` recording, intro
+      and Step 3 wording, the "Then\nLaunch" capitalization). Test file green.
+- [ ] 6.3 Extend the 3.1 mutation script to every new anchor and parser branch; every mutant
+      killed, control passes, file restored and hash verified.
+- [ ] 6.4 Targeted re-review (TDD + spec quality reviewers) of the revision; reconcile findings.
+- [ ] 6.5 Re-run 4.1-4.5.
+- Note on 3.2: the smoke run was on the pre-revision skill (`052cdb3`). Its evidence (one launching
+  message, models as declared, each subagent ran on its model) carries over: the revision does not
+  change any `model` line or the single-message launch. Not re-run (cost); the conditional
+  Subagent 3 path is checked by text only.
+
 ## 5. PR and post-merge
 
 - [ ] 5.1 Push, open the PR, run `/pre-merge-check` (no Copilot step). PR body: summary,
       motivation ("the physics/convention failures in #108, #109 and #92 were outside every
-      existing reviewer lens"), red-phase evidence (1.3), mutation output (3.1), smoke run (3.2),
-      verification (4.x), "Follow-up: #157, #158", rollback note (`git revert` of the squash
-      commit). Never use closing keywords or negated forms of them near an issue number.
+      existing reviewer lens"), red-phase evidence (1.3, 6.1), mutation output (3.1, 6.3), smoke
+      run (3.2), self-review findings and fixes (6), verification (4.x), "Follow-up: #157, #158,
+      #161, #162, #163", rollback note (`git revert` of the squash commit). Never use closing
+      keywords or negated forms of them near an issue number.
 - [ ] 5.2 After merge, confirm with `gh pr view <N> --json state,mergeCommit`.
 - [ ] 5.3 From the main checkout: `git worktree remove .claude/worktrees/update-review-openspec-reviewers`.
 - [ ] 5.4 `git branch -D update-review-openspec-reviewers` (`-D` because squash-merged branches

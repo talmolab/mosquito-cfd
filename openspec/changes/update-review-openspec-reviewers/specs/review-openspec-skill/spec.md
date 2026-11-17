@@ -3,11 +3,12 @@
 ### Requirement: Explicit Subagent Model Assignment
 
 `.claude/commands/review-openspec.md` SHALL define exactly Subagents 1-6, in that order, all before
-`## Step 4`. Each subagent's spec block SHALL declare an explicit, quoted `model` field: Subagent 1
-(Spec Quality), Subagent 4 (Documentation) and Subagent 5 (Git Workflow) SHALL use
-`model: "sonnet"`; Subagent 2 (TDD & Testing), Subagent 3 (CI/CD & Build) and Subagent 6 (Math,
-Physics & Numerical Correctness) SHALL use `model: "opus"`. No subagent SHALL rely on inheriting
-the session model.
+`## Step 4`, each starting with a heading of the form `### Subagent N: Name`; the file SHALL contain
+exactly six `subagent_type:` lines. Each subagent's spec block SHALL declare an explicit, quoted
+`model` field: Subagent 1 (Spec Quality), Subagent 4 (Documentation) and Subagent 5 (Git Workflow)
+SHALL use `model: "sonnet"`; Subagent 2 (TDD & Testing), Subagent 3 (CI/CD & Build) and Subagent 6
+(Math, Physics & Numerical Correctness) SHALL use `model: "opus"`. No subagent SHALL rely on
+inheriting the session model.
 
 #### Scenario: Rule-checklist reviewers use Sonnet
 
@@ -22,73 +23,111 @@ the session model.
 #### Scenario: Subagent set drifts
 
 - **WHEN** a subagent section is missing, duplicated, out of order, placed after `## Step 4`, or a
-  seventh is added, or a spec block has no `model` line, an unquoted model, or two `model` lines
-- **THEN** the structural test fails with an `AssertionError` naming the subagent
+  seventh is added (with or without the colon heading form), or a spec block has no `model` line,
+  an unquoted model, or two `model` lines
+- **THEN** the structural test fails with an `AssertionError` naming the subagent or the count
 
 ### Requirement: Model Pass-Through Instruction
 
 Step 3 of `/review-openspec` SHALL instruct the orchestrator to pass each subagent's `model` field
-to the Agent tool exactly as given, and SHALL NOT describe any subagent as inheriting the main
-model. Only the presence of the instruction is machine-checked; the orchestrator's compliance is
-checked by the manual smoke run.
+to the Agent tool exactly as given, SHALL say what to do if the Agent tool rejects a model value
+(relaunch with the closest available model and record it; never drop the field), and SHALL NOT
+describe any subagent as inheriting the main model. Only the presence of the instructions is
+machine-checked; the orchestrator's compliance is checked by the manual smoke run.
 
-#### Scenario: Step 3 states the pass-through rule
+#### Scenario: Step 3 states the pass-through and fallback rules
 
 - **WHEN** Step 3's text before the first `### Subagent` heading is read
 - **THEN** it contains ``Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it.``
+  and `If the Agent tool rejects a model value`
 - **AND** it does not contain `inherit` (stem; also matches inherits, inherited, inheriting)
 
-### Requirement: Subagent 6 Launch Rules Are Stated
+### Requirement: Proposal Inputs Are Defined
 
-The Subagent 6 section SHALL contain, outside its `> ` prompt template, three labelled paragraphs,
-each starting with its bold label:
+Step 1 SHALL say what to do when the change id is archived (review it read-only from
+`openspec/changes/archive/`) or not found (stop and show `openspec list`). Step 2 SHALL define every
+template placeholder, including the value to embed when a change has no `design.md` or modifies no
+existing spec.
 
-- `**Run condition:**` lists solver decks, geometry, kinematics, force, moment and coefficient
-  computation, frames, units, timestep and grid settings, surrogate training and evaluation
-  metrics, and any convention document, scientific claim, figure, or quoted physical or statistical
-  value (force coefficient, R², timestep, grid size, seed count).
-- `**If unclear:**` says to launch Subagent 6.
-- `**When skipped:**` gives the exact text `skipped: no numerics or scientific claims touched`.
+#### Scenario: Archived and unknown change ids are handled
 
-The intro SHALL describe the team as five subagents plus a conditional sixth. Step 3 SHALL say to
-launch all applicable subagents in a single message after deciding whether Subagent 6 runs, and
-SHALL NOT say `Launch ALL 5 subagents`.
+- **WHEN** Step 1 (from `## Step 1` to `## Step 2`) is read
+- **THEN** it contains `openspec/changes/archive/` and `stop and show`
 
-#### Scenario: Launch rules are present in their labelled paragraphs
+#### Scenario: Placeholders and their fallbacks are defined
+
+- **WHEN** Step 2 (from `## Step 2` to `## Step 3`) is read
+- **THEN** it contains `{DESIGN_MD}`, `(no design.md in this change)`, `{CURRENT_SPECS}` and
+  `(new capability)`
+
+### Requirement: Conditional Reviewer Launch Rules Are Stated
+
+Subagent 3 and Subagent 6 SHALL each contain, outside their `> ` prompt template, three labelled
+paragraphs, each starting with its bold label: `**Run condition:**`, `**If unclear:**` and
+`**When skipped:**`. Subagents 1, 2, 4 and 5 SHALL always run.
+
+- Subagent 3's run condition lists CI workflows, Dockerfiles, `build-args.env`, dependencies, the
+  lockfile and packaging. If unclear, launch Subagent 3. When skipped, the text is
+  `skipped: no CI, Docker, dependency or packaging change`.
+- Subagent 6's run condition says to decide from the proposal's files, says that issue or PR
+  numbers, file or test counts and tooling or usage percentages never count, and lists solver decks,
+  geometry, kinematics, force, moment and coefficient computation, frames, units, timestep and grid
+  settings, surrogate training and evaluation metrics, force and field extraction and corpus
+  pipelines, parsing, resampling or interpolation of solver output, any tolerance, threshold or
+  acceptance gate on these quantities, and any convention document, scientific claim, figure, or
+  quoted physical or statistical value. If unclear, launch Subagent 6. When skipped, the text is
+  `skipped: no numerics or scientific claims touched`.
+
+The intro SHALL describe the team as up to six subagents. Step 3 SHALL say to decide whether
+Subagents 3 and 6 run, then launch all applicable subagents in a single message, and SHALL NOT say
+`Launch ALL 5 subagents`.
+
+#### Scenario: Subagent 3 launch rules are present
+
+- **WHEN** the Subagent 3 section is read
+- **THEN** its `**Run condition:**` paragraph contains `CI workflows`, `Dockerfiles`,
+  `build-args.env`, `dependencies`, `lockfile` and `packaging`
+- **AND** its `**If unclear:**` paragraph contains `launch Subagent 3`
+- **AND** its `**When skipped:**` paragraph contains
+  `skipped: no CI, Docker, dependency or packaging change`
+
+#### Scenario: Subagent 6 launch rules are present
 
 - **WHEN** the Subagent 6 section is read
-- **THEN** the `**Run condition:**` paragraph contains `solver decks`, `geometry`, `kinematics`,
-  `force, moment and coefficient computation`, `frames`, `units`, `timestep and grid settings`,
-  `surrogate`, `metrics`, `convention document`, `scientific claim`, `figure` and
-  `quoted physical or statistical value` (multi-word phrases, so the example list after
-  `quoted physical or statistical value` cannot stand in for a deleted item)
-- **AND** the `**If unclear:**` paragraph contains `launch Subagent 6`
-- **AND** the `**When skipped:**` paragraph contains `skipped: no numerics or scientific claims touched`
+- **THEN** its `**Run condition:**` paragraph contains `Decide from`, `never count`,
+  `solver decks`, `geometry`, `kinematics`, `force, moment and coefficient computation`, `frames`,
+  `units`, `timestep and grid settings`, `surrogate`, `metrics`,
+  `extraction and corpus pipelines`, `parsing, resampling or interpolation of solver output`,
+  `tolerance, threshold or acceptance gate`, `convention document`, `scientific claim`, `figure`
+  and `quoted physical or statistical value`
+- **AND** its `**If unclear:**` paragraph contains `launch Subagent 6`
+- **AND** its `**When skipped:**` paragraph contains `skipped: no numerics or scientific claims touched`
 - **AND** deleting any one paragraph fails the test even when the same words remain elsewhere in
   the file, including in an adjacent labelled paragraph
 
 #### Scenario: Team size wording is updated
 
 - **WHEN** the intro (text before `## Step 1`) and Step 3 are read
-- **THEN** the intro contains `plus a conditional 6th` and not
+- **THEN** the intro contains `up to 6 specialized subagents` and not
   `launches **5 specialized subagents in parallel**`
 - **AND** Step 3 contains `Launch ALL applicable subagents`, `single message` and
-  `decide whether Subagent 6 runs`, and not `Launch ALL 5 subagents`
+  `decide whether Subagents 3 and 6 run`, and not `Launch ALL 5 subagents`
 
 ### Requirement: Orchestrator Applies Launch Rules
 
-When running `/review-openspec`, the orchestrator SHALL launch Subagent 6 in the same parallel
-batch as Subagents 1-5 when the run condition holds or is unclear, and SHALL otherwise skip it and
-report the skip. This is runtime behaviour of the orchestrating model and is not machine-verifiable.
-The physics-change scenario is checked once by the manual smoke run (task 3.2); the other two
-scenarios are checked only by inspecting the skill text.
+When running `/review-openspec`, the orchestrator SHALL launch each conditional subagent in the
+same parallel batch as the always-run subagents when its run condition holds or is unclear, and
+SHALL otherwise skip it and report the skip. This is runtime behaviour of the orchestrating model
+and is not machine-verifiable. The physics-change scenario was checked once by the manual smoke run
+(task 3.2, on the pre-revision skill); the other scenarios are checked only by inspecting the skill
+text.
 
 #### Scenario: Physics change launches Subagent 6
 
 - **WHEN** `/review-openspec` reviews a change to how a force coefficient's sign or normalization is
   defined
-- **THEN** Subagent 6 is launched in the same message as Subagents 1-5, each with its declared
-  `model`
+- **THEN** Subagent 6 is launched in the same message as the always-run subagents, each with its
+  declared `model`
 
 #### Scenario: Convention-document change launches Subagent 6
 
@@ -96,55 +135,64 @@ scenarios are checked only by inspecting the skill text.
   or R² claim
 - **THEN** Subagent 6 is launched
 
-#### Scenario: Out-of-scope change skips Subagent 6 visibly
+#### Scenario: Out-of-scope change skips a conditional subagent visibly
 
-- **WHEN** a proposal touches none of the run condition items (for example it changes only
-  `.claude/commands/`, `.github/workflows/` or lint configuration, with no solver deck, timestep,
-  grid, surrogate, metric, convention document, scientific claim, figure, or quoted physical or
-  statistical value)
-- **THEN** Subagent 6 is not launched
-- **AND** the synthesized review's Risk Assessment line reads `N/A (Subagent 6 skipped: <reason>)`
-  and its `### 6. Math & Physics` section reads
-  `skipped: no numerics or scientific claims touched` with a one-line reason
+- **WHEN** a proposal touches none of Subagent 6's run condition items, or none of Subagent 3's
+- **THEN** that subagent is not launched
+- **AND** the synthesized review reports the skip with the subagent's skip text and a one-line reason
 
 ### Requirement: Math and Physics Review Checklist
 
-Subagent 6's prompt template SHALL name `docs/coordinate-convention.md` as the authority for axes,
-reference point, sign and normalization, and SHALL tell the reviewer to flag, not resolve,
-disagreement between the proposal, that page and the source paper. It SHALL tell the reviewer to
-recompute every constant, reference point, sign, timestep or seed count the proposal relies on from
-its source and report each as `VERIFIED / CONTRADICTED / UNVERIFIABLE`. Within the prompt template,
-a list starting with `**Failure classes:**` SHALL name: sign and frame conventions, reference
-points and normalization, units, CFL-limited timestep, worst case rather than first case
-validation, variance across at least 5 seeds, and known-answer tests.
+Subagent 6's prompt template SHALL name `openspec/specs/coordinate-convention/spec.md` and
+`openspec/specs/force-surrogate/spec.md` as the normative authority (including the definition
+`ω_peak = 2π·f_star·radians(phi_amp_deg)` for F_ref) and `docs/coordinate-convention.md` as
+narrative only; SHALL tell the reviewer to confirm the code implements what those pages say, and to
+flag, not resolve, disagreement between the proposal, the pages, the code and the source paper. It
+SHALL tell the reviewer to recompute every constant, reference point, sign, timestep or seed count
+the proposal relies on from its source and report each as `VERIFIED / CONTRADICTED / UNVERIFIABLE`,
+and SHALL receive the current specs being modified. Within the prompt template, a list starting
+with `**Failure classes:**` SHALL name: sign and frame conventions (there is no insect-body frame;
+forces in the wing frame and moments in the lab frame by design), reference points and
+normalization, units (deg vs rad), CFL-limited timestep (the realized dt), domain size and boundary
+conditions, time window and sampling, worst case rather than first case validation, variance across
+at least 5 seeds, known-answer tests, and like-for-like comparisons.
 
 #### Scenario: Authority and method are stated
 
 - **WHEN** Subagent 6's prompt template (its `> ` lines) is read
-- **THEN** it contains `docs/coordinate-convention.md`, `flag, do not resolve`, `recompute` and
-  `VERIFIED / CONTRADICTED / UNVERIFIABLE`
+- **THEN** it contains `openspec/specs/coordinate-convention/spec.md`,
+  `openspec/specs/force-surrogate/spec.md`, `radians(phi_amp_deg)`,
+  `docs/coordinate-convention.md`, `confirm the code implements`, `flag, do not resolve`,
+  `recompute`, `VERIFIED / CONTRADICTED / UNVERIFIABLE` and `{CURRENT_SPECS}`
 
 #### Scenario: Failure-class list covers each past failure class
 
 - **WHEN** the `**Failure classes:**` list in Subagent 6's prompt template is read
-- **THEN** it contains `sign and frame`, `reference point` (stem), `normaliz` (stem), `units`, `CFL`,
-  `worst case`, `5 seeds` and `known-answer`
+- **THEN** it contains `sign and frame`, `no insect-body frame`, `reference point` (stem),
+  `normaliz` (stem), `units`, `deg vs rad`, `CFL`, `realized dt`, `boundary conditions`,
+  `time window`, `worst case`, `5 seeds`, `known-answer` and `like-for-like`
 - **AND** deleting any one list item fails the test even though the authority sentence also
   mentions reference point, sign and normalization
 
-### Requirement: Synthesis Covers Subagent 6
+### Requirement: Synthesis Covers Conditional Reviewers
 
-The Step 4 synthesis instructions SHALL list physics/convention/units errors as BLOCKING. The Step 4
-template SHALL include a `Numerical/physical correctness risk: LOW/MEDIUM/HIGH` line with the
-skipped value `N/A (Subagent 6 skipped: <reason>)`, and a `### 6. Math & Physics` section with the
-skipped text `skipped: no numerics or scientific claims touched`.
+The Step 4 synthesis instructions SHALL list physics/convention/units errors as BLOCKING and SHALL
+map Subagent 6's verdicts to severities: a CONTRADICTED value the proposal relies on, with evidence,
+is BLOCKING; UNVERIFIABLE values, and disagreements the proposal does not rely on, are IMPORTANT; a
+divergence documented as deliberate in the authority pages is not an error. The Step 4 template
+SHALL record which model ran each lens and whether each conditional subagent ran (with the reason)
+or was skipped (with its skip text), and SHALL include a
+`Numerical/physical correctness risk: LOW/MEDIUM/HIGH` line with the skipped value
+`N/A (Subagent 6 skipped: <reason>)` and a `### 6. Math & Physics` section.
 
-#### Scenario: Step 4 includes the Subagent 6 outputs
+#### Scenario: Step 4 includes the conditional-reviewer outputs
 
 - **WHEN** Step 4 (from the line `## Step 4` to the line `## Step 5`) is read
-- **THEN** it contains `physics/convention/units errors`,
+- **THEN** it contains `physics/convention/units errors`, `a CONTRADICTED value`,
+  `UNVERIFIABLE values`, `documented as deliberate`, `Reviewers: 1 sonnet`, `launched: <`,
   `Numerical/physical correctness risk: LOW/MEDIUM/HIGH`, `N/A (Subagent 6 skipped: <reason>)`,
-  `### 6. Math & Physics` and `skipped: no numerics or scientific claims touched`
+  `### 6. Math & Physics`, `skipped: no numerics or scientific claims touched` and
+  `skipped: no CI, Docker, dependency or packaging change`
 
 ### Requirement: Accurate CI Command in Reviewer Prompts
 
@@ -160,17 +208,25 @@ test command, `uv run pytest -v -m "not gpu"`.
 
 The text requirements above SHALL be checked by `tests/test_review_openspec_command.py`, which runs
 in the existing CI `pytest` job without a GPU, network or Docker and reads the skill as UTF-8 from a
-path resolved relative to the test file. Each anchor SHALL be searched only within its section:
-a subagent section ends at the next `### Subagent` heading, a `---` line or a `## ` heading; a
-labelled paragraph or list ends at the next blank line or the next line that starts with a bold
-label (`**Label:**`). Anchors SHALL match case-insensitively, after collapsing whitespace, on word
-boundaries; only anchors marked (stem) match as a word prefix.
+path resolved relative to the test file; a missing or undecodable file SHALL fail with an
+`AssertionError` naming the path. Each anchor SHALL be searched only within its section: a subagent
+section ends at the next `### Subagent` heading, a `---` line or a `## ` heading; a labelled
+paragraph or list ends at the next blank line or the next line that starts with a bold label
+(`**Label:**`). Anchors SHALL match case-insensitively, after collapsing whitespace, on word
+boundaries; only anchors marked (stem) match as a word prefix. Every parser branch (section order,
+count, placement after `## Step 4`, the `---` terminator, missing headings, missing file) SHALL have
+a committed synthetic test.
 
 #### Scenario: Removing an anchor fails the test
 
 - **WHEN** any anchor named in this specification is removed or altered in its section
 - **THEN** `uv run pytest tests/test_review_openspec_command.py` fails with an `AssertionError`
   naming the subagent or anchor that is missing or wrong
+
+#### Scenario: Section bounding is tested in CI
+
+- **WHEN** a subagent's anchor appears only in the next subagent's section or only in Step 4
+- **THEN** the committed synthetic tests report it missing from its own section
 
 #### Scenario: An anchor inside a longer word does not count
 

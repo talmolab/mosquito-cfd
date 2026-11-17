@@ -24,6 +24,13 @@ Sonnet for lenses that check a proposal against written rules: spec format (1), 
 fail: TDD gaps (2), CI/build failure modes (3), math/physics (6). The synthesis step catches a
 wrong Sonnet finding, not a missing one; the residual risk is a missed finding (see Risks).
 
+Subagent 3 is conditional (added after the pre-PR self-review; see proposal "Why a conditional
+Subagent 3"): it runs only when CI workflows, Dockerfiles, `build-args.env`, dependencies, the
+lockfile or packaging are touched, or when that is unclear. Whether new tests can run in CI stays
+with Subagent 2 (its CI-feasibility check). Relative cost per review, with Sonnet at half the Opus
+per-token price and equal tokens per agent (old skill = 5.0): tooling-only proposal 1.5 + 1 = 2.5 to
+3.5; typical physics proposal (no CI change) 2 Opus + 3 Sonnet = 3.5; physics plus CI change 4.5.
+
 ### D3: Subagent 6 is conditional, fail-safe toward running
 
 The run condition covers numerics **and** convention documents, scientific claims, figures and
@@ -34,10 +41,16 @@ would erase the saving. When unclear, Subagent 6 runs. The orchestrator decides 
 parallel launch (Step 3). A skip is visible twice in the synthesis (Risk line and section 6), so a
 wrong skip is visible at the user's approval checkpoint.
 
-Subagent 6's authority for axes, reference point, sign and normalization is
-`docs/coordinate-convention.md` (sourced to van Veen et al. 2022, JFM 936 A3), not the paper
-directly; the paper has known traps (its figure 1f reads opposite to §2.2). Disagreements between
-proposal, page and paper are flagged, not resolved by the reviewer.
+Subagent 6's normative authority is `openspec/specs/coordinate-convention/spec.md` and
+`openspec/specs/force-surrogate/spec.md` (which defines `ω_peak = 2π·f_star·radians(phi_amp_deg)`
+for F_ref); `docs/coordinate-convention.md` is narrative only, because it uses ω for two quantities
+(#161) and has been wrong before (#108). All are sourced to van Veen et al. 2022 (JFM 936 A3); the
+paper itself has known traps (its figure 1f reads opposite to §2.2). The reviewer confirms the code
+implements what the pages say, and flags, not resolves, disagreements between proposal, pages, code
+and paper. The run condition also names how the decision is made (from proposal.md, design.md, the
+delta specs and tasks.md; mentioning a value as background does not count; issue/PR numbers, file or
+test counts and tooling or usage percentages never count), so two runs on one proposal decide the
+same way.
 
 ### D4: Structural test with bounded sections
 
@@ -47,7 +60,9 @@ test holds them as module-level constants. This section describes only how they 
 `tests/test_review_openspec_command.py` reads the skill from
 `Path(__file__).resolve().parents[1] / ".claude" / "commands" / "review-openspec.md"` with
 `encoding="utf-8"` (Windows' default cp1252 decodes the em dashes into wrong characters without
-raising). A missing file raises `AssertionError` naming the path.
+raising). A missing or undecodable file raises `AssertionError` naming the path. Besides the
+`### Subagent N:` split, a loose count (`^#{2,4}\s*Subagent\s+\d+` headings and `subagent_type:`
+lines must each number exactly six) catches a seventh subagent whose heading lacks the colon.
 
 Helpers (all headings matched at line start, never by `str.find`):
 
@@ -67,6 +82,7 @@ Helpers (all headings matched at line start, never by `str.find`):
   end a list. Applied to the section (outside the quote) for the three launch-rule paragraphs, and
   to `_prompt_template` output for `**Failure classes:**`.
 - `_intro(text)`: start of file to `^## Step 1`.
+- `_step1(text)`, `_step2(text)`: `^## Step 1` to `^## Step 2`, and `^## Step 2` to `^## Step 3`.
 - `_step3_preamble(text)`: `^## Step 3` up to the first `^### Subagent`.
 - `_step4(text)`: `^## Step 4` up to `^## Step 5`. The fenced template's `## Verdict` and
   `## Summary` lines do not end it.
@@ -90,6 +106,17 @@ whole-template search would let a deleted checklist item go unnoticed.
 The 5-line Sonnet edit applied before this proposal is discarded (task 1.1) and re-typed in the
 green phase, so the red phase runs against `main`'s file. The test is committed red, separately,
 and never pushed without the green commit (repo precedent: "Red until the next commit").
+
+### D6: Severity mapping and recording (added after the pre-PR self-review)
+
+Step 4 maps Subagent 6's verdicts: a CONTRADICTED value the proposal relies on, with file:line or
+arithmetic evidence, is BLOCKING; UNVERIFIABLE values, and disagreements between sources the
+proposal does not rely on, are IMPORTANT; a divergence documented as deliberate in the authority
+pages (e.g. forces in the wing frame, moments in the lab frame) is not an error. Without this, the
+new BLOCKING category "physics/convention/units errors" would turn every UNVERIFIABLE item into a
+blocker. The template also records which model ran each lens (`Reviewers: 1 sonnet, ...`) and, for
+each conditional subagent, `launched: <matched run-condition item, or unclear>` or its skip text,
+so #157 can later judge whether the Sonnet lenses and the run conditions are working.
 
 ## Risks
 
