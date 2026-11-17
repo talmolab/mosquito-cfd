@@ -29,7 +29,12 @@ LOCAL = HERE.parent / "_cache" / "e7"
 R = 64
 # The corpus configs are gentler than the 70-degree T3c run the video defaults were tuned on.
 Q_LEVEL, VORT_RANGE = 50.0, (10.0, 90.0)
-PANELS = (("truth", "CFD"), ("recon", f"rebuilt from {R} numbers"), ("pred", "predicted from kinematics"))
+ERR_MAX = 0.20  # top of the error colour scale, as a share of the reference speed (peak speed at the radius of gyration)
+LAYOUTS = {
+    "three": (("truth", "CFD"), ("recon", f"rebuilt from {R} numbers"), ("pred", "predicted from kinematics")),
+    "diff": (("truth", "CFD"), ("pred", "predicted from kinematics"),
+             ("diff", "CFD vortex surface, coloured by prediction error")),
+}
 
 
 class _Rows:
@@ -85,7 +90,7 @@ def _setup(config: str):
     return kin, wing, _draw_wing_scene, _euler_angles
 
 
-def _draw(axes, fields, shape, rows, i, kin, wing, draw_wing, euler, limits):
+def _draw(axes, panels, fields, shape, rows, i, kin, wing, draw_wing, euler, limits):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     from mosquito_cfd.visualization.flow_video import _VIEW_AZIM, _VIEW_ELEV, render_lev_frame
@@ -93,11 +98,14 @@ def _draw(axes, fields, shape, rows, i, kin, wing, draw_wing, euler, limits):
 
     row = rows.iloc[i]
     rot = _rot(row)
-    for ax, (key, title) in zip(axes, PANELS):
+    for ax, (key, title) in zip(axes, panels):
         ax.clear()
-        f = fields[key][i].reshape(shape).astype(np.float64)
-        fr = render_lev_frame(f[..., 0], f[..., 1], f[..., 2], DX, q_threshold=Q_LEVEL,
-                              vort_vmin=VORT_RANGE[0], vort_vmax=VORT_RANGE[1])
+        if key == "diff":
+            fr = _error_surface(fields["pred"][i], fields["truth"][i], shape, float(row.u_ref))
+        else:
+            f = fields[key][i].reshape(shape).astype(np.float64)
+            fr = render_lev_frame(f[..., 0], f[..., 1], f[..., 2], DX, q_threshold=Q_LEVEL,
+                                  vort_vmin=VORT_RANGE[0], vort_vmax=VORT_RANGE[1])
         if fr is not None:
             xi = fr["triangles"] + (np.asarray(BOX_LO) + DX / 2)
             ax.add_collection3d(Poly3DCollection(HINGE + xi @ rot.T, facecolors=fr["facecolors"], edgecolor="none", zorder=1))
@@ -109,10 +117,32 @@ def _draw(axes, fields, shape, rows, i, kin, wing, draw_wing, euler, limits):
         ax.set_title(title, fontsize=13)
         ax.view_init(elev=_VIEW_ELEV, azim=_VIEW_AZIM)
         ax.set_xlim(*limits[0]); ax.set_ylim(*limits[1]); ax.set_zlim(*limits[2])
-        ax.set_box_aspect([b - a for a, b in limits])
+        ax.set_box_aspect([b - a for a, b in limits], zoom=0.82)
+        ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+        ax.set_xticks(np.arange(2, 7)); ax.set_yticks(np.arange(1, 4)); ax.set_zticks([3, 4, 5])
 
 
-def render(config: str, *, frame: int | None, fps: int) -> None:
+def _error_surface(pred, truth, shape, u_ref):
+    """The CFD field's Q surface, coloured by the size of the velocity error there (share of ``u_ref``)."""
+    from scipy.ndimage import map_coordinates
+    from skimage import measure
+
+    import matplotlib
+
+    SEQ = matplotlib.colormaps["YlOrRd"]
+    from mosquito_cfd.benchmarks.lev import q_criterion
+
+    f = truth.reshape(shape).astype(np.float64)
+    q = q_criterion(f[..., 0], f[..., 1], f[..., 2], DX)
+    if not (q.min() < Q_LEVEL < q.max()):
+        return None
+    verts, faces, _, _ = measure.marching_cubes(q, level=Q_LEVEL)
+    err = np.linalg.norm(pred.reshape(shape).astype(np.float64) - f, axis=-1) / u_ref
+    at_faces = map_coordinates(err, verts.T, order=1, mode="nearest")[faces].mean(axis=1)
+    return {"triangles": (verts * DX)[faces], "facecolors": SEQ(np.clip(at_faces / ERR_MAX, 0.0, 1.0))}
+
+
+def render(config: str, *, frame: int | None, fps: int, layout: str = "three") -> None:
     import imageio_ffmpeg
     import matplotlib
 
@@ -123,24 +153,40 @@ def render(config: str, *, frame: int | None, fps: int) -> None:
 
     d = np.load(LOCAL / f"{config}.npz")
     shape, rows = tuple(d["shape"]), pd.read_parquet(LOCAL / f"{config}.parquet")
-    fields = {k: d[k] for k, _ in PANELS}
+    panels = LAYOUTS[layout]
+    fields = {k: d[k] for k in ("truth", "recon", "pred")}
     kin, wing, draw_wing, euler = _setup(config)
     limits = [(HINGE[0] - 2.6, HINGE[0] + 2.6), (HINGE[1] - 0.4, HINGE[1] + 3.2), (HINGE[2] - 1.5, HINGE[2] + 1.5)]
     fig = plt.figure(figsize=(18, 6.6), facecolor="white")
-    axes = [fig.add_axes([0.005 + 0.333 * k, 0.0, 0.325, 0.9], projection="3d") for k in range(3)]
+    axes = [fig.add_axes([0.005 + 0.333 * k, 0.09, 0.325, 0.80], projection="3d") for k in range(3)]
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+
+    cax = fig.add_axes([0.05, 0.075, 0.22, 0.022])
+    cb = fig.colorbar(ScalarMappable(Normalize(*VORT_RANGE), "plasma"), cax=cax, orientation="horizontal")
+    cb.set_label("surface colour: vorticity magnitude (solver units)", fontsize=11)
+    key = (f"Surface: Q = {Q_LEVEL:g}, where rotation outweighs strain (a vortex).   Black line: wing outline.   Dot: hinge."
+           + ("\nRight panel: the CFD surface again, coloured by how far the predicted velocity is from the CFD's."
+              if layout == "diff" else ""))
+    fig.text(0.29, 0.07, key, fontsize=11, va="center", ha="left", linespacing=1.6)
+    if layout == "diff":
+        SEQ = matplotlib.colormaps["YlOrRd"]
+        eax = fig.add_axes([0.77, 0.075, 0.20, 0.022])
+        eb = fig.colorbar(ScalarMappable(Normalize(0, 100 * ERR_MAX), SEQ), cax=eax, orientation="horizontal", extend="max")
+        eb.set_label("right panel: velocity error (% of reference wing speed)", fontsize=11)
 
     def draw(i):
-        _draw(axes, fields, shape, rows, i, kin, wing, draw_wing, euler, limits)
+        _draw(axes, panels, fields, shape, rows, i, kin, wing, draw_wing, euler, limits)
         fig.suptitle(f"{config} (held out), phase {rows.phase.iloc[i]:.2f} of beat 2: vortex surface (Q criterion) "
-                     "inside the wing-fixed box", fontsize=14)
+                     "inside the wing-fixed box", fontsize=14, y=0.985)
 
     (HERE / "figures").mkdir(exist_ok=True)
     if frame is not None:
         draw(frame)
-        fig.savefig(HERE / "figures" / f"{config}_lev3d_frame{frame:02d}.png", dpi=110)
+        fig.savefig(HERE / "figures" / f"{config}_{layout}_lev3d_frame{frame:02d}.png", dpi=110)
     else:
         anim = FuncAnimation(fig, draw, frames=len(rows), interval=int(1000 / fps))
-        anim.save(HERE / "figures" / f"{config}_cfd_rebuilt_predicted_flow_lev-3d.mp4", writer=FFMpegWriter(fps=fps, bitrate=4000), dpi=110)
+        anim.save(HERE / "figures" / f"{config}_{layout}_flow_lev-3d.mp4", writer=FFMpegWriter(fps=fps, bitrate=4000), dpi=110)
     plt.close(fig)
 
 
@@ -149,9 +195,10 @@ if __name__ == "__main__":
     ap.add_argument("--stage", required=True, choices=("decode", "still", "movie"))
     ap.add_argument("--config", default="s45_f100_p60")
     ap.add_argument("--frame", type=int, default=5)
-    ap.add_argument("--fps", type=int, default=4)
+    ap.add_argument("--fps", type=int, default=2)
+    ap.add_argument("--layout", default="three", choices=tuple(LAYOUTS))
     a = ap.parse_args()
     if a.stage == "decode":
         decode(a.config)
     else:
-        render(a.config, frame=a.frame if a.stage == "still" else None, fps=a.fps)
+        render(a.config, frame=a.frame if a.stage == "still" else None, fps=a.fps, layout=a.layout)
