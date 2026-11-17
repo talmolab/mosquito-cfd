@@ -2,9 +2,9 @@
 ``update-review-openspec-reviewers``, capability ``review-openspec-skill``).
 
 ``.claude/commands/review-openspec.md`` is a prompt, not code, so nothing else notices when a
-subagent's ``model`` line, Subagent 6's launch rules, or the synthesis template drift. This test
-pins the text contract from the spec. It cannot check what the orchestrating model does at runtime
-(that is the manual smoke run in the change's tasks.md).
+subagent's ``model`` line, the conditional subagents' launch rules, or the synthesis template drift.
+This test pins the text contract from the spec. It cannot check what the orchestrating model does
+at runtime (that is the manual smoke run in the change's tasks.md).
 
 Every anchor is searched only inside its own bounded section (design D4), matched
 case-insensitively, whitespace-collapsed and on word boundaries, so text elsewhere in the file can
@@ -16,6 +16,7 @@ or anchor, never ``KeyError``/``IndexError``/``AttributeError`` (convention of
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,15 +39,25 @@ EXPECTED_MODELS = {
 # Stem anchors match as a word prefix; every other anchor is word-bounded on both sides.
 STEMS = frozenset({"normaliz", "reference point", "inherit"})
 
-INTRO_REQUIRED = ("plus a conditional 6th",)
+INTRO_REQUIRED = ("up to 6 specialized subagents",)
 INTRO_FORBIDDEN = ("launches **5 specialized subagents in parallel**",)
 
-STEP3_PASS_THROUGH = "Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it."
-STEP3_REQUIRED = (
-    STEP3_PASS_THROUGH,
+STEP1_REQUIRED = ("openspec/changes/archive/", "stop and show")
+STEP2_REQUIRED = (
+    "{DESIGN_MD}",
+    "(no design.md in this change)",
+    "{CURRENT_SPECS}",
+    "(new capability)",
+)
+
+STEP3_PASS_THROUGH = (
+    "Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it.",
+    "If the Agent tool rejects a model value",
+)
+STEP3_TEAM_SIZE = (
     "Launch ALL applicable subagents",
     "single message",
-    "decide whether Subagent 6 runs",
+    "decide whether Subagents 3 and 6 run",
 )
 STEP3_FORBIDDEN_INHERIT = "inherit"
 STEP3_FORBIDDEN_OLD_COUNT = "Launch ALL 5 subagents"
@@ -56,7 +67,20 @@ IF_UNCLEAR_LABEL = "**If unclear:**"
 WHEN_SKIPPED_LABEL = "**When skipped:**"
 FAILURE_CLASSES_LABEL = "**Failure classes:**"
 
-RUN_CONDITION = (
+S3_RUN_CONDITION = (
+    "CI workflows",
+    "Dockerfiles",
+    "build-args.env",
+    "dependencies",
+    "lockfile",
+    "packaging",
+)
+S3_IF_UNCLEAR = ("launch Subagent 3",)
+S3_SKIP_TEXT = "skipped: no CI, Docker, dependency or packaging change"
+
+S6_RUN_CONDITION = (
+    "Decide from",
+    "never count",
     "solver decks",
     "geometry",
     "kinematics",
@@ -66,37 +90,57 @@ RUN_CONDITION = (
     "timestep and grid settings",
     "surrogate",
     "metrics",
+    "extraction and corpus pipelines",
+    "parsing, resampling or interpolation of solver output",
+    "tolerance, threshold or acceptance gate",
     "convention document",
     "scientific claim",
     "figure",
     "quoted physical or statistical value",
 )
-IF_UNCLEAR = ("launch Subagent 6",)
-SKIP_TEXT = "skipped: no numerics or scientific claims touched"
+S6_IF_UNCLEAR = ("launch Subagent 6",)
+S6_SKIP_TEXT = "skipped: no numerics or scientific claims touched"
 
 AUTHORITY_AND_METHOD = (
+    "openspec/specs/coordinate-convention/spec.md",
+    "openspec/specs/force-surrogate/spec.md",
+    "radians(phi_amp_deg)",
     "docs/coordinate-convention.md",
+    "confirm the code implements",
     "flag, do not resolve",
     "recompute",
     "VERIFIED / CONTRADICTED / UNVERIFIABLE",
+    "{CURRENT_SPECS}",
 )
 FAILURE_CLASSES = (
     "sign and frame",
+    "no insect-body frame",
     "reference point",
     "normaliz",
     "units",
+    "deg vs rad",
     "CFL",
+    "realized dt",
+    "boundary conditions",
+    "time window",
     "worst case",
     "5 seeds",
     "known-answer",
+    "like-for-like",
 )
 
 STEP4_REQUIRED = (
     "physics/convention/units errors",
+    "a CONTRADICTED value",
+    "UNVERIFIABLE values",
+    "documented as deliberate",
+    "Reviewers: 1 sonnet",
+    "launched: <",
     "Numerical/physical correctness risk: LOW/MEDIUM/HIGH",
     "N/A (Subagent 6 skipped: <reason>)",
     "### 6. Math & Physics",
-    SKIP_TEXT,
+    S6_SKIP_TEXT,
+    S3_SKIP_TEXT,
 )
 
 CI_COMMAND = 'uv run pytest -v -m "not gpu"'
@@ -130,22 +174,28 @@ def _forbid(text: str, anchor: str, where: str) -> None:
 # --- Section helpers (design D4) --------------------------------------------------------------
 
 _SUBAGENT_HEADING = re.compile(r"^### Subagent (\d+):", re.MULTILINE)
-_SECTION_END = re.compile(r"^(?:### Subagent \d+:|---[ \t]*$|## )", re.MULTILINE)
+_LOOSE_SUBAGENT_HEADING = re.compile(r"^#{2,4}\s*Subagent\s+\d+", re.MULTILINE)
+_SUBAGENT_TYPE_LINE = re.compile(r"^subagent_type:", re.MULTILINE)
+_SECTION_END = re.compile(r"^(?:### Subagent\b|---[ \t]*$|## )", re.MULTILINE)
 _FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.MULTILINE | re.DOTALL)
 _SPEC_LINE = re.compile(r'(\w+): "([^"]*)"')
 _BOLD_LABEL_LINE = re.compile(r"^\*\*[^*]+:\*\*")
 
 
 def _read_skill() -> str:
-    if not SKILL.is_file():
-        raise AssertionError(f"skill file missing: {SKILL}")
-    return SKILL.read_text(encoding="utf-8")
+    path = SKILL
+    if not path.is_file():
+        raise AssertionError(f"skill file missing: {path}")
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise AssertionError(f"skill file is not UTF-8: {path} ({exc})") from None
 
 
 def _subagent_sections(text: str) -> list[tuple[int, int, str]]:
     """Return ``(number, heading offset, section text)`` in file order.
 
-    A section ends at the next ``### Subagent N:`` heading, a ``---`` line, or a ``## `` heading,
+    A section ends at the next ``### Subagent`` heading, a ``---`` line, or a ``## `` heading,
     so the last subagent never absorbs Step 4.
     """
     sections: list[tuple[int, int, str]] = []
@@ -171,7 +221,7 @@ def _section(text: str, number: int) -> str:
 def _spec_block(number: int, section: str) -> dict[str, str]:
     fence = _FENCE.search(section)
     if fence is None:
-        raise AssertionError(f"Subagent {number}: no fenced spec block")
+        raise AssertionError(f"Subagent {number}: no closed fenced spec block")
     body = fence.group(1)
     if "subagent_type:" not in body:
         raise AssertionError(
@@ -244,6 +294,14 @@ def _intro(text: str) -> str:
     return text[: match.start()]
 
 
+def _step1(text: str) -> str:
+    return _between(text, r"^## Step 1", r"^## Step 2", "Step 1")
+
+
+def _step2(text: str) -> str:
+    return _between(text, r"^## Step 2", r"^## Step 3", "Step 2")
+
+
 def _step3_preamble(text: str) -> str:
     return _between(text, r"^## Step 3", r"^### Subagent", "Step 3")
 
@@ -267,6 +325,12 @@ def check_models(text: str) -> None:
     numbers = [number for number, _, _ in sections]
     if numbers != sorted(EXPECTED_MODELS):
         raise AssertionError(f"expected Subagents 1-6 in order, found {numbers}")
+    headings = len(_LOOSE_SUBAGENT_HEADING.findall(text))
+    if headings != len(EXPECTED_MODELS):
+        raise AssertionError(f"expected 6 subagent headings, found {headings}")
+    type_lines = len(_SUBAGENT_TYPE_LINE.findall(text))
+    if type_lines != len(EXPECTED_MODELS):
+        raise AssertionError(f"expected 6 subagent_type lines, found {type_lines}")
     step4 = re.search(r"^## Step 4", text, re.MULTILINE)
     if step4 is None:
         raise AssertionError("'## Step 4' heading not found")
@@ -275,33 +339,56 @@ def check_models(text: str) -> None:
             raise AssertionError(f"Subagent {number}: section is after '## Step 4'")
 
 
-def check_step3(text: str) -> None:
-    preamble = _step3_preamble(text)
-    _require(preamble, STEP3_REQUIRED, "Step 3")
-    _forbid(preamble, STEP3_FORBIDDEN_INHERIT, "Step 3")
-    _forbid(preamble, STEP3_FORBIDDEN_OLD_COUNT, "Step 3")
+def check_step1(text: str) -> None:
+    _require(_step1(text), STEP1_REQUIRED, "Step 1")
 
 
-def check_intro(text: str) -> None:
+def check_step2(text: str) -> None:
+    _require(_step2(text), STEP2_REQUIRED, "Step 2")
+
+
+def check_step3_pass_through(text: str) -> None:
+    _require(_step3_preamble(text), STEP3_PASS_THROUGH, "Step 3")
+
+
+def check_step3_no_inherit(text: str) -> None:
+    _forbid(_step3_preamble(text), STEP3_FORBIDDEN_INHERIT, "Step 3")
+
+
+def check_team_size(text: str) -> None:
     intro = _intro(text)
     _require(intro, INTRO_REQUIRED, "intro")
     for anchor in INTRO_FORBIDDEN:
         _forbid(intro, anchor, "intro")
+    preamble = _step3_preamble(text)
+    _require(preamble, STEP3_TEAM_SIZE, "Step 3")
+    _forbid(preamble, STEP3_FORBIDDEN_OLD_COUNT, "Step 3")
 
 
-def check_run_condition(text: str) -> None:
-    block = _labelled_block(_section(text, 6), RUN_CONDITION_LABEL, "Subagent 6")
-    _require(block, RUN_CONDITION, f"Subagent 6 {RUN_CONDITION_LABEL}")
+def check_launch_rules(
+    text: str,
+    number: int,
+    run: tuple[str, ...],
+    unclear: tuple[str, ...],
+    skip: str,
+) -> None:
+    section = _section(text, number)
+    where = f"Subagent {number}"
+    for label, anchors in (
+        (RUN_CONDITION_LABEL, run),
+        (IF_UNCLEAR_LABEL, unclear),
+        (WHEN_SKIPPED_LABEL, (skip,)),
+    ):
+        block = _labelled_block(section, label, where)
+        _require(block, anchors, f"{where} {label}")
 
 
-def check_if_unclear(text: str) -> None:
-    block = _labelled_block(_section(text, 6), IF_UNCLEAR_LABEL, "Subagent 6")
-    _require(block, IF_UNCLEAR, f"Subagent 6 {IF_UNCLEAR_LABEL}")
+def check_subagent3_launch_rules(text: str) -> None:
+    check_launch_rules(text, 3, S3_RUN_CONDITION, S3_IF_UNCLEAR, S3_SKIP_TEXT)
 
 
-def check_when_skipped(text: str) -> None:
-    block = _labelled_block(_section(text, 6), WHEN_SKIPPED_LABEL, "Subagent 6")
-    _require(block, (SKIP_TEXT,), f"Subagent 6 {WHEN_SKIPPED_LABEL}")
+def check_subagent6_launch_rules(text: str) -> None:
+    check_launch_rules(text, 6, S6_RUN_CONDITION, S6_IF_UNCLEAR, S6_SKIP_TEXT)
 
 
 def check_authority_and_method(text: str) -> None:
@@ -329,7 +416,15 @@ def check_ci_command(text: str) -> None:
 # --- Synthetic documents for the parser unit tests --------------------------------------------
 
 
-def _subagent(number: int, spec: str, body: str = "> Prompt.") -> str:
+def _spec(number: int) -> str:
+    return (
+        f'subagent_type: "general-purpose"\nmodel: "{EXPECTED_MODELS[number]}"\n'
+        f'description: "x"'
+    )
+
+
+def _subagent(number: int, spec: str | None = None, body: str = "> Prompt.") -> str:
+    spec = _spec(number) if spec is None else spec
     return f"### Subagent {number}: Name\n\n```\n{spec}\n```\n\n{body}\n"
 
 
@@ -337,13 +432,19 @@ def _doc(
     *sections: str, before_step4: str = "---\n\n", step4: str = "Template."
 ) -> str:
     return (
-        "# Title\n\n## Step 1: One\n\n## Step 3: Launch\n\n"
+        "# Title\n\n## Step 1: One\n\n## Step 2: Two\n\n## Step 3: Launch\n\n"
         + "\n".join(sections)
         + f"\n{before_step4}## Step 4: Synthesize\n\n{step4}\n\n## Step 5: Present\n"
     )
 
 
-_SPEC_OK = 'subagent_type: "general-purpose"\nmodel: "opus"\ndescription: "x"'
+def _six(
+    *, skip: int | None = None, order: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
+) -> list[str]:
+    return [_subagent(n) for n in order if n != skip]
+
+
+_SPEC_OK = _spec(6)
 
 # --- Parser unit tests ------------------------------------------------------------------------
 
@@ -353,18 +454,63 @@ _SPEC_OK = 'subagent_type: "general-purpose"\nmodel: "opus"\ndescription: "x"'
 )
 def test_last_section_does_not_swallow_step4(before_step4):
     text = _doc(
-        _subagent(6, _SPEC_OK, f"{WHEN_SKIPPED_LABEL} nothing here."),
+        _subagent(6, body="> No labels in this section."),
         before_step4=before_step4,
-        step4=f"### 6. Math & Physics\n{SKIP_TEXT}",
+        step4=f"{WHEN_SKIPPED_LABEL} {S6_SKIP_TEXT}",
     )
-    with pytest.raises(AssertionError, match="Subagent 6"):
-        check_when_skipped(text)
+    with pytest.raises(
+        AssertionError, match=r"Subagent 6: no \*\*When skipped:\*\* block"
+    ):
+        _labelled_block(_section(text, 6), WHEN_SKIPPED_LABEL, "Subagent 6")
+
+
+def test_subagent_anchor_not_satisfied_by_next_subagent():
+    text = _doc(
+        _subagent(2, body="> No command here."), _subagent(3, body=f"> {CI_COMMAND}")
+    )
+    with pytest.raises(AssertionError, match="Subagent 2: missing anchor"):
+        check_ci_command(text)
+
+
+def test_rule_line_ends_section():
+    body = f"> Prompt.\n---\n{WHEN_SKIPPED_LABEL} {S6_SKIP_TEXT}"
+    text = _doc(_subagent(6, body=body))
+    with pytest.raises(AssertionError, match=r"no \*\*When skipped:\*\* block"):
+        _labelled_block(_section(text, 6), WHEN_SKIPPED_LABEL, "Subagent 6")
 
 
 def test_parser_rejects_duplicate_subagent_number():
-    text = _doc(_subagent(6, _SPEC_OK), _subagent(6, _SPEC_OK))
+    text = _doc(_subagent(6), _subagent(6))
     with pytest.raises(AssertionError, match="Subagent 6: duplicate"):
         _subagent_sections(text)
+
+
+def test_parser_rejects_out_of_order():
+    with pytest.raises(AssertionError, match=r"in order, found \[1, 2, 3, 5, 4, 6\]"):
+        check_models(_doc(*_six(order=(1, 2, 3, 5, 4, 6))))
+
+
+def test_parser_rejects_missing_subagent():
+    with pytest.raises(AssertionError, match=r"in order, found \[1, 2, 3, 5, 6\]"):
+        check_models(_doc(*_six(skip=4)))
+
+
+def test_parser_rejects_seventh_subagent():
+    seventh = _subagent(7, 'subagent_type: "general-purpose"\nmodel: "haiku"')
+    with pytest.raises(AssertionError, match=r"found \[1, 2, 3, 4, 5, 6, 7\]"):
+        check_models(_doc(*_six(), seventh))
+
+
+def test_parser_rejects_colonless_extra_heading():
+    extra = '### Subagent 7 - Extra\n\n```\nsubagent_type: "general-purpose"\n```\n'
+    with pytest.raises(AssertionError, match="expected 6 subagent headings, found 7"):
+        check_models(_doc(*_six(), extra))
+
+
+def test_parser_rejects_section_after_step4():
+    text = _doc(*_six(skip=6), step4=_subagent(6))
+    with pytest.raises(AssertionError, match="Subagent 6: section is after"):
+        check_models(text)
 
 
 def test_parser_rejects_missing_model():
@@ -387,13 +533,13 @@ def test_parser_rejects_unquoted_model():
 
 def test_parser_rejects_section_without_fence():
     text = _doc("### Subagent 1: Name\n\nNo spec block.\n")
-    with pytest.raises(AssertionError, match="Subagent 1: no fenced spec block"):
+    with pytest.raises(AssertionError, match="Subagent 1: no closed fenced spec block"):
         check_models(text)
 
 
 def test_parser_requires_spec_block_first():
     section = (
-        '### Subagent 1: Name\n\n```\nexample: "x"\n```\n\n```\n' + _SPEC_OK + "\n```\n"
+        '### Subagent 1: Name\n\n```\nexample: "x"\n```\n\n```\n' + _spec(1) + "\n```\n"
     )
     with pytest.raises(AssertionError, match="Subagent 1: first fenced block"):
         check_models(_doc(section))
@@ -406,12 +552,42 @@ def test_parser_ignores_model_outside_fence():
         check_models(text)
 
 
+@pytest.mark.parametrize(
+    ("helper", "text", "message"),
+    [
+        (_intro, "# Title\n\nNo steps.\n", "'## Step 1' heading not found"),
+        (_step4, "## Step 4: Synthesize\n\nNo step 5.\n", "end heading"),
+        (_step3_preamble, "## Step 3: Launch\n\nNo subagents.\n", "end heading"),
+    ],
+    ids=["no-step1", "no-step5", "no-subagent-after-step3"],
+)
+def test_missing_step_heading_is_assertion(helper, text, message):
+    with pytest.raises(AssertionError, match=message):
+        helper(text)
+
+
+def test_missing_skill_file_is_assertion(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys.modules[__name__], "SKILL", tmp_path / "missing.md")
+    with pytest.raises(AssertionError, match="skill file missing"):
+        _read_skill()
+
+
+def test_undecodable_skill_is_assertion(monkeypatch, tmp_path):
+    path = tmp_path / "bad.md"
+    path.write_bytes(b"\xff\xfe\xfa not utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "SKILL", path)
+    with pytest.raises(AssertionError, match="not UTF-8"):
+        _read_skill()
+
+
 def test_labelled_block_ends_at_blank_line():
-    text = _doc(
-        _subagent(6, _SPEC_OK, f"{IF_UNCLEAR_LABEL} decide.\n\nlaunch Subagent 6")
-    )
+    text = _doc(_subagent(6, body=f"{IF_UNCLEAR_LABEL} decide.\n\nlaunch Subagent 6"))
     with pytest.raises(AssertionError, match="launch Subagent 6"):
-        check_if_unclear(text)
+        _require(
+            _labelled_block(_section(text, 6), IF_UNCLEAR_LABEL, "Subagent 6"),
+            S6_IF_UNCLEAR,
+            "Subagent 6",
+        )
 
 
 def test_labelled_paragraphs_do_not_merge():
@@ -420,14 +596,19 @@ def test_labelled_paragraphs_do_not_merge():
         f"{IF_UNCLEAR_LABEL} decide.\n"
         f"{WHEN_SKIPPED_LABEL} launch Subagent 6"
     )
+    text = _doc(_subagent(6, body=body))
     with pytest.raises(AssertionError, match="launch Subagent 6"):
-        check_if_unclear(_doc(_subagent(6, _SPEC_OK, body)))
+        _require(
+            _labelled_block(_section(text, 6), IF_UNCLEAR_LABEL, "Subagent 6"),
+            S6_IF_UNCLEAR,
+            "Subagent 6",
+        )
 
 
 def test_prompt_template_keeps_quoted_paragraphs_apart():
     body = f"> {FAILURE_CLASSES_LABEL}\n>\n> - sign and frame conventions"
     with pytest.raises(AssertionError, match="sign and frame"):
-        check_failure_classes(_doc(_subagent(6, _SPEC_OK, body)))
+        check_failure_classes(_doc(_subagent(6, body=body)))
 
 
 def test_anchor_matches_on_word_boundary():
@@ -451,29 +632,32 @@ def test_subagent_models_exact(skill):
     check_models(skill)
 
 
+def test_step1_handles_archived_and_unknown_ids(skill):
+    check_step1(skill)
+
+
+def test_step2_defines_placeholders(skill):
+    check_step2(skill)
+
+
 def test_step3_model_pass_through(skill):
-    _require(_step3_preamble(skill), STEP3_REQUIRED, "Step 3")
+    check_step3_pass_through(skill)
 
 
 def test_step3_has_no_inherit_wording(skill):
-    _forbid(_step3_preamble(skill), STEP3_FORBIDDEN_INHERIT, "Step 3")
+    check_step3_no_inherit(skill)
 
 
 def test_team_size_wording(skill):
-    check_intro(skill)
-    _forbid(_step3_preamble(skill), STEP3_FORBIDDEN_OLD_COUNT, "Step 3")
+    check_team_size(skill)
 
 
-def test_subagent6_run_condition(skill):
-    check_run_condition(skill)
+def test_subagent3_launch_rules(skill):
+    check_subagent3_launch_rules(skill)
 
 
-def test_subagent6_if_unclear(skill):
-    check_if_unclear(skill)
-
-
-def test_subagent6_when_skipped(skill):
-    check_when_skipped(skill)
+def test_subagent6_launch_rules(skill):
+    check_subagent6_launch_rules(skill)
 
 
 def test_subagent6_authority_and_method(skill):
@@ -484,7 +668,7 @@ def test_subagent6_failure_classes(skill):
     check_failure_classes(skill)
 
 
-def test_step4_covers_subagent6(skill):
+def test_step4_covers_conditional_reviewers(skill):
     check_step4(skill)
 
 
