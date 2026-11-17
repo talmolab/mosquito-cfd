@@ -1,0 +1,10 @@
+{
+  "written_utc": "2026-11-17T00:47:21+00:00",
+  "git_commit": "46d4a2f3115df7f20e902e68c20e74c7e2a2343b",
+  "git_dirty": true,
+  "inputs": {
+    "examples\\prelim_sweep_fine\\dataset.parquet": "e248f3315eb65d1584e0d3743c29249592f2f6be89229a21114425886620037c",
+    "examples\\prelim_sweep\\dataset.parquet": "19ccd40124fc191bb2f1deab8d1b7a2f9aa1f6151682d63758aea70b0567632f"
+  },
+  "stage": "analyze"
+}

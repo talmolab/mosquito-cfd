@@ -1,0 +1,18 @@
+{
+  "written_utc": "2026-11-17T00:47:04+00:00",
+  "git_commit": "fb8e728df14316692710f50b22157e5fff6a98ce",
+  "git_dirty": null,
+  "inputs": {
+    "examples/prelim_sweep_fine/dataset.parquet": "e248f3315eb65d1584e0d3743c29249592f2f6be89229a21114425886620037c"
+  },
+  "seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238
+  ],
+  "device": "cuda",
+  "stage": "train",
+  "design": "leave-one-config-out; validation = carve_validation(other 26, seed), 4 configs"
+}
