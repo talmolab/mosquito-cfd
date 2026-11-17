@@ -16,6 +16,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from mosquito_cfd.benchmarks.flapping_wing import (
+    VAN_VEEN_CF_TARGETS,
+    decompose_wing_force,
+)
 from mosquito_cfd.benchmarks.wing_convergence import (
     wing_grid_convergence_from_body_forces,
 )
@@ -27,8 +31,16 @@ _FINE = _HERE / "forces_fine.csv"
 
 _XTICKS = [0, 1, 2]
 _XLABELS = ["Coarse\n64³", "Medium\n128³", "Fine\n256³"]
-# van Veen references: (translational-only, full QS model)
-_VAN_VEEN = {"cf_chord": (0.3, 0.43), "cf_normal": (2.4, 2.48)}
+# Reference lines, each read from its source when the figure is drawn (never a typed number):
+# the peak of van Veen's quasi-steady model from decompose_wing_force on the fine-grid CSV, and
+# the pinned T2a target from VAN_VEEN_CF_TARGETS. Keys: (decompose key, targets key).
+_REFERENCE_KEYS = {
+    "cf_chord": ("chord_peak_model", "cf_chord_peak"),
+    "cf_normal": ("normal_peak_model", "cf_normal_peak"),
+}
+_MODEL_LABEL = "van Veen QS model peak (T4, fine grid)"
+_TARGET_LABEL = "T2a target (pinned)"
+_KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _TITLES = {"cf_chord": "CF_chord  (tangential)", "cf_normal": "CF_normal  (lift)"}
 _COLORS = {"cf_chord": "#c44e52", "cf_normal": "#4c72b0"}
 _VV_COLOR = "#2ca02c"
@@ -38,9 +50,8 @@ def make_figure(
     out: Path = _HERE / "figures" / "fig_grid_convergence_3grid.png",
 ) -> Path:
     """Draw the 3-grid Richardson convergence figure and save PNG + PDF."""
-    conv = wing_grid_convergence_from_body_forces(
-        _COARSE, _MEDIUM, _FINE, f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0
-    )
+    conv = wing_grid_convergence_from_body_forces(_COARSE, _MEDIUM, _FINE, **_KIN)
+    model = decompose_wing_force(_FINE, **_KIN)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
@@ -51,16 +62,16 @@ def make_figure(
         h0 = d["cf_exact_richardson"]
         gci = d["gci_fine"]
         p_obs = d["observed_order"]
-        vv_transl, vv_model = _VAN_VEEN[comp]
+        model_key, target_key = _REFERENCE_KEYS[comp]
 
-        # Van Veen shaded band (translational → QS model range)
-        ax.axhspan(vv_transl, vv_model, color=_VV_COLOR, alpha=0.12, zorder=1)
-        ax.axhline(vv_transl, ls=":", lw=1.3, color=_VV_COLOR, zorder=2)
-        ax.axhline(vv_model, ls=(0, (4, 2)), lw=1.3, color=_VV_COLOR, zorder=2)
-        ax.text(
-            2.08, (vv_transl + vv_model) / 2,
-            "van Veen\ntarget",
-            color=_VV_COLOR, fontsize=8, va="center",
+        # Two reference lines, no shaded band between them: they are different quantities.
+        ax.axhline(
+            model[model_key], ls=(0, (4, 2)), lw=1.3, color=_VV_COLOR, zorder=2,
+            label=_MODEL_LABEL,
+        )
+        ax.axhline(
+            VAN_VEEN_CF_TARGETS[target_key], ls=":", lw=1.3, color="#7f7f7f", zorder=2,
+            label=_TARGET_LABEL,
         )
 
         # Richardson extrapolant (only when monotone / p_obs > 0)
@@ -70,7 +81,7 @@ def make_figure(
             ax.text(
                 2.08, h0,
                 f"Richardson\n{h0:.3f}",
-                color=color, fontsize=8, va="center", alpha=0.8,
+                color=color, fontsize=8, va="bottom", alpha=0.8,
             )
 
         # CFD data line
@@ -83,6 +94,8 @@ def make_figure(
                 xy=(x, v), xytext=(0, 12),
                 textcoords="offset points",
                 ha="center", fontsize=10, fontweight="bold", color=color,
+                bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.8),
+                zorder=5,
             )
 
         # p_obs + GCI in bottom-right corner (show "N/A" for non-monotone)
@@ -103,6 +116,7 @@ def make_figure(
         ax.grid(axis="y", alpha=0.25, zorder=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
+        ax.legend(fontsize=8, loc="upper right", framealpha=0.9)
 
     axes[0].set_ylabel("Peak body-frame |CF|  (van Veen normalization)", fontsize=10)
     fig.suptitle(
@@ -112,7 +126,7 @@ def make_figure(
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     out.parent.mkdir(exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight", metadata={"CreationDate": None})
     plt.close(fig)
     return out
 

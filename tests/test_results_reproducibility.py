@@ -404,6 +404,12 @@ def test_t4_decomposition_numbers_reproduce():
     # "The CFD peak comes first": its phase precedes the model's within the same half-stroke.
     assert r["normal_peak_phase_cfd"] < r["normal_peak_phase_model"]
     assert abs(r["normal_peak_phase_model"] - r["normal_peak_phase_cfd"]) < 0.25
+    # "The model's peak falls just after mid-stroke, where its Wagner term changes sign": the
+    # Wagner normal force is negative while the wing speeds up and positive while it slows.
+    assert 0.5 < r["normal_peak_phase_model"] < 0.52
+    phase, wagner = r["series"]["phase"], r["series"]["model_wagner"][1]
+    assert (wagner[(phase > 0.45) & (phase < 0.499)] < 0).all()
+    assert (wagner[(phase > 0.501) & (phase < 0.55)] > 0).all()
     # Coarse is graded too; medium is reported.
     coarse = decompose_wing_force(_NEWCONV, **_T3B_KIN)
     medium = decompose_wing_force(_MEDIUM, **_T3B_KIN)
@@ -505,6 +511,8 @@ def test_t4_subsection_states_the_limits_of_the_comparison():
     for phrase in (
         "validated against van veen's quasi-steady model at matched kinematics",
         "different phases",  # the two peaks are not the same instant
+        "just after mid-stroke",
+        "wagner term changes sign",
         "first wingbeat",
         "impulsive start",
         "mixed planform bases",
@@ -728,10 +736,6 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert (
         "The figure and RESULTS.md flag this, for the chord comparison" not in changelog
     )
-    readme = (root / "examples/flapping_wing/figures/README.md").read_text(
-        encoding="utf-8"
-    )
-    assert "the #40 CF_chord resolution, is pending [#133](" in _flat(readme)
 
 
 # Every claim that T4 resolved the chord question (#40) must cite #133, which found that T4's chord
@@ -744,10 +748,7 @@ _CHORD_RESOLUTION_CLAIM = re.compile(
     r"|Resolves the (?:T2a |#40 )?CF_chord|#40 closed|#40 resolved|0\.3–0\.43"
     r"|validated against van Veen's quasi-steady model|full QS model total"
 )
-_CHORD_CLAIM_DOCS = (
-    "docs/aerodynamics_validation/roadmap.md",
-    "examples/flapping_wing/figures/README.md",
-)
+_CHORD_CLAIM_DOCS = ("docs/aerodynamics_validation/roadmap.md",)
 
 
 def _blocks(text: str):

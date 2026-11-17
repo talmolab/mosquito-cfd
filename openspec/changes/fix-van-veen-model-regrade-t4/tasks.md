@@ -202,11 +202,11 @@ Any failure here: stop and ask the user. Nothing is committed.
 
 ## 2. Figures and their README (`fix(figures)`)
 
-- [ ] 2.1 Test first: the T4 figure has no text containing "#133" or "pending"; its `model total`
+- [x] 2.1 Test first: the T4 figure has no text containing "#133" or "pending"; its `model total`
       normal line equals `series["model_normal"]` and is positive throughout phase bands `[0.4, 0.6]`
       and `[0.9, 1.0)` (today it is −2.2 near phase 0.5). Replaces
       `test_t4_normal_panel_names_the_model_sign_issue`.
-- [ ] 2.2 Test first, for each of the three grid figures (captured through the `plt.close`
+- [x] 2.2 Test first, for each of the three grid figures (captured through the `plt.close`
       monkeypatch the timeseries test already uses): with `decompose_wing_force` and
       `VAN_VEEN_CF_TARGETS` monkeypatched to sentinels, each model line sits at the sentinel peak and
       each T2a line at the sentinel target; the `axhspan` patches are exactly the Richardson / GCI
@@ -214,14 +214,14 @@ Any failure here: stop and ask the user. Nothing is committed.
       source and is shown in the legend; the timeseries chord panel has lines at both signs.
       Red-first reason: the timeseries and 3-grid figures fail on the spans; `fig_grid_convergence`
       fails on the sentinel and the label. Replaces `test_3grid_normal_band_is_positive_only`.
-- [ ] 2.3 Update the four scripts; remove hard-coded 0.3 / 0.43 / 2.4 / 2.48 / 2.16; fix the
+- [x] 2.3 Update the four scripts; remove hard-coded 0.3 / 0.43 / 2.4 / 2.48 / 2.16; fix the
       timeseries legend filter, which drops any label containing "van Veen"; add
       `metadata={"CreationDate": None}` to the two convergence scripts' PDF `savefig`.
-- [ ] 2.4 Re-render the four figures; look at each PNG; `git status --short` lists exactly eight
+- [x] 2.4 Re-render the four figures; look at each PNG; `git status --short` lists exactly eight
       binaries.
-- [ ] 2.5 Mutation tests: a hard-coded band restored; a typed literal at the correct value; the "#133"
+- [x] 2.5 Mutation tests: a hard-coded band restored; a typed literal at the correct value; the "#133"
       note restored; labels swapped; the negative chord line dropped.
-- [ ] 2.6 `figures/README.md` in this commit: grep `tests/` for its pinned phrases first; add it as a
+- [x] 2.6 `figures/README.md` in this commit: grep `tests/` for its pinned phrases first; add it as a
       stale-claim-guard case (fails today); rewrite the T4 paragraph and the four figure rows with the
       verdict in words, keeping the sign anchor; move the README assertion out of
       `test_results_vocabulary_…` and drop the README case of `test_every_chord_resolution_claim_cites_133`.
@@ -334,3 +334,9 @@ without the rounding the direction would be +1 there.
 
 In `tests/_stale_claims.py` (the patterns) and `tests/test_t4_stale_claims.py` (the polarity lists
 and one case per document), not in `tests/test_results_reproducibility.py`.
+
+### Why does `RESULTS.md` change again in the figures commit?
+
+The re-rendered T4 figure shows a kink in the model's normal curve just after mid-stroke. It is
+the Wagner term changing sign, and it is where the model's graded peak falls. One sentence
+saying so is added to the T4 limits, with a test that asserts the peak's phase and the sign change.

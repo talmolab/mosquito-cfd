@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     STEADY_WINDOW_T0,
+    decompose_wing_force,
     reconstruct_wing_body_forces,
 )
 
@@ -29,21 +30,13 @@ _GRIDS = [
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _WINDOW_T0 = STEADY_WINDOW_T0
 
-# Van Veen reference bands, drawn on the positive side as peak-magnitude ranges.
-# CF_chord: translational→QS model peak range (0.30–0.43); the CFD chord is near-symmetric, so
-# its |peak| can fall on either side.
-# CF_normal: Richardson→van Veen QS target range (2.16–2.48). The IB force on the wing keeps
-# a positive normal lobe on each half-stroke (brief dips near the reversals, of up to about -0.1
-# on the coarse grid), so
-# no negative mirror is drawn.
-_VV_BANDS = {
-    "cf_chord":  ("van Veen QS 0.30–0.43",  0.30, 0.43, "#2ca02c", 0.15),
-    "cf_normal": ("van Veen target 2.16–2.48", 2.16, 2.48, "#2ca02c", 0.15),
-}
-
-
-# Where each band's label sits (axes fraction): where no grid's curve crosses the band.
-_BAND_LABEL_X = {"cf_chord": 0.5, "cf_normal": 0.66}
+# Reference lines: the peak of van Veen's quasi-steady model (transl + added-mass + Wagner) on
+# our kinematics, read from decompose_wing_force on the fine-grid CSV when the figure is drawn
+# (never a typed number). The chord force changes sign each half-stroke, so its line is drawn at
+# both signs; the normal force keeps a positive lobe on each half-stroke, so its line is drawn on
+# the positive side only.
+_MODEL_COLOR = "#2ca02c"
+_MODEL_LABEL = "van Veen QS model peak (T4, fine grid)"
 
 
 def make_figure(
@@ -60,18 +53,13 @@ def make_figure(
         mask = d.time >= _WINDOW_T0
         series.append((label, d.time[mask], d.cf_chord[mask], d.cf_normal[mask], color, lw))
 
-    # Plot van Veen bands FIRST (so they sit behind data and their handles enter the legend)
-    for ax, comp in [(ax_chord, "cf_chord"), (ax_normal, "cf_normal")]:
-        lbl, ymin, ymax, color, alpha = _VV_BANDS[comp]
-        ax.axhspan(ymin, ymax, color=color, alpha=alpha, zorder=1)
-        # Direct text annotation at right edge of band
-        ax.annotate(
-            lbl,
-            xy=(_BAND_LABEL_X[comp], (ymin + ymax) / 2),
-            xycoords=("axes fraction", "data"),
-            ha="left", va="center", fontsize=8, color=color,
-            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7),
-        )
+    # Model reference lines FIRST (so they sit behind the data).
+    model = decompose_wing_force(_GRIDS[-1][1], **_KIN)
+    chord_peak, normal_peak = model["chord_peak_model"], model["normal_peak_model"]
+    line = dict(color=_MODEL_COLOR, ls="--", lw=1.4, zorder=2)
+    ax_chord.axhline(+chord_peak, label=_MODEL_LABEL, **line)
+    ax_chord.axhline(-chord_peak, **line)
+    ax_normal.axhline(normal_peak, label=_MODEL_LABEL, **line)
 
     # Plot CFD data lines (signed CF_normal — consistent with T4 decomposition figure)
     for label, t, cf_chord, cf_normal, color, lw in series:
@@ -89,13 +77,17 @@ def make_figure(
         ax.grid(alpha=0.2, zorder=0)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        # Grid-only legend (exclude the van Veen band handle from the legend)
+        # Grids first, then the model reference line.
         handles, labels = ax.get_legend_handles_labels()
-        grid_handles = [(h, lb) for h, lb in zip(handles, labels) if "van Veen" not in lb]
-        if grid_handles:
-            hs, ls = zip(*grid_handles)
-            loc = "lower right" if ax is ax_chord else "upper left"
-            ax.legend(hs, ls, fontsize=9, loc=loc, framealpha=0.85)
+        order = sorted(range(len(labels)), key=lambda k: labels[k] == _MODEL_LABEL)
+        loc = "lower right" if ax is ax_chord else "upper left"
+        ax.legend(
+            [handles[k] for k in order],
+            [labels[k] for k in order],
+            fontsize=9,
+            loc=loc,
+            framealpha=0.85,
+        )
 
     ax_normal.set_xlabel("Time  (wingbeats)", fontsize=10)
     ax_normal.set_xlim(_WINDOW_T0, 1.0)

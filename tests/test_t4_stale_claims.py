@@ -96,6 +96,12 @@ def _results_md() -> str:
     return (_ROOT / "examples/flapping_wing/RESULTS.md").read_text(encoding="utf-8")
 
 
+def _figures_readme() -> str:
+    return (_ROOT / "examples/flapping_wing/figures/README.md").read_text(
+        encoding="utf-8"
+    )
+
+
 def _flapping_wing_prose() -> str:
     source = (_ROOT / "src/mosquito_cfd/benchmarks/flapping_wing.py").read_text(
         encoding="utf-8"
@@ -117,6 +123,10 @@ _DOCUMENTS = {
         _flapping_wing_prose,
         ("decompose_wing_force", "issue #40"),
     ),
+    "figures/README.md": (
+        _figures_readme,
+        ("| `fig_force_decomposition` |", "#40 is open"),
+    ),
 }
 
 
@@ -131,3 +141,19 @@ def test_no_stale_t4_claim(name):
         )
     hits = stale_claims(text)
     assert not hits, f"{name}: " + "; ".join(f"[{n}] {s[:140]}" for n, s in hits)
+
+
+def test_figures_readme_gives_the_t4_verdict_in_words():
+    """The figures README states no T4 number: RESULTS.md is the one place they are stated."""
+    import re
+
+    text = _figures_readme()
+    start = text.index("## Per-component decomposition (T4)")
+    section = text[start : text.index("\n## ", start + 1)]
+    assert "RESULTS.md" in section
+    assert "not explained by the model" in section
+    assert "within the graded tolerance" in section
+    # Grid and tier labels ("256³", "T3c/#52") are not decimals; a model or CFD value would be.
+    assert re.findall(r"\d+\.\d+", section) == []
+    # The sign anchor other tests rely on stays on the rewritten row.
+    assert "coordinate-convention.md#force-and-moment-sign" in section

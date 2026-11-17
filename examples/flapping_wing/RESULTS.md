@@ -304,7 +304,9 @@ these results and is unchanged.
 **Limits of this comparison.**
 
 - The model peak and the CFD peak fall at different phases, so the graded gap compares two
-  maxima, not one instant.
+  maxima, not one instant. The model's peak falls just after mid-stroke, where its Wagner term
+  changes sign abruptly (it scales with the square root of the stroke acceleration); this is the
+  kink in the figure's model curve.
 - The CSVs cover the first wingbeat from an impulsive start, not a converged periodic state.
 - The wing moments are on mixed planform bases: `S_yy` uses the marker radius of gyration with
   the nominal area, `S_cy` is the nominal-ellipse closed form, and `S_WE` is a marker quadrature.
