@@ -62,5 +62,6 @@ training-mean field (so predicting the mean field scores 100%).
 
 ## Next step
 
-Render CFD, 64-mode reconstruction and prediction side by side for a holdout config, in the two 3D
-views used in the overview deck, by rotating the wing-frame result back into the lab frame.
+`render.py` draws CFD, the 64-mode reconstruction and the prediction side by side for a holdout config
+(vortex surface, lab frame). A still is `figures/s45_f100_p60_lev3d_frame12.png`. Still to do: the other
+holdout configs and the vertical-velocity view.
