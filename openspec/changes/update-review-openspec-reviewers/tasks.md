@@ -62,7 +62,8 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
 - [x] 2.1 Add `model: "sonnet"` to Subagents 1, 4, 5 and `model: "opus"` to Subagents 2, 3.
 - [x] 2.2 Step 3: the pass-through sentence (spec "Step 3 states the pass-through rule"),
       "Launch ALL applicable subagents" wording, "single message", and "decide whether Subagent 6
-      runs" before launching; no `inherit`, no `Launch ALL 5 subagents`.
+      runs" before launching; no `inherit`, no `Launch ALL 5 subagents`. (Superseded by 6.2:
+      "decide whether Subagents 3 and 6 run", plus the model-rejection fallback.)
 - [x] 2.3 Add the Subagent 6 section after Subagent 5: spec block (`model: "opus"`); the three
       labelled paragraphs outside the `> ` prompt template, each a single paragraph separated by a
       blank line; and the prompt template with the authority, flag-do-not-resolve and
@@ -126,7 +127,10 @@ All work happens in the worktree `C:\repos\mosquito-cfd\.claude\worktrees\update
 The self-review found 1 BLOCKING and 12 IMPORTANT issues; all are fixed here (proposal
 "Deviations"). Follow-ups #161, #162, #163 filed.
 
-- [ ] 6.1 Red: extend `tests/test_review_openspec_command.py` with the new spec anchors (Step 1,
+Test and scenario names in 1.2 are the original ones; 6.1 renamed and extended them (e.g.
+`test_subagent6_launch_rules`, `test_step4_covers_conditional_reviewers`).
+
+- [x] 6.1 Red: extend `tests/test_review_openspec_command.py` with the new spec anchors (Step 1,
       Step 2, Step 3 fallback, Subagent 3 launch rules, the extended Subagent 6 run condition,
       authority and failure classes, Step 4 severity/recording) and the missing parser tests:
       `test_last_section_does_not_swallow_step4` fixed (label only in Step 4),
@@ -137,19 +141,33 @@ The self-review found 1 BLOCKING and 12 IMPORTANT issues; all are fixed here (pr
       `test_missing_skill_file_is_assertion` (monkeypatched path), `test_undecodable_skill_is_assertion`.
       Use `check_step3` from the tests and split the Step 3 constants (pass-through vs team size).
       Run against the current skill: every new content test fails naming its anchor; parser tests
-      pass; nothing errors. Commit red, do not push.
-- [ ] 6.2 Green: edit the skill for every requirement change (authority, frames, CFL realized dt,
+      pass; nothing errors. Commit red, do not push. Done as `fa6e5ab`: 25 parser tests passed,
+      9 content tests failed with AssertionErrors naming their anchor, none errored. `check_step3`
+      was split into three used checks (`check_step3_pass_through`, `check_step3_no_inherit`,
+      `check_team_size`) rather than kept as one.
+- [x] 6.2 Green: edit the skill for every requirement change (authority, frames, CFL realized dt,
       new failure classes, run-condition additions and decision inputs, Subagent 3 launch rules,
       Step 1/2/3 additions, Step 4 severity mapping, `Reviewers:` and `launched:` recording, intro
-      and Step 3 wording, the "Then\nLaunch" capitalization). Test file green.
-- [ ] 6.3 Extend the 3.1 mutation script to every new anchor and parser branch; every mutant
-      killed, control passes, file restored and hash verified.
-- [ ] 6.4 Targeted re-review (TDD + spec quality reviewers) of the revision; reconcile findings.
+      and Step 3 wording, the "Then\nLaunch" capitalization). Test file green. Done as `35071c7`;
+      the green phase also fixed a matcher bug (a trailing boundary after an anchor that ends in
+      punctuation), recorded in design D4.
+- [x] 6.3 Extend the 3.1 mutation script to every new anchor and parser branch; every mutant
+      killed, control passes, file restored and hash verified. Final run: 115 skill mutants and
+      26 test-helper mutants killed by real test failures (a kill by import or collection error
+      is not counted), control passing, both files' sha256 verified. Two survivors found and
+      covered along the way: `test_parser_rejects_extra_spec_block` and
+      `test_step4_section_requires_its_own_launched_record`.
+- [x] 6.4 Targeted re-review (TDD on Opus, spec quality on Sonnet) of the revision; findings
+      reconciled: the trailing word boundary, the severity verdicts, the If-unclear fail-safe
+      wording and the per-section Step 4 records are now pinned; two missing-heading guards, the
+      label-in-quote rule and the missing-section branch have tests; spec anchors added for the
+      fallback, always-run, background-mention and recompute clauses; stale text corrected.
 - [ ] 6.5 Re-run 4.1-4.5.
-- Note on 3.2: the smoke run was on the pre-revision skill (`052cdb3`). Its evidence (one launching
-  message, models as declared, each subagent ran on its model) carries over: the revision does not
-  change any `model` line or the single-message launch. Not re-run (cost); the conditional
-  Subagent 3 path is checked by text only.
+- Note on 3.2: the smoke run was on the pre-revision skill (`052cdb3`), where Subagent 3 always ran.
+  It does not change any `model` line, so the evidence that each subagent ran on its declared model
+  carries over; Step 3's launch wording was reworded, so the carry-over covers only the declared
+  models. Not re-run (cost). The conditional Subagent 3 path, the Subagent 6 skip path and the
+  model-rejection fallback have never been run.
 
 ## 5. PR and post-merge
 
@@ -178,3 +196,14 @@ The self-review found 1 BLOCKING and 12 IMPORTANT issues; all are fixed here (pr
 3. `feat(review-openspec): per-subagent models and conditional math/physics reviewer` (skill file;
    green)
 4. `docs(openspec): tick tasks with red-phase, mutation and smoke-run evidence` (tasks.md; green)
+
+Revision commits (after the pre-PR `/review-pr` self-review):
+
+5. `docs(openspec): revise update-review-openspec-reviewers after pre-PR self-review` (`2a62e5d`)
+6. `test(review-openspec): pin the self-review revision and cover every parser branch` (`fa6e5ab`,
+   red, not pushed alone)
+7. `feat(review-openspec): fix Subagent 6 authority, conditional Subagent 3, inputs and severity
+   rules` (`35071c7`, green)
+8. `test(review-openspec): cover the subagent_type count check` (`c6b1e75`)
+9. `test(review-openspec): pin verdicts, fail-safe wording and remaining parser branches`
+   (TDD re-review fixes, with these tasks and spec updates)

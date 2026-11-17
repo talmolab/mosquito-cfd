@@ -39,7 +39,7 @@ machine-checked; the orchestrator's compliance is checked by the manual smoke ru
 
 - **WHEN** Step 3's text before the first `### Subagent` heading is read
 - **THEN** it contains ``Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it.``
-  and `If the Agent tool rejects a model value`
+  , `If the Agent tool rejects a model value`, `closest available model` and `never drop the field`
 - **AND** it does not contain `inherit` (stem; also matches inherits, inherited, inheriting)
 
 ### Requirement: Proposal Inputs Are Defined
@@ -67,18 +67,20 @@ paragraphs, each starting with its bold label: `**Run condition:**`, `**If uncle
 `**When skipped:**`. Subagents 1, 2, 4 and 5 SHALL always run.
 
 - Subagent 3's run condition lists CI workflows, Dockerfiles, `build-args.env`, dependencies, the
-  lockfile and packaging. If unclear, launch Subagent 3. When skipped, the text is
+  lockfile and packaging. If unclear, launch Subagent 3. When skipped, the text starts with
   `skipped: no CI, Docker, dependency or packaging change`.
-- Subagent 6's run condition says to decide from the proposal's files, says that issue or PR
-  numbers, file or test counts and tooling or usage percentages never count, and lists solver decks,
+- Subagent 6's run condition says to decide from the proposal's files, says that mentioning a value
+  as background does not count and that issue or PR numbers, file or test counts and tooling or
+  usage percentages never count, and lists solver decks,
   geometry, kinematics, force, moment and coefficient computation, frames, units, timestep and grid
   settings, surrogate training and evaluation metrics, force and field extraction and corpus
   pipelines, parsing, resampling or interpolation of solver output, any tolerance, threshold or
   acceptance gate on these quantities, and any convention document, scientific claim, figure, or
-  quoted physical or statistical value. If unclear, launch Subagent 6. When skipped, the text is
-  `skipped: no numerics or scientific claims touched`.
+  quoted physical or statistical value. If unclear, launch Subagent 6. When skipped, the text starts
+  with `skipped: no numerics or scientific claims touched`.
 
-The intro SHALL describe the team as up to six subagents. Step 3 SHALL say to decide whether
+Each `**If unclear:**` paragraph SHALL begin with its launch instruction, so a negated rule cannot
+satisfy it. The intro SHALL describe the team as up to 6 subagents. Step 3 SHALL say to decide whether
 Subagents 3 and 6 run, then launch all applicable subagents in a single message, and SHALL NOT say
 `Launch ALL 5 subagents`.
 
@@ -87,20 +89,22 @@ Subagents 3 and 6 run, then launch all applicable subagents in a single message,
 - **WHEN** the Subagent 3 section is read
 - **THEN** its `**Run condition:**` paragraph contains `CI workflows`, `Dockerfiles`,
   `build-args.env`, `dependencies`, `lockfile` and `packaging`
-- **AND** its `**If unclear:**` paragraph contains `launch Subagent 3`
+- **AND** its `**If unclear:**` paragraph begins with `launch Subagent 3`
 - **AND** its `**When skipped:**` paragraph contains
   `skipped: no CI, Docker, dependency or packaging change`
 
 #### Scenario: Subagent 6 launch rules are present
 
 - **WHEN** the Subagent 6 section is read
-- **THEN** its `**Run condition:**` paragraph contains `Decide from`, `never count`,
+- **THEN** its `**Run condition:**` paragraph contains `Decide from`,
+  `mentioning it as background does not count`, `never count`,
   `solver decks`, `geometry`, `kinematics`, `force, moment and coefficient computation`, `frames`,
   `units`, `timestep and grid settings`, `surrogate`, `metrics`,
   `extraction and corpus pipelines`, `parsing, resampling or interpolation of solver output`,
   `tolerance, threshold or acceptance gate`, `convention document`, `scientific claim`, `figure`
   and `quoted physical or statistical value`
-- **AND** its `**If unclear:**` paragraph contains `launch Subagent 6`
+- **AND** its `**If unclear:**` paragraph begins with `launch Subagent 6`, so
+  `do not launch Subagent 6` fails
 - **AND** its `**When skipped:**` paragraph contains `skipped: no numerics or scientific claims touched`
 - **AND** deleting any one paragraph fails the test even when the same words remain elsewhere in
   the file, including in an adjacent labelled paragraph
@@ -108,7 +112,8 @@ Subagents 3 and 6 run, then launch all applicable subagents in a single message,
 #### Scenario: Team size wording is updated
 
 - **WHEN** the intro (text before `## Step 1`) and Step 3 are read
-- **THEN** the intro contains `up to 6 specialized subagents` and not
+- **THEN** the intro contains `up to 6 specialized subagents` and
+  `Subagents 1, 2, 4 and 5 always run`, and not
   `launches **5 specialized subagents in parallel**`
 - **AND** Step 3 contains `Launch ALL applicable subagents`, `single message` and
   `decide whether Subagents 3 and 6 run`, and not `Launch ALL 5 subagents`
@@ -118,9 +123,10 @@ Subagents 3 and 6 run, then launch all applicable subagents in a single message,
 When running `/review-openspec`, the orchestrator SHALL launch each conditional subagent in the
 same parallel batch as the always-run subagents when its run condition holds or is unclear, and
 SHALL otherwise skip it and report the skip. This is runtime behaviour of the orchestrating model
-and is not machine-verifiable. The physics-change scenario was checked once by the manual smoke run
-(task 3.2, on the pre-revision skill); the other scenarios are checked only by inspecting the skill
-text.
+and is not machine-verifiable. The physics-change scenario was run once (task 3.2) on the
+pre-revision skill, where Subagent 3 always ran. The conditional Subagent 3 path (launch and skip),
+the Subagent 6 skip path, the model-rejection fallback and the reworded Step 3 have never been run;
+they are checked only by inspecting the skill text.
 
 #### Scenario: Physics change launches Subagent 6
 
@@ -163,7 +169,8 @@ at least 5 seeds, known-answer tests, and like-for-like comparisons.
 - **THEN** it contains `openspec/specs/coordinate-convention/spec.md`,
   `openspec/specs/force-surrogate/spec.md`, `radians(phi_amp_deg)`,
   `docs/coordinate-convention.md`, `confirm the code implements`, `flag, do not resolve`,
-  `recompute`, `VERIFIED / CONTRADICTED / UNVERIFIABLE` and `{CURRENT_SPECS}`
+  `recompute every constant`, `VERIFIED / CONTRADICTED / UNVERIFIABLE`, `{DESIGN_MD}` and
+  `{CURRENT_SPECS}`
 
 #### Scenario: Failure-class list covers each past failure class
 
@@ -189,10 +196,14 @@ or was skipped (with its skip text), and SHALL include a
 
 - **WHEN** Step 4 (from the line `## Step 4` to the line `## Step 5`) is read
 - **THEN** it contains `physics/convention/units errors`, `a CONTRADICTED value`,
-  `UNVERIFIABLE values`, `documented as deliberate`, `Reviewers: 1 sonnet`, `launched: <`,
-  `Numerical/physical correctness risk: LOW/MEDIUM/HIGH`, `N/A (Subagent 6 skipped: <reason>)`,
-  `### 6. Math & Physics`, `skipped: no numerics or scientific claims touched` and
-  `skipped: no CI, Docker, dependency or packaging change`
+  `arithmetic evidence, is BLOCKING`, `UNVERIFIABLE values`, `does not rely on are IMPORTANT`,
+  `documented as deliberate`,
+  `Reviewers: 1 sonnet, 2 opus, 3 opus|skipped, 4 sonnet, 5 sonnet, 6 opus|skipped`,
+  `Numerical/physical correctness risk: LOW/MEDIUM/HIGH` and `N/A (Subagent 6 skipped: <reason>)`
+- **AND** the lines `### 3. CI/CD & Build` and `### 6. Math & Physics` each stand on their own line,
+  and each section contains `launched: <` and its own skip text
+  (`skipped: no CI, Docker, dependency or packaging change`,
+  `skipped: no numerics or scientific claims touched`)
 
 ### Requirement: Accurate CI Command in Reviewer Prompts
 
@@ -215,7 +226,12 @@ paragraph or list ends at the next blank line or the next line that starts with 
 (`**Label:**`). Anchors SHALL match case-insensitively, after collapsing whitespace, on word
 boundaries; only anchors marked (stem) match as a word prefix. Every parser branch (section order,
 count, placement after `## Step 4`, the `---` terminator, missing headings, missing file) SHALL have
-a committed synthetic test.
+a committed synthetic test (shown by the mutation check in tasks.md, not by a scenario).
+
+#### Scenario: Missing or undecodable skill file
+
+- **WHEN** the skill file is missing or is not valid UTF-8
+- **THEN** the test fails with an `AssertionError` naming the path, not a setup error
 
 #### Scenario: Removing an anchor fails the test
 

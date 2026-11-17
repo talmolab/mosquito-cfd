@@ -39,7 +39,10 @@ EXPECTED_MODELS = {
 # Stem anchors match as a word prefix; every other anchor is word-bounded on both sides.
 STEMS = frozenset({"normaliz", "reference point", "inherit"})
 
-INTRO_REQUIRED = ("up to 6 specialized subagents",)
+INTRO_REQUIRED = (
+    "up to 6 specialized subagents",
+    "Subagents 1, 2, 4 and 5 always run",
+)
 INTRO_FORBIDDEN = ("launches **5 specialized subagents in parallel**",)
 
 STEP1_REQUIRED = ("openspec/changes/archive/", "stop and show")
@@ -53,6 +56,8 @@ STEP2_REQUIRED = (
 STEP3_PASS_THROUGH = (
     "Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it.",
     "If the Agent tool rejects a model value",
+    "closest available model",
+    "never drop the field",
 )
 STEP3_TEAM_SIZE = (
     "Launch ALL applicable subagents",
@@ -80,6 +85,7 @@ S3_SKIP_TEXT = "skipped: no CI, Docker, dependency or packaging change"
 
 S6_RUN_CONDITION = (
     "Decide from",
+    "mentioning it as background does not count",
     "never count",
     "solver decks",
     "geometry",
@@ -108,8 +114,9 @@ AUTHORITY_AND_METHOD = (
     "docs/coordinate-convention.md",
     "confirm the code implements",
     "flag, do not resolve",
-    "recompute",
+    "recompute every constant",
     "VERIFIED / CONTRADICTED / UNVERIFIABLE",
+    "{DESIGN_MD}",
     "{CURRENT_SPECS}",
 )
 FAILURE_CLASSES = (
@@ -132,16 +139,20 @@ FAILURE_CLASSES = (
 STEP4_REQUIRED = (
     "physics/convention/units errors",
     "a CONTRADICTED value",
+    "arithmetic evidence, is BLOCKING",
     "UNVERIFIABLE values",
+    "does not rely on are IMPORTANT",
     "documented as deliberate",
-    "Reviewers: 1 sonnet",
-    "launched: <",
+    "Reviewers: 1 sonnet, 2 opus, 3 opus|skipped, 4 sonnet, 5 sonnet, 6 opus|skipped",
     "Numerical/physical correctness risk: LOW/MEDIUM/HIGH",
     "N/A (Subagent 6 skipped: <reason>)",
-    "### 6. Math & Physics",
-    S6_SKIP_TEXT,
-    S3_SKIP_TEXT,
 )
+# Step 4 template headings that must stand on their own line, each with its own launch/skip record.
+STEP4_CONDITIONAL_SECTIONS = {
+    "### 3. CI/CD & Build": S3_SKIP_TEXT,
+    "### 6. Math & Physics": S6_SKIP_TEXT,
+}
+LAUNCHED_RECORD = "launched: <"
 
 CI_COMMAND = 'uv run pytest -v -m "not gpu"'
 
@@ -388,6 +399,13 @@ def check_launch_rules(
     ):
         block = _labelled_block(section, label, where)
         _require(block, anchors, f"{where} {label}")
+    # Fail-safe rule: the If-unclear paragraph must *begin* with its instruction, so a negated
+    # rule ("do not launch Subagent N") cannot satisfy the anchor.
+    unclear_block = _collapse(_labelled_block(section, IF_UNCLEAR_LABEL, where))
+    if not unclear_block.lower().startswith(unclear[0].lower()):
+        raise AssertionError(
+            f"{where} {IF_UNCLEAR_LABEL}: must start with {unclear[0]!r}, found {unclear_block[:40]!r}"
+        )
 
 
 def check_subagent3_launch_rules(text: str) -> None:
@@ -412,7 +430,16 @@ def check_failure_classes(text: str) -> None:
 
 
 def check_step4(text: str) -> None:
-    _require(_step4(text), STEP4_REQUIRED, "Step 4")
+    step4 = _step4(text)
+    _require(step4, STEP4_REQUIRED, "Step 4")
+    for heading, skip in STEP4_CONDITIONAL_SECTIONS.items():
+        where = f"Step 4 {heading!r}"
+        match = re.search(rf"^{re.escape(heading)}[ \t]*$", step4, re.MULTILINE)
+        if match is None:
+            raise AssertionError(f"{where}: heading missing or not on its own line")
+        end = re.compile(r"^### |^```", re.MULTILINE).search(step4, match.end())
+        body = step4[match.end() : end.start() if end else len(step4)]
+        _require(body, (LAUNCHED_RECORD, skip), where)
 
 
 def check_ci_command(text: str) -> None:
@@ -571,12 +598,65 @@ def test_parser_ignores_model_outside_fence():
         (_intro, "# Title\n\nNo steps.\n", "'## Step 1' heading not found"),
         (_step4, "## Step 4: Synthesize\n\nNo step 5.\n", "end heading"),
         (_step3_preamble, "## Step 3: Launch\n\nNo subagents.\n", "end heading"),
+        (_step1, "# Title\n\nNo steps.\n", "start heading"),
     ],
-    ids=["no-step1", "no-step5", "no-subagent-after-step3"],
+    ids=["no-step1", "no-step5", "no-subagent-after-step3", "between-no-start"],
 )
 def test_missing_step_heading_is_assertion(helper, text, message):
     with pytest.raises(AssertionError, match=message):
         helper(text)
+
+
+def test_check_models_requires_step4_heading():
+    text = _doc(*_six()).replace("## Step 4", "## Step X")
+    with pytest.raises(AssertionError, match="'## Step 4' heading not found"):
+        check_models(text)
+
+
+def test_missing_section_is_assertion():
+    with pytest.raises(AssertionError, match="no Subagent 6 section"):
+        _section(_doc(*_six(skip=6)), 6)
+
+
+def test_label_inside_quote_does_not_count():
+    text = _doc(_subagent(6, body=f"> {WHEN_SKIPPED_LABEL} {S6_SKIP_TEXT}"))
+    with pytest.raises(AssertionError, match=r"no \*\*When skipped:\*\* block"):
+        _labelled_block(_section(text, 6), WHEN_SKIPPED_LABEL, "Subagent 6")
+
+
+@pytest.mark.parametrize(
+    "negated", ["do not launch Subagent 6.", "never launch Subagent 6."]
+)
+def test_negated_if_unclear_rule_fails(negated):
+    body = (
+        f"{RUN_CONDITION_LABEL} solver decks.\n\n{IF_UNCLEAR_LABEL} {negated}\n\n"
+        f"{WHEN_SKIPPED_LABEL} {S6_SKIP_TEXT}"
+    )
+    text = _doc(_subagent(6, body=body))
+    with pytest.raises(AssertionError, match="must start with 'launch Subagent 6'"):
+        check_launch_rules(text, 6, ("solver decks",), S6_IF_UNCLEAR, S6_SKIP_TEXT)
+
+
+def test_step4_heading_must_stand_alone():
+    step4 = (
+        "\n".join(STEP4_REQUIRED)
+        + f"\n```markdown\n#### 3. CI/CD & Build\n[{LAUNCHED_RECORD}x; or: {S3_SKIP_TEXT}]\n"
+        f"### 6. Math & Physics\n[{LAUNCHED_RECORD}x; or: {S6_SKIP_TEXT}]\n```"
+    )
+    with pytest.raises(AssertionError, match="heading missing or not on its own line"):
+        check_step4(_doc(step4=step4))
+
+
+def test_step4_section_requires_its_own_launched_record():
+    step4 = (
+        "\n".join(STEP4_REQUIRED)
+        + f"\n```markdown\n### 3. CI/CD & Build\n[findings; or: {S3_SKIP_TEXT}]\n"
+        f"### 6. Math & Physics\n[{LAUNCHED_RECORD}x; or: {S6_SKIP_TEXT}]\n```"
+    )
+    with pytest.raises(
+        AssertionError, match="CI/CD & Build'.*missing anchor 'launched: <'"
+    ):
+        check_step4(_doc(step4=step4))
 
 
 def test_missing_skill_file_is_assertion(monkeypatch, tmp_path):
@@ -627,6 +707,8 @@ def test_prompt_template_keeps_quoted_paragraphs_apart():
 def test_anchor_matches_on_word_boundary():
     assert not _has("read design.md", "sign")
     assert not _has("we enforce it", "force")
+    assert not _has("two signs", "sign")
+    assert not _has("forced tool use", "force")
     assert _has("check normalization", "normaliz")
     assert _has("reference points and normalization", "reference point")
     assert _has("Subagent 2 inherits the model", "inherit")

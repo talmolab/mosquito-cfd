@@ -13,7 +13,7 @@ class behind the project's costliest bugs (#108, #109, #92, the F_ref normalizat
   `"sonnet"` for Subagent 1 (Spec Quality), 4 (Documentation) and 5 (Git Workflow); `"opus"` for
   Subagent 2 (TDD & Testing), 3 (CI/CD & Build) and the new Subagent 6.
 - Step 3 instructs the orchestrator to pass each `model` field to the Agent tool exactly as given,
-  and to decide whether Subagent 6 runs before the single parallel launch.
+  and to decide whether Subagents 3 and 6 run before the single parallel launch.
 - New **Subagent 6: Math, Physics & Numerical Correctness**, launched under the run condition in the
   `review-openspec-skill` spec (numerics, extraction pipelines, gates, convention documents, or
   scientific claims touched), or when that is unclear. A skip is reported in the synthesized review.
@@ -62,7 +62,7 @@ issues; the user chose to fix all of them in this change and to make Subagent 3 
 ### Why the normative specs instead of `docs/coordinate-convention.md` as Subagent 6's authority?
 
 The docs page uses ω for the flap frequency 2πf in its kinematics table and, undefined, for the peak
-stroke rate in `F_ref = ½·ρ·ω²·S_yy`. Read literally it gives F_ref = 134.17 instead of 200.26 at the
+stroke rate in `F_ref = ½·ρ·ω²·S_yy`. Read literally it gives F_ref = 134.17 instead of 200.27 at the
 validated point (a factor φ_amp_rad² ≈ 1.49), so the approved prompt would have produced false
 CONTRADICTED verdicts and could miss a real error of the same size. The normative definition
 (`ω_peak = 2π·f_star·radians(phi_amp_deg)`) lives in `openspec/specs/force-surrogate/spec.md`. The
@@ -70,7 +70,8 @@ page is kept as narrative; its ambiguity is #161.
 
 ### Why a conditional Subagent 3 instead of five always-run reviewers?
 
-At current prices (Sonnet 5.5 = half of Opus 5.5 per token) the approved split saved about 30% on
+At current list prices (Sonnet 5.5 is $2/$10 and Opus 5.5 $4/$20 per million input/output tokens,
+i.e. half; assuming equal tokens per agent, see design D2) the approved split saved about 30% on
 non-physics proposals but only about 10%, or nothing if Subagent 6 reads more than average, on
 physics proposals, which are most proposals here. Skipping the CI/build reviewer when no CI, Docker,
 dependency or packaging file is touched brings a typical physics review to 2 Opus + 3 Sonnet (about

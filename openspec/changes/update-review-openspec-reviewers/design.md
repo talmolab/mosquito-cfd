@@ -99,6 +99,14 @@ timestep, grid size, seed count") would otherwise satisfy single-word anchors fo
 the subagent or anchor (convention of `tests/_readme_guards.py`), never
 `KeyError`/`IndexError`/`AttributeError`.
 
+Two checks go beyond "anchor present" because presence alone let a reversed rule pass (found by the
+revision's TDD re-review): each `**If unclear:**` paragraph must *begin* with its launch
+instruction (so "do not launch Subagent 6" fails), and in the Step 4 template the headings
+`### 3. CI/CD & Build` and `### 6. Math & Physics` must stand on their own lines, each section
+carrying its own `launched: <` record and skip text. The severity verdicts are pinned as phrases
+that include the verdict word ("arithmetic evidence, is BLOCKING", "does not rely on are
+IMPORTANT").
+
 The failure-class anchors are searched only inside the `**Failure classes:**` list, because the
 authority sentence the spec also requires mentions reference point, sign and normalization; a
 whole-template search would let a deleted checklist item go unnoticed.
@@ -128,5 +136,6 @@ so #157 can later judge whether the Sonnet lenses and the run conditions are wor
   Task 3.2's smoke run checks the launch path and the `model` parameters once; the skip path and
   the convention-document path are checked only by reading the skill text (one smoke run was
   chosen to limit cost).
-- The run-condition anchors pin 13 phrases, so rewording the run condition means updating the test.
+- The run-condition anchors pin 25 phrases (19 for Subagent 6, 6 for Subagent 3), so rewording a
+  run condition means updating the test.
   Accepted: the run condition is the contract this change exists to add.
