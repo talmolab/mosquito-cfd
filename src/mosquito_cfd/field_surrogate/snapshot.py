@@ -74,9 +74,22 @@ class FieldSnapshot:
         z: Cell-center coordinates along z.
         dx: ``(3,)`` per-axis grid spacing.
         time: Physical simulation time of the plotfile (the phase).
-        source: Path the snapshot was read from (provenance).
+        source: Path the snapshot was read from, as ``Path(path).absolute().as_posix()``: absolute,
+            forward-slashed, ``..`` kept as written, no symlink or mapped-drive resolution. A
+            per-host locator, not a cross-host identity -- the same plotfile read from Windows,
+            WSL and the cluster is spelled differently; ``(config_id, step)`` plus the digest
+            fields identify it across hosts.
         max_level: The plotfile's AMR level count; always ``0`` today, recorded not inferred.
         field_names: Field order, fixing the ``PointCloud`` column meaning.
+        config_id: Corpus config the snapshot belongs to. ``None`` from a bare
+            :func:`read_field_snapshot`; set only by ``FieldCorpus.snapshot``.
+        step: Timestep of the plotfile, as a Python ``int``; ``None`` unless set by
+            ``FieldCorpus.snapshot``.
+        git_commit: Full 40-character commit of the solver build that wrote the run, copied from
+            the run's own ``run_metadata.json``; ``None`` unless set by ``FieldCorpus.snapshot``.
+        docker_image: Digest-pinned image reference (``<repo>@sha256:<64 hex>``) the run used,
+            copied from the run's ``run_metadata.json``; ``None`` unless set by
+            ``FieldCorpus.snapshot``. Never inferred or fabricated.
     """
 
     arrays: Mapping[str, np.ndarray]
@@ -88,6 +101,10 @@ class FieldSnapshot:
     source: str
     max_level: int
     field_names: tuple[str, ...]
+    config_id: str | None = None
+    step: int | None = None
+    git_commit: str | None = None
+    docker_image: str | None = None
 
     def to_point_cloud(self) -> PointCloud:
         """Flatten to coordinates and values in C-order over ``(nx, ny, nz)``.
@@ -436,7 +453,9 @@ def read_field_snapshot(
         z=axes[2],
         dx=dx_out,
         time=time,
-        source=str(plotfile_path),
+        # absolute(), not resolve(): no I/O, `..` kept, and no rewrite of a mapped drive to its
+        # UNC form (harden-field-reader-pre-f3 D3).
+        source=Path(plotfile_path).absolute().as_posix(),
         max_level=max_level,
         field_names=fields,
     )

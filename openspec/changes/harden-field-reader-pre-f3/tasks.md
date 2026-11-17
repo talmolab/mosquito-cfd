@@ -68,7 +68,7 @@
 Commit: `feat(field-surrogate): FieldSnapshot carries an absolute POSIX source and four optional
 provenance fields`. Files: `snapshot.py` and `tests/test_field_surrogate_snapshot.py`.
 
-- [ ] 1.1 **Red tests.**
+- [x] 1.1 **Red tests.**
   - With `monkeypatch.chdir(FIXTURE.parent)`, a relative `Path`, a relative `str` and (on Windows) a
     backslash `str` each give `source == FIXTURE.absolute().as_posix()`, with no `"\\"`.
   - With `monkeypatch.chdir(FIXTURE.parent)`, `Path("..") / FIXTURE.parent.name / FIXTURE.name` gives
@@ -79,7 +79,7 @@ provenance fields`. Files: `snapshot.py` and `tests/test_field_surrogate_snapsho
   - Update `:218` (`Path(snap.source) == FIXTURE`) and `:1421` (`snap.source == str(path)`) to the
     new contract.
   - **Expected red:** `AttributeError` on `config_id`; `source` has backslashes or is relative.
-- [ ] 1.2 **Green.**
+- [x] 1.2 **Green.**
   - Add the four trailing `= None` fields, documented.
   - Set `source=Path(plotfile_path).absolute().as_posix()`.
   - The `source` attribute doc says "absolute POSIX spelling; a per-host locator, not a cross-host

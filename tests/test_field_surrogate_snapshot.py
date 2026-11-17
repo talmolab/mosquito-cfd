@@ -215,7 +215,7 @@ def test_reads_fixture_full_extent():
     snap = read_field_snapshot(FIXTURE, **FULL)
 
     assert snap.max_level == 0
-    assert Path(snap.source) == FIXTURE
+    assert snap.source == FIXTURE.absolute().as_posix()
     assert type(snap.time) is float
     assert snap.time == pytest.approx(0.5)
 
@@ -1418,7 +1418,7 @@ def _assert_bit_identical(snap, path, lo, hi, halo) -> None:
     assert snap.dx.dtype == np.float64 and snap.dx.shape == (3,)
     assert snap.dx.flags.writeable is False
     assert type(snap.time) is float and snap.time == want["time"]
-    assert snap.source == str(path)
+    assert snap.source == Path(path).absolute().as_posix()
     assert type(snap.max_level) is int and snap.max_level == want["max_level"]
 
 
@@ -1918,3 +1918,63 @@ def test_point_cloud_peak_is_its_outputs():
     del pc
     peak = _traced_peak(snap.to_point_cloud)
     assert peak <= 1.02 * outputs + 64 * 1024, f"peak {peak / outputs:.3f} x outputs"
+
+
+# --- harden-field-reader-pre-f3 §1: source spelling and the optional provenance fields --------
+
+PROVENANCE_FIELDS = ("config_id", "step", "git_commit", "docker_image")
+
+
+def test_source_is_absolute_and_posix_for_a_relative_path(monkeypatch):
+    monkeypatch.chdir(FIXTURE.parent)
+    want = FIXTURE.absolute().as_posix()
+    for given in (Path(FIXTURE.name), FIXTURE.name):
+        snap = read_field_snapshot(given, **FULL)
+        assert snap.source == want, given
+        assert "\\" not in snap.source
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="backslash paths are Windows-only")
+def test_source_is_posix_for_a_backslash_windows_path():
+    snap = read_field_snapshot(str(FIXTURE).replace("/", "\\"), **FULL)
+    assert snap.source == FIXTURE.absolute().as_posix()
+    assert "\\" not in snap.source
+
+
+def test_source_keeps_dotdot_segments_as_written(monkeypatch):
+    # absolute() keeps `..`; resolve() and os.path.abspath collapse it. This distinguishes them
+    # on every OS, including Windows, where the symlink case below cannot run.
+    monkeypatch.chdir(FIXTURE.parent)
+    given = Path("..") / FIXTURE.parent.name / FIXTURE.name
+    snap = read_field_snapshot(given, **FULL)
+    assert "/../" in snap.source
+    assert snap.source == given.absolute().as_posix()
+    assert Path(snap.source).resolve() == FIXTURE.resolve()
+
+
+def test_source_keeps_a_directory_symlink_spelling(tmp_path):
+    link = tmp_path / "link_plt"
+    try:
+        link.symlink_to(FIXTURE, target_is_directory=True)
+    except OSError as exc:  # WinError 1314 without the symlink privilege
+        pytest.skip(f"cannot create a directory symlink here: {exc}")
+    snap = read_field_snapshot(link, **FULL)
+    assert snap.source == link.absolute().as_posix()
+    assert snap.source != FIXTURE.resolve().as_posix()
+
+
+def test_bare_read_leaves_provenance_fields_unset():
+    snap = read_field_snapshot(FIXTURE, **FULL)
+    for name in PROVENANCE_FIELDS:
+        assert getattr(snap, name) is None, name
+
+
+def test_provenance_fields_trail_and_default_to_none():
+    import dataclasses
+
+    from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
+
+    names = [f.name for f in dataclasses.fields(FieldSnapshot)]
+    assert tuple(names[-4:]) == PROVENANCE_FIELDS
+    for f in dataclasses.fields(FieldSnapshot)[-4:]:
+        assert f.default is None, f.name
