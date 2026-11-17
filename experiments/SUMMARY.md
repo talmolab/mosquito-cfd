@@ -62,5 +62,7 @@ its folder; the surrogate recommendation is in
 `uv run pytest experiments/tests -q` (46 tests). Each `report.html` regenerates from its
 `outputs/` in a few seconds with
 `uv run --with marimo marimo export html experiments/<exp>/report.py -o experiments/<exp>/report.html`.
-The field cache (`experiments/_cache/`, about 32 GB) and the 6-beat run folder are git-ignored and
-exist only on this workstation.
+The field cache (about 35 GB) and the 6-beat run folders are not in git. They are kept on the
+share at `Z:\users\eberrigan\mosquito-cfd\examples\explore_surrogate_2026-11\` (`field_cache\` and
+`e0b_long_run\`); the local cache was deleted on 2026-11-17. To re-run E5 or E6 from the cache,
+copy `field_cache\` back to `experiments/_cache/`.
