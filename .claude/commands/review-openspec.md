@@ -10,7 +10,9 @@ utilities and Docker-based CI. You value testing, code quality, reproducibility,
 preservation, traceability, numerical accuracy, correctness, and documentation that is clear,
 succinct, and DRY.
 
-This skill launches **5 specialized subagents in parallel** to critically review an OpenSpec proposal.
+This skill launches 5 specialized subagents in parallel, plus a conditional 6th (Math, Physics &
+Numerical Correctness) when the proposal touches numerics or scientific claims, to critically review
+an OpenSpec proposal.
 Each subagent has a distinct review lens and is instructed to be **adversarial** — finding gaps, not rubber-stamping.
 After all subagents return, you synthesize their findings into a unified review verdict.
 
@@ -39,8 +41,14 @@ Embed the full proposal text, current spec text, and file lists into each subage
 
 ## Step 3: Launch Subagent Review Team
 
-Launch ALL 5 subagents **in a single message** (parallel execution). Each subagent gets the full proposal
-text embedded in its prompt. Each agent MUST read the actual files it needs — do not rely on summaries.
+First, decide whether Subagent 6 runs, using its run condition and if-unclear rule (below). Then
+Launch ALL applicable subagents (1-5, plus 6 when it runs) **in a single message** (parallel
+execution). Each subagent gets the full proposal text embedded in its prompt. Each agent MUST read
+the actual files it needs — do not rely on summaries.
+
+Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it. Every
+subagent declares its model on purpose: Sonnet for the rule-checklist lenses (1, 4, 5), Opus for the
+lenses that must reason about what is missing or how things fail (2, 3, 6).
 
 ---
 
@@ -48,6 +56,7 @@ text embedded in its prompt. Each agent MUST read the actual files it needs — 
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review OpenSpec format quality"
 ```
 
@@ -121,6 +130,7 @@ description: "Review OpenSpec format quality"
 
 ```
 subagent_type: "general-purpose"
+model: "opus"
 description: "Review TDD and testing plan"
 ```
 
@@ -135,7 +145,7 @@ description: "Review TDD and testing plan"
 >
 > - **Framework**: pytest (dev dependency)
 > - **CI**: single runner (ubuntu-latest), Python 3.11 via uv; jobs = lint (ruff check + ruff format),
->   test (`pytest -v`), dockerfile-lint (hadolint on `docker/Dockerfile.*`)
+>   test (`uv run pytest -v -m "not gpu"`), dockerfile-lint (hadolint on `docker/Dockerfile.*`)
 > - CI tolerates "no tests collected" (pytest exit code 5) while the suite is built out
 > - The CFD solver runs in Docker/GPU and is NOT exercised by CI unit tests; Python utilities
 >   (geometry generation, run-metadata capture) are what unit tests cover
@@ -192,6 +202,7 @@ description: "Review TDD and testing plan"
 
 ```
 subagent_type: "general-purpose"
+model: "opus"
 description: "Review CI/CD and build changes"
 ```
 
@@ -204,7 +215,7 @@ description: "Review CI/CD and build changes"
 >
 > **Current infrastructure** (read the actual files):
 >
-> - `.github/workflows/ci.yml` — lint (ruff check + ruff format) + test (`pytest -v`) + dockerfile-lint (hadolint)
+> - `.github/workflows/ci.yml` — lint (ruff check + ruff format) + test (`uv run pytest -v -m "not gpu"`) + dockerfile-lint (hadolint)
 > - `.github/workflows/docker.yml` — build & publish images to `ghcr.io/talmolab/mosquito-cfd` on push to main/tags
 > - `docker/Dockerfile.fp64` (primary), `Dockerfile.fp32` (deprecated), `Dockerfile.python` (post-processing)
 > - `docker/build-args.env` — pinned external dependency commits (amrex, AMReX-Hydro, IAMReX)
@@ -252,6 +263,7 @@ description: "Review CI/CD and build changes"
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review documentation impact"
 ```
 
@@ -303,6 +315,7 @@ description: "Review documentation impact"
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review git workflow plan"
 ```
 
@@ -358,13 +371,93 @@ description: "Review git workflow plan"
 
 ---
 
+### Subagent 6: Math, Physics & Numerical Correctness (conditional)
+
+```
+subagent_type: "general-purpose"
+model: "opus"
+description: "Review math and physics correctness"
+```
+
+**Run condition:** launch Subagent 6 when the proposal touches solver decks or inputs, geometry,
+kinematics, force, moment and coefficient computation, frames, units, timestep and grid settings,
+surrogate training and evaluation metrics, or changes any convention document, scientific claim,
+figure, or quoted physical or statistical value (force coefficient, R², timestep, grid size, seed
+count).
+
+**If unclear:** launch Subagent 6. Skipping it on a physics proposal is the expensive mistake;
+running it on a tooling-only proposal costs one subagent.
+
+**When skipped:** do not launch it. In the synthesis, write
+`skipped: no numerics or scientific claims touched — <one-line reason>` under
+`### 6. Math & Physics`, and `N/A (Subagent 6 skipped: <reason>)` on the Risk Assessment line.
+
+**Prompt template:**
+
+> You are reviewing an OpenSpec proposal for `mosquito-cfd` (IAMReX immersed-boundary CFD of a
+> flapping mosquito wing, plus ML force and field surrogates).
+> Your role: **Math, Physics & Numerical Correctness Reviewer**.
+>
+> IMPORTANT: Be adversarial. Do not trust the proposal's statements, comments, or variable names.
+> A claim that looks like proof is not proof.
+>
+> **Authority:** `docs/coordinate-convention.md` (sourced to van Veen et al. 2022, JFM 936 A3; see
+> `openspec/project.md` References) is the authority for axes, reference point, sign and
+> normalization. Read it first. Where the proposal, that page, and the paper disagree, flag, do not
+> resolve: report the disagreement and which sources say what.
+>
+> **Method:** recompute every constant, reference point, sign, timestep or seed count the proposal
+> states or relies on (e.g. F_ref, the moment origin, `ns.fixed_dt` vs `ns.cfl`, the number of
+> seeds) from its source (deck, `.vertex` file, code, committed JSON). Show the arithmetic or the
+> file:line, and report each as VERIFIED / CONTRADICTED / UNVERIFIABLE.
+>
+> **Failure classes:**
+> 1. Sign and frame conventions: is every force and moment stated in a named frame (lab, body,
+>    wing) with a stated sign (on-wing vs on-fluid)? Are frame transforms right (rotation
+>    direction, transpose, time dependence)?
+> 2. Reference points and normalization: moment reference point; reference length, area, velocity,
+>    density and angular rate in every coefficient's denominator.
+> 3. Units and dimensional consistency in every equation, config value and plotted axis; no mixed
+>    nondimensionalizations.
+> 4. CFL-limited timestep: is a "fixed" dt actually a ceiling that `ns.cfl` overrides? Also grid
+>    convergence evidence (GCI), FP64 assumptions, initial and boundary conditions, and duplicated
+>    or missing timesteps.
+> 5. Worst case rather than first case validation: is the most demanding configuration tested, and
+>    do the checks test physics or only internal consistency?
+> 6. Statistics and ML evaluation: baseline-relative metrics; variance across at least 5 seeds,
+>    never one run; no train/test leakage across configurations or time windows; effect size
+>    compared with the measured CFD uncertainty.
+> 7. Known-answer tests: is there a check against an analytic or published value (not the code's
+>    own previous output) that would fail if a sign, factor or frame were wrong?
+>
+> **Proposal to review:**
+> {PROPOSAL_MD}
+>
+> **Design:**
+> {DESIGN_MD}
+>
+> **Delta specs:**
+> {DELTA_SPECS}
+>
+> **Tasks:**
+> {TASKS_MD}
+>
+> Report:
+> - Each recomputed value as VERIFIED / CONTRADICTED / UNVERIFIABLE, with arithmetic or file:line
+> - Convention, units or frame errors, with the corrected expression
+> - Missing known-answer or worst-case tests, with exact task wording to add
+> - Claims not supported by the stated evidence
+
+---
+
 ## Step 4: Synthesize Review
 
 After ALL subagents return, synthesize their findings:
 
 1. **Deduplicate**: Merge overlapping findings from multiple reviewers
 2. **Prioritize**: Categorize issues as:
-   - **BLOCKING** — Must fix before approval (spec errors, missing tests, reproducibility risks, CI breakage)
+   - **BLOCKING** — Must fix before approval (spec errors, missing tests, reproducibility risks, CI breakage,
+     physics/convention/units errors)
    - **IMPORTANT** — Should fix before implementation (missing edge cases, unclear scenarios, doc gaps)
    - **SUGGESTION** — Nice to have (style improvements, additional context)
 3. **Create a unified review** with this structure:
@@ -399,6 +492,7 @@ For each testable change:
 - CI breakage risk: LOW/MEDIUM/HIGH — [explanation]
 - Reproducibility risk: LOW/MEDIUM/HIGH — [explanation]
 - Documentation drift risk: LOW/MEDIUM/HIGH — [explanation]
+- Numerical/physical correctness risk: LOW/MEDIUM/HIGH — [explanation], or N/A (Subagent 6 skipped: <reason>)
 
 ## Review Details by Agent
 ### 1. Spec Quality
@@ -406,6 +500,8 @@ For each testable change:
 ### 3. CI/CD & Build
 ### 4. Documentation
 ### 5. Git Workflow
+### 6. Math & Physics
+[findings, or: skipped: no numerics or scientific claims touched — <one-line reason>]
 ```
 
 ## Step 5: Present and Iterate
