@@ -1002,11 +1002,12 @@ def test_run_metadata_absent_names_the_expected_path(tmp_path):
 @pytest.mark.parametrize(
     "kwargs",
     [
+        {"fields": "u"},
         {"fields": ("nope",)},
         {"lo": (4.0, 4.0, 4.0), "hi": (2.0, 2.0, 2.0)},
         {"halo": -1},
     ],
-    ids=["unknown_field", "inverted", "neg_halo"],
+    ids=["bare_string_field", "unknown_field", "inverted", "neg_halo"],
 )
 def test_argument_errors_win_over_provenance_with_no_io(tmp_path, monkeypatch, kwargs):
     # No run_metadata.json on disk: a provenance-first mutant would report that instead.

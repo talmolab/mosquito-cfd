@@ -100,12 +100,27 @@ def to_domino_volume(
         :data:`GEOMETRY_HALF_KEYS` are absent; see the module docstring for why.
 
     Raises:
-        ValueError: If ``global_params_values`` and ``global_params_reference`` differ in
-            length, or if either contains a non-finite value (NaN or +/-inf); or, after those
+        ValueError: If ``global_params_values`` or ``global_params_reference`` is not a
+            non-empty one-dimensional sequence, if they differ in length, or if either contains a
+            non-finite value (NaN or +/-inf) -- all checked before the snapshot is touched; or,
+            after those
             checks, if the snapshot has zero cells on any axis.
     """
-    values = np.array(global_params_values, dtype=np.float64).reshape(-1, 1)
-    reference = np.array(global_params_reference, dtype=np.float64).reshape(-1, 1)
+    flat = {}
+    for name, given in (
+        ("global_params_values", global_params_values),
+        ("global_params_reference", global_params_reference),
+    ):
+        arr = np.array(given, dtype=np.float64)
+        # Checked before reshape(-1, 1): a 2-D [[1, 2, 3], [4, 5, 6]] would fold to (6, 1) and
+        # pass the length check against a differently shaped reference, and () to (0, 1).
+        if arr.ndim != 1 or arr.size == 0:
+            raise ValueError(
+                f"{name} must be a non-empty one-dimensional sequence; got shape {arr.shape}"
+            )
+        flat[name] = arr
+    values = flat["global_params_values"].reshape(-1, 1)
+    reference = flat["global_params_reference"].reshape(-1, 1)
     if values.shape != reference.shape:
         raise ValueError(
             f"global_params_values and global_params_reference must have the same length; "

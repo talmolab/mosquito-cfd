@@ -277,7 +277,7 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
 Commit: `fix(field-surrogate): reject bare-string fields and non-1-D global params; caller-neutral
 AMR message`.
 
-- [ ] 6.1 **Red tests.**
+- [x] 6.1 **Red tests.**
   - `fields` values `"gradpx"`, `"uvw"`, `"u"` and `b"u"` each raise `ValueError`, including on a
     nonexistent path:
     - the message names the value and suggests `('gradpx',)`;
@@ -292,7 +292,7 @@ AMR message`.
     - `match=r"max_level=2"` and `"CC-F3"`;
     - `"read_field_snapshot requires"` is absent;
     - tighten the existing `"2" in str(exc)` assertion at `test_field_surrogate_snapshot.py:740`.
-- [ ] 6.2 **Green.** Implement D6, including the `yt.set_log_level` comment. Update
+- [x] 6.2 **Green.** Implement D6, including the `yt.set_log_level` comment. Update
   `to_domino_volume`'s and `read_field_snapshot`'s `Raises:`.
 
 ## 7. #144: flow_video frame discovery (D7)

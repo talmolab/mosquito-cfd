@@ -738,7 +738,7 @@ def test_multi_level_plotfile_is_refused(monkeypatch):
     log = _patch_yt(monkeypatch, max_level=2)
     with pytest.raises(ValueError, match="CC-F3") as excinfo:
         read_field_snapshot(FIXTURE, **FULL)
-    assert "2" in str(excinfo.value)
+    assert "max_level=2" in str(excinfo.value)
     assert log == [], "refusal must precede any field read"
 
 
@@ -2186,6 +2186,7 @@ def test_non_plotfile_path_fails_before_yt_is_imported(
 @pytest.mark.parametrize(
     "bad",
     [
+        {"fields": "u"},
         {"fields": ("nope",)},
         {"fields": ("u", "u")},
         {"halo": -1},
@@ -2195,6 +2196,7 @@ def test_non_plotfile_path_fails_before_yt_is_imported(
         {"lo": (4.0, 4.0, 4.0), "hi": (2.0, 2.0, 2.0)},
     ],
     ids=[
+        "bare_string_field",
         "unknown_field",
         "duplicate_field",
         "neg_halo",
@@ -2238,3 +2240,41 @@ def test_reader_still_returns_zero_cell_snapshots(case):
     snap = read_field_snapshot(FIXTURE, **region)
     assert snap.arrays["u"].shape == shape
     assert (snap.x.size, snap.y.size, snap.z.size) == shape
+
+
+# --- harden-field-reader-pre-f3 §6: smaller request checks (#113) -----------------------------
+
+
+@pytest.mark.parametrize("value", ["gradpx", "uvw", "u", b"u"])
+@pytest.mark.parametrize("where", ["fixture", "nonexistent"])
+def test_bare_string_fields_are_rejected(tmp_path, where, value):
+    path = FIXTURE if where == "fixture" else tmp_path / "no_such_plotfile"
+    with pytest.raises(ValueError) as excinfo:
+        read_field_snapshot(path, fields=value, **FULL)
+    message = str(excinfo.value)
+    assert "fields must be a sequence of field names" in message
+    assert repr((value,)) in message  # the suggested one-element tuple
+
+
+@pytest.mark.parametrize("fields", [("gradpx",), ["u", "v"]], ids=["tuple", "list"])
+def test_field_sequences_still_read(fields):
+    snap = read_field_snapshot(FIXTURE, fields=fields, **FULL)
+    assert snap.field_names == tuple(fields)
+
+
+def test_bare_string_fields_lose_to_nothing_before_the_path_check(
+    monkeypatch, tmp_path
+):
+    # The str check is an argument check: it precedes the path pre-check and `import yt`.
+    monkeypatch.setitem(sys.modules, "yt", None)
+    with pytest.raises(ValueError, match="fields must be a sequence"):
+        read_field_snapshot(tmp_path / "no_such_plotfile", fields="u", **FULL)
+
+
+def test_amr_refusal_names_no_function_and_reports_max_level(monkeypatch):
+    _patch_yt(monkeypatch, max_level=2)
+    with pytest.raises(ValueError, match=r"max_level=2") as excinfo:
+        read_field_snapshot(FIXTURE, **FULL)
+    message = str(excinfo.value)
+    assert "CC-F3" in message
+    assert "read_field_snapshot requires" not in message

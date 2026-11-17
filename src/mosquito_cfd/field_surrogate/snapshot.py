@@ -274,6 +274,12 @@ def _validate_request(
     Returns:
         ``(lo, hi, halo, fields)`` normalized: FP64 corners, an ``int`` halo, a ``tuple`` of names.
     """
+    if isinstance(fields, (str, bytes)):
+        # tuple("gradpx") is six one-letter names, and tuple("uvw") silently reads u, v, w.
+        raise ValueError(
+            f"fields must be a sequence of field names, not a bare "
+            f"{type(fields).__name__}: got {fields!r}; did you mean {(fields,)!r}?"
+        )
     fields = tuple(fields)
     _validate_fields(fields)
     halo = _validate_halo(halo)
@@ -396,7 +402,8 @@ def read_field_snapshot(
         The :class:`FieldSnapshot` for the requested region.
 
     Raises:
-        ValueError: If a field name is unknown or absent from the plotfile, if a corner contains
+        ValueError: If ``fields`` is a bare ``str``/``bytes`` rather than a sequence of names, if
+            a field name is unknown or absent from the plotfile, if a corner contains
             NaN, if ``lo > hi`` on any axis (checked before ``yt`` is imported), if the plotfile
             is multi-level (the open CC-F3 decision), or if a field is not FP64 (the fp32-build
             guard).
@@ -412,13 +419,15 @@ def read_field_snapshot(
     # yt logs an INFO line on every dataset load (domain extent, field list, etc.) that would
     # otherwise spam stdout on every snapshot read in a per-frame loop (flow_video) or a training
     # DataLoader (F3). This only raises yt's logging threshold; genuine errors still raise
-    # exceptions regardless of log level, so no failure mode is silenced by this call.
+    # exceptions regardless of log level, so no failure mode is silenced by this call. It is a
+    # process-global side effect, inherited from the pre-refactor adapter and kept deliberately
+    # (#113).
     yt.set_log_level("error")
     ds = yt.load(str(plotfile_path))
 
     if ds.index.max_level != 0:
         raise ValueError(
-            f"read_field_snapshot requires a single-level plotfile; "
+            f"a single-level plotfile is required; {plotfile_path} has "
             f"max_level={ds.index.max_level}. Handling refined levels (interpolate to a uniform "
             f"grid vs. keep a native multi-resolution point cloud) is the open CC-F3 decision -- "
             f"see docs/field_surrogate/roadmap.md. Reading level 0 alone would silently return "
