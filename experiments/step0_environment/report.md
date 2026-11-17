@@ -30,3 +30,30 @@ About 3.5 GPU-hours in total, inside the 10-hour budget.
 
 `run_record.json` cannot read the git commit from inside WSL (the known Windows-worktree problem,
 #78), so WSL launches pass the commit in through `EXP_GIT_COMMIT`.
+
+## Field data checks (2026-11-16)
+
+**Data used:** live plotfiles under `Z:\users\eberrigan\mosquito-cfd\examples\prelim_sweep_fine\runs\`.
+
+- **Stale directories:** `FieldCorpus.steps()` lists none of the `.old.*` directories on the three
+  configs probed (36, 49 and 41 live steps). Every snapshot is also checked before caching:
+  `ns.cfl = 0.6`, `ns.fixed_dt = 0.0005`, `amr.n_cell = 256 128 256`, IAMReX `f93dc794`, and header
+  time = step x 5e-4. A failure stops the cache.
+- **Read cost:** 30-47 s and about 0.8 GB peak per full plotfile read from `Z:`. The cache therefore
+  runs as three parallel workers, second-beat snapshots first.
+- **Patch coverage:** share of the full-domain enstrophy inside the patch (x 1-7, y 0-4, z 2.5-5.5)
+  at mid-stroke of the second beat:
+
+  | config | z from 2.5 (chosen) | z from 2.0 | z from 1.5 |
+  |---|---|---|---|
+  | `s55_f115_p60` (largest, fastest) | 0.913 | 0.959 | 0.985 |
+  | `s45_f100_p45` | 0.965 | 0.989 | 0.999 |
+  | `s35_f085_p30` | 0.998 | 1.000 | 1.000 |
+
+  All are above the 90% rule, so the extents stand. The patch misses up to 9% of the enstrophy in
+  the wake below z = 2.5 for the most energetic config; the whole-domain 4x-downsampled cache covers
+  that region at lower resolution.
+- **Wing markers:** `yt` reads the 908 markers from the plotfile. Markers rebuilt from
+  `wing.vertex` and the kinematics match them to round-off at `t - 2 dt` and to 0.02 length units
+  (under one cell) at `t`. The wing-frame POD variant is therefore possible. The exact two-step lag
+  is written up in `experiments/issue-drafts/plotfile-markers-lag-header-time-by-two-steps.md`.
