@@ -199,7 +199,7 @@ Commit: `fix(field-surrogate): read_field_snapshot rejects a non-plotfile path b
 Commit: `feat(field-surrogate): FieldCorpus.run_metadata and strict digest-pinned provenance on
 corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_field_surrogate_corpus.py`.
 
-- [ ] 4.1 **Red tests: `_provenance`.**
+- [x] 4.1 **Red tests: `_provenance`.**
   - **Helper `_write_run_metadata(run_dir, **overrides)`.** It writes the real pod-side key set
     (`run_id`, `timestamp`, `git`, `hardware`, `docker_image`, `config`, `deck`, `deck_sha256`,
     `command`, `ib_particle_csv`, `log`, `rows`, `max_step`, `threshold`, `status`,
@@ -213,12 +213,12 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
     builtin `repr`, not `plain_repr`.
   - **Positive control:** valid metadata calls `yt.load` and returns the exact `git_commit` and
     `docker_image`, byte for byte, unstripped.
-- [ ] 4.2 **Red tests: `run_metadata()`.**
+- [x] 4.2 **Red tests: `run_metadata()`.**
   - It returns `type is dict`, equal to `json.loads`, extra key included.
   - Mutating the top level and `["git"]["commit"]` of one result leaves the next result unaffected.
   - A run directory that exists but holds no `run_metadata.json` raises `ValueError` starting with
     the prefix followed by `run_metadata.json: `.
-- [ ] 4.3 **Red tests: corpus snapshot.**
+- [x] 4.3 **Red tests: corpus snapshot.**
   - `snapshot(cfg, np.int64(100))` carries the four fields (`type(step) is int`), and is equivalent,
     property by property, to `read_field_snapshot(plotfile(cfg, 100))`.
   - **Ordering, with no metadata on disk:**
@@ -238,12 +238,12 @@ corpus snapshots`. Files: new `_provenance.py`, `corpus.py` and `tests/test_fiel
     hygiene test goes through `FieldCorpus` (design D4 caveat).
   - Existing tests: only `test_field_surrogate_corpus.py:149` (the success path) gains metadata.
     `:180` and `:187` stay metadata-free, since they must raise first.
-- [ ] 4.4 **Green.**
+- [x] 4.4 **Green.**
   - Add `_provenance.py` (D4).
   - Add `FieldCorpus.run_metadata`.
   - Rewrite `FieldCorpus.snapshot` to the D4 order, using `dataclasses.replace`.
   - Update the `Raises:` docstrings and the module docstring (one sentence on provenance).
-- [ ] 4.5 **Real-corpus check (not a CI test).**
+- [x] 4.5 **Real-corpus check (not a CI test).**
   - A scratchpad script uses the committed 27-config manifest against the Z: runs.
   - For each config it calls `run_metadata` and `snapshot(cfg, first_step, lo=hi=domain centre)` (a
     one-cell read).

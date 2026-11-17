@@ -10,10 +10,16 @@ canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the 
 only when that name is not a directory. A listing is one ``os.scandir`` with no Python-level
 ``stat`` per entry: each entry's type comes from its ``DirEntry``. Every path the module takes
 or returns is a ``pathlib.Path``.
+
+``snapshot()`` stamps each snapshot with its ``(config_id, step)`` and the run's digest-pinned
+provenance -- ``git.commit`` and ``docker_image`` -- copied from the ``run_metadata.json`` the pod
+wrote into the run directory, strictly validated and never fabricated; a run without one cannot
+produce a corpus snapshot. ``run_metadata()`` returns that file read through.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import os
 import re
@@ -23,7 +29,12 @@ from typing import Any
 import numpy as np
 
 from mosquito_cfd._messages import plain_repr
-from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
+from mosquito_cfd.field_surrogate._provenance import read_run_metadata, run_provenance
+from mosquito_cfd.field_surrogate.snapshot import (
+    DEFAULT_FIELDS,
+    FieldSnapshot,
+    _validate_request,
+)
 
 #: Plotfile directory names are ``plt`` followed by ASCII digits only, matched with ``fullmatch``
 #: against the whole name. ``plt00300.old`` and ``pltXXXXX`` are deliberately not matched, nor are
@@ -278,6 +289,25 @@ class FieldCorpus:
             f"available steps: {sorted(found)}"
         )
 
+    def run_metadata(self, config_id: str) -> dict[str, Any]:
+        """Return the run's own pod-written ``run_metadata.json``, read through unchanged.
+
+        Parsed afresh on every call -- never cached -- so mutating a result cannot reach a later
+        call, and a file the pod writes at the end of a run is seen.
+
+        Args:
+            config_id: Config name as listed in the manifest.
+
+        Returns:
+            The parsed JSON object, with no key added, defaulted, renamed or derived.
+
+        Raises:
+            ValueError: If the config is not in the manifest or its run directory is absent, or
+                if ``run_metadata.json`` is absent, unreadable, not JSON, or not a JSON object.
+        """
+        path = self.run_dir(config_id) / "run_metadata.json"
+        return read_run_metadata(path, config_id=config_id)
+
     def snapshot(
         self,
         config_id: str,
@@ -288,7 +318,12 @@ class FieldCorpus:
         halo: int = 0,
         fields: tuple[str, ...] = DEFAULT_FIELDS,
     ) -> FieldSnapshot:
-        """Read one training example's field snapshot.
+        """Read one training example's field snapshot, with the run's identity and digest.
+
+        Order (harden-field-reader-pre-f3 D4): the ``step`` and region arguments are checked with
+        no I/O; then the plotfile is resolved; then the run's ``run_metadata.json`` is read and
+        validated -- **before** the plotfile is read, so a run without valid provenance fails
+        fast; then the plotfile is read.
 
         Args:
             config_id: Config name as listed in the manifest.
@@ -299,14 +334,33 @@ class FieldCorpus:
             fields: Short names to read.
 
         Returns:
-            The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile.
+            The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile,
+            with ``config_id``, ``step`` (a Python ``int``), ``git_commit`` and ``docker_image``
+            set. The last two are copied from the run's ``run_metadata.json``, never inferred.
 
         Raises:
-            ValueError: Anything :meth:`plotfile` raises (a bad ``step`` before any I/O), and
-                anything ``read_field_snapshot`` raises, including ``lo > hi`` on any axis.
+            ValueError: An invalid ``step`` or region argument (before any I/O); anything
+                :meth:`plotfile` raises; a missing or unverifiable ``run_metadata.json`` (absent,
+                unreadable, not a JSON object, a ``config`` naming another run, a commit that is
+                not 40 lowercase hex characters, or an image that is not ``<repo>@sha256:<64
+                hex>``); and anything ``read_field_snapshot`` raises.
+            FileNotFoundError: If the resolved plotfile directory has no ``Header``.
         """
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
-        return read_field_snapshot(
-            self.plotfile(config_id, step), lo=lo, hi=hi, halo=halo, fields=fields
+        step = _validate_step(step)
+        _validate_request(lo, hi, halo, fields)
+        plotfile = self.plotfile(config_id, step)
+        meta_path = self.runs_dir / config_id / "run_metadata.json"
+        meta = read_run_metadata(meta_path, config_id=config_id)
+        git_commit, docker_image = run_provenance(
+            meta, config_id=config_id, path=meta_path
+        )
+        snap = read_field_snapshot(plotfile, lo=lo, hi=hi, halo=halo, fields=fields)
+        return dataclasses.replace(
+            snap,
+            config_id=config_id,
+            step=step,
+            git_commit=git_commit,
+            docker_image=docker_image,
         )
