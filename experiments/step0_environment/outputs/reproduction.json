@@ -1,0 +1,65 @@
+{
+  "pass": true,
+  "val_configs": [
+    "s55_f100_p60",
+    "s55_f115_p30",
+    "s55_f115_p60"
+  ],
+  "committed_val_configs": [
+    "s55_f100_p60",
+    "s55_f115_p30",
+    "s55_f115_p60"
+  ],
+  "seconds_per_fit": 30.446474798955023,
+  "device": "cuda",
+  "per_target": [
+    {
+      "target": "CF_x",
+      "rmse": 0.028018417907059823,
+      "committed_rmse": 0.028018417907059823,
+      "rel_diff": 0.0,
+      "skill": 0.9923238192634722,
+      "committed_skill": 0.9923238192634722
+    },
+    {
+      "target": "CF_y",
+      "rmse": 0.011658332384006896,
+      "committed_rmse": 0.011658332384006896,
+      "rel_diff": 0.0,
+      "skill": 0.9863560532634151,
+      "committed_skill": 0.9863560532634151
+    },
+    {
+      "target": "CF_z",
+      "rmse": 0.017931181404282934,
+      "committed_rmse": 0.017931181404282934,
+      "rel_diff": 0.0,
+      "skill": 0.9856153342476355,
+      "committed_skill": 0.9856153342476355
+    },
+    {
+      "target": "CF_mx",
+      "rmse": 0.03452824229145131,
+      "committed_rmse": 0.03452824229145131,
+      "rel_diff": 0.0,
+      "skill": 0.9797981617062095,
+      "committed_skill": 0.9797981617062095
+    },
+    {
+      "target": "CF_my",
+      "rmse": 0.019120527023838454,
+      "committed_rmse": 0.019120527023838454,
+      "rel_diff": 0.0,
+      "skill": 0.9787292196267627,
+      "committed_skill": 0.9787292196267627
+    },
+    {
+      "target": "CF_mz",
+      "rmse": 0.04818515487242423,
+      "committed_rmse": 0.04818515487242423,
+      "rel_diff": 0.0,
+      "skill": 0.9935486326445372,
+      "committed_skill": 0.9935486326445372
+    }
+  ]
+}
