@@ -133,8 +133,11 @@ about the fine-grid CFD, all in [`examples/flapping_wing/RESULTS.md`](../flappin
   corpus's 5e-4, and on peak body-frame forces only. The three-grid study (T3c, PR #52) gives
   GCI_fine 3.7 % for `CF_normal` and 27.6 % for `CF_chord`. No moment and no lab-frame time series
   was grid-checked.
-- **Comparison with a model, not a measurement** (T4): `CF_normal 2.23 vs model 2.48` and
-  `CF_chord 0.41 vs model 0.43` against van Veen's quasi-steady force model at that same point.
+- **Comparison with a model, not a measurement** (T4): at that same point the `CF_normal` peak
+  agrees in magnitude with van Veen's quasi-steady force model, within the graded tolerance. The
+  `CF_chord` peak does not agree with the model's and is not explained by it. The numbers and
+  the limits of that comparison are in the
+  [T4 subsection](../flapping_wing/RESULTS.md#t4-per-component-decomposition--validated-against-van-veens-quasi-steady-model-normal-peak-magnitude).
 - **This sweep's 27 runs** passed only the acceptance gate's internal checks (CFL, row counts, CC-F1,
   beat symmetry; see below), not a comparison with any reference.
 

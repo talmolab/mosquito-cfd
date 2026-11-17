@@ -217,7 +217,8 @@ PR1's helpers.
 The committed 27-config corpus above was generated entirely on the **coarse 64×32×64 grid**
 (`base_inputs.3d.validation`). Separate, already-merged grid-convergence work (T3b/T3c,
 `add-wing-fine-grid-convergence`) found that this coarse grid badly under-resolves `CF_chord`:
-**+115%** off the van Veen QS-model target (0.923 vs. ~0.43), vs. only ~4–5% at fine 256³.
+its peak falls from 0.923 on the coarse grid to 0.554 on the medium and 0.411 on the fine 256³,
+and it is still not tightly converged there (GCI_fine 27.6 %).
 `CF_normal` is comparatively well-behaved even at medium resolution. This means the corpus's
 `CF_x`/chord-component training target is trustworthy only in relative/pipeline terms
 (CC-4's "pipeline readiness on coarse-grid forces," not validated aerodynamics), not in absolute

@@ -5,6 +5,7 @@ unrelated file. The guard itself is in ``_stale_claims``; this file also proves 
 the sentences review round 3 listed.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -102,6 +103,45 @@ def _figures_readme() -> str:
     )
 
 
+_LOG_HEADER = "## Reconciliation log"
+
+
+def _read(rel: str) -> str:
+    return (_ROOT / rel).read_text(encoding="utf-8")
+
+
+def _aero_roadmap() -> str:
+    """The aerodynamics roadmap without its dated reconciliation log (a record, not rewritten)."""
+    text = _read("docs/aerodynamics_validation/roadmap.md")
+    assert text.count(_LOG_HEADER) == 1, (
+        "reconciliation-log header not found exactly once"
+    )
+    return text[: text.index(_LOG_HEADER)]
+
+
+def _aero_roadmap_log() -> str:
+    text = _read("docs/aerodynamics_validation/roadmap.md")
+    return text[text.index(_LOG_HEADER) :]
+
+
+def _slug(header: str) -> str:
+    """GitHub's anchor for a Markdown header line."""
+    title = header.lstrip("#").strip().lower()
+    return re.sub(r"[^\w\- ]", "", title).replace(" ", "-")
+
+
+def _t4_anchor() -> str:
+    """Markdown link target of the T4 subsection of RESULTS.md, from its header as written today."""
+    header = next(
+        ln
+        for ln in _results_md().splitlines()
+        if ln.startswith("### T4 per-component decomposition")
+    )
+    # The closing parenthesis is part of the match: a link to a shorter, stale anchor that is a
+    # prefix of this one must not satisfy it.
+    return "RESULTS.md#" + _slug(header) + ")"
+
+
 def _flapping_wing_prose() -> str:
     source = (_ROOT / "src/mosquito_cfd/benchmarks/flapping_wing.py").read_text(
         encoding="utf-8"
@@ -127,6 +167,20 @@ _DOCUMENTS = {
         _figures_readme,
         ("| `fig_force_decomposition` |", "#40 is open"),
     ),
+    "aerodynamics roadmap": (_aero_roadmap, ("| ✅ **T4**", "#40 is open")),
+    "prelim_sweep_fine/README.md": (
+        lambda: _read("examples/prelim_sweep_fine/README.md"),
+        (_t4_anchor,),
+    ),
+    "force_surrogate/roadmap.md": (
+        lambda: _read("docs/force_surrogate/roadmap.md"),
+        ("`CF_chord`", "0.923"),
+    ),
+    "fine-grid-pilot-report.md": (
+        lambda: _read("docs/force_surrogate/fine-grid-pilot-report.md"),
+        ("`CF_chord`",),
+    ),
+    "CHANGELOG.md": (lambda: _read("docs/CHANGELOG.md"), ("#141",)),
 }
 
 
@@ -136,6 +190,7 @@ def test_no_stale_t4_claim(name):
     loader, anchors = _DOCUMENTS[name]
     text = loader()
     for anchor in anchors:
+        anchor = anchor() if callable(anchor) else anchor
         assert anchor in text, (
             f"{name}: anchor {anchor!r} missing; the guard would be vacuous"
         )
@@ -157,3 +212,98 @@ def test_figures_readme_gives_the_t4_verdict_in_words():
     assert re.findall(r"\d+\.\d+", section) == []
     # The sign anchor other tests rely on stays on the rewritten row.
     assert "coordinate-convention.md#force-and-moment-sign" in section
+
+
+def test_slug_matches_github_for_a_known_header():
+    """The anchor helper reproduces the one link RESULTS.md already uses to its own header."""
+    header = "### Added-mass-subtracted body-frame diagnostic (#40 cheap interim)"
+    assert (
+        _slug(header) == "added-mass-subtracted-body-frame-diagnostic-40-cheap-interim"
+    )
+    assert f"(#{_slug(header)})" in _results_md()
+    assert header in _results_md()
+
+
+def test_roadmap_t4_row_gives_the_verdict_in_words():
+    """The roadmap's T4 row states the verdict and points to RESULTS.md for the numbers."""
+    text = _read("docs/aerodynamics_validation/roadmap.md")
+    row = next(ln for ln in text.splitlines() if ln.startswith("| ✅ **T4**"))
+    assert "PR [#" in row
+    assert "translational + added-mass + Wagner" in row and "Fig 13" in row
+    assert "does not resolve the T2a CF_chord PARTIAL" in row
+    assert "does not explain" in row and "#40 is open" in row
+    assert "RESULTS.md" in row
+    # The only decimal in the row is the CFD chord's GCI_fine, pinned by the T3c test.
+    assert set(re.findall(r"\d+\.\d+", row)) == {"27.6"}
+    assert "digitize van Veen Fig 3–4" not in text
+
+
+def test_roadmap_log_is_kept_and_carries_the_dated_addendum():
+    """The dated log is a record: its T4 phase note stays, marked superseded, plus an addendum."""
+    log = _aero_roadmap_log()
+    assert "peak-PHASE reported, not gated" in log
+    assert "NOT a loosened tolerance" in log
+    phase_note = log[log.index("### T4 normal peak-PHASE reported, not gated") :]
+    phase_note = phase_note[: phase_note.index("\n### ", 1)]
+    assert "**Superseded figure (2026-11-17).**" in phase_note
+    addendum = log[log.index("### T4 re-graded on the corrected model (2026-11-17") :]
+    for phrase in (
+        "#141",
+        "#133",
+        "RESULTS.md",
+        "#40 is open",
+        "tolerance is unchanged",
+    ):
+        assert phrase in addendum, phrase
+
+
+@pytest.mark.parametrize("phrase", ["deferred to T4", "rotational drag"])
+def test_t4_is_described_as_delivered(phrase):
+    """The convention page and the module docstring describe T4 as delivered, with its real terms."""
+    import ast
+
+    convention = _read("docs/coordinate-convention.md")
+    assert "decompose_wing_force" in convention
+    assert phrase not in convention
+    source = _read("src/mosquito_cfd/benchmarks/flapping_wing.py")
+    docstring = ast.get_docstring(ast.parse(source))
+    assert "decompose_wing_force" in docstring
+    assert phrase not in docstring
+
+
+def test_changelog_states_what_ships():
+    """Unreleased entries describe the shipped state, and one entry describes this change."""
+    changelog = " ".join(_read("docs/CHANGELOG.md").split())
+    unreleased = changelog[changelog.index("## [Unreleased]") :]
+    later = unreleased.find("## [", 5)  # the next release header, if any
+    unreleased = unreleased if later < 0 else unreleased[:later]
+    entry = next(e for e in unreleased.split(" - ") if "#141" in e)
+    for phrase in (
+        "#133",
+        "`S_cy`",
+        "degrees",
+        "angle of attack",
+        "#154",
+        "#155",
+        "#156",
+    ):
+        assert phrase in entry, phrase
+    assert "`normal_curve_corr`" in entry and "tests/fixtures/van_veen_2022/" in entry
+    # Superseded statements are corrected, not annotated.
+    for stale in (
+        "The T4 figure flags the normal",
+        "The figure and RESULTS.md flag this, for the chord comparison",
+        "it is fed the signed pitch rather than the angle of attack",
+        "mark the chord comparison and the T4 status pending",
+    ):
+        assert stale not in changelog, stale
+
+
+def test_fine_readme_points_to_results_for_the_t4_numbers():
+    """The fine-corpus README gives the T4 verdict in words and links the T4 subsection."""
+    readme = _read("examples/prelim_sweep_fine/README.md")
+    bullet = readme[readme.index("**Comparison with a model, not a measurement**") :]
+    bullet = bullet[: bullet.index("\n- **")]
+    assert _t4_anchor() in bullet
+    assert "not explained" in bullet
+    assert re.findall(r"\d+\.\d+", bullet) == []

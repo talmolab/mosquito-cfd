@@ -228,9 +228,9 @@ Any failure here: stop and ask the user. Nothing is committed.
 
 ## 3. Remaining docs (`docs(t4)`)
 
-- [ ] 3.1 Grep `tests/` for every phrase to be changed (including the fine README's
+- [x] 3.1 Grep `tests/` for every phrase to be changed (including the fine README's
       `_FINE_COMPARATIVE` / `_DENOMINATOR_RATIO` guards).
-- [ ] 3.2 Test first: add the remaining stale-claim-guard cases:
+- [x] 3.2 Test first: add the remaining stale-claim-guard cases:
       `docs/aerodynamics_validation/roadmap.md` (scanned without its reconciliation log),
       `examples/prelim_sweep_fine/README.md`, `docs/force_surrogate/roadmap.md`,
       `docs/force_surrogate/fine-grid-pilot-report.md`, `docs/CHANGELOG.md`. Each fails today on a
@@ -239,16 +239,16 @@ Any failure here: stop and ask the user. Nothing is committed.
       `test_every_chord_resolution_claim_cites_133`. Add the roadmap-row test additions the spec
       scenario names (the dated addendum; `coordinate-convention.md` and the `flapping_wing.py`
       docstring free of "deferred to T4" / "rotational drag").
-- [ ] 3.3 Edit the docs, verdict in words and no model number: the roadmap T4 row and lines 101–103,
+- [x] 3.3 Edit the docs, verdict in words and no model number: the roadmap T4 row and lines 101–103,
       174–175 (the phrases `test_roadmap_t4_row_flipped_and_reframed` requires stay); a dated addendum
       to the reconciliation log, which is otherwise left as written;
       `examples/prelim_sweep_fine/README.md:136–137` with a link to the `RESULTS.md` T4 subsection;
       `docs/force_surrogate/roadmap.md:219–221` and `docs/force_surrogate/fine-grid-pilot-report.md:9–13`,
       re-based on the grid evidence using only numbers pinned elsewhere.
-- [ ] 3.4 `docs/CHANGELOG.md`: correct the unreleased entries at lines 46 and 60 so they state what
+- [x] 3.4 `docs/CHANGELOG.md`: correct the unreleased entries at lines 46 and 60 so they state what
       ships (the pinned phrase "The T4 figure flags the normal" goes, with its assertion); line 77
       has no superseded statement and stays; add one entry for this change, verdict in words.
-- [ ] 3.5 Mutation tests for 3.2, as in 1.9's last item, for each document.
+- [x] 3.5 Mutation tests for 3.2, as in 1.9's last item, for each document.
 
 ## 4. #142 attribution relabel (`docs(kinematics)`, last commit)
 
@@ -340,3 +340,8 @@ and one case per document), not in `tests/test_results_reproducibility.py`.
 The re-rendered T4 figure shows a kink in the model's normal curve just after mid-stroke. It is
 the Wagner term changing sign, and it is where the model's graded peak falls. One sentence
 saying so is added to the T4 limits, with a test that asserts the peak's phase and the sign change.
+
+### Why does the fine-corpus README's anchor include the closing parenthesis?
+
+Mutation testing: renaming the `RESULTS.md` T4 header to a shorter one left the README link
+matching as a prefix. The anchor the guard requires is the full link target, parenthesis included.
