@@ -62,7 +62,9 @@ About 3.5 GPU-hours in total, inside the 10-hour budget.
 
 - **558 snapshots cached, all 27 configs, second beat only** (24, 20 and 18 per config for
   f* = 0.85, 1.0 and 1.15). Every one passed the provenance check. About 16 GB locally.
-- **Each run's final plotfile is excluded.** For the f* = 0.85 group it sits at the deck's
+- **The final plotfile is excluded for the f* = 0.85 and 1.0 runs, but not for f* = 1.15.** There the
+  run ends on a whole step (3478, phase 0.9999), so it passed the time test and is in the cache,
+  78 steps after the previous snapshot instead of 100. For the f* = 0.85 group the final plotfile it sits at the deck's
   `stop_time`, not at step x 5e-4 (the solver shortens its last step), so the time test refused it
   and stopped the cache. The test was left as strict as it was and the final plotfile (start of a
   third beat) is simply not cached.

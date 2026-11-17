@@ -79,7 +79,7 @@ def _(equiv, long, mo, pod, short):
         **Data used:** beat-1 velocity snapshots (the second wingbeat) of all 27 configs from the
         fine corpus plotfiles under `examples/prelim_sweep_fine/runs/` on the cluster share, 558
         snapshots, each provenance-checked (`ns.cfl = 0.6`, `fixed_dt = 5e-4`, 256 × 128 × 256);
-        the final plotfile of each run is excluded (see step 0).
+        the final plotfile of the f* = 0.85 and 1.0 runs is excluded; for f* = 1.15 the final plotfile (step 3478, phase 0.9999, 78 steps after the previous one) is included (see step 0).
 
         ## Result
         **It trains, but at {L} latent values it reconstructs held-out flow
@@ -228,8 +228,9 @@ def _(mo):
           Method).
 
         ## Next step
-        Do not adopt stock `Mesh_Reduced` as the F3 encoder on this evidence. Use POD in the
-        wing-fixed frame (E5: 99% of energy in 30 modes instead of 67) as the baseline latent, and
+        Do not adopt stock `Mesh_Reduced` as the F3 encoder on this evidence. Use POD as the baseline latent, preferably in the
+        wing-fixed frame (E5, indicative only: 99% of energy in 30 modes instead of 67, on a smaller
+        region and a 4× block-averaged grid), and
         make any neural encoder beat it at equal size before it earns a place. If a neural arm is
         wanted, a 3-D convolutional autoencoder on the wing-frame box is the cheaper experiment,
         and it can run at 4× rather than 8× block-averaging on this GPU.

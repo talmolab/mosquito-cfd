@@ -70,8 +70,7 @@ def _(F, P, idx, mo, n_test, n_train, per_cfg, pooled):
 
         **Data used:** {len(idx)} live plotfiles of `Z:\\...\\prelim_sweep_fine\\runs\\`, second
         beat of all 27 configs (18 to 24 per config), each checked for `ns.cfl = 0.6`,
-        `dt = 5e-4`, the 256x128x256 grid and IAMReX `f93dc794`; each run's final plotfile and all
-        `.old.*` directories excluded. Force labels from
+        `dt = 5e-4`, the 256x128x256 grid and IAMReX `f93dc794`; all `.old.*` directories excluded; the final plotfile of the f* = 0.85 and 1.0 runs is excluded; for f* = 1.15 the final plotfile (step 3478, phase 0.9999, 78 steps after the previous one) is included. Force labels from
         `examples/prelim_sweep_fine/dataset.parquet` at `80d653a`.
 
         ## Result
@@ -294,7 +293,7 @@ def _(mo):
         - Errors are about the training mean; the mean field itself holds roughly half of the
           held-out energy, so errors relative to the total field would be smaller.
         - The cells inside the immersed boundary are included; nothing is masked.
-        - The force probe uses 126 held-out snapshots and predicts forces a kinematics-only model
+        - The force probe uses 128 held-out snapshots and predicts forces a kinematics-only model
           already gets to within 1 to 2 percent (E1); it shows the field modes carry the force
           information, not that a field model is needed for it.
         - Velocity only; the pressure gradient was cached downsampled but not analysed.

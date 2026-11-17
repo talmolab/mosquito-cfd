@@ -81,7 +81,7 @@ def _(control, last, mean, mo, n_beats, prev):
         - Running 4 beats instead of 2 would bring every component within
           {last.loc[4].max():.1%} of peak of beat {n_beats}.
 
-        The Track B surrogate's held-out error on the fine grid is 1.1–1.8% of peak (E1). On this
+        The Track B surrogate's held-out error on the fine grid is 1.1–1.8% of peak (E1; median over configs, 2.5% worst). On this
         config the beat-2 start-up residue ({last.loc[2].min():.1%}–{last.loc[2].max():.1%}) is
         the same size or larger for `CF_z`, `CF_mx` and `CF_my`. So the surrogate reproduces its
         training data more closely than that data represents steady flapping.

@@ -218,7 +218,7 @@ def _(mo):
             - Beat 1 versus beat 2 cannot show that beat 2 is converged (E0).
         - "Inside the CFD's uncertainty" means the surrogate reproduces **this** CFD to within the
           amount this CFD is known. It says nothing about agreement with a real wing.
-        - Six held-out configs, all interior to the sweep (no corner is held out). E2 covers the
+        - Six held-out configs: five on edges of the sweep cube and one on a face; no corner is held out. E2 covers the
           corners with leave-one-config-out.
         - The seed ranges follow the repo's convention: one seed sets both the validation carve
           and the initialisation.

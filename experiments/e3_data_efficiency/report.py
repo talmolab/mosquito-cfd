@@ -186,7 +186,7 @@ def _(mo):
         """
         ## Caveats
         - **This is the cost of interpolating inside a 3x3x3 grid**, scored on 6 held-out configs
-          that are all interior (none is a corner). It says nothing about how many runs a wider or
+          of which none is a corner (five edge configs, one face config). It says nothing about how many runs a wider or
           higher-dimensional sweep would need.
         - Five subset draws per n is few; the range at small n is wide and would move with more
           draws. The table gives the share of the spread that comes from which configs were drawn.

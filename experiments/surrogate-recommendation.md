@@ -7,14 +7,16 @@ touched are marked **untested**.
 ## Short version
 
 1. For periodic hover forces, a kinematics-only regression is enough, and a 3,960-coefficient
-   Fourier-polynomial ridge model does better than the current MLP on the full 21-config grid.
+   Fourier-polynomial ridge model does better than the current MLP on the full 21-config grid
+   (and only there: it is unreliable with fewer configs).
 2. The limit on hover-force accuracy is now the training data, not the model: the training beat is
    still 1–3% of peak away from settled flapping (coarse grid, one config), which is as large as
    the surrogate's error.
-3. If a flow latent is needed, start from POD in a wing-fixed frame. It needs about half the modes
-   of lab-frame POD.
-4. Stock `Mesh_Reduced` is not a good first encoder here: it reaches only about 18k nodes on a
-   24 GB GPU and, at equal latent size, reconstructed held-out flow 3.4 times worse than POD.
+3. If a flow latent is needed, start from POD, and try it in a wing-fixed frame. An indicative
+   test (smaller region, 4× block-averaged grid) needed about half the modes of lab-frame POD.
+4. Stock `Mesh_Reduced` is not a good first encoder here: it trains usefully only up to about 18k
+   nodes on a 24 GB GPU and, at equal latent size, reconstructed held-out flow 3.4 times worse
+   than POD (stock model, untuned, one seed, 8× block-averaged patch).
 5. Whether any flow latent is needed at all is still open. It needs commanded-change runs, which
    do not exist.
 
@@ -22,16 +24,19 @@ touched are marked **untested**.
 
 ### 1. Periodic hover forces: a kinematics-only model is the right tool — **confirmed, and simpler than thought**
 
-- E1: Track B's held-out error is 1.1–1.8% of peak, inside all three yardsticks (grid-convergence
-  band, coarse-versus-fine difference, beat-to-beat difference) for all 6 holdout configs and all
-  6 components on the worst of 5 seeds.
+- E1: Track B's held-out error is 1.1–1.8% of peak (by component, median over configs), inside all
+  three yardsticks (grid-convergence band, coarse-versus-fine difference, beat-1-to-beat-2
+  difference) for all 6 holdout configs and all 6 components on the worst of 5 seeds. Two of those
+  yardsticks are weak: the grid band is borrowed from one config and the margin is thin (3.2%
+  against 3.7%), and the beat-to-beat difference is the start-up transient. Against E0b's
+  settled-beat estimate (0.8–2.9%) the surrogate error is about equal, not well inside.
 - E4: a ridge regression on Fourier (16 harmonics) × polynomial (degree 3) features, with its size
   chosen by cross-validation inside the training configs, reaches holdout skill 0.9991 against the
   MLP's 0.987. Giving the MLP 3 phase harmonics lifts it to 0.995. So most of the MLP's remaining
   error is its single-harmonic phase input, not missing physics.
-- E3: the ridge model needs the full grid (skill 0.9988 at 18 configs, 0.906 at 15, 0.29 at 12);
-  the MLP degrades more gently (0.984 at 15, 0.957 at 12). With fewer than about 18 configs, keep
-  the MLP.
+- E3: the ridge model needs the full grid. Median skill over 5 random subsets is 0.9988 at 18
+  configs, but one of the five fell to 0.41; it is 0.906 at 15 and 0.29 at 12. The MLP degrades
+  more gently (median 0.984 at 15, 0.957 at 12). With fewer than the full 21 configs, keep the MLP.
 - E4: frequency carries little information once forces are normalised (dropping it costs 0.017 of
   skill; dropping stroke costs 0.19; dropping pitch drops the model below the baseline).
 - Not tested: quasi-steady model plus learned correction. That waits for #141 and #133.
@@ -62,13 +67,15 @@ step change, and should be at least 4 beats long after the change.
   a smaller region). Much of the lab-frame cost is the wing moving through a fixed grid.
 - Not tested: a convolutional autoencoder or FNO, and any latent dynamics model.
 
-**Recommendation:** make wing-frame POD the baseline latent. Any learned encoder is judged against
-it at equal latent size on held-out configs.
+**Recommendation:** make POD the baseline latent and repeat the wing-frame comparison on matched
+regions at full resolution before committing to that frame. Any learned encoder is judged against
+POD at equal latent size on held-out configs.
 
 ### 4. `Mesh_Reduced` — **measured: feasible only when small, and worse than POD as run**
 
 - E6: the stock model (15 blocks, 128 wide) uses about 0.6 MiB of GPU memory per node. On the
-  A5000 it trains at 4.6k nodes with batch 4, fits 18k nodes at batch 1, and fails beyond that.
+  A5000 it trains at 4.6k nodes with batch 4 and fits 18k nodes at batch 1; 37k nodes ran only by
+  spilling out of GPU memory (25 s per step) and 147k ran out of memory.
   The full-resolution patch is 2.4 million cells.
 - At 216 latent values on a 4,608-node graph, after 600 epochs, held-out error is 16% against
   4.6% for POD with 216 modes; it matches POD with about 39 modes. One seed, no tuning, 374
@@ -85,7 +92,7 @@ published continuous-motion result, adapter incomplete in #112).
 ### 6. Still not appropriate: PINN, full-field MeshGraphNet stepping — **untested**
 
 E6's memory measurement adds one data point: message passing on even an 18k-node graph costs
-0.55 s per training step here, so stepping the full field with a graph network is not an RL
+0.55 s per training step (forward and backward, batch 1) here, so stepping the full field with a graph network is not an RL
 inner-loop candidate.
 
 ## What I would do next, in order
