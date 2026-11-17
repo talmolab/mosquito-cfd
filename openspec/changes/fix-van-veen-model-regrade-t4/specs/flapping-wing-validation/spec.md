@@ -937,10 +937,10 @@ reported-not-gated as an evidence-based scoping decision, NOT a loosened toleran
   splitting into sentences
 - **Then** no sentence that lacks a negation states that T4 or the model resolves, settles, explains
   or accounts for the chord PARTIAL or #40, that the chord sits close to or converges to the model,
-  that the earlier comparison was "apples-to-oranges" or "should never have been compared", or
+  that the earlier comparison was "apples-to-oranges", or
   names a "physical chord target" or a "QS-model target"
 - **And** no sentence at all contains: a pending-#133 marker in either word order; a statement that
-  #40 is closed, resolved or done; "roughly cancel"; "full QS model total"; a "0.3–0.43" chord
+  #40 is closed, resolved or done; "should never have been compared"; "roughly cancel"; "full QS model total"; a "0.3–0.43" chord
   range; the "115 %" and "4–5 %" off-model-target figures; or a superseded model number as a whole
   number (`2.48`, `0.43`, `0.42` not preceded by a minus sign, `0.055`, `0.058`, and "near 0.18")
 - **And** negated statements are accepted, because the docs are required to make them: "does not

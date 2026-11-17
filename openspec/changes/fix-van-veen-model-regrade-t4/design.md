@@ -286,16 +286,19 @@ the repo-wide grep in task 5.3 remain the primary control.
   (decimals are not split). A sentence is *negated* when it matches
   `\b(not|never|neither|nor|cannot|no)\b|n't|\bun(resolved|explained)`.
 - **Claim patterns, rejected in a sentence that is not negated.**
-  - `resolv\w*|resolution` together with `t4|#40|partial` in the same sentence
+  - `(?<![-\w])resolv\w*|(?<![-\w])resolution\W+of\b` together with `t4|#40|partial` in the
+    same sentence ("under-resolves" and "under-resolution" are about the grid and are skipped)
   - `explain\w*|accounts?\W+for|settle[sd]?` together with `chord` in the same sentence
   - `sits\W+(very\W+)?close\W+to\W+the\W+model`, `close\W+agreement`
   - `converges?\W+to(ward)?\W+the\W+(qs\W+)?model`
-  - `should\W+never\W+have\W+been\W+compared`, `apples-to-oranges`
+  - `apples-to-oranges`
   - `physical\W+chord\W+target`, `qs-?model\W+(chord\W+)?target`
 - **Patterns rejected in any sentence, negated or not.**
   - `(pending|awaiting).{0,20}#133|#133.{0,20}(pending|awaiting)`
   - `#40\W+(is\W+|remains\W+|was\W+)?(closed|resolved|done)`, `clos\w+\W+#40`
   - `roughly\W+cancel`, `full qs model total`, `near 0\.18`
+  - `should\W+never\W+have\W+been\W+compared` (it contains "never", so it cannot be a
+    negation-skipped pattern)
   - `0\.3\s*(–|—|-|to)\s*0\.43`, `\+?115\s?%`, `(?<![\d.])4\s?(–|—|-|to)\s?5\s?%`
   - whole-number superseded values: `(?<![\d.])2\.48(?!\d)`, `(?<![\d.])0\.43(?!\d)`,
     `(?<![−\-\d.])0\.42(?!\d)` (so `drop_frac ≈ −0.42` stays), `(?<![\d.])0\.05[58](?!\d)`
@@ -315,8 +318,9 @@ the repo-wide grep in task 5.3 remain the primary control.
   present. `flapping_wing.py` is scanned on its `tokenize` COMMENT tokens and its docstrings
   (`ast.get_docstring` on the module and every function).
 - **Mutation.** Each forbidden form is restored in plain, bold and line-wrapped variants, and each
-  anchor removed, per document. Both polarities are tested: the seven negated sentences round 3
-  listed must pass, and the fourteen affirmative ones it listed must fail.
+  anchor removed, per document. Both polarities are tested: six of the negated sentences round 3
+  listed must pass (the seventh, "T4 does not close #40", is rejected by the closing-#40
+  pattern under the D9 wording rule), and the fourteen affirmative ones it listed must fail.
 
 The round-2 patterns were run against the current files by the round-3 reviewer: every hit was
 stale text. The patterns above are new in round 3 and are first run in task 1.6; they are
