@@ -139,7 +139,9 @@ def _error_surface(pred, truth, shape, u_ref):
     verts, faces, _, _ = measure.marching_cubes(q, level=Q_LEVEL)
     err = np.linalg.norm(pred.reshape(shape).astype(np.float64) - f, axis=-1) / u_ref
     at_faces = map_coordinates(err, verts.T, order=1, mode="nearest")[faces].mean(axis=1)
-    return {"triangles": (verts * DX)[faces], "facecolors": SEQ(np.clip(at_faces / ERR_MAX, 0.0, 1.0))}
+    colours = SEQ(np.clip(at_faces / ERR_MAX, 0.0, 1.0))
+    colours[:, 3] = 0.65  # same see-through level as the other panels, so the far side is not hidden
+    return {"triangles": (verts * DX)[faces], "facecolors": colours}
 
 
 def render(config: str, *, frame: int | None, fps: int, layout: str = "three") -> None:
