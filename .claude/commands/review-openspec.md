@@ -10,7 +10,9 @@ utilities and Docker-based CI. You value testing, code quality, reproducibility,
 preservation, traceability, numerical accuracy, correctness, and documentation that is clear,
 succinct, and DRY.
 
-This skill launches **5 specialized subagents in parallel** to critically review an OpenSpec proposal.
+This skill launches up to 6 specialized subagents in parallel to critically review an OpenSpec
+proposal: Subagents 1, 2, 4 and 5 always run; Subagent 3 (CI/CD & Build) and Subagent 6 (Math,
+Physics & Numerical Correctness) run when their run conditions hold, or when that is unclear.
 Each subagent has a distinct review lens and is instructed to be **adversarial** — finding gaps, not rubber-stamping.
 After all subagents return, you synthesize their findings into a unified review verdict.
 
@@ -21,6 +23,10 @@ After all subagents return, you synthesize their findings into a unified review 
 Determine which proposal to review:
 
 - If the user specifies a change ID via `$ARGUMENTS`, use it directly
+- If `openspec/changes/<id>/proposal.md` does not exist, look for `openspec/changes/archive/*-<id>/`
+  (an archived path may also be given directly). If found there, review it read-only, report
+  `openspec validate` as N/A (archived), and skip Step 5's edit options. If it is found nowhere,
+  stop and show `openspec list`.
 - Otherwise, run `openspec list` to find active proposals and ask the user which one to review
 - Read the proposal's `proposal.md`, `tasks.md`, `design.md` (if exists), and all delta spec files under `specs/`
 
@@ -35,12 +41,24 @@ Before launching subagents, collect essential context that each agent will need:
 5. Note the affected code files listed in the Impact section
 6. Note any related GitHub issues mentioned
 
-Embed the full proposal text, current spec text, and file lists into each subagent prompt.
+Fill each template's placeholders with the full text (do not summarize): `{PROPOSAL_MD}`,
+`{TASKS_MD}`, `{DESIGN_MD}` (or `(no design.md in this change)`), `{DELTA_SPECS}`, `{CURRENT_SPECS}`
+(or `(new capability)` when no existing spec is modified), and `{CHANGE_ID}`.
 
 ## Step 3: Launch Subagent Review Team
 
-Launch ALL 5 subagents **in a single message** (parallel execution). Each subagent gets the full proposal
-text embedded in its prompt. Each agent MUST read the actual files it needs — do not rely on summaries.
+First, decide whether Subagents 3 and 6 run, using each one's run condition and if-unclear rule
+(below). Then launch ALL applicable subagents (1, 2, 4 and 5, plus 3 and 6 when they run) **in a
+single message** (parallel execution). Each subagent gets the full proposal text embedded in its
+prompt. Each agent MUST read the actual files it needs — do not rely on summaries.
+
+Pass each subagent's `model` field to the Agent tool exactly as given; do not omit it. Every
+subagent declares its model on purpose: Sonnet for the rule-checklist lenses (1, 4, 5), Opus for the
+lenses that must reason about what is missing or how things fail (2, 3, 6). `sonnet` and `opus` are
+aliases that move to the newest model in each family. If the Agent tool rejects a model value,
+relaunch that subagent with the closest available model (prefer the more capable one for 2, 3 and
+6) and note `(ran on <model>; requested <model>)` under its heading in Review Details. Never drop
+the field silently.
 
 ---
 
@@ -48,6 +66,7 @@ text embedded in its prompt. Each agent MUST read the actual files it needs — 
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review OpenSpec format quality"
 ```
 
@@ -121,6 +140,7 @@ description: "Review OpenSpec format quality"
 
 ```
 subagent_type: "general-purpose"
+model: "opus"
 description: "Review TDD and testing plan"
 ```
 
@@ -135,7 +155,7 @@ description: "Review TDD and testing plan"
 >
 > - **Framework**: pytest (dev dependency)
 > - **CI**: single runner (ubuntu-latest), Python 3.11 via uv; jobs = lint (ruff check + ruff format),
->   test (`pytest -v`), dockerfile-lint (hadolint on `docker/Dockerfile.*`)
+>   test (`uv run pytest -v -m "not gpu"`), dockerfile-lint (hadolint on `docker/Dockerfile.*`)
 > - CI tolerates "no tests collected" (pytest exit code 5) while the suite is built out
 > - The CFD solver runs in Docker/GPU and is NOT exercised by CI unit tests; Python utilities
 >   (geometry generation, run-metadata capture) are what unit tests cover
@@ -188,12 +208,24 @@ description: "Review TDD and testing plan"
 
 ---
 
-### Subagent 3: CI/CD & Build Infrastructure
+### Subagent 3: CI/CD & Build Infrastructure (conditional)
 
 ```
 subagent_type: "general-purpose"
+model: "opus"
 description: "Review CI/CD and build changes"
 ```
+
+**Run condition:** launch Subagent 3 when the proposal touches CI workflows (`.github/workflows/`),
+Dockerfiles, `docker/build-args.env`, dependencies (`pyproject.toml`), the lockfile (`uv.lock`), or
+packaging and build configuration. Whether new tests can run in CI is Subagent 2's check, not a
+reason to launch this one.
+
+**If unclear:** launch Subagent 3.
+
+**When skipped:** do not launch it. In the synthesis, write
+`skipped: no CI, Docker, dependency or packaging change — <one-line reason>` under
+`### 3. CI/CD & Build`.
 
 **Prompt template:**
 
@@ -204,7 +236,7 @@ description: "Review CI/CD and build changes"
 >
 > **Current infrastructure** (read the actual files):
 >
-> - `.github/workflows/ci.yml` — lint (ruff check + ruff format) + test (`pytest -v`) + dockerfile-lint (hadolint)
+> - `.github/workflows/ci.yml` — lint (ruff check + ruff format) + test (`uv run pytest -v -m "not gpu"`) + dockerfile-lint (hadolint)
 > - `.github/workflows/docker.yml` — build & publish images to `ghcr.io/talmolab/mosquito-cfd` on push to main/tags
 > - `docker/Dockerfile.fp64` (primary), `Dockerfile.fp32` (deprecated), `Dockerfile.python` (post-processing)
 > - `docker/build-args.env` — pinned external dependency commits (amrex, AMReX-Hydro, IAMReX)
@@ -252,6 +284,7 @@ description: "Review CI/CD and build changes"
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review documentation impact"
 ```
 
@@ -303,6 +336,7 @@ description: "Review documentation impact"
 
 ```
 subagent_type: "general-purpose"
+model: "sonnet"
 description: "Review git workflow plan"
 ```
 
@@ -358,14 +392,119 @@ description: "Review git workflow plan"
 
 ---
 
+### Subagent 6: Math, Physics & Numerical Correctness (conditional)
+
+```
+subagent_type: "general-purpose"
+model: "opus"
+description: "Review math and physics correctness"
+```
+
+**Run condition:** Decide from proposal.md (What Changes, Impact), design.md, the delta specs and
+tasks.md. A value counts only if the change adds, changes or relies on it; mentioning it as
+background does not count, and issue or PR numbers, file or test counts and tooling or usage
+percentages never count. Launch Subagent 6 when the proposal touches solver decks or inputs,
+geometry, kinematics, force, moment and coefficient computation, frames, units, timestep and grid
+settings, surrogate training and evaluation metrics (including splits and seed handling), force and
+field extraction and corpus pipelines (deduplication, time windows), parsing, resampling or
+interpolation of solver output, any tolerance, threshold or acceptance gate on these quantities
+(including in `tests/`), or changes any convention document, scientific claim, figure, or quoted
+physical or statistical value (force coefficient, R², timestep, grid size, seed count).
+
+**If unclear:** launch Subagent 6. Skipping it on a physics proposal is the expensive mistake;
+running it on a tooling-only proposal costs one subagent.
+
+**When skipped:** do not launch it. In the synthesis, write
+`skipped: no numerics or scientific claims touched — <one-line reason>` under
+`### 6. Math & Physics`, and `N/A (Subagent 6 skipped: <reason>)` on the Risk Assessment line.
+
+**Prompt template:**
+
+> You are reviewing an OpenSpec proposal for `mosquito-cfd` (IAMReX immersed-boundary CFD of a
+> flapping mosquito wing, plus ML force and field surrogates).
+> Your role: **Math, Physics & Numerical Correctness Reviewer**.
+>
+> IMPORTANT: Be adversarial. Do not trust the proposal's statements, comments, or variable names.
+> A claim that looks like proof is not proof.
+>
+> **Authority:** the normative sources are `openspec/specs/coordinate-convention/spec.md` (axes,
+> frames, hinge reference point, sign) and `openspec/specs/force-surrogate/spec.md` (F_ref =
+> ½·ρ·ω_peak²·S_yy with ω_peak = 2π·f_star·radians(phi_amp_deg), computed per configuration by
+> `compute_force_reference`); timestep semantics are in `openspec/project.md` ("CFL mechanism").
+> `docs/coordinate-convention.md` is narrative only: it uses ω for two quantities (#161) and has
+> been wrong before (#108). All are sourced to van Veen et al. 2022 (JFM 936 A3). Read them first,
+> and confirm the code implements what they say. Where the proposal, these pages, the code and the
+> paper disagree, flag, do not resolve: report the disagreement and which sources say what.
+>
+> **Method:** recompute every constant, reference point, sign, timestep or seed count the proposal
+> states or relies on (e.g. F_ref, the moment origin, `ns.fixed_dt` vs `ns.cfl`, the number of
+> seeds) from its source (deck, `.vertex` file, code, committed JSON). Show the arithmetic or the
+> file:line, and report each as VERIFIED / CONTRADICTED / UNVERIFIABLE.
+>
+> **Failure classes:**
+> 1. Sign and frame conventions: there is no insect-body frame; "body" in code and docs means the
+>    wing frame. By design, forces are in the wing frame (chord, normal; spanwise dropped) and
+>    moments are in the lab frame about the hinge. `CF_*` are on-wing, the negation of the raw
+>    on-fluid `Fx..Mz`. Are frame transforms right (rotation direction, transpose, time dependence)?
+> 2. Reference points and normalization: the moment reference point (the deck's hinge); F_ref at
+>    the radius of gyration (about 200.27 at the validated point), not the peak-tip speed (624.79);
+>    per-unit-density `ib_force`, where rho_f cancels only because the same rho_f builds F_ref.
+> 3. Units and dimensional consistency in every equation, config value and plotted axis, including
+>    angles (deg vs rad); no mixed nondimensionalizations.
+> 4. CFL-limited timestep: `ns.fixed_dt` is only a ceiling and `ns.cfl` pushes the realized dt below
+>    it, especially on fine grids. Check the realized dt from run output (minimum, not median) on
+>    the most demanding configuration, that `stop_time` is reached, FP64, and grid convergence
+>    evidence (GCI) against the claimed effect.
+> 5. Domain size and boundary conditions: periodic span vs a finite wing, outflow boundaries, box
+>    size, and grid-dependent terms such as rho_f*SumU.
+> 6. Time window and sampling: transient removal, beat selection and settling, duplicated or missing
+>    rows (e.g. a duplicate t=0), force/kinematics step alignment, cell-centre vs node coordinates
+>    and interpolation onto grids.
+> 7. Worst case rather than first case validation: is the most demanding configuration tested, and
+>    do the checks test physics or only internal consistency?
+> 8. Statistics and ML evaluation: baseline-relative metrics; the range across at least 5 seeds (the
+>    seed also picks the validation carve), never one run; no train/test leakage across
+>    configurations or time windows; effect size compared with the measured CFD uncertainty.
+> 9. Known-answer tests: a check against an analytic or published value (not the code's own
+>    previous output) that would fail if a sign, factor or frame were wrong.
+> 10. Like-for-like comparisons: compare against a reference model evaluated on our kinematics, not
+>    against published curves for different kinematics.
+>
+> **Proposal to review:**
+> {PROPOSAL_MD}
+>
+> **Design:**
+> {DESIGN_MD}
+>
+> **Delta specs:**
+> {DELTA_SPECS}
+>
+> **Tasks:**
+> {TASKS_MD}
+>
+> **Current specs being modified:**
+> {CURRENT_SPECS}
+>
+> Report:
+> - Each recomputed value as VERIFIED / CONTRADICTED / UNVERIFIABLE, with arithmetic or file:line
+> - Convention, units or frame errors, with the corrected expression
+> - Missing known-answer or worst-case tests, with exact task wording to add
+> - Claims not supported by the stated evidence
+
+---
+
 ## Step 4: Synthesize Review
 
 After ALL subagents return, synthesize their findings:
 
 1. **Deduplicate**: Merge overlapping findings from multiple reviewers
 2. **Prioritize**: Categorize issues as:
-   - **BLOCKING** — Must fix before approval (spec errors, missing tests, reproducibility risks, CI breakage)
-   - **IMPORTANT** — Should fix before implementation (missing edge cases, unclear scenarios, doc gaps)
+   - **BLOCKING** — Must fix before approval (spec errors, missing tests, reproducibility risks, CI breakage,
+     physics/convention/units errors). From Subagent 6, a CONTRADICTED value the proposal relies on, with
+     file:line or arithmetic evidence, is BLOCKING.
+   - **IMPORTANT** — Should fix before implementation (missing edge cases, unclear scenarios, doc gaps).
+     From Subagent 6, UNVERIFIABLE values and disagreements between sources that the proposal does not
+     rely on are IMPORTANT. A divergence documented as deliberate in the authority pages is not an error.
    - **SUGGESTION** — Nice to have (style improvements, additional context)
 3. **Create a unified review** with this structure:
 
@@ -373,6 +512,8 @@ After ALL subagents return, synthesize their findings:
 # OpenSpec Review: {change-id}
 
 ## Verdict: APPROVED / NEEDS REVISION / BLOCKED
+
+Reviewers: 1 sonnet, 2 opus, 3 opus|skipped, 4 sonnet, 5 sonnet, 6 opus|skipped (note any model fallback)
 
 ## Summary
 [2-3 sentence overall assessment]
@@ -399,13 +540,17 @@ For each testable change:
 - CI breakage risk: LOW/MEDIUM/HIGH — [explanation]
 - Reproducibility risk: LOW/MEDIUM/HIGH — [explanation]
 - Documentation drift risk: LOW/MEDIUM/HIGH — [explanation]
+- Numerical/physical correctness risk: LOW/MEDIUM/HIGH — [explanation], or N/A (Subagent 6 skipped: <reason>)
 
 ## Review Details by Agent
 ### 1. Spec Quality
 ### 2. TDD & Testing
 ### 3. CI/CD & Build
+[launched: <matched run-condition item, or unclear>, then findings; or: skipped: no CI, Docker, dependency or packaging change — <one-line reason>]
 ### 4. Documentation
 ### 5. Git Workflow
+### 6. Math & Physics
+[launched: <matched run-condition item, or unclear>, then findings; or: skipped: no numerics or scientific claims touched — <one-line reason>]
 ```
 
 ## Step 5: Present and Iterate
