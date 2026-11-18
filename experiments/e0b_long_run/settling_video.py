@@ -145,9 +145,62 @@ def render(config: str, suffix: str, *, early: int, frame: int | None, fps: int,
     plt.close(fig)
 
 
+def strip(config: str, suffix: str, *, frame: int, q_level: float, diff_max: float, beats=(1, 2, 4, 6)) -> None:
+    """One phase in several beats, each beat's vortex surface coloured by its velocity difference from beat 6."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import Normalize
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    from mosquito_cfd.benchmarks.wing_kinematics import euler_angles
+    from mosquito_cfd.geometry.vertex_io import read_vertex_file
+    from mosquito_cfd.visualization.flow_video import _VIEW_AZIM, _VIEW_ELEV
+    from mosquito_cfd.visualization.wing_render import transform_markers, wing_outline
+
+    d = np.load(LOCAL / f"{config}{suffix}.npz")
+    dx, origin = float(d["dx"][0]), np.array([d["x"][0], d["y"][0], d["z"][0]])
+    stroke, fstar, pitch = _params(config)
+    per = STEPS_PER_BEAT // PLOT_INT
+    last = d["u"][5 * per + frame].astype(np.float64)
+    outline = wing_outline(read_vertex_file(str(REPO / "examples" / "flapping_wing" / "wing.vertex"))) + np.array([4.0, 2.0, 4.0])
+    phi, alpha, theta = euler_angles(float(d["time"][5 * per + frame]), frequency=fstar, stroke_amp_rad=np.deg2rad(stroke),
+                                     pitch_amp_rad=np.deg2rad(pitch))
+    o = transform_markers(outline, HINGE, phi, alpha, theta)
+    o = np.vstack([o, o[:1]])
+    limits = [(HINGE[0] - 2.6, HINGE[0] + 2.6), (HINGE[1] - 0.4, HINGE[1] + 3.2), (HINGE[2] - 1.5, HINGE[2] + 1.5)]
+    n = len(beats)
+    fig = plt.figure(figsize=(6 * n, 6.6), facecolor="white")
+    for k, beat in enumerate(beats):
+        ax = fig.add_axes([0.003 + k / n, 0.09, 1 / n - 0.006, 0.80], projection="3d")
+        f = d["u"][(beat - 1) * per + frame].astype(np.float64)
+        s = _surface(f, dx, q_level, np.linalg.norm(f - last, axis=-1) / u_ref(stroke, fstar), 0, diff_max, "YlOrRd")
+        if s is not None:
+            ax.add_collection3d(Poly3DCollection(s[0] + origin, facecolors=s[1], edgecolor="none", zorder=1))
+        ax.plot(o[:, 0], o[:, 1], o[:, 2], color="#111111", lw=2.0, zorder=20)
+        ax.scatter(*[[c] for c in HINGE], color="#111111", s=60, zorder=22, depthshade=False, edgecolor="white")
+        ax.set_title(f"beat {beat}" + (" (the reference)" if beat == 6 else ""), fontsize=13)
+        ax.view_init(elev=_VIEW_ELEV, azim=_VIEW_AZIM)
+        ax.set_xlim(*limits[0]); ax.set_ylim(*limits[1]); ax.set_zlim(*limits[2])
+        ax.set_box_aspect([hi - lo for lo, hi in limits], zoom=0.82)
+        ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+        ax.set_xticks(np.arange(2, 7)); ax.set_yticks(np.arange(1, 4)); ax.set_zticks([3, 4, 5])
+    cb = fig.colorbar(ScalarMappable(Normalize(0, 100 * diff_max), "YlOrRd"), cax=fig.add_axes([0.04, 0.075, 0.22, 0.022]),
+                      orientation="horizontal", extend="max")
+    cb.set_label("surface colour: velocity difference from beat 6 (% of reference wing speed)", fontsize=11)
+    fig.text(0.30, 0.07, f"Surface: Q = {q_level:g}, where rotation outweighs strain (a vortex), drawn for each beat's own flow.   "
+             "Black line: wing outline.   Dot: hinge.", fontsize=11, va="center", ha="left")
+    fig.suptitle(f"{config}, coarse grid, phase {frame / per:.2f}: the same instant of the wingbeat, in beats "
+                 + ", ".join(str(b) for b in beats), fontsize=14, y=0.985)
+    fig.savefig(HERE / "figures" / f"{config}_beats_{'_'.join(str(b) for b in beats)}_frame{frame:02d}.png", dpi=110)
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", required=True, choices=("cache", "still", "movie"))
+    ap.add_argument("--stage", required=True, choices=("cache", "still", "movie", "strip"))
     ap.add_argument("--config", default="s45_f100_p30")
     ap.add_argument("--suffix", default="_fields")
     ap.add_argument("--early", type=int, default=2)
@@ -159,6 +212,8 @@ if __name__ == "__main__":
     a = ap.parse_args()
     if a.stage == "cache":
         cache(a.config, a.suffix)
+    elif a.stage == "strip":
+        strip(a.config, a.suffix, frame=a.frame, q_level=a.q_level, diff_max=a.diff_max)
     else:
         render(a.config, a.suffix, early=a.early, frame=a.frame if a.stage == "still" else None, fps=a.fps,
                q_level=a.q_level, vort_max=a.vort_max, diff_max=a.diff_max)
