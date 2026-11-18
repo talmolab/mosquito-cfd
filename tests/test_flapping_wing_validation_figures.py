@@ -2,13 +2,14 @@
 
 The figures visualize quantities tested elsewhere; here we confirm the generators emit the
 same values (so a figure can't silently drift from the math) and write their PNGs. Cluster-
-free, committed-data only.
+free, committed-data only. The committed V1-V5 summary is also guarded against a fresh
+regeneration and against its sources (`holdout_predictions.parquet`, `metrics.json`).
 """
 
 import importlib.util
 import json
 import math
-import pathlib
+from collections.abc import Callable
 from pathlib import Path
 
 import matplotlib
@@ -19,11 +20,22 @@ import numpy as np
 import pandas as pd
 import pytest
 from _stale_claims import stale_claims
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from mosquito_cfd.benchmarks.flapping_wing import (
     decompose_wing_force,
     reconstruct_wing_body_forces,
 )
+from mosquito_cfd.force_surrogate import compute_force_reference
+from mosquito_cfd.force_surrogate.constants import (
+    CHORD,
+    R_GYRATION,
+    R_TIP,
+    RHO,
+    SPAN,
+)
+from mosquito_cfd.force_surrogate.train import _r2
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "examples" / "flapping_wing" / "generate_validation_figures.py"
@@ -75,7 +87,7 @@ def test_fig_force_decomposition_regenerates(tmp_path):
 
 def test_validation_figures_generate_with_tested_numbers(regenerated):
     """All five PNGs are written and display the tested van Veen quantities."""
-    summary = _read_summary(regenerated / "validation_figures_summary.json")
+    summary = _read_json(regenerated / "validation_figures_summary.json")
     for name in (
         "V1_three_convention_CF.png",
         "V2_second_moment.png",
@@ -363,19 +375,21 @@ _REL_TOL = 1e-12  # relative tolerance for every non-near-zero number (design D2
 _NEAR_ZERO = 1e-12  # committed |value| below this is compared absolutely, within this
 
 
-def _is_number(value) -> bool:
+def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _summary_mismatches(committed, fresh, path: str = "") -> list[str]:
+def _summary_mismatches(committed: object, fresh: object, path: str = "") -> list[str]:
     """Every difference between two summaries, one message per mismatch (design D2).
 
     Messages start with the dotted key path and say what kind of mismatch it is, so a caller can
     tell a stale value from a missing key: ``"{path}: missing in fresh"``, ``"{path}: missing in
     committed"``, ``"{path}: type {a} != {b}"`` or ``"{path}: committed {c!r} != fresh {f!r}"``.
-    Both sides' keys are walked at every level. A number agrees within ``1e-12`` relative to the
-    committed value, or within ``1e-12`` absolute when the committed magnitude is below ``1e-12``;
-    a non-finite number never agrees.
+    Both sides' keys are walked at every level. A number agrees within ``_REL_TOL`` relative to
+    the committed value, or within ``_NEAR_ZERO`` absolute when the committed magnitude is below
+    ``_NEAR_ZERO``; a non-finite number never agrees. Other values (str, bool, None) compare with
+    ``==`` after a type check. Lists are compared whole and exactly; the summary holds none, and a
+    list field would need element-wise tolerance added here first.
     """
     if isinstance(committed, dict) and isinstance(fresh, dict):
         out = []
@@ -406,7 +420,7 @@ def _summary_mismatches(committed, fresh, path: str = "") -> list[str]:
     )
 
 
-def _leaf(value):
+def _leaf(value: object) -> dict:
     """A summary nested three levels deep, like ``v3.CF_x.r2_van_veen``."""
     return {"a": {"b": {"c": value, "s": "text"}}, "v5": {"alpha_deg": 45.0}}
 
@@ -428,9 +442,24 @@ _DRIFT_CASES = {
         ["v5: missing in committed"],
     ),
     "dict against a number": (
-        {"a": {"b": {"c": 1.0}}},
-        {"a": {"b": 2.0}},
-        ["a.b: type dict != float"],
+        {"a": {"b": {"c": {"d": 1.0}}}},
+        {"a": {"b": {"c": 2.0}}},
+        ["a.b.c: type dict != float"],
+    ),
+    "number against a dict": (
+        _leaf(2.0),
+        {"a": {"b": {"c": {"d": 1.0}, "s": "text"}}, "v5": {"alpha_deg": 45.0}},
+        ["a.b.c: type float != dict"],
+    ),
+    "bool against a number": (
+        _leaf(True),
+        _leaf(1.0),
+        ["a.b.c: type bool != float"],
+    ),
+    "string against a number": (
+        _leaf("1.0"),
+        _leaf(1.0),
+        ["a.b.c: type str != float"],
     ),
     "1e-9 relative": (
         _leaf(0.75),
@@ -530,14 +559,14 @@ _STALE_SUMMARY = {
 
 
 @pytest.fixture(scope="module")
-def regenerated(tmp_path_factory) -> Path:
+def regenerated(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Run ``main()`` once into a module temp dir; return that dir."""
     out = tmp_path_factory.mktemp("validation_figures")
     _load(name="gen_validation_figs_regenerated").main(out_dir=out)
     return out
 
 
-def _read_summary(path: Path) -> dict:
+def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -546,13 +575,15 @@ def _v3_source_mismatches(summary: dict) -> list[str]:
 
     ``r2_van_veen`` is checked against R^2 recomputed from the committed predictions with the
     trainer's R^2 function and against ``metrics.json``; the mean/RMS fields against numpy
-    recomputations of the stored (van Veen) arrays.
+    recomputations of the stored (van Veen) arrays. Value messages carry their source in the
+    path (``v3.CF_x.r2_van_veen[metrics.json]: ...``), so a disagreement between the two sources
+    says which one moved. A malformed summary or ``metrics.json`` is reported, not raised.
     """
-    from mosquito_cfd.force_surrogate.train import _r2
-
     pred = pd.read_parquet(_PRED)
-    metrics = _read_summary(_METRICS)
+    per_target = _read_json(_METRICS).get("per_target", {})
     v3 = summary.get("v3", {})
+    if not isinstance(v3, dict):
+        return [f"v3: type {type(v3).__name__} != dict"]
     out = []
     for coef in _V3_COEFS:
         y = pred[f"{coef}_true"].to_numpy(float)
@@ -565,20 +596,22 @@ def _v3_source_mismatches(summary: dict) -> list[str]:
             "pred_rms": float(np.sqrt(np.mean(yhat**2))),
         }
         got = v3.get(coef, {})
+        if not isinstance(got, dict):
+            out.append(f"v3.{coef}: type {type(got).__name__} != dict")
+            continue
         for name, want in expected.items():
             where = f"v3.{coef}.{name}"
             if name not in got:
                 out.append(f"{where}: missing in committed")
             else:
-                out.extend(_summary_mismatches(got[name], want, where))
+                out.extend(_summary_mismatches(got[name], want, f"{where}[parquet]"))
         if "r2_van_veen" in got:
-            out.extend(
-                _summary_mismatches(
-                    got["r2_van_veen"],
-                    metrics["per_target"][coef]["r2"],
-                    f"v3.{coef}.r2_van_veen",
-                )
-            )
+            where = f"v3.{coef}.r2_van_veen[metrics.json]"
+            metric = per_target.get(coef, {}).get("r2")
+            if metric is None:
+                out.append(f"{where}: missing in metrics.json")
+            else:
+                out.extend(_summary_mismatches(got["r2_van_veen"], metric, where))
     return out
 
 
@@ -593,8 +626,8 @@ def test_committed_summary_matches_regeneration(regenerated, tmp_path_factory):
         tmp_path_factory.getbasetemp().resolve()
     )
     mismatches = _summary_mismatches(
-        _read_summary(_COMMITTED_SUMMARY),
-        _read_summary(regenerated / "validation_figures_summary.json"),
+        _read_json(_COMMITTED_SUMMARY),
+        _read_json(regenerated / "validation_figures_summary.json"),
     )
     assert mismatches == [], "\n".join(mismatches)
 
@@ -604,14 +637,19 @@ def test_stale_v3_values_are_rejected(regenerated):
 
     Scenario: Stale values under the correct keys are rejected.
     """
-    fresh = _read_summary(regenerated / "validation_figures_summary.json")
+    fresh = _read_json(regenerated / "validation_figures_summary.json")
     against_fresh = _summary_mismatches(_STALE_SUMMARY, fresh)
     against_sources = _v3_source_mismatches(_STALE_SUMMARY)
     for coef in _V3_COEFS:
         stale = _STALE_SUMMARY["v3"][coef]["r2_van_veen"]
-        prefix = f"v3.{coef}.r2_van_veen: committed {stale!r} != fresh "
-        assert any(m.startswith(prefix) for m in against_fresh), against_fresh
-        assert any(m.startswith(prefix) for m in against_sources), against_sources
+        path = f"v3.{coef}.r2_van_veen"
+        value = f": committed {stale!r} != fresh "
+        assert any(m.startswith(path + value) for m in against_fresh), against_fresh
+        assert not any(m.startswith(path + ": missing") for m in against_fresh)
+        # Each source reports its own value mismatch, so neither check can be dropped unseen.
+        for source in ("[parquet]", "[metrics.json]"):
+            prefix = path + source + value
+            assert any(m.startswith(prefix) for m in against_sources), against_sources
 
 
 def test_committed_v3_matches_parquet_and_metrics():
@@ -619,22 +657,27 @@ def test_committed_v3_matches_parquet_and_metrics():
 
     Scenario: The committed V3 R^2 equals R^2 recomputed from the committed predictions.
     """
-    mismatches = _v3_source_mismatches(_read_summary(_COMMITTED_SUMMARY))
+    mismatches = _v3_source_mismatches(_read_json(_COMMITTED_SUMMARY))
     assert mismatches == [], "\n".join(mismatches)
 
 
-def _render_v3(tmp_path, monkeypatch):
-    """Render V3 alone with ``plt.close`` collected; return (module, summary, figure, close)."""
+def _render_v3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[dict, Figure, Callable]:
+    """Render V3 alone with ``plt.close`` collected; return (summary, figure, real close)."""
     mod = _load(name="gen_validation_figs_v3")
     real_close = plt.close
     figures = []
     monkeypatch.setattr(mod.plt, "close", lambda fig=None: figures.append(fig))
     summary = mod.fig_v3_scale_invariance(tmp_path)
-    assert len(figures) == 1
-    return mod, summary, figures[0], real_close
+    if len(figures) != 1:
+        for fig in figures:
+            real_close(fig)
+        pytest.fail(f"expected one V3 figure, got {len(figures)}")
+    return summary, figures[0], real_close
 
 
-def _panel(fig, coef: str, convention: str):
+def _panel(fig: Figure, coef: str, convention: str) -> Axes:
     matches = [
         ax for ax in fig.axes if coef in ax.get_title() and convention in ax.get_title()
     ]
@@ -642,33 +685,28 @@ def _panel(fig, coef: str, convention: str):
     return matches[0]
 
 
-def _offsets(ax) -> np.ndarray:
+def _offsets(ax: Axes) -> np.ndarray:
     (collection,) = ax.collections
     return np.ma.getdata(collection.get_offsets())
 
 
 def _k() -> float:
-    from mosquito_cfd.force_surrogate import compute_force_reference
-    from mosquito_cfd.force_surrogate.constants import (
-        CHORD,
-        R_GYRATION,
-        R_TIP,
-        RHO,
-        SPAN,
-    )
-
+    """k as the generator computes it. Checks against it are self-consistency only; the
+    independent anchors are the raw-force test and its ``(R_TIP / R_GYRATION) ** 2`` check."""
     tip = compute_force_reference(1.0, 70.0, R_TIP, SPAN, CHORD, RHO).f_ref
     gyr = compute_force_reference(1.0, 70.0, R_GYRATION, SPAN, CHORD, RHO).f_ref
     return tip / gyr
 
 
-def test_v3_panels_plot_both_normalizations(tmp_path, monkeypatch):
+def test_v3_panels_plot_both_normalizations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """V3 plots the stored (van Veen) coefficients unscaled and the peak-tip ones as stored / k.
 
     Scenarios: The van Veen panel plots the stored coefficients unscaled; Titles and axis labels
     describe what is plotted.
     """
-    _, summary, fig, real_close = _render_v3(tmp_path, monkeypatch)
+    summary, fig, real_close = _render_v3(tmp_path, monkeypatch)
     try:
         assert len(fig.axes) == 4
         pred = pd.read_parquet(_PRED)
@@ -679,7 +717,8 @@ def test_v3_panels_plot_both_normalizations(tmp_path, monkeypatch):
             # (a) The panel titled van Veen plots the stored arrays, unscaled.
             vv = _panel(fig, coef, "van Veen")
             np.testing.assert_array_equal(_offsets(vv), np.column_stack([y, yhat]))
-            # (b) The peak-tip panel plots the same arrays divided by k.
+            # (b) The peak-tip panel plots the same arrays divided by k. Exact on purpose:
+            # design D1 pins the expression `/ k` (`* (1 / k)` differs in the last ulp).
             pt = _panel(fig, coef, "peak-tip")
             np.testing.assert_array_equal(
                 _offsets(pt), np.column_stack([y / k, yhat / k])
@@ -693,29 +732,22 @@ def test_v3_panels_plot_both_normalizations(tmp_path, monkeypatch):
                 assert coef in xlabel and "lab frame" in xlabel and "on wing" in xlabel
                 assert coef in ylabel and "surrogate" in ylabel
         # (d) No before/after wording anywhere.
-        titles = [ax.get_title() for ax in fig.axes] + [fig._suptitle.get_text()]
+        titles = [ax.get_title() for ax in fig.axes] + [fig.get_suptitle()]
         for text in titles:
             assert "BEFORE" not in text and "AFTER" not in text, text
     finally:
         real_close(fig)
 
 
-def test_v3_peak_tip_panel_matches_raw_forces_on_tip_reference(tmp_path, monkeypatch):
+def test_v3_peak_tip_panel_matches_raw_forces_on_tip_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The peak-tip panel equals -F / F_ref(R_TIP) per configuration, from the raw corpus forces.
 
     Scenario: The peak-tip panel matches raw forces on the tip reference (design D7). A known
     answer independent of the generator: a x k or a dropped sign is off by O(1).
     """
-    from mosquito_cfd.force_surrogate import compute_force_reference
-    from mosquito_cfd.force_surrogate.constants import (
-        CHORD,
-        R_GYRATION,
-        R_TIP,
-        RHO,
-        SPAN,
-    )
-
-    _, _, fig, real_close = _render_v3(tmp_path, monkeypatch)
+    _, fig, real_close = _render_v3(tmp_path, monkeypatch)
     try:
         keys = ["config_name", "time"]
         rows = pd.read_parquet(_PRED, columns=keys)
@@ -748,24 +780,28 @@ def test_v3_peak_tip_panel_matches_raw_forces_on_tip_reference(tmp_path, monkeyp
         real_close(fig)
 
 
-def test_summary_is_written_with_lf(tmp_path, monkeypatch):
+def test_summary_is_written_with_lf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The summary has no CR even where the platform default line ending is CRLF.
 
     Scenario: The summary has no carriage returns even where the platform default is CRLF.
+    Also checks that ``main()`` returns what it writes.
     """
-    original = pathlib.Path.write_text
+    original = Path.write_text
     written = []
 
-    def crlf_by_default(self, data, *args, **kwargs):
+    def crlf_by_default(self: Path, data: str, *args, **kwargs) -> int:
         kwargs.setdefault("newline", "\r\n")
         written.append(self)
         return original(self, data, *args, **kwargs)
 
-    monkeypatch.setattr(pathlib.Path, "write_text", crlf_by_default)
-    _load(name="gen_validation_figs_lf").main(out_dir=tmp_path)
+    monkeypatch.setattr(Path, "write_text", crlf_by_default)
+    returned = _load(name="gen_validation_figs_lf").main(out_dir=tmp_path)
     summary = tmp_path / "validation_figures_summary.json"
     assert summary in written, "the summary must be written through Path.write_text"
     assert b"\r" not in summary.read_bytes()
+    assert _read_json(summary) == returned
 
 
 @pytest.mark.parametrize(
