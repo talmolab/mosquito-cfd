@@ -346,12 +346,13 @@ Stage-2 encoder (`docs/field_surrogate/roadmap.md`, row F2). `snapshot.py` holds
 repository's **single Eulerian-box covering-grid read path**, `read_field_snapshot`, returning
 an immutable `FieldSnapshot` -- arrays are non-writable **and own their data**, since marking a
 view read-only would leave its base reachable and writable -- (dense FP64 arrays in code units, cell-center coords, `dx`, the
-plotfile's physical `time`, plus `source`/`max_level` provenance) with a `PointCloud` view for
+plotfile's physical `time`, plus `source`/`max_level` provenance and, for corpus snapshots,
+`config_id`/`step`/`git_commit`/`docker_image`) with a `PointCloud` view for
 point-cloud encoders. `corpus.py` addresses plotfiles by `(config_id, step)` against a
 caller-supplied root -- the real corpus lives on cluster NFS, not in the repo -- and
 `domino_adapter.py` emits DoMINO's volume-half keys.
 
-Three conventions that are load-bearing rather than stylistic:
+Conventions that are load-bearing rather than stylistic:
 
 - **`yt` is imported inside the reader, never at module scope**, and
   `field_surrogate/__init__.py` imports none of its submodules. An eager re-export of
@@ -365,6 +366,20 @@ Three conventions that are load-bearing rather than stylistic:
   including its `lo > hi` rejection (`harden-field-corpus-requests` D1).
 - **Multi-level plotfiles are refused**, naming the still-open CC-F3 AMR decision. Reading
   level 0 alone would silently return coarse data and discard the refined patches.
+- **A corpus snapshot is identified by `(config_id, step)` plus the run's digest, not by
+  `source`.**
+  - `FieldCorpus.snapshot` copies `git.commit` and the `<repo>@sha256:` `docker_image` from the
+    `run_metadata.json` the pod wrote into the run directory. It validates them strictly, before
+    reading the plotfile, and never fabricates them.
+  - A run without a valid `run_metadata.json` cannot produce a corpus snapshot.
+  - `source` is `Path(...).absolute().as_posix()`, a per-host locator only: the same bytes are
+    spelled differently from Windows, WSL and the cluster.
+  - `FieldCorpus.snapshot` and `to_domino_volume` refuse zero-cell snapshots;
+    `read_field_snapshot` still returns them.
+- **Snapshots pickle**, so a `DataLoader` worker can return one. Their arrays are re-frozen and
+  own their data on receipt, which costs one copy of each field array per transport. With
+  `batch_size >= 1`, torch's `default_collate` cannot batch them, so pass a `collate_fn`.
+  See OpenSpec change `harden-field-reader-pre-f3`.
 
 The DoMINO adapter is deliberately partial: stock DoMINO is a geometry->fields surrogate, so
 `volume_fields` is a training *target*, and the geometry-half keys (`geometry_coordinates`,

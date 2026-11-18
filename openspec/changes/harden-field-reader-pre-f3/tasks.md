@@ -345,7 +345,7 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
 
 ## 9. Docs and close-out
 
-- [ ] 9.1 `openspec/project.md` §"Field Surrogate Reader (Stage 2)": add to its conventions list that
+- [x] 9.1 `openspec/project.md` §"Field Surrogate Reader (Stage 2)": add to its conventions list that
   snapshots pickle, that `FieldCorpus.snapshot` requires a valid `run_metadata.json` and carries
   `(config_id, step)` plus the digest, and that `source` is a per-host locator. Commit
   `docs(field-surrogate): project.md conventions for snapshot provenance and pickling`.
