@@ -1,0 +1,20 @@
+{
+  "written_utc": "2026-11-18T00:29:57+00:00",
+  "git_commit": "433cc65674dbffec6aaea6048c4cfe03a8d635d9",
+  "git_dirty": true,
+  "inputs": {
+    "experiments\\e0b_long_run\\run_s45_f100_p30_fields\\IB_Particle_1.csv": "05414e835435d9586e3ceedd8abc6bd28824cc6171c73aceb4f6df08f63d5d85",
+    "experiments\\e0b_long_run\\run_s45_f100_p30_fields\\inputs.3d.long": "accc868a01c4bd945f13eee21b3c42ad70a4b68f0d200727f1c642cd51f57f4d"
+  },
+  "config": "s45_f100_p30",
+  "image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+  "hardware": "local RTX A5000, Docker",
+  "beats": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ]
+}

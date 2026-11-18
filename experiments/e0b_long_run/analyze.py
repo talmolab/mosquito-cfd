@@ -21,6 +21,7 @@ HERE = Path(__file__).parent
 CONFIG = "s45_f100_p45"
 RUN = HERE / f"run_{CONFIG}"
 OUT = HERE / "outputs"
+# The two later runs that also wrote plotfiles: python -m ... --config s45_f100_p30 --suffix _fields
 N_PHASE, SKIP = 256, 0.05
 
 
@@ -29,6 +30,15 @@ def rms(a) -> float:
 
 
 def main() -> None:
+    global CONFIG, RUN, OUT
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default=CONFIG)
+    ap.add_argument("--suffix", default="", help="run folder is run_<config><suffix>; outputs go to outputs_<config><suffix>")
+    a = ap.parse_args()
+    if (a.config, a.suffix) != (CONFIG, ""):
+        CONFIG, RUN, OUT = a.config, HERE / f"run_{a.config}{a.suffix}", HERE / f"outputs_{a.config}{a.suffix}"
     OUT.mkdir(exist_ok=True)
     manifest = CORPUS_DIR["coarse"] / "sweep_manifest.json"
     config = next(c for c in load_manifest_configs(manifest) if c["name"] == CONFIG)
