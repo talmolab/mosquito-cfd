@@ -171,21 +171,21 @@ Test and scenario names in 1.2 are the original ones; 6.1 renamed and extended t
 
 ## 5. PR and post-merge
 
-- [ ] 5.1 Push, open the PR, run `/pre-merge-check` (no Copilot step). PR body: summary,
+- [x] 5.1 Push, open the PR, run `/pre-merge-check` (no Copilot step). PR body: summary,
       motivation ("the physics/convention failures in #108, #109 and #92 were outside every
       existing reviewer lens"), red-phase evidence (1.3, 6.1), mutation output (3.1, 6.3), smoke
       run (3.2), self-review findings and fixes (6), verification (4.x), "Follow-up: #157, #158,
       #161, #162, #163", rollback note (`git revert` of the squash commit). Never use closing
       keywords or negated forms of them near an issue number.
-- [ ] 5.2 After merge, confirm with `gh pr view <N> --json state,mergeCommit`.
-- [ ] 5.3 From the main checkout: `git worktree remove .claude/worktrees/update-review-openspec-reviewers`.
-- [ ] 5.4 `git branch -D update-review-openspec-reviewers` (`-D` because squash-merged branches
+- [x] 5.2 After merge, confirm with `gh pr view <N> --json state,mergeCommit`.
+- [x] 5.3 From the main checkout: `git worktree remove .claude/worktrees/update-review-openspec-reviewers`.
+- [x] 5.4 `git branch -D update-review-openspec-reviewers` (`-D` because squash-merged branches
       are not ancestors of main; only after 5.2), then `git push origin --delete` if GitHub has not
       deleted it, and `git remote prune origin`.
-- [ ] 5.5 On main: `openspec archive update-review-openspec-reviewers --yes` (no `--skip-specs`;
+- [x] 5.5 On main: `openspec archive update-review-openspec-reviewers --yes` (no `--skip-specs`;
       this creates `openspec/specs/review-openspec-skill/spec.md`). Replace its "Purpose: TBD"
       placeholder with a real Purpose, then `openspec validate --strict`.
-- [ ] 5.6 Commit `chore(openspec): archive update-review-openspec-reviewers OpenSpec change`
+- [x] 5.6 Commit `chore(openspec): archive update-review-openspec-reviewers OpenSpec change`
       ("Related: PR #N"), push.
 
 ## Commit plan (CI only evaluates the pushed head)
