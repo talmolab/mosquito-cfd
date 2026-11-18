@@ -178,6 +178,18 @@ panel titles showing each other's R² (equal to six decimals).
   **23 of 23 mutants killed, 0 survivors**; every touched file byte-identical afterwards. 4.7, 4.9
   and 4.20 also fail the test after their listed one (1.3b / 1.3), 4.13b also fails 1.3b, and 4.18
   also fails 1.1b. The table is in the PR.
+- After the /review-pr fixes, section 4 re-ran on `66ec81b` (25 of 25 killed) and on `75c2bf3`
+  (**27 of 27 killed, 0 survivors**), with these added rows:
+
+  | # | Mutant | Must fail |
+  |---|---|---|
+  | 4.21 | source check: metrics.json comparison deleted | `test_stale_v3_values_are_rejected`, `test_v3_metrics_check_reads_metrics_json` |
+  | 4.22 | source check: `[metrics.json]` tag written as `[parquet]` | both of the above |
+  | 4.23 | source check: metrics.json comparison uses the parquet R² | `test_v3_metrics_check_reads_metrics_json` |
+  | 4.24 | generator: `fig.suptitle(...)` removed | 1.3 |
+
+  4.23 survived on `66ec81b` (found by the adversarial re-review of that fix) and is killed from
+  `75c2bf3` on; its kill is the red evidence for `test_v3_metrics_check_reads_metrics_json`.
 - 3.5 is open: WSL `Ubuntu` is running, but `wsl -d Ubuntu -- bash -lc 'uv --version'` hit the 60 s
   timeout, so per 3.5 it counts as unavailable and the user decides (see the deviations below).
 
