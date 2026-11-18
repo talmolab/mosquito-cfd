@@ -14,15 +14,16 @@ its folder; the surrogate recommendation is in
 - **Fields:** fine-corpus plotfiles from the cluster share, second wingbeat only, 558 snapshots
   over 27 configs, each checked for `ns.cfl = 0.6`, `fixed_dt = 5e-4`, grid 256 × 128 × 256 and
   solver hash. The stale `.old.*` run folders were not read.
-- **New CFD:** one 6-beat coarse run of `s45_f100_p45` on the local A5000 (E0b). No RunAI jobs.
+- **New CFD:** three 6-beat coarse runs on the local A5000 (E0b): `s45_f100_p45`, the same again
+  with a plotfile every 100 steps, and `s45_f100_p30` with plotfiles. No RunAI jobs.
 
 ## Results
 
 | | Result in one sentence | Figure | Slide-ready? |
 |---|---|---|---|
 | E0 | The second beat is not a repeat of the first: on the fine grid they differ by 5–17% of peak (median over 27 configs), most in `CF_z`, `CF_mx`, `CF_my`. | `e0_periodicity/figures/beat_difference_heatmap.png` | **Yes.** All 27 configs, both grids, no model involved. |
-| E0b | Continued to 6 beats, the forces settle: beat 2 is 0.8–2.9% of peak from beat 6, beat 4 under 0.5%. | `e0b_long_run/figures/beat_to_beat_change.png` | **Yes, labelled** "coarse grid, one config". Do not quote it as the fine-grid settling rate. |
-| E1 | Track B's held-out error (1.1–1.8% of peak by component, median over configs; 2.5% worst) is inside the grid-convergence band, the coarse-versus-fine difference and the beat-1-to-beat-2 difference for every holdout config and component, on the worst of 5 seeds. | `e1_hover_gate/figures/hover_gate.png` | **Yes, but only with three caveats on the slide.** (1) The grid-convergence band mixes grid and timestep refinement and comes from one config (#133 is open), and the margin is thin: worst-seed normal-peak error 3.2% against 3.7%. (2) The beat-to-beat yardstick is the start-up transient (4–19% of peak); against E0b's settled-beat estimate (beat 2 vs beat 6: 0.8–2.9%) the surrogate error is about equal, not well inside. (3) So say "the surrogate is as accurate as the training data is known", not "within CFD uncertainty". |
+| E0b | Continued to 6 beats, the forces settle, more slowly at low pitch: beat 2 is 0.8–2.9% of peak from beat 6 at 45° pitch and 0.8–5.0% at 30°; beat 4 is under 0.5% at 45° but still up to 1.6% at 30°. | `e0b_long_run/figures/beat_to_beat_change.png` (45° only); movies `e0b_long_run/figures/*_beat2_vs_beat6_flow_lev-3d.mp4` | **Yes, labelled** "coarse grid, two configs". Do not quote it as the fine-grid settling rate. The movies show the change sitting in the shed wake; that is from a few frames, not a measurement. |
+| E1 | Track B's held-out error (1.1–1.8% of peak by component, median over configs; 2.5% worst) is inside the grid-convergence band, the coarse-versus-fine difference and the beat-1-to-beat-2 difference for every holdout config and component, on the worst of 5 seeds. | `e1_hover_gate/figures/hover_gate.png` | **Yes, but only with three caveats on the slide.** (1) The grid-convergence band mixes grid and timestep refinement and comes from one config (#133 is open), and the margin is thin: worst-seed normal-peak error 3.2% against 3.7%. (2) The beat-to-beat yardstick is the start-up transient (4–19% of peak); against E0b's settled-beat estimate (beat 2 vs beat 6: 0.8–2.9% at 45° pitch, 0.8–5.0% at 30°) the surrogate error is about equal, not well inside. (3) So say "the surrogate is as accurate as the training data is known", not "within CFD uncertainty". |
 | E2 | Leave-one-config-out error is under 3% of peak for every config (RMS over seeds; 3.5% on the worst single seed) and does not cluster at stroke reversal; the one phase feature is a kink at the beat boundary caused by the training data not being periodic. | `e2_residuals/figures/residual_heatmap.png`, `residual_by_phase.png` | **Yes.** 27 leave-one-out fits. |
 | E3 | The MLP holds median skill 0.984 with 15 of 21 training configs; at 12 the median is 0.957 but the worst subset is 0.65; designed subsets were no better than random ones; 20 force samples per beat suffice. | `e3_data_efficiency/figures/data_efficiency.png` | **Yes** for the curve. The designed-subset comparison is small (one design each) — say "no evidence designed is better", not "random is better". |
 | E4 | A cross-validated Fourier-polynomial ridge model (3,960 coefficients) beats the MLP on holdout skill (0.9991 vs 0.987); 3 phase harmonics lift the MLP to 0.995; frequency barely matters. | `e4_ablations/figures/ablation_arms.png` | **Yes.** The ridge size was chosen inside the training configs, not on holdout. Add that it is reliable only on the full 21 configs: at 18, one of five random subsets fell to skill 0.41. |
@@ -40,8 +41,8 @@ its folder; the surrogate recommendation is in
 
 ## Observations that are not bugs but affect the corpus
 
-- Runs are 2 beats long and the flow needs about 4 to settle to within 0.5% of peak (E0b, coarse,
-  one config).
+- Runs are 2 beats long and the flow needs 4 to 5 to settle to within 1% of peak (E0b, coarse,
+  two configs: 4 beats at 45° pitch, 5 at 30°).
 - The last plotfile of each run is written at `stop_time`. For f* = 0.85 that is not a whole
   number of steps, and the field cache's time check refused it; the final plotfiles of the
   f* = 0.85 and 1.0 runs (start of a third beat) are not in the cache. For f* = 1.15 the run ends

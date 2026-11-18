@@ -24,7 +24,8 @@ def _():
     w = np.load(HERE / "outputs" / "beat_waveforms.npz")
     control = json.loads((HERE / "outputs" / "control.json").read_text())
     FIG = HERE / "figures"
-    return FIG, TARGETS, control, d, mo, np, plotting, plt, w
+    HERE30 = HERE / "outputs_s45_f100_p30_fields"
+    return FIG, HERE30, TARGETS, control, d, mo, np, pd, plotting, plt, w
 
 
 @app.cell
@@ -169,6 +170,51 @@ def _(mo, overlay_png):
 
 
 @app.cell
+def _(HERE30, TARGETS, last, mo, pd):
+    d30 = pd.read_parquet(HERE30 / "beat_convergence.parquet")
+    last30 = d30.pivot(index="beat", columns="target", values="diff_from_last_over_peak")[list(TARGETS)]
+    _rows = "\n".join(
+        f"        | {b} | {last30.loc[b].min():.1%}–{last30.loc[b].max():.1%} | {last.loc[b].min():.1%}–{last.loc[b].max():.1%} |"
+        for b in (1, 2, 3, 4, 5)
+    )
+    mo.md(
+        f"""
+        ## Follow-up (2026-11-17): a 30° pitch config, and pictures of the flow
+
+        **Question.** Does the slowest-looking corner of the sweep settle as fast as the centre
+        config, and where in the flow does the beat-to-beat change sit?
+
+        **Method.** Two more 6-beat coarse runs on the local A5000, both writing a plotfile every
+        100 steps (20 per beat): `s45_f100_p30`, and `s45_f100_p45` again. Same image digest and
+        deck as the corpus apart from `max_step`, `stop_time`, `amr.plot_int` and the memory cap.
+        Controls: the first 4,000 steps of each match the committed coarse dataset to 1e-13, and
+        the repeated 45° run matches the first one to 1e-15 over all 12,000 steps.
+
+        **Result.** Distance from beat 6, as a share of beat 6's peak (range over the six
+        components):
+
+        | Beat | 30° pitch | 45° pitch |
+        |---|---|---|
+{_rows}
+
+        At 30° pitch, beat 2 is up to {last30.loc[2].max():.1%} of peak from beat 6 and beat 4 is
+        still up to {last30.loc[4].max():.1%}; it takes until beat 5 to come under 1%. So "four
+        beats" is enough for the centre config and not for the low-pitch one.
+
+        The velocity field changes more than the forces. In the near-wing region the median change
+        between beat 2 and beat 6 at 30° pitch is about 4% of the reference wing speed, and a
+        tenth of the region changes by 10% or more. The movies
+        (`figures/*_beat2_vs_beat6_flow_lev-3d.mp4`, made by `settling_video.py`) show the vortex
+        attached to the wing repeating closely while the vortex shed into the wake differs.
+
+        **Caveats.** Still the coarse grid and one run per config. The statement about where the
+        change sits comes from looking at a few frames, not from a measurement over the beat.
+        """
+    )
+    return
+
+
+@app.cell
 def _(last, mo, n_beats, prev):
     mo.md(
         f"""
@@ -177,8 +223,8 @@ def _(last, mo, n_beats, prev):
           (E0: 15% of peak) is of the same order as the coarse one here
           ({prev.loc[2, "CF_z"]:.0%}), but whether the fine grid settles at the same rate was not
           run; a 6-beat fine run was outside this exploration's local-GPU budget.
-        - **One config,** the centre of the sweep. E0 found the beat-1-to-beat-2 change is largest
-          at 30° pitch, so the low-pitch configs probably settle more slowly than this one.
+        - **The main run is one config,** the centre of the sweep. The follow-up above adds one
+          30° pitch config, which settles more slowly. The other 25 configs were not run.
         - **Beat {n_beats} is the reference, not the limit.** It is still moving by up to
           {prev.loc[n_beats].max():.2%} of peak per beat, so the distances "vs last" slightly
           understate the distance to the truly periodic state. At the observed decay rate the
@@ -188,12 +234,11 @@ def _(last, mo, n_beats, prev):
           cause, it is a property of the corpus setup and is the same in every corpus run.
 
         ## Next step
-        If the corpus is regenerated for any reason, run 4 beats and train on the fourth: it
-        doubles the cost per config and cuts the start-up residue from
-        {last.loc[2].max():.1%} to {last.loc[4].max():.1%} of peak on this config. Before
-        committing to that, repeat this run for one 30°-pitch config (about 7 hours on the coarse
-        grid on this GPU) to see the slowest case. This would also remove the kink at the beat boundary that
-        E2 traced to non-periodic training data.
+        If the corpus is regenerated for any reason, run 5 beats and train on the fifth. Four
+        beats cuts the start-up residue from {last.loc[2].max():.1%} to {last.loc[4].max():.1%}
+        of peak on the centre config, but the 30° pitch follow-up is still at 1.6% after four and
+        needs the fifth to come under 1%. This would also remove the kink at the beat boundary
+        that E2 traced to non-periodic training data.
         """
     )
     return
