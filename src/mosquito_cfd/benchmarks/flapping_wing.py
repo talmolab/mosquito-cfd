@@ -890,19 +890,32 @@ def _peak_and_phase(
     return float(np.abs(series[i])), float(phase[i])
 
 
-def _curve_corr(a: NDArray[np.floating], b: NDArray[np.floating]) -> float:
-    """Pearson correlation of two signed series, raising on a (near-)constant one.
+def _curve_corr(
+    model: NDArray[np.floating], cfd: NDArray[np.floating], *, what: str
+) -> float:
+    """Pearson correlation of the signed model and CFD series of one component.
 
     A series whose standard deviation is below ``_DEGENERATE_CF_FLOOR`` has no defined
-    correlation; that is a named ``ValueError``, never a NaN.
+    correlation; that is a ``ValueError`` naming the component (``what``) and the series, never
+    a NaN. Written out (not ``np.corrcoef``) so the degenerate case is caught before dividing.
     """
-    sd_a, sd_b = float(np.std(a)), float(np.std(b))
-    if sd_a < _DEGENERATE_CF_FLOOR or sd_b < _DEGENERATE_CF_FLOOR:
+    if np.shape(model) != np.shape(cfd):
         raise ValueError(
-            f"curve correlation is undefined: a series has standard deviation {min(sd_a, sd_b):.3g}"
-            f", below the degeneracy floor {_DEGENERATE_CF_FLOOR:g} (a constant series)"
+            f"{what} curve correlation: the model and CFD series must have the same shape "
+            f"(got {np.shape(model)} and {np.shape(cfd)})"
         )
-    return float(np.mean((a - np.mean(a)) * (b - np.mean(b))) / (sd_a * sd_b))
+    for name, series in (("model", model), ("CFD", cfd)):
+        sd = float(np.std(series))
+        if sd < _DEGENERATE_CF_FLOOR:
+            raise ValueError(
+                f"{what} curve correlation is undefined: the {name} series has standard "
+                f"deviation {sd:.3g}, below the degeneracy floor {_DEGENERATE_CF_FLOOR:g} "
+                "(a constant series)"
+            )
+    return float(
+        np.mean((model - np.mean(model)) * (cfd - np.mean(cfd)))
+        / (np.std(model) * np.std(cfd))
+    )
 
 
 def decompose_wing_force(
@@ -1075,8 +1088,8 @@ def decompose_wing_force(
     normal_curve_rmse = float(np.sqrt(np.mean((model_normal - cfd_normal) ** 2)))
 
     # Reported signed curve correlations (not gated).
-    normal_curve_corr = _curve_corr(model_normal, cfd_normal)
-    chord_curve_corr = _curve_corr(model_chord, cfd_chord)
+    normal_curve_corr = _curve_corr(model_normal, cfd_normal, what="normal")
+    chord_curve_corr = _curve_corr(model_chord, cfd_chord, what="chord")
 
     # Reported G2 translational-chord window peak, NOT graded against the T2a 0.30 target.
     transl_chord = tx / f_ref

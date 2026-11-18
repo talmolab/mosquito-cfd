@@ -60,9 +60,9 @@ C_FZA_TRANSL_CI = (3.10, 3.15)
 # -0.01 +/- 0.01; section 3.1.2: the coefficient decreases with angle of attack; fig 4b), and a
 # least-squares refit of the paper's published fruit-fly dataset returns these coefficients in
 # degrees (tests/test_van_veen_dataset.py). Section 4.4 (eq 4.7) restates the polynomial with a
-# different coefficient set; the values pinned here are section 3.1.2's, the fit eq 3.12 belongs
-# to. The choice affects only the tangential output. The polynomial is fitted on 9-90 deg and is
-# slightly negative for roughly 58-83 deg.
+# different coefficient set, (1.0e-4, -1.4e-2, 0.43); the values pinned here are section 3.1.2's,
+# the fit eq 3.12 belongs to. The choice affects only the tangential output. The polynomial is
+# fitted on 9-90 deg and is slightly negative for roughly 58-83 deg.
 TRANSL_TANGENTIAL_POLY = (8.5e-5, -1.2e-2, 0.41)  # (A, B, C)
 TRANSL_TANGENTIAL_POLY_CI = ((6.8e-5, 10.2e-5), (-1.4e-2, -1.0e-2), (0.37, 0.44))
 C_FZA_AM = 0.96  # added-mass normal:  C_Fz,AM(alpha) = C_FZA_AM*sin(alpha)  (eq 3.10; fitted, vs analytic pi/4)
@@ -136,8 +136,9 @@ def _in_domain(
     if ((alpha < 0.0) | (alpha > np.pi / 2)).any():
         raise ValueError(
             "alpha must be an angle of attack in [0, pi/2] rad; got values in "
-            f"[{float(np.min(alpha)):.6g}, {float(np.max(alpha)):.6g}]. A signed geometric pitch "
-            "is not a valid input: derive the inputs with model_inputs()."
+            f"[{float(np.min(alpha))!r}, {float(np.max(alpha))!r}] (pi/2 is {np.pi / 2!r}). A "
+            "signed geometric pitch is not a valid input: derive the inputs with model_inputs(). "
+            "A float32 pi/2 is above the float64 one; compute the angle in float64."
         )
     if omega is not None and (omega < 0.0).any():
         raise ValueError(
@@ -224,6 +225,7 @@ def model_inputs(
         alpha=np.arctan2(np.abs(u_z), np.abs(u_x)),
         omega=np.abs(w),
         omega_dot=s * wd,
+        # "+ 0.0" turns a negative zero into a positive one.
         chord_dir=-np.sign(u_x) + 0.0,
         normal_dir=-np.sign(u_z) + 0.0,
     )
@@ -236,7 +238,10 @@ def translational_force(
     s_yy: float,
     rho: float = RHO,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Translational (quasi-steady circulatory) body-frame force ``(F_x, F_z)`` (eqs 3.9, 3.12).
+    """Translational (quasi-steady circulatory) force ``(F_x, F_z)`` (eqs 3.9, 3.12).
+
+    Like every component here, ``F_x`` and ``F_z`` oppose the wing's chord-wise and wing-normal
+    motion; multiply them by :func:`model_inputs`' directions to get body-frame forces.
 
     ``F_z = 0.5*rho*omega**2*S_yy * C_FZA_TRANSL*sin(alpha)``;
     ``F_x = 0.5*rho*omega**2*S_yy * (A*alpha_deg**2 + B*alpha_deg + C)``, where ``alpha_deg`` is
@@ -265,7 +270,9 @@ def added_mass_force_component(
     s_cy: float,
     rho: float = RHO,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Added-mass body-frame force ``(F_x, F_z)`` (eqs 3.10, 3.13; both scale on chord ``S_cy``).
+    """Added-mass force ``(F_x, F_z)`` (eqs 3.10, 3.13; both scale on chord ``S_cy``).
+
+    Signed against the motion; see :func:`model_inputs` for the body-frame directions.
 
     ``F_z = rho*omega_dot*S_cy * C_FZA_AM*sin(alpha)``;
     ``F_x = rho*omega_dot*S_cy * C_FXA_AM*cos(alpha)``. Proportional to the stroke acceleration
@@ -292,7 +299,9 @@ def wagner_force(
     s_we: float,
     rho: float = RHO,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-    """Wagner-effect body-frame force ``(F_x, F_z)`` (eqs 3.11, 3.14/4.1; tangential = 0).
+    """Wagner-effect force ``(F_x, F_z)`` (eqs 3.11, 3.14/4.1; tangential = 0).
+
+    Signed against the motion; see :func:`model_inputs` for the body-frame directions.
 
     ``F_z = 0.5*rho*omega*sign(omega_dot)*sqrt(|omega_dot|)*S_WE * C_FZA_WE*sin(alpha)``,
     ``F_x = 0``. Uses van Veen's ``sign(omega_dot)*sqrt(|omega_dot|)`` generalization (eq 3.15/4.1)
@@ -357,13 +366,27 @@ def profile_moments(
 
     Args:
         c: Chord at each spanwise station.
-        y: Hinge distance of each station, increasing.
+        y: Hinge distance of each station, non-decreasing.
 
     Returns:
         ``(s_cy, s_we)``.
+
+    Raises:
+        ValueError: if the two are not 1-D arrays of the same length with at least two stations,
+            if either holds a non-finite value, or if ``y`` decreases
+            anywhere (a descending or shuffled profile would integrate to a wrong number).
     """
     c = np.asarray(c, dtype=float)
     y = np.asarray(y, dtype=float)
+    if c.ndim != 1 or y.ndim != 1 or c.shape != y.shape or c.size < 2:
+        raise ValueError(
+            "profile_moments: c and y must be 1-D arrays of the same length with at least two "
+            f"stations (got shapes {c.shape} and {y.shape})"
+        )
+    if not (np.isfinite(c).all() and np.isfinite(y).all()):
+        raise ValueError("profile_moments: c and y must be finite")
+    if (np.diff(y) < 0).any():
+        raise ValueError("profile_moments: y must be non-decreasing (root to tip)")
     s_cy = float(np.trapezoid(c**2 * y, y))
     s_we = float(np.trapezoid(np.sqrt(np.clip(c**3 * y**3, 0.0, None)), y))
     return s_cy, s_we
@@ -382,13 +405,21 @@ def s_cy_closed_form(
     because its integrand omits a factor. The paper's fig 2e and the ``Scy`` stored in its
     published dataset match ``chord**2*span**2/3``. Do not "correct" this to 3.53.
 
+    The ellipse spans ``y`` from ``r_tip - span`` (root) to ``r_tip`` (tip), so the root is
+    at or outboard of the hinge only when ``r_tip >= span``.
+
     Raises:
-        ValueError: if ``r_tip < span/2`` (the ellipse would extend inboard of the hinge).
+        ValueError: if ``span`` or ``chord`` is not finite and positive, or if ``r_tip`` is not
+            finite or is less than ``span`` (the ellipse would extend inboard of the hinge).
     """
-    if r_tip < span / 2.0:
+    if not (np.isfinite(span) and np.isfinite(chord) and span > 0 and chord > 0):
         raise ValueError(
-            f"r_tip={r_tip} is less than span/2={span / 2.0}: the planform would extend inboard "
-            "of the hinge"
+            f"span and chord must be finite and positive (got span={span}, chord={chord})"
+        )
+    if not (np.isfinite(r_tip) and r_tip >= span):
+        raise ValueError(
+            f"r_tip={r_tip} must be finite and at least the span ({span}): the ellipse runs from "
+            "r_tip - span to r_tip, so a smaller r_tip puts its root inboard of the hinge"
         )
     return (2.0 / 3.0) * chord**2 * span * (r_tip - span / 2.0)
 
@@ -396,6 +427,8 @@ def s_cy_closed_form(
 # compute_wing_area_moments raises when the marker S_cy of the wing file differs from the nominal
 # closed form by more than this fraction. The committed wing differs by 9.9 %.
 _PLANFORM_MISMATCH_TOL = 0.15
+# Fewer bins than this cannot describe a planform (3 bins read the committed wing 16 % low).
+_MIN_NBINS = 5
 
 
 def compute_wing_area_moments(
@@ -422,10 +455,12 @@ def compute_wing_area_moments(
 
     Planform guard: the closed-form ``S_cy`` is right only for the nominal ellipse. The marker
     quadrature of ``S_cy`` is computed from the same wing file, and a difference of more than
-    15 % from the closed form raises. This catches gross planform errors only (a rectangle, a
-    wrong chord); a mosquito-shaped wing of the same span differs by about 8 % and passes. A
-    zero-area planform, a missing wing file and a too-fine ``nbins`` are reported by their own
-    errors first.
+    ``_PLANFORM_MISMATCH_TOL`` (15 %) from the closed form raises. This catches gross planform
+    errors only (a rectangle, a chord wrong by more than a few per cent); a mosquito-shaped wing
+    of the same span differs by about 8 % and passes, and a wrong span is not seen at all,
+    because the markers are placed by ``r_tip``. A zero-area planform, a bad ``r_tip`` or
+    ``nbins``, a missing wing file and a too-fine ``nbins`` are reported by their own errors
+    first.
 
     Args:
         vertex_path: Committed wing.vertex (908 surface markers; cols x=chord, y, z).
@@ -440,8 +475,9 @@ def compute_wing_area_moments(
 
     Raises:
         ValueError: if the planform is degenerate (zero area / zero span extent), if
-            ``r_tip < span/2``, if ``nbins`` is too fine for the markers, or if the wing file's
-            marker ``S_cy`` differs from the closed form by more than 15 %.
+            ``r_tip < span``, if ``nbins`` is not an integer of at least 5 or is too fine for the
+            markers, or if the wing file's marker ``S_cy`` differs from the closed form by more
+            than 15 %.
         FileNotFoundError: if the wing file does not exist.
     """
     area = np.pi / 4.0 * span * chord
@@ -457,7 +493,7 @@ def compute_wing_area_moments(
         raise ValueError(
             f"planform mismatch: the marker S_cy of {vertex_path} is {s_cy_marker:.4f}, but the "
             f"closed form for the nominal ellipse (span={span}, chord={chord}, r_tip={r_tip}) is "
-            f"{s_cy:.4f}, a difference of {100 * mismatch:.1f} % (limit "
+            f"{s_cy:.4f}, a difference of {100 * mismatch:.1f} % at nbins={nbins} (limit "
             f"{100 * _PLANFORM_MISMATCH_TOL:.0f} %). The wing file is not the nominal ellipse, so "
             "the closed-form S_cy, S_yy and F_ref do not describe it."
         )
@@ -493,6 +529,12 @@ def _marker_moment_quadrature(
     bias shrinks as bins are added. With too few markers per bin it collapses instead, which the
     too-fine guard below reports.
     """
+    # A bool is an int, and True (1) fails the minimum like any other small count.
+    is_integer = isinstance(nbins, (int, np.integer))
+    if not is_integer or nbins < _MIN_NBINS:
+        raise ValueError(f"nbins must be an integer >= {_MIN_NBINS} (got {nbins!r})")
+    if not (np.isfinite(r_tip) and r_tip > 0):
+        raise ValueError(f"r_tip={r_tip} must be finite and positive")
     if not Path(vertex_path).exists():
         raise FileNotFoundError(
             f"wing.vertex not found at {vertex_path}. The committed geometry is not shipped in the "
@@ -513,15 +555,13 @@ def _marker_moment_quadrature(
     )
     # A bin with <=1 marker cannot resolve the chord (ptp needs >=2 points) -> chord=0 there,
     # which silently UNDER-estimates both moments as nbins grows past the marker density. Guard
-    # it: the
-    # binning must be coarse enough to resolve every spanwise station of the contiguous planform.
+    # it: the binning must be coarse enough to resolve every spanwise station of the planform.
     n_empty = int(np.sum(counts <= 1))
     if n_empty > 0.05 * nbins:
         raise ValueError(
             f"nbins={nbins} is too fine for {len(y)} markers: {n_empty} bin(s) hold <=1 marker "
-            "and cannot resolve the chord, silently under-estimating S_cy and S_WE. Use fewer "
-            "bins "
-            f"(the calibrated default is {_SWE_NBINS})."
+            "and cannot resolve the chord, silently under-estimating S_cy and S_WE. Use "
+            f"fewer bins (the calibrated default is {_SWE_NBINS})."
         )
     chord_y = np.array(
         [

@@ -14,8 +14,12 @@ matplotlib.use("Agg")  # headless-safe: force Agg before importing pyplot
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from _stale_claims import stale_claims
 
-from mosquito_cfd.benchmarks.flapping_wing import decompose_wing_force
+from mosquito_cfd.benchmarks.flapping_wing import (
+    decompose_wing_force,
+    reconstruct_wing_body_forces,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "examples" / "flapping_wing" / "generate_validation_figures.py"
@@ -134,10 +138,38 @@ def test_t4_figure_plots_the_corrected_model_with_no_pending_note(tmp_path):
         )
         np.testing.assert_array_equal(chord_total.get_ydata(), series["model_chord"])
         assert series["model_chord"].min() < 0 < series["model_chord"].max()
-        # The title states the recomputed numbers.
+        # Every labelled curve in both panels is the series decompose_wing_force returned for
+        # that component: no curve is swapped between panels, negated or re-derived.
+        for ax, idx, comp in ((fig.axes[0], 0, "chord"), (fig.axes[1], 1, "normal")):
+            expected = {
+                "translational": series["model_transl"][idx],
+                "added-mass": series["model_added_mass"][idx],
+                "Wagner": series["model_wagner"][idx],
+                "model total": series[f"model_{comp}"],
+                "CFD IB force on wing": series[f"cfd_{comp}"],
+            }
+            drawn = {ln.get_label(): ln for ln in ax.lines}
+            assert set(expected) <= set(drawn), comp
+            for label, want in expected.items():
+                np.testing.assert_array_equal(
+                    drawn[label].get_xdata(), series["time"], err_msg=f"{comp}/{label}"
+                )
+                np.testing.assert_array_equal(
+                    drawn[label].get_ydata(), want, err_msg=f"{comp}/{label}"
+                )
+        # The title states the five recomputed numbers, each in its own phrase.
         title = fig._suptitle.get_text()
-        assert f"{result['normal_peak_model']:.2f}" in title
-        assert f"{result['chord_peak_model']:.3f}" in title
+        for phrase in (
+            f"normal peak: model {result['normal_peak_model']:.2f} "
+            f"vs CFD {result['normal_peak_cfd']:.2f}",
+            f"peaks {result['normal_peak_phase_gap']:.3f} cycle apart",
+            f"chord peak: model {result['chord_peak_model']:.3f} "
+            f"vs CFD {result['chord_peak_cfd']:.2f}",
+            "not explained by the model",
+        ):
+            assert phrase in title, phrase
+        # No text in the figure makes a claim the corrected model does not support.
+        assert stale_claims("\n\n".join(texts)) == []
     finally:
         plt.close(fig)
 
@@ -226,6 +258,17 @@ def test_timeseries_figure_reference_lines_follow_the_model(tmp_path, monkeypatc
         # No typed copy of a superseded reference survives.
         for ax in (ax_chord, ax_normal):
             assert not {0.3, 0.43, 2.16, 2.48, 2.4} & set(_hlines(ax))
+        # Each panel plots its own component for each grid (chord in the chord panel).
+        fine = reconstruct_wing_body_forces(
+            _FIG_DIR / "forces_fine.csv",
+            f_star=1.0,
+            phi_amp_deg=70.0,
+            pitch_amp_deg=45.0,
+        )
+        window = fine.time >= 0.05
+        for ax, want in ((ax_chord, fine.cf_chord), (ax_normal, fine.cf_normal)):
+            (line,) = [ln for ln in ax.lines if ln.get_label().startswith("Fine")]
+            np.testing.assert_array_equal(line.get_ydata(), want[window])
     finally:
         real_close(fig)
 
@@ -262,6 +305,17 @@ def test_3grid_convergence_figure_reference_lines_follow_their_sources(
             pitch_amp_deg=45.0,
         )
         for ax, comp in ((ax_chord, "cf_chord"), (ax_normal, "cf_normal")):
+            # The plotted points are coarse, medium, fine, in that order.
+            (points,) = [ln for ln in ax.lines if len(ln.get_xdata()) == 3]
+            assert list(points.get_xdata()) == [0, 1, 2]
+            np.testing.assert_allclose(
+                points.get_ydata(),
+                [conv[comp][k] for k in ("cf_coarse", "cf_medium", "cf_fine")],
+                rtol=0,
+                atol=1e-12,
+            )
+            target_label = _hlines(ax)[4.44 if comp == "cf_chord" else 6.66]
+            assert "not the paper's value" in target_label
             h0, gci = conv[comp]["cf_exact_richardson"], conv[comp]["gci_fine"]
             (lo, hi) = _hspans(ax)[0]
             assert lo == pytest.approx(h0 * (1 - gci), abs=1e-5)

@@ -28,10 +28,13 @@ redistributed here with attribution on that basis; the authors have been asked t
 
 ## Contents
 
-- `fruitfly.mat`: 1,089 simulations of the fruit-fly wing. `aoa` is the angle of attack in
+- `fruitfly.mat`: 1,089 rows for the fruit-fly wing. `aoa` is the angle of attack in
   degrees (uint8), `sr` the stroke rate in rad/s (uint16), `sa` the stroke acceleration in
-  rad/s² (int32), and `Fx`, `Fy`, `Fz` the forces in N at the end of each simulation. 43 rows
-  are steady (`sa = 0`).
+  rad/s² (int32), and `Fx`, `Fy`, `Fz` the forces in N at the end of each simulation.
+  - The rows are 566 distinct simulations: each non-steady one is stored twice, byte for byte.
+    Distinct rows: 43 steady (`sa = 0`), 477 accelerating, 46 decelerating. (The paper's §2.6
+    counts 568.)
+  - All decelerating rows are at 36°.
 - `wing_geometry_DB.mat`: 14 wings (fruit fly, mosquito, 12 ellipses). For each: `wing` (name),
   `outline`, the chord profile `c` at spanwise stations `y`, `span`, `chord_max`, `chord_mean`,
   and the area moments `Syy`, `Scy`, `Swe` (SI units).
@@ -40,4 +43,11 @@ redistributed here with attribution on that basis; the authors have been asked t
 
 Read with `scipy.io.loadmat` only, and cast every column to `float64` first: `sr**2` overflows
 in uint16. The comparison in the tests takes the fluid density as 1; the paper's value is not in
-the text available to this project (issue #156).
+the text available to this project (issue #156). With that density, a fit to the rows with
+non-negative acceleration returns the paper's printed coefficients to the digits printed.
+
+## What the data does not support
+
+The model's tangential force on a decelerating wing. On the decelerating rows its error is larger
+than the force itself. The paper's figure for decelerating wings (fig 4d) shows the normal
+force.

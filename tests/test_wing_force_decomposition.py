@@ -204,6 +204,13 @@ def test_normal_magnitude_graded_phase_reported(tmp_path):
         target = model_peak / (1.0 + gap)
         r = decompose_wing_force(_scaled_csv(tmp_path, target / 2.6060), **_KIN)
         assert r["normal_mag_pass"] is False
+    # Bracket the pinned tolerance itself (0.16), so the grade cannot drift to another value:
+    # gaps of 0.15 pass and gaps of 0.17 fail, in both directions.
+    for gap, want in ((+0.15, True), (-0.15, True), (+0.17, False), (-0.17, False)):
+        target = model_peak / (1.0 + gap)
+        r = decompose_wing_force(_scaled_csv(tmp_path, target / 2.6060), **_KIN)
+        assert r["normal_mag_gap_rel"] == pytest.approx(abs(gap), rel=0.02)
+        assert r["normal_mag_pass"] is want, gap
     # Phase + RMSE are reported (no *_pass field for them).
     r = decompose_wing_force(_COARSE, **_KIN)
     assert "normal_peak_phase_gap" in r and "normal_curve_rmse" in r
@@ -256,15 +263,32 @@ def test_curve_correlations_are_reported_and_signed(tmp_path):
     assert base["normal_curve_corr"] > 0.9
 
 
+def test_grade_reads_the_pinned_tolerance(monkeypatch):
+    """``normal_mag_pass`` is the gap compared with ``T4_NORMAL_MAG_TOL``, not a typed number."""
+    import mosquito_cfd.benchmarks.flapping_wing as fw
+
+    assert decompose_wing_force(_FINE, **_KIN)["normal_mag_pass"] is True
+    monkeypatch.setattr(fw, "T4_NORMAL_MAG_TOL", 0.01)  # below the fine gap, 0.017
+    assert decompose_wing_force(_FINE, **_KIN)["normal_mag_pass"] is False
+    monkeypatch.setattr(fw, "T4_NORMAL_MAG_TOL", 0.5)  # above the coarse gap, 0.130
+    assert decompose_wing_force(_COARSE, **_KIN)["normal_mag_pass"] is True
+
+
 def test_curve_corr_of_a_constant_series_raises():
-    """A constant series has no correlation: a named error, never NaN."""
+    """A constant series has no correlation: a named error that says which series, never NaN."""
     ramp = np.linspace(0.0, 1.0, 50)
-    with pytest.raises(ValueError, match="curve correlation is undefined"):
-        _curve_corr(np.full(50, 2.0), ramp)
-    with pytest.raises(ValueError, match="curve correlation is undefined"):
-        _curve_corr(ramp, np.zeros(50))
-    assert _curve_corr(ramp, 3.0 * ramp + 1.0) == pytest.approx(1.0)
-    assert _curve_corr(ramp, -ramp) == pytest.approx(-1.0)
+    with pytest.raises(
+        ValueError, match="normal curve correlation is undefined: the model"
+    ):
+        _curve_corr(np.full(50, 2.0), ramp, what="normal")
+    with pytest.raises(
+        ValueError, match="chord curve correlation is undefined: the CFD"
+    ):
+        _curve_corr(ramp, np.zeros(50), what="chord")
+    with pytest.raises(ValueError, match="same shape"):
+        _curve_corr(ramp, ramp[:-1], what="chord")
+    assert _curve_corr(ramp, 3.0 * ramp + 1.0, what="normal") == pytest.approx(1.0)
+    assert _curve_corr(ramp, -ramp, what="normal") == pytest.approx(-1.0)
 
 
 def test_graded_verdict_does_not_depend_on_the_planform_basis(monkeypatch):

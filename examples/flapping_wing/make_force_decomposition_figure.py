@@ -5,8 +5,9 @@ the CFD IB force on the wing's body-frame coefficients (fine 256³ grid, ``force
 for the chord and normal separately, over the steady window. Everything is recomputed from the
 committed IB-particle CSV via ``decompose_wing_force`` (van Veen's *model* replotted at our operating
 point — NOT a digitized figure; the time-resolved mosquito curves are van Veen Fig 13, not Fig 3-4).
-The model is fed the angle of attack derived from the wing's motion, so its normal force keeps one
-sign over the wingbeat and its chord force changes sign each half-stroke, as the CFD's do.
+The model is fed the angle of attack derived from the wing's motion, so its normal force has a
+positive lobe on each half-stroke (with a small negative dip before each reversal) and its chord
+force changes sign each half-stroke, as the CFD's do.
 Writes ``figures/fig_force_decomposition.{png,pdf}``.
 
 The plotted series are exactly the ``decompose_wing_force`` arrays (a test asserts the line ydata

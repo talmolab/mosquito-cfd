@@ -439,6 +439,23 @@ def test_t4_decomposition_numbers_reproduce():
         "coarse gap": f"{100 * coarse['normal_mag_gap_rel']:.1f} %",
         "medium gap": f"{100 * medium['normal_mag_gap_rel']:.1f} %",
     }
+    # The window holds a second CFD normal peak, on the following half-stroke. The grade uses the
+    # larger one; the docs state the other and the gap against it.
+    series = r["series"]
+    later = series["time"] >= 0.75
+    second_peak = float(series["cfd_normal"][later].max())
+    assert second_peak == pytest.approx(2.0065, abs=5e-4)
+    assert second_peak < r["normal_peak_cfd"]
+    second_gap = abs(r["normal_peak_model"] - second_peak) / second_peak
+    assert second_gap == pytest.approx(0.1295, abs=5e-4)
+    assert second_gap < T4_NORMAL_MAG_TOL  # it would also pass, with a small margin
+    literals["second CFD normal peak"] = f"{second_peak:.2f}"
+    literals["gap against the second peak"] = f"{100 * second_gap:.1f} %"
+    lower_by = f"{100 * (1 - second_peak / r['normal_peak_cfd']):.0f} % lower"
+    assert lower_by == "10 % lower" and lower_by in section
+    # Both curves dip slightly below zero before each reversal (the docs say so).
+    assert 0.05 < float((series["model_normal"] < 0).mean()) < 0.2
+    assert 0.05 < float((series["cfd_normal"] < 0).mean()) < 0.2
     assert (
         literals["model normal peak"] == "2.27" and literals["relative gap"] == "1.7 %"
     )
@@ -446,6 +463,31 @@ def test_t4_decomposition_numbers_reproduce():
         assert _has_number(section, lit), (
             f"T4 {what} {lit!r} missing from the T4 subsection"
         )
+    # Each number sits in the phrase that names it, so two numbers cannot be swapped.
+    flat_section = _flat(section)
+    m_n, c_n = literals["model normal peak"], literals["CFD normal peak"]
+    m_c, c_c = literals["model chord peak"], literals["CFD chord peak"]
+    bound = (
+        f"| **CF_normal** (lift) | {c_n} | {m_n} |",
+        f"| **CF_chord** (tangential) | {c_c} | {m_c} |",
+        f"model {m_n} vs CFD {c_n} on the fine grid, a relative gap of "
+        f"{literals['relative gap']}",
+        f"`T4_NORMAL_MAG_TOL` ({literals['tolerance']})",
+        f"coarse grid (gap {literals['coarse gap']})",
+        f"medium-grid gap ({literals['medium gap']})",
+        f"The two peaks are {literals['phase gap']} cycle apart",
+        f"over the window: {literals['curve RMSE']}",
+        f"normal {literals['normal correlation']}, chord {literals['chord correlation']}",
+        f"the model's chord peak is {m_c} and the CFD's is {c_c}",
+        f"the CFD peak is {literals['chord ratio']} the model's",
+        f"**Translational-chord window peak**: "
+        f"{literals['translational-chord window peak']}",
+        f"it is {literals['translational chord at mid-stroke']} at mid-stroke",
+        f"a second normal peak, {literals['second CFD normal peak']}",
+        f"the model's peak is {literals['gap against the second peak']} high",
+    )
+    for phrase in bound:
+        assert phrase in flat_section, phrase
     # ...and the subsection states no other decimal: a wrong copy of a number in the prose fails
     # even when the right one is also present. The CFD numbers it cross-references are recomputed
     # here too (grid peaks, the T3c Richardson extrapolant and GCI_fine, the window start).
@@ -486,8 +528,15 @@ def test_t4_decomposition_numbers_reproduce():
         for ln in doc.splitlines()
         if ln.startswith("| Body-frame van Veen comparison |")
     )
-    for lit in ("2.27", "2.23", "1.7 %", "0.107", "0.41", "0.028"):
-        assert _has_number(status, lit), f"status row lacks {lit!r}"
+    for phrase in (
+        f"CF_normal {c_n} vs model {m_n}",
+        f"rel gap {literals['relative gap']} < {literals['tolerance']} tol",
+        f"CF_chord {c_c} vs model {m_c}",
+        f"peak-phase gap ({literals['phase gap']} cycle)",
+        f"second half-stroke's CFD peak, {literals['second CFD normal peak']}, the gap is "
+        f"{literals['gap against the second peak']}",
+    ):
+        assert phrase in status, f"status row lacks {phrase!r}"
     assert _decimals(status) <= recomputed | {"0.3"}, sorted(
         _decimals(status) - recomputed
     )
@@ -513,6 +562,10 @@ def test_t4_subsection_states_the_limits_of_the_comparison():
         "different phases",  # the two peaks are not the same instant
         "just after mid-stroke",
         "wagner term changes sign",
+        "the grade uses the larger",
+        "about eleven times",  # pinned by tests/test_van_veen_dataset.py
+        "decelerat",
+        "divided by an `f_ref` built on that same `s_yy`",
         "first wingbeat",
         "impulsive start",
         "mixed planform bases",

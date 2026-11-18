@@ -134,6 +134,14 @@ def test_negative_omega_raises(component, omega):
         _COMPONENTS[component](0.5, omega, 1.0)
 
 
+def test_float32_right_angle_is_named_in_the_error():
+    """float32(pi/2) is above the float64 bound; the message shows the excess, not "1.5708"."""
+    with pytest.raises(ValueError, match="alpha must be an angle of attack") as err:
+        vv.translational_force(np.array([0.1, np.float32(np.pi / 2)]), 3.0, s_yy=6.797)
+    assert "1.5707963705062866" in str(err.value)
+    assert "float32" in str(err.value)
+
+
 @pytest.mark.parametrize("component", list(_COMPONENTS))
 def test_domain_edges_are_accepted(component):
     """alpha = 0, -0.0 and pi/2 and omega = 0 are inside the domain; omega = 0 gives no force."""
@@ -289,6 +297,14 @@ def test_zero_velocity_component_has_no_direction():
     flat = vv.model_inputs(0.0, 1.0, 0.0)
     assert flat.normal_dir == 0.0 and flat.chord_dir == 1.0
     assert flat.alpha == 0.0
+    # Only roundoff is treated as zero: a pitch of 1e-9 rad still has a normal direction.
+    small = vv.model_inputs(1e-9, 1.0, 0.0)
+    assert small.normal_dir == 1.0 and small.alpha == pytest.approx(1e-9)
+    nearly_vertical = vv.model_inputs(np.pi / 2 - 1e-9, 1.0, 0.0)
+    assert nearly_vertical.chord_dir == 1.0
+    # No direction is ever a negative zero.
+    for value in (vertical.chord_dir, flat.normal_dir):
+        assert not np.signbit(value)
 
 
 def _inputs_from_rotation(phi_of_t, pitch_of_t, t: float, h: float = 1e-6):
@@ -443,10 +459,21 @@ def test_s_cy_is_the_chord_based_integral_with_a_known_answer():
     assert m.s_cy == pytest.approx(float(np.trapezoid(c2 * y, y)), abs=1e-6)
     # The same ellipse moved one chord outboard.
     assert vv.s_cy_closed_form(r_tip=4.0) == pytest.approx(5.0, rel=1e-12)
-    with pytest.raises(ValueError, match="r_tip"):
-        vv.s_cy_closed_form(r_tip=1.4)
-    with pytest.raises(ValueError, match="r_tip"):
-        vv.compute_wing_area_moments(r_tip=1.4)
+    # The ellipse spans [r_tip - span, r_tip]: it reaches inboard of the hinge when r_tip < span.
+    assert vv.s_cy_closed_form(r_tip=3.0) == pytest.approx(3.0, rel=1e-12)
+    for bad in (np.nextafter(3.0, 0.0), 2.0, 1.5, 1.4, 0.0, -1.0, np.nan, np.inf):
+        with pytest.raises(ValueError, match=r"^r_tip="):
+            vv.s_cy_closed_form(r_tip=bad)
+        with pytest.raises(ValueError, match=r"^r_tip="):
+            vv.compute_wing_area_moments(r_tip=bad)
+    # r_tip = span/2 used to reach a division by zero in the planform guard.
+    with pytest.raises(ValueError, match=r"^r_tip="):
+        vv.compute_wing_area_moments(span=6.0)
+    for kwargs in ({"span": -3.0, "chord": -1.0}, {"chord": 0.0}, {"span": np.nan}):
+        with pytest.raises(
+            ValueError, match="span and chord must be finite and positive"
+        ):
+            vv.s_cy_closed_form(**kwargs)
 
 
 def test_s_cy_marker_quadrature_of_the_committed_wing_is_pinned():
@@ -473,6 +500,50 @@ def test_s_cy_marker_quadrature_too_fine_binning_raises():
         vv.s_cy_marker_quadrature(nbins=200)
 
 
+@pytest.mark.parametrize("nbins", [0, 1, 2, 4, -1, -5, 30.0, True, None, "30"])
+def test_bad_nbins_is_reported_as_nbins_not_as_a_planform_mismatch(nbins):
+    """A bin count that cannot give a quadrature is its own error, in both entry points."""
+    for call in (vv.compute_wing_area_moments, vv.s_cy_marker_quadrature):
+        with pytest.raises(ValueError, match=r"^nbins must be an integer >= 5"):
+            call(nbins=nbins)
+    assert vv.s_cy_marker_quadrature(nbins=5) > 0
+
+
+@pytest.mark.parametrize("r_tip", [np.nan, np.inf, 0.0, -1.0])
+def test_marker_quadrature_rejects_a_bad_r_tip(r_tip):
+    """The public cross-check validates r_tip itself (it used to return a negative S_cy)."""
+    with pytest.raises(ValueError, match=r"^r_tip="):
+        vv.s_cy_marker_quadrature(r_tip=r_tip)
+
+
+def test_profile_moments_validates_its_profile():
+    """``profile_moments`` refuses a profile it would integrate to a wrong number."""
+    y = np.linspace(0.0, 3.0, 2001)
+    c = np.sqrt(np.clip(1.0 - ((y - 1.5) / 1.5) ** 2, 0.0, None))
+    s_cy, s_we = vv.profile_moments(c, y)
+    assert s_cy == pytest.approx(3.0, rel=1e-4) and s_we == pytest.approx(
+        4.304, rel=1e-3
+    )
+    rng = np.random.default_rng(0)
+    shuffled = rng.permutation(len(y))
+    bad = {
+        "descending y": (c[::-1], y[::-1]),
+        "shuffled y": (c[shuffled], y[shuffled]),
+        "NaN chord": (np.where(np.arange(len(c)) == 7, np.nan, c), y),
+        "NaN y": (c, np.where(np.arange(len(y)) == 7, np.nan, y)),
+        "length mismatch": (c[:-1], y),
+        "single point": (c[:1], y[:1]),
+        "empty": (c[:0], y[:0]),
+        "2-D": (np.stack([c, c]), np.stack([y, y])),
+    }
+    for name, (cc, yy) in bad.items():
+        with pytest.raises(ValueError, match=r"^profile_moments: "):
+            vv.profile_moments(cc, yy)
+        assert name  # keeps the case name in the traceback locals
+    # Repeated stations are allowed (a step in the profile), as is a hair of negative y.
+    vv.profile_moments([0.0, 1.0, 1.0, 0.0], [-1e-5, 1.0, 1.0, 2.0])
+
+
 def test_planform_mismatch_guard(tmp_path, dense_ellipse):
     """A wing file whose marker S_cy is over 15 % from the closed form raises, naming both."""
     x, y = np.meshgrid(np.linspace(-0.5, 0.5, 61), np.linspace(-1.5, 1.5, 181))
@@ -485,6 +556,21 @@ def test_planform_mismatch_guard(tmp_path, dense_ellipse):
         cases[f"chord x{scale}"] = _write_vertex(
             tmp_path / f"chord_{scale}.vertex", committed * np.array([scale, 1.0])
         )
+    # Bracket the 15 % limit itself: the committed wing sits at -9.9 %, so chord scalings of
+    # 0.975 and 0.965 land just inside (-14.3 %) and just outside (-16.1 %).
+    inside = _write_vertex(
+        tmp_path / "chord_0.975.vertex", committed * np.array([0.975, 1.0])
+    )
+    assert (vv.s_cy_marker_quadrature(inside) - 3.0) / 3.0 == pytest.approx(
+        -0.143, abs=0.004
+    )
+    vv.compute_wing_area_moments(inside)
+    cases["chord x0.965"] = _write_vertex(
+        tmp_path / "chord_0.965.vertex", committed * np.array([0.965, 1.0])
+    )
+    assert (vv.s_cy_marker_quadrature(cases["chord x0.965"]) - 3.0) / 3.0 == (
+        pytest.approx(-0.161, abs=0.004)
+    )
     for name, path in cases.items():
         marker = vv.s_cy_marker_quadrature(path)
         assert abs(marker - 3.0) / 3.0 > 0.15, name
@@ -496,8 +582,13 @@ def test_planform_mismatch_guard(tmp_path, dense_ellipse):
     near = vv.s_cy_marker_quadrature(cases["chord x0.95"])
     assert (near - 3.0) / 3.0 == pytest.approx(-0.187, abs=0.01)
     # The committed wing and a nominal ellipse do not raise.
-    vv.compute_wing_area_moments()
-    vv.compute_wing_area_moments(dense_ellipse)
+    committed_moments = vv.compute_wing_area_moments()
+    dense_moments = vv.compute_wing_area_moments(dense_ellipse)
+    # S_WE comes from the file that was passed, not from the default wing: the dense nominal
+    # ellipse gives the nominal-ellipse value (4.30), the committed markers 3.98.
+    assert committed_moments.s_we == pytest.approx(3.978, abs=5e-3)
+    assert dense_moments.s_we == pytest.approx(4.304, rel=0.05)
+    assert dense_moments.s_we > committed_moments.s_we + 0.2
     doc = " ".join(vv.compute_wing_area_moments.__doc__.split())
     assert "gross planform errors only" in doc
 

@@ -638,14 +638,16 @@ is tracked by a follow-up issue.
 - **Then** `S_cy = 3.0` to floating tolerance, it differs from `S_yy`, and it equals an independent fine
   numeric quadrature of `∫c(y)²·y dy` over the analytic ellipse to `1e-6`
 - **And** with `r_tip = 4` (the same ellipse moved one chord outboard) the closed form gives `5.0`, and
-  a planform with `r_tip < span/2` raises `ValueError`
+  a planform with `r_tip < span` (the ellipse runs from `r_tip − span` to `r_tip`, so its root
+  would be inboard of the hinge) raises `ValueError`
 - **And** the marker quadrature converges to the closed form on a synthetic ellipse outline of at least
   2e5 markers: its error is below 5 % at 30 bins, below 1.5 % at 120 bins, and smaller at 120 bins than
   at 30 (the estimator takes the widest chord in each bin, so it is biased high at finite bin count;
   the docstring SHALL say so)
 - **And** the marker quadrature of the committed `wing.vertex` equals its pinned value, which lies below
   the closed form by less than 15 %
-- **And** a too-fine `nbins` raises for the `S_cy` marker quadrature as it does for `S_WE`
+- **And** a too-fine `nbins` raises for the `S_cy` marker quadrature as it does for `S_WE`, and
+  an `nbins` that is not an integer of at least 5 raises naming `nbins`
 - **And** `compute_wing_area_moments` raises `ValueError`, naming both values, when the marker
   quadrature of the wing file it was given differs from the closed form by more than 15 % (a
   rectangular outline of the nominal span and chord raises, and so does the committed wing with
@@ -932,10 +934,11 @@ reported-not-gated as an evidence-based scoping decision, NOT a loosened toleran
 
 - **Given** `RESULTS.md` and the six other documents this requirement names, and the comments and
   docstrings of `src/mosquito_cfd/benchmarks/flapping_wing.py`
-- **When** a guard test scans each after removing Markdown emphasis and code marks, collapsing all
-  whitespace (so a phrase split across lines or wrapped in bold is still found), lower-casing, and
-  splitting into sentences
-- **Then** no sentence that lacks a negation states that T4 or the model resolves, settles, explains
+- **When** a guard test cuts each into blocks (a heading, a list item, a table cell and a
+  paragraph are separate blocks), removes Markdown emphasis and code marks, collapses
+  whitespace within a block (so a phrase split across lines or wrapped in bold is still found),
+  lower-cases, and splits each block into sentences
+- **Then** no sentence states, without a negation **before** the claim in that sentence, that T4 or the model resolves, settles, explains
   or accounts for the chord PARTIAL or #40, that the chord sits close to or converges to the model,
   that the earlier comparison was "apples-to-oranges", or
   names a "physical chord target" or a "QS-model target"

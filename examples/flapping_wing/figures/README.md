@@ -68,7 +68,7 @@ subsection of [`../RESULTS.md`](../RESULTS.md).
 
 | File | Shows |
 |------|-------|
-| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD IB force on the wing ([sign](../../../docs/coordinate-convention.md#force-and-moment-sign); fine grid), for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees within the graded tolerance, and the CFD normal peak comes slightly before the model's (reported). The model's normal force keeps one sign over the wingbeat and its chord force changes sign each half-stroke, as the CFD's do. The kink in the model's normal curve just after mid-stroke is its Wagner term changing sign. The CFD **chord** is several times the model's: reported, not explained by the model (#40 is open). **Cluster-free.** |
+| `fig_force_decomposition` | Model translational / added-mass / Wagner / total vs the CFD IB force on the wing ([sign](../../../docs/coordinate-convention.md#force-and-moment-sign); fine grid), for `CF_chord` and `CF_normal` over the steady window. The **normal peak magnitude** agrees within the graded tolerance, and the CFD normal peak comes slightly before the model's (reported). The model's normal force and the CFD's each have a positive lobe on each half-stroke, with a small negative dip before each reversal; both chord forces change sign each half-stroke. The kink in the model's normal curve at mid-stroke is its Wagner term changing sign, and the model's peak falls just after it. The CFD's second normal peak is lower than its first. The CFD **chord** is several times the model's: reported, not explained by the model (#40 is open). **Cluster-free.** |
 
 ## Grid convergence (T3c, 3-grid) — `make_grid_convergence_3grid_figure.py` / `make_force_timeseries_3grid_figure.py`
 
@@ -76,7 +76,7 @@ Tier **T3c** ([#50](https://github.com/talmolab/mosquito-cfd/issues/50)): 3-grid
 
 | File | Shows |
 |------|-------|
-| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded). Two reference lines, each read from its source when the figure is drawn: the peak of van Veen's quasi-steady model (from `decompose_wing_force` on the fine-grid CSV) and the pinned T2a target (from `VAN_VEEN_CF_TARGETS`). CF_chord: not tightly converged (GCI_fine=27.6 %) and well above the model peak. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
+| `fig_grid_convergence_3grid` | Peak body-frame CF_chord / CF_normal for all 3 grids. Richardson extrapolant (dashed) + GCI band (shaded). Two reference lines, each read from its source when the figure is drawn: the peak of van Veen's quasi-steady model (from `decompose_wing_force` on the fine-grid CSV) and the pinned T2a target (from `VAN_VEEN_CF_TARGETS`; not the paper's value, [#154](https://github.com/talmolab/mosquito-cfd/issues/154)). CF_chord: not tightly converged (GCI_fine=27.6 %) and well above the model peak. CF_normal: nearly converged, GCI_fine=3.7 %. p_obs ≈ 1.37–1.38 for both. |
 | `fig_force_timeseries_3grid` | Body-frame CF_chord and signed CF_normal time series over one wingbeat, all 3 grids overlaid. Shows where grids agree (normal waveform shape) and where they differ (chord magnitude and late-cycle asymmetry at coarse). Dashed lines mark the peak of van Veen's quasi-steady model (from `decompose_wing_force` on the fine-grid CSV): at both signs in the chord panel, where the force changes sign each half-stroke, and on the positive side in the normal panel. |
 
 ## Regenerate

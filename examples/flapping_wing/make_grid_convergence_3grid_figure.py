@@ -39,7 +39,7 @@ _REFERENCE_KEYS = {
     "cf_normal": ("normal_peak_model", "cf_normal_peak"),
 }
 _MODEL_LABEL = "van Veen QS model peak (T4, fine grid)"
-_TARGET_LABEL = "T2a target (pinned)"
+_TARGET_LABEL = "T2a target (pinned; not the paper's value)"
 _KIN = dict(f_star=1.0, phi_amp_deg=70.0, pitch_amp_deg=45.0)
 _TITLES = {"cf_chord": "CF_chord  (tangential)", "cf_normal": "CF_normal  (lift)"}
 _COLORS = {"cf_chord": "#c44e52", "cf_normal": "#4c72b0"}

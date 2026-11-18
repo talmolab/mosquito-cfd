@@ -282,9 +282,14 @@ the repo-wide grep in task 5.3 remain the primary control.
 - **Normalization.** Remove Markdown emphasis and code marks (`*`, `_`, `` ` ``), collapse all
   whitespace including newlines, lower-case. Anchors are normalized the same way (`CF_chord`
   becomes `cfchord`).
-- **Sentences.** The normalized text is split after `.`, `;`, `!` or `?` followed by a space
-  (decimals are not split). A sentence is *negated* when it matches
-  `\b(not|never|neither|nor|cannot|no)\b|n't|\bun(resolved|explained)`.
+- **Blocks, then sentences (changed after the PR review).** The text is first cut into blocks:
+  a heading, a list item, a table cell and a paragraph are each their own block. Each block is
+  normalized and split after `.`, `;`, `:`, `!` or `?` (optionally followed by a closing
+  bracket or quote) and a space. A claim is excused only by a negation that comes **before**
+  it in the same sentence:
+  `\b(not|never|neither|nor|cannot|no)\b|n['’]t\b|\bun(resolved|explained|settled)`.
+  The first version normalized the whole document before splitting; the review measured
+  22–57 % of each guarded document inside sentences its negation rule exempted.
 - **Claim patterns, rejected in a sentence that is not negated.**
   - `(?<![-\w])resolv\w*|(?<![-\w])resolution\W+of\b` together with `t4|#40|partial` in the
     same sentence ("under-resolves" and "under-resolution" are about the grid and are skipped)

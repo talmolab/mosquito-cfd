@@ -358,3 +358,61 @@ range was not re-checked in this change.
 
 Its SHA-256 is pinned by `run_metadata_t2a.json`, so editing its comment would break the provenance
 of the committed run. A test records it as the one known exception.
+
+## 6. Fixes after the PR review (one commit on top; commits 1–5 are not rewritten)
+
+Five reviewers (code quality, testing, science, performance/build, behaviour) found no blocking
+issue. Their important findings, and what was done:
+
+- [x] 6.1 Stale-claim guard read headings, bullets and table rows as one sentence, and one "not"
+      anywhere excused every claim in it (code quality 2–3, testing I3). Now block-aware; a
+      negation must precede the claim; comments are grouped by consecutive lines; the patterns
+      are anchored (`\bt4\b`, `#40(?!\d)`, `\bsettle`, `(?<![\d.])115`). The reviewers' survivors
+      are in the must-fail lists.
+- [x] 6.2 `s_cy_closed_form` guarded `r_tip < span/2`; the ellipse is inboard of the hinge for
+      `r_tip < span`, and `r_tip = span/2` reached a division by zero (code quality 1, behaviour
+      1). Now `r_tip >= span` and positive finite span and chord are required.
+- [x] 6.3 A bad `nbins` or `r_tip` was reported as a planform mismatch, or returned a wrong number
+      from the public cross-check (behaviour 2). Both are validated first; `nbins` must be an
+      integer of at least 5.
+- [x] 6.4 `profile_moments` trusted its input order (behaviour 3). It now checks shape, finiteness
+      and non-decreasing `y`. A negative chord is NOT rejected: seven of the paper's stored
+      ellipse profiles have one slightly negative chord value.
+- [x] 6.5 The T4 grade was not tied to `T4_NORMAL_MAG_TOL` by any test (testing I1; older than
+      this change). Gaps of 0.15 / 0.17 now bracket it and a monkeypatched tolerance flips it.
+- [x] 6.6 `RESULTS.md` numbers were checked as a set, so two could be swapped (testing I2). Each is
+      now asserted inside the phrase that names it.
+- [x] 6.7 The T4 figure test checked three of ten curves and two of five title numbers (testing
+      I4). All curves, all title numbers, and the guard over the figure's text are asserted; the
+      two grid figures' data lines are asserted too.
+- [x] 6.8 `S_WE` from the passed wing file, and the 15 % limit itself, were untested (testing I5,
+      I6). Both are now bracketed.
+- [x] 6.9 The 1.7 % gap uses the larger of two CFD peaks in the window (science I1). `RESULTS.md`
+      states the second peak (2.01) and the gap against it (12.9 %).
+- [x] 6.10 The fixture README called 1,089 rows 1,089 simulations; 523 are duplicates (science I2).
+      Corrected, with a test pinning 566 distinct rows.
+- [x] 6.11 The model's tangential force is not supported by the data for a decelerating wing
+      (science I3). Pinned as a known limit in the dataset test and stated in `RESULTS.md`.
+- [x] 6.12 `F_ref` shares the nominal-area `S_yy` basis (science I4). Stated in the T4 limits.
+- [x] 6.13 "The model's normal force keeps one sign" was false: both curves dip below zero before
+      each reversal (behaviour 4). Reworded in the figures README and the figure script.
+- [x] 6.14 #50 is closed but was cited as tracking further refinement (behaviour 5). Reworded: the
+      256³ study was #50; no finer run is scheduled. Whether to file an issue is the user's call.
+- [x] 6.15 Smaller: `*.mat binary` in `.gitattributes`; the dataset test finds its fixtures from
+      its own path and skips the git check outside a checkout; the §4.4 coefficients are in the
+      code comment the spec asks for; component docstrings no longer say "body-frame"; the
+      float32 π/2 error shows the value in full; the 3-grid figure's legend says the T2a target
+      is not the paper's value.
+
+Recorded, not changed:
+
+- The commit message of `e0cb8f1` says the pilot report states the grid numbers; only the
+  force-surrogate roadmap does. `8ba89a0` also removed the creation date from the K1 PDF without
+  saying so. Recorded commits are not rewritten.
+- The "Re (midspan) ~100 | 100–500 | MATCH" row of `RESULTS.md`: a reviewer reports the paper's
+  range as 36–252. Not verified against the paper text here, so the row is left for the user.
+- The V5 figure's "deferred to T4" annotation, and a `chord_converges_toward_model` key whose
+  name says more than its value means. Both are older than this change.
+- The refit on rows with non-negative acceleration returns the printed coefficients (3.13, 0.96,
+  −1.02, 0.104). This explains the "0.094, below its interval" row in `design.md` and belongs in
+  #156 as a question to the authors.

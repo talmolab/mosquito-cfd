@@ -34,6 +34,7 @@ README text eol=lf
 
 # Binary files (should not be modified)
 *.png binary
+*.mat binary
 *.jpg binary
 *.jpeg binary
 *.gif binary

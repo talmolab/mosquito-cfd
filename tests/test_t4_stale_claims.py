@@ -25,6 +25,12 @@ _MUST_PASS = (
     "**#40 remains open** — T3b advances it, does not resolve it.",
     "#40 advanced, not resolved",
     "the peak ratio is drop_frac ≈ −0.42",
+    "The chord question is unsettled.",
+    "T4_NORMAL_MAG_TOL is resolved from its sourced inputs.",
+    "This PR closes #401.",
+    "The viscosity is 0.115 % of that.",
+    "Coarse-grid under-resolution was a major contributor to the #40 chord excess.",
+    "T4 doesn’t resolve the chord PARTIAL.",
 )
 
 # Statements the corrected model does not support: each must be reported.
@@ -58,7 +64,43 @@ _MUST_FAIL = (
     "The translational-chord peak is 0.42.",
     "The phase gap is 0.055 cycle.",
     "The phase gap is ~0.058 cycle.",
+    # A negation after the claim, or in another sentence, does not excuse it.
+    "T4 resolves the chord PARTIAL, so #40 is no longer blocking.",
+    "The CFD chord is no longer far from the model: T4 resolves the PARTIAL.",
+    "(The grid is not converged.) T4 resolves the chord PARTIAL.",
 )
+
+# Structure matters: a negation in a neighbouring heading, bullet, table cell or paragraph must
+# not excuse a claim. Each of these survived the first version of the guard (review of the PR).
+_MUST_FAIL_STRUCTURED = {
+    "heading then a negated paragraph": (
+        "### T4 resolves the chord PARTIAL (#40)\n\nThis was not expected.\n"
+    ),
+    "bullet under a negated label": (
+        "**Reported, not gated:**\n\n- T4 resolves the chord PARTIAL\n- another item\n"
+    ),
+    "two bullets, the second negated": (
+        "- T4 resolves the chord PARTIAL\n- this one is not graded\n"
+    ),
+    "table row with a negated cell": (
+        "| T4 | resolves the chord PARTIAL (#40) | not graded |\n"
+    ),
+    "table row next to a negated row": (
+        "| CF_chord | 0.41 | not explained |\n"
+        "| T4 | resolves the chord PARTIAL | graded |\n"
+    ),
+    "blockquote": "> T4 resolves the\n> chord PARTIAL\n>\n> It is not graded.\n",
+    # The negation comes first here, so only the block boundary keeps it from excusing the claim.
+    "negated cell before the claim cell": (
+        "| not graded | T4 resolves the chord PARTIAL (#40) |\n"
+    ),
+    "negated bullet before the claim bullet": (
+        "- this one is not graded\n- T4 resolves the chord PARTIAL\n"
+    ),
+    "negated paragraph running into a heading": (
+        "This part is not final\n### T4 resolves the chord PARTIAL\n"
+    ),
+}
 
 # Known miss, kept here so nobody assumes the guard covers it: "agrees" is needed for the
 # normal force, so there is no pattern for it. The deletion list and the repo-wide grep cover it.
@@ -79,6 +121,12 @@ def test_guard_reports_each_stale_statement(sentence):
     assert stale_claims(sentence.replace(" ", "\n", 2)), sentence
 
 
+@pytest.mark.parametrize("name", list(_MUST_FAIL_STRUCTURED))
+def test_guard_reads_document_structure(name):
+    """A negation in a neighbouring block does not excuse a stale claim."""
+    assert stale_claims(_MUST_FAIL_STRUCTURED[name]), name
+
+
 def test_guard_known_miss_is_recorded():
     """The one phrasing with no pattern is pinned, so adding a pattern for it is a visible change."""
     assert stale_claims(_KNOWN_MISS) == []
@@ -91,6 +139,12 @@ def test_python_prose_joins_wrapped_comments_and_reads_docstrings():
     docstring = 'def f():\n    """The chord converges to the model."""\n'
     assert stale_claims(python_prose(docstring))
     assert stale_claims(python_prose("x = 1  # an ordinary comment\n")) == []
+    # Comments that are not on consecutive lines are separate: a distant "not" excuses nothing.
+    apart = "x = 1  # not used\ny = 2\nz = 3\nw = 4  # T4 resolves the chord PARTIAL\n"
+    assert stale_claims(python_prose(apart))
+    # A phrase wrapped over two comment lines is found only if the lines are joined.
+    phrase = "x = 1\n# The chord sits close to\n# the model.\n"
+    assert stale_claims(python_prose(phrase))
 
 
 def _results_md() -> str:
