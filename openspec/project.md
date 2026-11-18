@@ -35,7 +35,7 @@ mosquito-cfd/
 │   └── Dockerfile.python     # Post-processing only
 ├── examples/                 # Validation cases
 │   ├── flow_past_sphere/     # Classic CFD validation case
-│   ├── flapping_wing/        # Validated flapping-wing demo (van Veen kinematics)
+│   ├── flapping_wing/        # Validated flapping-wing demo (generic sinusoidal kinematics, van Veen axis convention)
 │   └── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
 ├── cluster/argo/             # Argo Workflows for cluster-side sweep orchestration (production)
 │   ├── workflow-templates/   # Single-config WorkflowTemplate (one A40 pod = one mpirun)

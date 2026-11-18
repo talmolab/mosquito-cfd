@@ -7,8 +7,8 @@ TBD - created by archiving change refactor-wing-axis-convention. Update Purpose 
 
 The project SHALL adopt a single wing coordinate convention matching **van Veen et al. (2022, *JFM*
 936:A3, §1.2 / eq 1.1–1.2 / fig 1f)**: **x = chord-wise, y = spanwise, z = wing-normal (vertical /
-lift)**; stroke angle `φ` about the world vertical (z); angle of attack `α` about the spanwise (y)
-axis; deviation `θ` out of the stroke plane. Forces are reported in the **wing (body) frame** as
+lift)**; stroke angle `φ` about the world vertical (z); pitch `α` about the spanwise (y)
+axis (van Veen's angle of attack while the wing moves in the positive stroke direction); deviation `θ` out of the stroke plane. Forces are reported in the **wing (body) frame** as
 `F = (F_x chord-wise, F_z wing-normal)` (spanwise ignored), normalized by `F_ref = ½ρω²S_yy` with
 `S_yy = ∫₀ᴿ c(y)y²dy`. This convention SHALL be stated in a `docs/coordinate-convention.md` page with a
 labeled diagram and verbatim citations (van Veen fig 1f + eq 1.1–1.2; Bomphrey 2017 fig 1a). The
@@ -232,4 +232,26 @@ exact literal below, occurs at most once, and is governed by a guard:
   - **corpus:** parquet copies with the `CF_*` columns negated, so the test holds whichever sign is committed; one corpus on-wing alone, or a single component re-negated, does not satisfy the condition;
   - **flapping-wing:** `force_on_wing` monkeypatched at the `flapping_wing` use site, identity against negation;
   - **surrogate:** README copies with and without the banner.
+
+### Requirement: The canonical convention page separates geometric pitch from angle of attack
+
+`docs/coordinate-convention.md` SHALL state that the `α` in `R = Rz(φ)·Ry(α)·Rx(θ)` is the wing's
+**geometric pitch**, and that it equals van Veen's **angle of attack** only while the wing moves in the
+positive stroke direction. Van Veen et al. (2022, §2.4) call the two the same because the wing in their
+simulations never reverses. For the project's sinusoidal waveform the pitch changes sign with the stroke
+rate, so the angle of attack is `|α|`; the page SHALL say so and SHALL name `decompose_wing_force` as
+the place where the angle of attack is derived for the van Veen model. The page's kinematics table
+SHALL NOT label the `φ₀·sin(ωt)` / `α₀·cos(ωt)` waveform as van Veen's. The page's citations of van Veen
+for the axes, the rotation order, the force normalization and the hinge SHALL remain.
+
+#### Scenario: The page distinguishes pitch from angle of attack
+
+- **Given** `docs/coordinate-convention.md`
+- **When** a guard test reads it
+- **Then** it contains the phrase `geometric pitch`, the expression `|α|` and the name
+  `decompose_wing_force`
+- **And** the guard locates the kinematics table by its `| Angle | Rotation axis |` header, asserts it
+  was found, and asserts the header has no `van Veen kinematics` column
+- **And** the page still cites van Veen for the axes and the normalization
+- **And** the guard fails when the `geometric pitch` statement is removed
 

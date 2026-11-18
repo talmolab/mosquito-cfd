@@ -174,13 +174,13 @@ def plot_k1_kinematics(figures_dir: Path):
     lns = ln1 + ln2
     ax1.legend(lns, [ln.get_label() for ln in lns], loc="upper right", fontsize=9)
     ax1.set_title(
-        "Wing Kinematics (van Veen et al. 2022)\n"
+        "Wing Kinematics (generic sinusoidal validation waveform)\n"
         f"f* = {F_STAR:.0f}, phi_amp = {PHI_AMP_DEG:.0f} deg, alpha_amp = {ALPHA_AMP_DEG:.0f} deg",
         fontsize=9,
     )
     fig.tight_layout()
     out = figures_dir / "fig_kinematics.pdf"
-    fig.savefig(out, bbox_inches="tight", dpi=150)
+    fig.savefig(out, bbox_inches="tight", dpi=150, metadata={"CreationDate": None})
     fig.savefig(out.with_suffix(".png"), bbox_inches="tight", dpi=150)
     plt.close(fig)
     print(f"K1: {out} + .png")

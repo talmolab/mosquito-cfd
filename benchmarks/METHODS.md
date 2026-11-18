@@ -123,7 +123,7 @@ At t=10, the body reaches y=10.0 (the periodic boundary), and the wake begins wr
 | Grid (`amr.n_cell`) | 64×32×64 | **128×64×128** | **256×128×256** |
 | Δx | 0.125 | 0.0625 | 0.03125 |
 | Domain | 8 × 4 × 8 | same | same |
-| Kinematics | f\*=1.0, φ=70°, α=45° (van Veen) | same | same |
+| Kinematics | f\*=1.0, φ=70°, α=45° (generic sinusoidal waveform) | same | same |
 | `ns.fixed_dt` | 5e-4 (**held**) | 5e-4 (**held**) | **2.5×10⁻⁴ (D6 fallback)** |
 | Steps / stop_time | 2000 / 1.0 | same | **4000 / 1.0** |
 | Deck | `inputs.3d.validation` | `inputs.3d.convergence_medium` | `inputs.3d.convergence_fine` |

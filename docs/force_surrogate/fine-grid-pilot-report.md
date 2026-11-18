@@ -7,8 +7,8 @@ the standard `dt=5e-4`, and what does that mean for the cost of regenerating the
 corpus at fine resolution?
 
 This pilot collects raw force CSVs only — it does **not** extract force coefficients or compare
-against the QS-model target. The `CF_chord`/`CF_normal` grid-convergence numbers that motivate
-this pilot (coarse +115%, fine ~4-5% off target) are already published in the T3c row of
+them with a model. The `CF_chord`/`CF_normal` grid-convergence numbers that motivate
+this pilot are already published in the T3c row of
 `docs/aerodynamics_validation/roadmap.md` (`CF_chord`: 0.923 coarse → 0.554 medium → 0.411 fine)
 and are not restated here.
 

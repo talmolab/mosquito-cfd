@@ -1,10 +1,11 @@
 """Tests for the Tier T4 per-component van Veen force decomposition (TDD).
 
-Grades ``decompose_wing_force`` against the committed CFD ``ib_force``: the normal peak MAGNITUDE
+Grades ``decompose_wing_force`` against the committed CFD ``ib_w``: the normal peak MAGNITUDE
 (relative ``T4_NORMAL_MAG_TOL``) and the decomposition closure are GATED; the normal peak-phase gap,
-the curve RMSE, the G2 translational-chord known-answer, and the grid-unconverged chord total are
-REPORTED (no verdict). The magnitude tolerance is pinned + recomputed from its sourced inputs
-(CC-V2). See openspec/changes/decompose-wing-force-per-component.
+the curve RMSE, the signed curve correlations, the G2 translational-chord window peak, and the
+grid-unconverged chord total are REPORTED (no verdict). The magnitude tolerance is pinned +
+recomputed from its sourced inputs (CC-V2). See openspec/changes/decompose-wing-force-per-component
+and openspec/changes/fix-van-veen-model-regrade-t4.
 """
 
 from pathlib import Path
@@ -19,6 +20,7 @@ from mosquito_cfd.benchmarks.flapping_wing import (
     _EXPECTED_DECOMP_KEYS,
     T4_NORMAL_MAG_TOL,
     _assert_t4_mag_tol_not_loosened,
+    _curve_corr,
     decompose_wing_force,
 )
 from mosquito_cfd.benchmarks.wing_convergence import (
@@ -58,12 +60,15 @@ def _scaled_csv(tmp_path: Path, factor: float) -> Path:
 
 
 def _model_normal_series() -> np.ndarray:
-    """van Veen model total-normal CF series on our kinematics over the steady window (helper)."""
+    """van Veen model total-normal CF series on our kinematics over the steady window (helper).
+
+    Built on the production input function ``vv.model_inputs``, like ``decompose_wing_force``.
+    """
     df = pd.read_csv(_COARSE)
     t = df["time"].to_numpy(float)
     t = t[t >= 0.05]
     stroke_rad, pitch_rad = np.radians(70.0), np.radians(45.0)
-    alpha = np.array(
+    pitch = np.array(
         [
             euler_angles(
                 x, frequency=1.0, stroke_amp_rad=stroke_rad, pitch_amp_rad=pitch_rad
@@ -71,20 +76,27 @@ def _model_normal_series() -> np.ndarray:
             for x in t
         ]
     )
-    omega = np.array(
-        [stroke_rate(x, frequency=1.0, stroke_amp_rad=stroke_rad)[0] for x in t]
+    rates = np.array(
+        [stroke_rate(x, frequency=1.0, stroke_amp_rad=stroke_rad) for x in t]
     )
-    omega_dot = np.array(
-        [stroke_rate(x, frequency=1.0, stroke_amp_rad=stroke_rad)[1] for x in t]
-    )
+    inp = vv.model_inputs(pitch, rates[:, 0], rates[:, 1])
     mom = vv.compute_wing_area_moments()
     f_ref = compute_force_reference(
         1.0, 70.0, r_gyr=R_GYRATION, span=SPAN, chord=CHORD, rho=RHO
     ).f_ref
-    _, tz = vv.translational_force(alpha, omega, s_yy=mom.s_yy, rho=RHO)
-    _, az = vv.added_mass_force_component(alpha, omega_dot, s_cy=mom.s_cy, rho=RHO)
-    _, wz = vv.wagner_force(alpha, omega, omega_dot, s_we=mom.s_we, rho=RHO)
-    return (tz + az + wz) / f_ref
+    _, tz = vv.translational_force(inp.alpha, inp.omega, s_yy=mom.s_yy, rho=RHO)
+    _, az = vv.added_mass_force_component(
+        inp.alpha, inp.omega_dot, s_cy=mom.s_cy, rho=RHO
+    )
+    _, wz = vv.wagner_force(inp.alpha, inp.omega, inp.omega_dot, s_we=mom.s_we, rho=RHO)
+    return (tz + az + wz) * inp.normal_dir / f_ref
+
+
+def _swe_nominal_ellipse() -> float:
+    """S_WE of the NOMINAL ellipse (span 3, chord 1, root at the hinge), fine quadrature."""
+    y = np.linspace(0.0, 3.0, 200_001)
+    c = np.sqrt(np.clip(1.0 - ((y - 1.5) / 1.5) ** 2, 0.0, None))
+    return float(np.trapezoid(np.sqrt(c**3 * y**3), y))
 
 
 # --- Section 4: tolerance constants (pinned + sourced) -----------------------------------------
@@ -144,17 +156,22 @@ def test_tolerances_derive_from_sourced_quantities():
 
     # (c) S_WE geometric-uncertainty term: recompute the model normal peak with S_WE set to an
     # INDEPENDENT analytic elliptic quadrature (a different integrator) and take the relative
-    # deviation. Marker and analytic S_WE agree to ~0.1%, so this term is tiny (~0.001) — the
-    # budget is grid-dominated (see below), NOT S_WE-driven.
+    # deviation. Marker and analytic S_WE agree to ~0.1%, so this term is tiny — the
+    # budget is grid-dominated (see below), NOT S_WE-driven. The patched helper returns the pair
+    # (marker S_cy, analytic S_WE): compute_wing_area_moments checks the first against the closed
+    # form, so it must stay the real marker value.
     swe_analytic = _swe_analytic_ellipse()
-    original_swe_fn = vvmod._s_we_marker_quadrature
+    scy_marker = vvmod.s_cy_marker_quadrature()
+    original_fn = vvmod._marker_moment_quadrature
     try:
-        vvmod._s_we_marker_quadrature = lambda *a, **k: swe_analytic
+        vvmod._marker_moment_quadrature = lambda *a, **k: (scy_marker, swe_analytic)
+        assert vvmod.compute_wing_area_moments().s_we == swe_analytic
         swe_rel = (
             abs(float(np.abs(_model_normal_series()).max()) - base_peak) / base_peak
         )
     finally:
-        vvmod._s_we_marker_quadrature = original_swe_fn
+        vvmod._marker_moment_quadrature = original_fn
+    assert swe_rel > 0  # the substituted quadrature took effect
 
     floor = float(np.sqrt(grid_rel**2 + coeff_rel**2 + swe_rel**2))
     assert (
@@ -175,9 +192,7 @@ def test_tolerances_derive_from_sourced_quantities():
 def test_normal_magnitude_graded_phase_reported(tmp_path):
     """G1 magnitude passes within / fails outside T4_NORMAL_MAG_TOL (both directions); phase + RMSE
     are reported numbers with no pass/fail field."""
-    model_peak = float(
-        np.abs(_model_normal_series()).max()
-    )  # ~2.476, fixed by our kinematics
+    model_peak = float(np.abs(_model_normal_series()).max())  # fixed by our kinematics
     # Inside the relative tol: CFD peak set to model_peak/(1 +/- 0.10) -> |gap|_rel = 0.10 < 0.16.
     for gap in (+0.10, -0.10):
         target = model_peak / (1.0 + gap)
@@ -189,6 +204,13 @@ def test_normal_magnitude_graded_phase_reported(tmp_path):
         target = model_peak / (1.0 + gap)
         r = decompose_wing_force(_scaled_csv(tmp_path, target / 2.6060), **_KIN)
         assert r["normal_mag_pass"] is False
+    # Bracket the pinned tolerance itself (0.16), so the grade cannot drift to another value:
+    # gaps of 0.15 pass and gaps of 0.17 fail, in both directions.
+    for gap, want in ((+0.15, True), (-0.15, True), (+0.17, False), (-0.17, False)):
+        target = model_peak / (1.0 + gap)
+        r = decompose_wing_force(_scaled_csv(tmp_path, target / 2.6060), **_KIN)
+        assert r["normal_mag_gap_rel"] == pytest.approx(abs(gap), rel=0.02)
+        assert r["normal_mag_pass"] is want, gap
     # Phase + RMSE are reported (no *_pass field for them).
     r = decompose_wing_force(_COARSE, **_KIN)
     assert "normal_peak_phase_gap" in r and "normal_curve_rmse" in r
@@ -198,13 +220,103 @@ def test_normal_magnitude_graded_phase_reported(tmp_path):
     )
 
 
-def test_translational_chord_known_answer():
-    """G2: the model translational-chord peak is the known-answer (~0.42), NOT graded against 0.30."""
-    r = decompose_wing_force(_COARSE, **_KIN)
-    assert r["transl_chord_peak"] == pytest.approx(0.42, abs=0.01)
-    assert r["transl_chord_peak"] < r["chord_peak_cfd"]  # O(0.4) << the CFD total ~0.92
+@pytest.mark.parametrize("csv", [_FINE, _COARSE])
+def test_translational_chord_known_answer(csv):
+    """G2: the translational-chord window peak equals an independent dense-grid maximum.
+
+    The expression is ``(phi_dot/omega_ref)**2 * (A*a**2 + B*a + C)`` with ``a`` the angle of
+    attack in degrees. Its window peak falls away from mid-stroke (where it is 0.042125), because
+    the polynomial rises as the angle of attack drops. Reported, NOT graded against the T2a 0.30.
+    """
+    r = decompose_wing_force(csv, **_KIN)
+    t_end = float(pd.read_csv(csv)["time"].max())
+    t = np.linspace(0.05, t_end, 2_000_001)
+    a_deg = np.abs(45.0 * np.cos(2 * np.pi * t))
+    dense = (
+        np.cos(2 * np.pi * t) ** 2 * (8.5e-5 * a_deg**2 - 1.2e-2 * a_deg + 0.41)
+    ).max()
+    assert r["transl_chord_peak"] == pytest.approx(dense, abs=1e-4)
+    assert r["transl_chord_peak"] == pytest.approx(0.0573, abs=1e-4)
+    assert r["transl_chord_peak"] > 0.042125 + 0.01  # not the mid-stroke value
+    assert r["transl_chord_peak"] < r["chord_peak_cfd"]
     # No chord *_match/*_pass verdict, and VAN_VEEN_CF_TARGETS is not used as a chord gate.
     assert not any("chord" in k and k.endswith(("_pass", "_match")) for k in r)
+
+
+def test_curve_correlations_are_reported_and_signed(tmp_path):
+    """The signed normal and chord correlations are plain numbers with no verdict key."""
+    base = decompose_wing_force(_COARSE, **_KIN)
+    for key in ("normal_curve_corr", "chord_curve_corr"):
+        assert isinstance(base[key], float) and -1.0 <= base[key] <= 1.0
+    assert {k for k in base if k.endswith("_pass")} == {
+        "normal_mag_pass",
+        "closure_pass",
+    }
+    assert not any(k.endswith("_match") for k in base)
+    # Negating the CFD negates both correlations exactly; doubling it leaves them unchanged.
+    negated = decompose_wing_force(_scaled_csv(tmp_path, -1.0), **_KIN)
+    doubled = decompose_wing_force(_scaled_csv(tmp_path, 2.0), **_KIN)
+    for key in ("normal_curve_corr", "chord_curve_corr"):
+        assert negated[key] == pytest.approx(-base[key], rel=1e-9)
+        assert doubled[key] == pytest.approx(base[key], rel=1e-9)
+    # The model normal keeps one sign over the wingbeat, as the CFD normal does.
+    assert base["normal_curve_corr"] > 0.9
+
+
+def test_grade_reads_the_pinned_tolerance(monkeypatch):
+    """``normal_mag_pass`` is the gap compared with ``T4_NORMAL_MAG_TOL``, not a typed number."""
+    import mosquito_cfd.benchmarks.flapping_wing as fw
+
+    assert decompose_wing_force(_FINE, **_KIN)["normal_mag_pass"] is True
+    monkeypatch.setattr(fw, "T4_NORMAL_MAG_TOL", 0.01)  # below the fine gap, 0.017
+    assert decompose_wing_force(_FINE, **_KIN)["normal_mag_pass"] is False
+    monkeypatch.setattr(fw, "T4_NORMAL_MAG_TOL", 0.5)  # above the coarse gap, 0.130
+    assert decompose_wing_force(_COARSE, **_KIN)["normal_mag_pass"] is True
+
+
+def test_curve_corr_of_a_constant_series_raises():
+    """A constant series has no correlation: a named error that says which series, never NaN."""
+    ramp = np.linspace(0.0, 1.0, 50)
+    with pytest.raises(
+        ValueError, match="normal curve correlation is undefined: the model"
+    ):
+        _curve_corr(np.full(50, 2.0), ramp, what="normal")
+    with pytest.raises(
+        ValueError, match="chord curve correlation is undefined: the CFD"
+    ):
+        _curve_corr(ramp, np.zeros(50), what="chord")
+    with pytest.raises(ValueError, match="same shape"):
+        _curve_corr(ramp, ramp[:-1], what="chord")
+    assert _curve_corr(ramp, 3.0 * ramp + 1.0, what="normal") == pytest.approx(1.0)
+    assert _curve_corr(ramp, -ramp, what="normal") == pytest.approx(-1.0)
+
+
+def test_graded_verdict_does_not_depend_on_the_planform_basis(monkeypatch):
+    """The fine-grid normal gap passes under each alternative moment basis (pinned).
+
+    ``S_cy`` is the nominal closed form and ``S_WE`` a marker quadrature. Swapping either for the
+    other basis must not flip the grade, so the basis cannot be used to tune it.
+    """
+    real = vv.compute_wing_area_moments()
+    base = decompose_wing_force(_FINE, **_KIN)
+    assert base["normal_mag_gap_rel"] == pytest.approx(0.0174, abs=5e-4)
+    assert base["normal_mag_pass"] is True
+
+    def gap_with(**swap) -> dict:
+        moments = vv.WingAreaMoments(
+            s_yy=real.s_yy,
+            s_cy=swap.get("s_cy", real.s_cy),
+            s_we=swap.get("s_we", real.s_we),
+        )
+        monkeypatch.setattr(vv, "compute_wing_area_moments", lambda *a, **k: moments)
+        return decompose_wing_force(_FINE, **_KIN)
+
+    marker_scy = gap_with(s_cy=vv.s_cy_marker_quadrature())
+    assert marker_scy["normal_mag_gap_rel"] == pytest.approx(0.0185, abs=5e-4)
+    assert marker_scy["normal_mag_pass"] is True
+    nominal_swe = gap_with(s_we=_swe_nominal_ellipse())
+    assert nominal_swe["normal_mag_gap_rel"] == pytest.approx(0.0207, abs=5e-4)
+    assert nominal_swe["normal_mag_pass"] is True
 
 
 def test_closure_reported_and_guards(tmp_path):
@@ -243,10 +355,10 @@ def test_medium_csv_must_not_pair_a_finer_csv_path():
     ``csv_path`` as "coarse" unconditionally) and silently flips ``chord_converges_toward_model``
     to the WRONG answer.
 
-    The true convergence direction (RESULTS.md, T3c): CF_chord 0.923 coarse -> 0.554 medium ->
-    0.411 fine, monotonically toward the ~0.43 model -- the chord genuinely converges toward the
-    model under refinement. But passing the FINE grid as ``csv_path`` (forced into the "coarse"
-    role) against the MEDIUM grid as ``medium_csv`` inverts that framing and reports the opposite.
+    The CFD chord peak falls under refinement (RESULTS.md, T3c): 0.923 coarse -> 0.554 medium ->
+    0.411 fine, each step nearer the model's chord peak, which is lower still. But passing the FINE
+    grid as ``csv_path`` (forced into the "coarse" role) against the MEDIUM grid as ``medium_csv``
+    inverts the role labels and reports the opposite direction.
     This is exactly why ``make_force_decomposition_figure.py`` and
     ``test_t4_decomposition_numbers_reproduce`` deliberately omit ``medium_csv`` now that the
     production comparison uses the fine grid -- see ``decompose_wing_force``'s ``medium_csv``
@@ -303,7 +415,7 @@ def test_model_density_cancels_so_no_t4_number_or_verdict_depends_on_it(rho):
 
     Scenario: The model's density cancels, so no T4 number or verdict depends on it (review
     round 4 of #136). Before the fix the model was divided by the CFD's ``F_ref`` at ``RHO``:
-    ``rho = 2`` doubled the model normal peak (2.48 -> 4.95 vs the CFD's 2.23) and flipped
+    ``rho = 2`` doubled the model normal peak (against the CFD's 2.23) and flipped
     ``normal_mag_pass``. The powers of two are exact in floating point; 1.3 is not.
     """
     want = decompose_wing_force(_FINE, **_KIN)

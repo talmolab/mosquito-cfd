@@ -27,8 +27,9 @@ comparison is **delivered** by :func:`reconstruct_wing_body_forces` /
 ``R(t)``). The **per-component decomposition** against van Veen's quasi-steady model (translational +
 added-mass + Wagner) is **delivered** by :func:`decompose_wing_force` (Tier T4): the model is built
 from van Veen's published coefficients and replotted at our kinematics (Fig 4 = the coefficient-vs-α
-polars; Fig 13 = van Veen's time-resolved mosquito curves — no digitization), the normal peak
-**magnitude** is graded, and the peak **phase** + curve RMSE are reported.
+polars; Fig 13 = van Veen's time-resolved mosquito curves — no digitization), fed the angle of
+attack derived from the wing's motion. The normal peak **magnitude** is graded; the peak
+**phase**, the curve RMSE, the signed curve correlations and the chord are reported.
 """
 
 from __future__ import annotations
@@ -59,39 +60,39 @@ STEADY_WINDOW_T0 = 0.05
 # van Veen plausibility band for insect-wing force coefficients (van Veen 2022, JFM 936:A3).
 VAN_VEEN_BAND = (0.5, 1.5)
 
-# van Veen reported OVERALL body-frame force-coefficient targets (T2a, sourced from the open-access
-# PDF Fig 4a/4b/4e + eqs 3.1-3.8, in our F_ref = 0.5*rho*omega^2*S_yy normalization). The wing-normal
-# translational coefficient follows a least-squares sine fit C_Fz,transl(alpha) ~ 3.4*sin(alpha)
-# (peak ~3.4 at alpha=90 deg, ~2.4 at the alpha=45 deg pitch amplitude); the chord-wise tangential
-# coefficient is small (~0.2-0.3 peak). CAVEAT (applies to BOTH components): our IB force is the
-# sum of all mechanisms, whereas these targets are van Veen's TRANSLATIONAL-only coefficients
-# (van Veen decomposes F into translational + added-mass + Wagner, eqs 3.1-3.8). So the comparison is
-# total (ours) vs translational (target): our CF_normal ~ van Veen's normal because the added-mass (+)
-# and Wagner (-) contributions roughly cancel in the wing-normal at this condition; our CF_chord runs
-# HIGHER than the translational chord because van Veen's own tangential added mass adds to the
-# translational-viscous chord. Tier T4 (decompose_wing_force) resolves this by building van Veen's own
-# quasi-steady model (translational + added-mass + Wagner) and comparing per component — it does NOT
-# reuse cf_chord_peak (0.3) as a chord gate. NB VAN_VEEN_BAND [0.5,1.5] is a LAB-frame O(1)
-# plausibility range, NOT a body-frame gate: van Veen's own CF_normal (~2.4) exceeds 1.5, so a
+# T2a OVERALL body-frame force-coefficient targets, in our F_ref = 0.5*rho*omega^2*S_yy
+# normalization. They were read from van Veen's Fig 4a/4b/4e as translational-only values: a sine
+# fit C_Fz,transl(alpha) ~ 3.4*sin(alpha) (~2.4 at the alpha=45 deg pitch amplitude) and a small
+# chord-wise tangential coefficient (~0.2-0.3 peak). They are NOT the paper's printed eq 3.9 /
+# eq 3.12 values (3.13*sin(45 deg) = 2.21; 0.042 at 45 deg), and which force terms they should
+# stand for is under review in issue #154; the values and the T2a grade are unchanged until then.
+# CAVEAT (applies to BOTH components): our IB force is the sum of all mechanisms, whereas these
+# targets are translational-only (van Veen decomposes F into translational + added-mass + Wagner,
+# eqs 3.1-3.8), so the T2a comparison is total (ours) vs one term (target). Tier T4
+# (decompose_wing_force) builds van Veen's full quasi-steady model instead and compares it with the
+# CFD per component; it does NOT reuse cf_chord_peak (0.3) as a chord gate, and it leaves the chord
+# difference unexplained (issue #40). NB VAN_VEEN_BAND [0.5,1.5] is a LAB-frame O(1)
+# plausibility range, NOT a body-frame gate: the T2a normal target (~2.4) exceeds 1.5, so a
 # body-frame CF_normal above the band is expected, not a failure — the body-frame gate is this
-# van-Veen-target comparison. These are pinned constants guarded by test_match_tolerance_not_loosened.
+# target comparison. These are pinned constants guarded by test_match_tolerance_not_loosened.
 VAN_VEEN_CF_TARGETS = {
-    "cf_normal_peak": 2.4,  # C_Fz,transl at the alpha~45 deg midstroke pitch (Fig 4a sine fit)
-    "cf_chord_peak": 0.3,  # C_Fx,transl small tangential peak (Fig 4b)
+    "cf_normal_peak": 2.4,  # read from the Fig 4a sine fit at alpha~45 deg (see #154)
+    "cf_chord_peak": 0.3,  # read from Fig 4b as a small tangential peak (see #154)
 }
 # Overall-magnitude match tolerance [dimensionless CF]. Provisional pending the coarse re-run
 # (task 7); NOT reverse-fit to any measured value (no new-convention run exists yet).
 VAN_VEEN_MATCH_TOL = 0.6
 
 # Tier T4 (decompose-wing-force-per-component) graded magnitude tolerance — the ONLY graded
-# tolerance in the per-component decomposition (peak PHASE and curve RMSE are REPORTED, not gated,
-# because the CFD leads the quasi-steady model in phase by ~0.058 cycle — an expected QS-vs-unsteady
-# discrepancy, triply confounded by grid non-convergence + the single-wingbeat transient; a tight
-# phase gate would need reverse-fitting the confounded gap). It is a RELATIVE (fractional) peak
+# tolerance in the per-component decomposition (peak PHASE, curve RMSE and curve correlations are
+# REPORTED, not gated: the CFD peak leads the quasi-steady model's in phase, a difference
+# confounded by grid non-convergence + the single-wingbeat transient, and a tight phase gate would
+# need reverse-fitting the confounded gap). It is a RELATIVE (fractional) peak
 # tolerance: |model_peak - cfd_peak| / cfd_peak, comparable to the grid GCI (which is relative).
 # Sourced (design D6): quadrature of the normal grid GCI (T3b gci_p1 ~0.146) + the normal
-# coefficient-CI band + the small S_WE geometric uncertainty -> ~0.15 -> 0.16 (the committed coarse
-# relative gap is ~0.05, well within). Recomputed from its sourced inputs by
+# coefficient-CI band + the small S_WE geometric uncertainty -> ~0.15 -> 0.16. It was pinned
+# before the first committed-run result; the later model correction (#141, #133) is graded
+# against the same value and does not change it. Recomputed from its sourced inputs by
 # test_tolerances_derive_from_sourced_quantities and guarded by _assert_t4_mag_tol_not_loosened
 # (CC-V2). There is deliberately NO T4_PEAK_PHASE_TOL / T4_NORMAL_RMSE_TOL constant.
 T4_NORMAL_MAG_TOL = 0.16
@@ -828,20 +829,23 @@ def body_frame_added_mass_subtracted(
 # --- Per-component van Veen force decomposition, graded against the QS model (Tier T4) ----------
 #
 # Builds van Veen's (2022) quasi-steady 3-component model (translational + added-mass + Wagner) on
-# OUR measured wing kinematics, normalizes each by the SAME single-source F_ref as the CFD CF, and
-# compares the model total (and components) to the body-frame CF of the CFD ib_w. Because both sides
-# share the same kinematics and F_ref, the graded claim is "consistent with / validated AGAINST van
-# Veen's QS model at matched kinematics — in peak MAGNITUDE" (a plausibility result, NOT an
-# independent measurement of the per-component split; the CFD gives only the total).
+# OUR prescribed wing kinematics, normalizes each by the SAME single-source F_ref as the CFD CF, and
+# compares the model total (and components) to the body-frame CF of the CFD ib_w. The model is fed
+# the angle of attack, speed and along-motion acceleration from van_veen_model.model_inputs, never
+# the signed geometric pitch, and each force is applied along the direction that function returns.
+# Because both sides share the same kinematics and F_ref, the graded claim is "consistent with /
+# validated AGAINST van Veen's QS model at matched kinematics — in peak MAGNITUDE" (a plausibility
+# result, NOT an independent measurement of the per-component split; the CFD gives only the total).
 #
-# GRADED: normal peak MAGNITUDE (the robust, S_WE-insensitive, grid-settled lever; RELATIVE tol
+# GRADED: normal peak MAGNITUDE (the robust, S_WE-insensitive lever; RELATIVE tol
 # T4_NORMAL_MAG_TOL) + decomposition closure (model_total == transl+AM+Wagner). REPORTED (not gated):
-# normal peak PHASE gap (CFD leading — expected QS-vs-unsteady discrepancy, grid + transient
-# confounded; ~0.058 cycle on the T2a coarse CSV, ~0.055 cycle on the T3c fine CSV), normal curve
-# RMSE, the G2 translational-chord known-answer (~0.42, NOT graded against 0.30 — that is
-# circular), and the grid-unconverged chord total curve (with the coarse<->medium GCI band when
-# `medium_csv` is given — see its docstring caveat on grid ordering). The return dict exposes NO
-# chord/phase/RMSE *_pass/*_match verdict key.
+# normal peak PHASE gap (the CFD peak leads; grid + transient confounded), normal curve RMSE, the
+# signed normal and chord curve correlations, the G2 translational-chord window peak (NOT graded
+# against the T2a 0.30 target — that is circular), and the grid-unconverged chord total curve (with
+# the coarse<->medium GCI band when `medium_csv` is given — see its docstring caveat on grid
+# ordering). The CFD chord peak is several times the model's; that difference is reported, not
+# explained (issue #40). The return dict exposes NO chord/phase/RMSE/correlation *_pass/*_match
+# verdict key.
 
 # Enumerated return-key set for decompose_wing_force (test_closure_reported_and_guards asserts the
 # EXACT set, so a later-added chord/phase/RMSE gate fails the guard). Graded fields carry _pass;
@@ -860,6 +864,9 @@ _EXPECTED_DECOMP_KEYS = frozenset(
         "normal_peak_phase_cfd",
         "normal_peak_phase_gap",
         "normal_curve_rmse",
+        # Reported signed curve correlations (Pearson; no verdict).
+        "normal_curve_corr",
+        "chord_curve_corr",
         # Reported G2 translational-chord known-answer + R1 chord total.
         "transl_chord_peak",
         "chord_peak_model",
@@ -883,6 +890,34 @@ def _peak_and_phase(
     return float(np.abs(series[i])), float(phase[i])
 
 
+def _curve_corr(
+    model: NDArray[np.floating], cfd: NDArray[np.floating], *, what: str
+) -> float:
+    """Pearson correlation of the signed model and CFD series of one component.
+
+    A series whose standard deviation is below ``_DEGENERATE_CF_FLOOR`` has no defined
+    correlation; that is a ``ValueError`` naming the component (``what``) and the series, never
+    a NaN. Written out (not ``np.corrcoef``) so the degenerate case is caught before dividing.
+    """
+    if np.shape(model) != np.shape(cfd):
+        raise ValueError(
+            f"{what} curve correlation: the model and CFD series must have the same shape "
+            f"(got {np.shape(model)} and {np.shape(cfd)})"
+        )
+    for name, series in (("model", model), ("CFD", cfd)):
+        sd = float(np.std(series))
+        if sd < _DEGENERATE_CF_FLOOR:
+            raise ValueError(
+                f"{what} curve correlation is undefined: the {name} series has standard "
+                f"deviation {sd:.3g}, below the degeneracy floor {_DEGENERATE_CF_FLOOR:g} "
+                "(a constant series)"
+            )
+    return float(
+        np.mean((model - np.mean(model)) * (cfd - np.mean(cfd)))
+        / (np.std(model) * np.std(cfd))
+    )
+
+
 def decompose_wing_force(
     csv_path: str | Path,
     *,
@@ -901,7 +936,13 @@ def decompose_wing_force(
     :func:`euler_angles`), normalizes each by the same ``compute_force_reference`` ``F_ref``, and over
     the pinned steady window **grades** the normal peak magnitude (relative, ``T4_NORMAL_MAG_TOL``) and
     the decomposition closure, while **reporting** the normal peak-phase gap, the normal curve RMSE,
-    the G2 translational-chord known-answer, the chord total + grid band, and the per-component shares.
+    the signed normal and chord curve correlations, the G2 translational-chord window peak, the chord
+    total + grid band, and the per-component shares.
+
+    The model is fed the angle of attack, the stroke speed and the acceleration along the motion
+    from :func:`van_veen_model.model_inputs`; each component's ``F_x`` and ``F_z`` (and the
+    total's) is multiplied by that function's chord and normal directions to give body-frame
+    forces on both half-strokes.
 
     Args:
         csv_path: IB-particle CSV for the primary CFD comparison grid (needs ``time, Fx, Fy, Fz``;
@@ -928,14 +969,16 @@ def decompose_wing_force(
 
     Returns:
         A dict whose keys are exactly ``_EXPECTED_DECOMP_KEYS``: graded ``normal_mag_pass`` /
-        ``closure_pass`` (the only ``*_pass`` fields), reported phase/RMSE/G2/R1/R2 numbers (no
-        verdict), and a ``series`` sub-dict for the figure. There is NO chord/phase/RMSE ``*_pass``.
+        ``closure_pass`` (the only ``*_pass`` fields), reported phase/RMSE/correlation/G2/R1/R2
+        numbers (no verdict), and a ``series`` sub-dict for the figure. There is NO
+        chord/phase/RMSE/correlation ``*_pass``.
 
     Raises:
         ValueError: if ``rho`` is not a finite, positive, normal real number, or so large that the
             model's ``F_ref`` or forces overflow; or propagated from
             :func:`reconstruct_wing_body_forces` (missing ``time``/``Fx``/
-            ``Fy``/``Fz`` column, non-finite force row, or an empty steady window) — never a silent NaN.
+            ``Fy``/``Fz`` column, non-finite force row, or an empty steady window); or if a
+            series is constant, so a curve correlation is undefined — never a silent NaN.
     """
     rho = _validated_density(rho, name="rho")
     cfd = reconstruct_wing_body_forces(
@@ -961,7 +1004,7 @@ def decompose_wing_force(
         )
     stroke_rad = np.radians(phi_amp_deg)
     pitch_rad = np.radians(pitch_amp_deg)
-    alpha = np.array(
+    pitch = np.array(
         [
             euler_angles(
                 t, frequency=f_star, stroke_amp_rad=stroke_rad, pitch_amp_rad=pitch_rad
@@ -969,18 +1012,25 @@ def decompose_wing_force(
             for t in time
         ]
     )
-    omega = np.empty_like(time)
-    omega_dot = np.empty_like(time)
+    phi_dot = np.empty_like(time)
+    phi_ddot = np.empty_like(time)
     for i, t in enumerate(time):
-        omega[i], omega_dot[i] = stroke_rate(
+        phi_dot[i], phi_ddot[i] = stroke_rate(
             t, frequency=f_star, stroke_amp_rad=stroke_rad
         )
+    # The model takes the angle of attack, the speed and the along-motion acceleration, and its
+    # forces act along the directions the same derivation returns (never the signed pitch).
+    inputs = _vv.model_inputs(pitch, phi_dot, phi_ddot)
+    alpha, omega, omega_dot = inputs.alpha, inputs.omega, inputs.omega_dot
+    chord_dir, normal_dir = inputs.chord_dir, inputs.normal_dir
     moments = _vv.compute_wing_area_moments()
     tx, tz = _vv.translational_force(alpha, omega, s_yy=moments.s_yy, rho=rho)
     ax, az = _vv.added_mass_force_component(
         alpha, omega_dot, s_cy=moments.s_cy, rho=rho
     )
     wx, wz = _vv.wagner_force(alpha, omega, omega_dot, s_we=moments.s_we, rho=rho)
+    tx, ax, wx = tx * chord_dir, ax * chord_dir, wx * chord_dir
+    tz, az, wz = tz * normal_dir, az * normal_dir, wz * normal_dir
     # The model TOTAL comes from the public total_force() API; the G3 closure check below compares it
     # against the individually-summed components (NOT a variable-against-itself self-comparison). It is
     # a STRUCTURAL guard — for correct code the residual is ~0 because total_force sums the same three
@@ -996,6 +1046,7 @@ def decompose_wing_force(
         s_we=moments.s_we,
         rho=rho,
     )
+    total_x, total_z = total_x * chord_dir, total_z * normal_dir
     _raise_if_density_overflowed(
         "rho",
         rho,
@@ -1036,7 +1087,11 @@ def decompose_wing_force(
     # Reported normal curve RMSE (inflated by the phase offset; not gated).
     normal_curve_rmse = float(np.sqrt(np.mean((model_normal - cfd_normal) ** 2)))
 
-    # Reported G2 translational-chord known-answer (~0.42), NOT graded against 0.30.
+    # Reported signed curve correlations (not gated).
+    normal_curve_corr = _curve_corr(model_normal, cfd_normal, what="normal")
+    chord_curve_corr = _curve_corr(model_chord, cfd_chord, what="chord")
+
+    # Reported G2 translational-chord window peak, NOT graded against the T2a 0.30 target.
     transl_chord = tx / f_ref
     transl_chord_peak = float(np.abs(transl_chord).max())
 
@@ -1061,7 +1116,7 @@ def decompose_wing_force(
         )["cf_chord"]
         chord_gci_band = (gci["gci_p2"], gci["gci_p1"])
         medium_chord_peak = gci["cf_medium"]  # medium |CF_chord| peak
-        # Converges toward the model if the medium chord peak is closer to the model than the coarse.
+        # True only means the medium chord peak is closer to the model peak than the coarse one is.
         chord_converges = abs(medium_chord_peak - chord_peak_model) < abs(
             chord_peak_cfd - chord_peak_model
         )
@@ -1099,6 +1154,8 @@ def decompose_wing_force(
             abs(phase_model - phase_cfd), 1.0 - abs(phase_model - phase_cfd)
         ),
         "normal_curve_rmse": normal_curve_rmse,
+        "normal_curve_corr": normal_curve_corr,
+        "chord_curve_corr": chord_curve_corr,
         # Reported G2 + R1.
         "transl_chord_peak": transl_chord_peak,
         "chord_peak_model": chord_peak_model,

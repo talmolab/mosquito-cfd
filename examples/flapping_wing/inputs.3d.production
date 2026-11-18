@@ -106,7 +106,7 @@ mac_proj.mac_tol        = 1.e-8
 mac_proj.mac_abs_tol    = 1.e-9
 
 #*******************************************************************************
-#  Particle inputs - PRODUCTION (van Veen parameters)
+#  Particle inputs - PRODUCTION (generic sinusoidal kinematics)
 #*******************************************************************************
 
 particle_inputs.x = 4.0
