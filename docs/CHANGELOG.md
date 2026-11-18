@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Field-surrogate provenance for F3 (`harden-field-reader-pre-f3`).
-  - `FieldSnapshot` gains `config_id`, `step`, `git_commit` and `docker_image`, each defaulting to `None`. A bare `read_field_snapshot` leaves them unset.
-  - `FieldCorpus.snapshot` fills them. The commit and the digest-pinned image are copied from the `run_metadata.json` the pod wrote into the run directory.
+  - `FieldSnapshot` gains `config_id`, `step`, `git_commit`, `docker_image` and `run_id`, each defaulting to `None`. A bare `read_field_snapshot` leaves them unset.
+  - `FieldCorpus.snapshot` fills them. The run's `run_id`, the commit and the digest-pinned image are copied from the `run_metadata.json` the pod wrote into the run directory.
+  - `(config_id, step, run_id)` identifies a corpus snapshot. `git_commit` is the mosquito-cfd repository commit the pod recorded; the solver build is pinned by the image digest.
   - New `FieldCorpus.run_metadata(config_id)` returns that file read through, unchanged.
   - New stdlib-only `field_surrogate/_provenance.py` does the strict checks: a 40-character lowercase commit, a `<repo>@sha256:<64 hex>` image, and a `config` equal to the run.
   - New public `field_surrogate.corpus.scan_plotfiles`, the one shared definition of which `plt<digits>` directories a run holds.
@@ -71,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FieldSnapshot` can now be pickled and deep-copied, so a `DataLoader` worker can return one.
   - The `MappingProxyType` field made every pickle fail.
   - `__reduce__` now rebuilds the snapshot through its constructor, restoring the snapshot invariant on receipt: arrays read-only and owning their data, zero-size arrays laid out as the reader allocates them, `time` a `float`, `max_level`/`step` an `int`.
-  - Restoring ownership costs one extra copy of each field array per transport.
+  - Restoring ownership costs memory on the receiver: it briefly holds about 2× the snapshot's field bytes (768 MiB of arrays for a full 256x128x256 six-field domain). For full-domain training, send tensors or point clouds from the worker.
+  - **BREAKING (minor):** pickling or copying a snapshot that holds an array that is not a numpy `float64` `ndarray` raises `ValueError`. Only a hand-built snapshot can hold one.
   - With `batch_size >= 1`, torch's `default_collate` cannot batch snapshots, so pass a `collate_fn`. (#151)
 - `flow_video` dropped every frame from step 100000 on, without saying so: its `plt?????` glob only matched five-digit names.
   - It now discovers frames with `FieldCorpus`'s own `scan_plotfiles` and orders them by step.
@@ -80,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Field-surrogate reader hardening (advances #113).
   - `read_field_snapshot` refuses a path that is not a plotfile directory before `yt` is imported: a nonexistent path raises `FileNotFoundError`, a regular file `NotADirectoryError`, and a directory without a `Header` `FileNotFoundError`. These replaced yt's 40-line format-sniffing dump.
   - The AMR refusal no longer names a function, since `extract_eulerian_box` reaches it too.
-  - **BREAKING:** `FieldCorpus.snapshot` requires a valid `run_metadata.json` in the run directory and raises `ValueError` without one. It checks it before reading the plotfile.
+  - **BREAKING:** `FieldCorpus.snapshot` requires a valid `run_metadata.json` in the run directory and raises `ValueError` without one: `status` `completed`, a non-blank `run_id`, a clean tree, the run's own `config`, a 40-character commit and a digest-pinned image. It checks it before reading the plotfile, after checking that the plotfile is complete (has a `Header`).
   - **BREAKING:** `FieldCorpus.snapshot` and `to_domino_volume` refuse a zero-cell snapshot, which would batch and train on nothing. `read_field_snapshot` still returns zero-cell snapshots.
   - **BREAKING:** `FieldCorpus.snapshot` checks its region arguments before any I/O.
   - **BREAKING:** `FieldSnapshot.source` is `Path(path).absolute().as_posix()` rather than `str(path)`: absolute, forward-slashed, `..` kept, no symlink or mapped-drive resolution. It is a per-host locator; `(config_id, step)` plus the digest is the cross-host identity.
