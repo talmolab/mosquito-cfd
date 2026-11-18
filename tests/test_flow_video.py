@@ -1113,3 +1113,58 @@ def test_lev3d_mesh_alpha_override_reaches_the_rendered_collection(
     for facecolors in captured_facecolors:
         assert facecolors.shape[0] > 0
         np.testing.assert_allclose(facecolors[:, 3], custom_alpha)
+
+
+# --- harden-field-reader-pre-f3 §7: frame discovery via the corpus listing (#144) -------------
+
+
+def test_frames_at_step_100000_and_beyond_are_found_in_step_order(tmp_path):
+    for name in ("plt99999", "plt100000", "plt00100", "plt00300.old", "plt١٠٠"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "plt00200").write_text("a file, not a plotfile directory")
+    frames = flow_video._plotfile_frames(tmp_path)
+    # Lexical order would put plt100000 before plt99999.
+    assert frames == [
+        tmp_path / "plt00100",
+        tmp_path / "plt99999",
+        tmp_path / "plt100000",
+    ]
+
+
+def test_frame_discovery_is_the_corpus_listing():
+    from mosquito_cfd.field_surrogate import corpus
+
+    assert flow_video.scan_plotfiles is corpus.scan_plotfiles
+
+
+def test_two_frames_for_one_step_are_reported(tmp_path):
+    (tmp_path / "plt100").mkdir()
+    (tmp_path / "plt00100").mkdir()
+    with pytest.raises(ValueError, match=r"plt00100, plt100"):
+        flow_video._plotfile_frames(tmp_path)
+
+
+@pytest.mark.parametrize("kind", ["missing", "regular_file", "empty_dir"])
+def test_no_frames_is_a_value_error_naming_the_path(tmp_path, kind):
+    path = tmp_path / "plots"
+    if kind == "regular_file":
+        path.write_text("not a directory")
+    elif kind == "empty_dir":
+        path.mkdir()
+    with pytest.raises(ValueError) as excinfo:
+        flow_video._plotfile_frames(path)
+    assert type(excinfo.value) is ValueError
+    assert str(path) in str(excinfo.value)
+    if kind == "empty_dir":
+        assert "plt<digits>" in str(excinfo.value)
+
+
+def test_frame_discovery_says_which_kind_of_bad_path(tmp_path):
+    missing = tmp_path / "missing"
+    regular = tmp_path / "regular"
+    regular.write_text("not a directory")
+    with pytest.raises(ValueError, match="does not exist"):
+        flow_video._plotfile_frames(missing)
+    with pytest.raises(ValueError, match="is not a directory") as excinfo:
+        flow_video._plotfile_frames(regular)
+    assert "does not exist" not in str(excinfo.value)

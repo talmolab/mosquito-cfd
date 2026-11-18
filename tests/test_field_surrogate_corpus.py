@@ -136,7 +136,9 @@ def _symlink_or_skip(target: Path, link: Path) -> None:
 
 
 def test_resolves_a_snapshot_by_config_and_step(tmp_path):
-    corpus = FieldCorpus(_corpus(tmp_path))
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / "s35_f085_p30")
+    corpus = FieldCorpus(root)
 
     assert corpus.config_ids() == ["s35_f085_p30"]
     assert corpus.steps("s35_f085_p30") == [100]
@@ -805,3 +807,379 @@ def test_missing_run_directory_is_self_describing_after_a_fast_path_miss(tmp_pat
     (root / "sweep_manifest.json").write_text(json.dumps(_manifest(["s35_f085_p30"])))
     with pytest.raises(ValueError, match=r"no run directory for config 's35_f085_p30'"):
         FieldCorpus(root).plotfile("s35_f085_p30", 100)
+
+
+# --- harden-field-reader-pre-f3 §4: digest-pinned run provenance (#113) -----------------------
+
+_COMMIT = "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5"
+_DIGEST = "92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47"
+_IMAGE = f"ghcr.io/talmolab/mosquito-cfd@sha256:{_DIGEST}"
+_CFG = "s35_f085_p30"
+_MISSING = object()
+
+
+def _pod_metadata(config: str = _CFG) -> dict:
+    """The real pod-side ``run_metadata.json`` key set (Z: fine corpus), plus an unknown key."""
+    return {
+        "run_id": f"{config}-run",
+        "timestamp": "2026-09-20T00:00:00Z",
+        "git": {"commit": _COMMIT, "source": "docker-image-build-arg"},
+        "hardware": {"gpu": "NVIDIA A40"},
+        "docker_image": _IMAGE,
+        "config": config,
+        "deck": f"inputs/inputs.3d.{config}",
+        "deck_sha256": "0" * 64,
+        "command": "amr3d.gnu.MPI.CUDA.ex inputs",
+        "ib_particle_csv": "IB_Particle_1.csv",
+        "log": "run.log",
+        "rows": 1000,
+        "max_step": 4706,
+        "threshold": 0.0,
+        "status": "completed",
+        "orchestration": {"workflow": "wf"},
+        "unknown_extra_key": [1, 2, 3],
+    }
+
+
+def _write_run_metadata(
+    run_dir: Path, *, raw: bytes | None = None, **overrides
+) -> Path:
+    """Opt-in: write ``run_metadata.json`` into ``run_dir``. ``_corpus()`` never does."""
+    path = run_dir / "run_metadata.json"
+    if raw is not None:
+        path.write_bytes(raw)
+        return path
+    meta = _pod_metadata()
+    for key, value in overrides.items():
+        if value is _MISSING:
+            meta.pop(key, None)
+        else:
+            meta[key] = value
+    path.write_text(json.dumps(meta))
+    return path
+
+
+def _prefix(config: str, path: Path) -> str:
+    return f"run_metadata for config {config!r} ({path}): "
+
+
+@pytest.fixture
+def yt_tripwire(monkeypatch):
+    """Replace ``yt.load``; record whether the reader got as far as loading a plotfile."""
+    import yt
+
+    calls: list[str] = []
+    real = yt.load
+
+    def load(path, *args, **kwargs):
+        calls.append(str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(yt, "load", load)
+    return calls
+
+
+def _bad_metadata_cases():
+    run_dir_file = "run_metadata.json"
+    commit_key = "git.commit"
+    cases = [
+        ("absent", None, run_dir_file),
+        ("directory", "dir", run_dir_file),
+        ("non_utf8", b"\xff\xfe\x00garbage", run_dir_file),
+        ("invalid_json", b"{not json", run_dir_file),
+        ("top_level_array", b"[1, 2, 3]", run_dir_file),
+        ("int_beyond_digit_limit", b'{"x": ' + b"1" * 5000 + b"}", run_dir_file),
+        ("nesting_beyond_recursion", b"[" * 100000 + b"]" * 100000, run_dir_file),
+        ("config_absent", {"config": _MISSING}, "config"),
+        ("config_null", {"config": None}, "config"),
+        ("config_other", {"config": "s55_f115_p30"}, "config"),
+        ("status_absent", {"status": _MISSING}, "status"),
+        ("status_failed", {"status": "failed"}, "status"),
+        ("run_id_absent", {"run_id": _MISSING}, "run_id"),
+        ("run_id_int", {"run_id": 5}, "run_id"),
+        ("run_id_empty", {"run_id": ""}, "run_id"),
+        ("run_id_space", {"run_id": " "}, "run_id"),
+        ("run_id_newline", {"run_id": chr(10)}, "run_id"),
+        ("dirty_true", {"git": {"commit": _COMMIT, "dirty": True}}, "git.dirty"),
+        ("dirty_str", {"git": {"commit": _COMMIT, "dirty": "no"}}, "git.dirty"),
+        ("dirty_null", {"git": {"commit": _COMMIT, "dirty": None}}, "git.dirty"),
+        ("dirty_zero", {"git": {"commit": _COMMIT, "dirty": 0}}, "git.dirty"),
+        ("git_absent", {"git": _MISSING}, "git"),
+        ("git_null", {"git": None}, "git"),
+        ("commit_absent", {"git": {"source": "x"}}, commit_key),
+        ("commit_int", {"git": {"commit": 123}}, commit_key),
+        ("commit_short", {"git": {"commit": _COMMIT[:7]}}, commit_key),
+        ("commit_upper", {"git": {"commit": _COMMIT.upper()}}, commit_key),
+        ("commit_newline", {"git": {"commit": _COMMIT + "\n"}}, commit_key),
+        ("image_absent", {"docker_image": _MISSING}, "docker_image"),
+        ("image_int", {"docker_image": 5}, "docker_image"),
+        (
+            "image_tag",
+            {"docker_image": "ghcr.io/talmolab/mosquito-cfd:latest"},
+            "docker_image",
+        ),
+        ("image_bare_digest", {"docker_image": f"sha256:{_DIGEST}"}, "docker_image"),
+        (
+            "image_tag_hash",
+            {"docker_image": f"repo:latest #sha256:{_DIGEST}"},
+            "docker_image",
+        ),
+        ("image_empty_repo", {"docker_image": f":@sha256:{_DIGEST}"}, "docker_image"),
+        (
+            "image_upper_repo",
+            {"docker_image": f"GHCR.io/x@sha256:{_DIGEST}"},
+            "docker_image",
+        ),
+        ("image_leading_space", {"docker_image": " " + _IMAGE}, "docker_image"),
+        ("image_trailing_space", {"docker_image": _IMAGE + " "}, "docker_image"),
+        ("image_trailing_newline", {"docker_image": _IMAGE + "\n"}, "docker_image"),
+    ]
+    return [pytest.param(spec, field, id=case_id) for case_id, spec, field in cases]
+
+
+def _install_bad_metadata(run_dir: Path, spec) -> Path:
+    path = run_dir / "run_metadata.json"
+    if spec is None:
+        return path
+    if spec == "dir":
+        path.mkdir()
+        return path
+    if isinstance(spec, bytes):
+        return _write_run_metadata(run_dir, raw=spec)
+    return _write_run_metadata(run_dir, **spec)
+
+
+@pytest.mark.parametrize(("spec", "field"), _bad_metadata_cases())
+def test_unverifiable_provenance_is_refused_before_any_read(
+    tmp_path, yt_tripwire, spec, field
+):
+    root = _corpus(tmp_path)
+    path = _install_bad_metadata(root / "runs" / _CFG, spec)
+    with pytest.raises(ValueError) as excinfo:
+        FieldCorpus(root).snapshot(_CFG, 100)
+    assert type(excinfo.value) is ValueError
+    assert str(excinfo.value).startswith(_prefix(_CFG, path) + f"{field}: "), str(
+        excinfo.value
+    )
+    assert yt_tripwire == []
+
+
+def test_valid_provenance_reaches_the_read_and_is_carried_verbatim(
+    tmp_path, yt_tripwire
+):
+    from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
+
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    corpus = FieldCorpus(root)
+    snap = corpus.snapshot(_CFG, np.int64(100))
+    assert len(yt_tripwire) == 1  # positive control for the tripwire
+    assert snap.config_id == _CFG
+    assert type(snap.step) is int and snap.step == 100
+    assert snap.git_commit == _COMMIT
+    assert snap.docker_image == _IMAGE
+    assert snap.run_id == f"{_CFG}-run"
+    want = read_field_snapshot(
+        corpus.plotfile(_CFG, 100), lo=(-np.inf,) * 3, hi=(np.inf,) * 3
+    )
+    assert list(snap.arrays) == list(want.arrays)
+    for name in want.arrays:
+        assert snap.arrays[name].tobytes() == want.arrays[name].tobytes(), name
+    for attr in ("x", "y", "z", "dx"):
+        assert getattr(snap, attr).tobytes() == getattr(want, attr).tobytes(), attr
+    for attr in ("time", "max_level", "field_names", "source"):
+        assert getattr(snap, attr) == getattr(want, attr), attr
+
+
+def test_run_metadata_is_read_through_and_fresh(tmp_path):
+    root = _corpus(tmp_path)
+    path = _write_run_metadata(root / "runs" / _CFG)
+    corpus = FieldCorpus(root)
+    first = corpus.run_metadata(_CFG)
+    assert type(first) is dict
+    assert first == json.loads(path.read_text())
+    assert first["unknown_extra_key"] == [1, 2, 3]
+    first["status"] = "mutated"
+    first["git"]["commit"] = "mutated"
+    second = corpus.run_metadata(_CFG)
+    assert second == json.loads(path.read_text())
+
+
+def test_run_metadata_absent_names_the_expected_path(tmp_path):
+    root = _corpus(tmp_path)
+    path = root / "runs" / _CFG / "run_metadata.json"
+    with pytest.raises(ValueError) as excinfo:
+        FieldCorpus(root).run_metadata(_CFG)
+    assert str(excinfo.value).startswith(_prefix(_CFG, path) + "run_metadata.json: ")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"fields": "u"},
+        {"fields": ("nope",)},
+        {"lo": (4.0, 4.0, 4.0), "hi": (2.0, 2.0, 2.0)},
+        {"halo": -1},
+    ],
+    ids=["bare_string_field", "unknown_field", "inverted", "neg_halo"],
+)
+def test_argument_errors_win_over_provenance_with_no_io(tmp_path, monkeypatch, kwargs):
+    # No run_metadata.json on disk: a provenance-first mutant would report that instead.
+    root, _ = _bare_corpus(tmp_path, ["plt00100"])
+    corpus = FieldCorpus(root)
+    spy = _IoSpy(monkeypatch)
+    with pytest.raises(ValueError) as excinfo:
+        corpus.snapshot(_CFG, 100, **kwargs)
+    assert "run_metadata" not in str(excinfo.value)
+    assert spy.calls == []
+
+
+def test_config_and_step_errors_win_over_provenance(tmp_path):
+    corpus = FieldCorpus(_corpus(tmp_path))  # no run_metadata.json anywhere
+    with pytest.raises(ValueError, match="is not in manifest") as excinfo:
+        corpus.snapshot("nope", 100)
+    assert "run_metadata" not in str(excinfo.value)
+    with pytest.raises(ValueError, match="no plotfile for step 999") as excinfo:
+        corpus.snapshot(_CFG, 999)
+    assert "run_metadata" not in str(excinfo.value)
+
+
+_PROVENANCE_PROBE = """
+import json, sys
+from pathlib import Path
+from mosquito_cfd.field_surrogate import _provenance
+path = Path(sys.argv[1])
+meta = _provenance.read_run_metadata(path, config_id=sys.argv[2])
+_provenance.run_provenance(meta, config_id=sys.argv[2], path=path)
+heavy = [m for m in ("mosquito_cfd.force_surrogate", "pandas", "matplotlib.pyplot")
+         if m in sys.modules]
+print(json.dumps(heavy))
+"""
+
+
+def test_reading_provenance_loads_no_force_surrogate_stack(tmp_path):
+    import subprocess
+
+    root = _corpus(tmp_path)
+    path = _write_run_metadata(root / "runs" / _CFG)
+    result = subprocess.run(
+        [sys.executable, "-c", _PROVENANCE_PROBE, str(path), _CFG],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == []
+
+
+def test_provenance_module_imports_only_the_standard_library():
+    import ast
+
+    import mosquito_cfd.field_surrogate as pkg
+
+    source = (Path(pkg.__file__).parent / "_provenance.py").read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            assert node.level == 0, (
+                f"relative import: from {'.' * node.level}{node.module}"
+            )
+            names = [node.module]
+        elif isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        else:
+            continue
+        for name in names:
+            assert name.split(".")[0] in sys.stdlib_module_names, name
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell refusal at the corpus entry point ---------------
+
+_ZERO_CELL = {
+    "beyond_domain_by_more_than_halo": (
+        {"lo": (10.0, 0.0, 0.0), "hi": (11.0, 6.0, 6.0), "halo": 1},
+        "(0, 6, 6)",
+    ),
+    "point_on_upper_edge": (
+        {"lo": (6.0, 3.0, 3.0), "hi": (6.0, 3.0, 3.0)},
+        "(0, 1, 1)",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_ZERO_CELL))
+def test_corpus_snapshot_refuses_a_zero_cell_region(tmp_path, case):
+    region, counts = _ZERO_CELL[case]
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    with pytest.raises(ValueError) as excinfo:
+        FieldCorpus(root).snapshot(_CFG, 100, **region)
+    message = str(excinfo.value)
+    assert f"config {_CFG!r}" in message
+    assert "step=100" in message
+    assert f"lo={tuple(float(v) for v in region['lo'])}" in message
+    assert f"hi={tuple(float(v) for v in region['hi'])}" in message
+    assert f"halo={region.get('halo', 0)}" in message
+    assert counts in message
+
+
+def test_corpus_snapshot_accepts_one_cell_and_zero_column_requests(tmp_path):
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    corpus = FieldCorpus(root)
+    one = corpus.snapshot(_CFG, 100, lo=(2.5, 2.5, 2.5), hi=(2.5, 2.5, 2.5))
+    assert one.arrays["u"].shape == (1, 1, 1)
+    # Cells but no columns: the guard is on the axes, not on values.size.
+    no_columns = corpus.snapshot(_CFG, 100, fields=())
+    assert (no_columns.x.size, no_columns.y.size, no_columns.z.size) == (6, 6, 6)
+    assert no_columns.field_names == ()
+
+
+# --- harden-field-reader-pre-f3 §10.1 (design D8.1) -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "make_fields",
+    [lambda: (f for f in ("u", "v")), lambda: iter(["u", "v"])],
+    ids=["generator", "iterator"],
+)
+def test_iterator_fields_are_read_not_consumed_by_validation(tmp_path, make_fields):
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    snap = FieldCorpus(root).snapshot(_CFG, 100, fields=make_fields())
+    assert snap.field_names == ("u", "v")
+    assert list(snap.arrays) == ["u", "v"]
+
+
+def test_headerless_plotfile_error_wins_over_provenance(tmp_path):
+    root = _corpus(tmp_path)  # no run_metadata.json
+    plt = root / "runs" / _CFG / "plt00100"
+    (plt / "Header").unlink()
+    with pytest.raises(FileNotFoundError, match="Header") as excinfo:
+        FieldCorpus(root).snapshot(_CFG, 100)
+    assert "run_metadata" not in str(excinfo.value)
+
+
+def test_clean_tree_flag_is_accepted(tmp_path):
+    root = _corpus(tmp_path)
+    _write_run_metadata(
+        root / "runs" / _CFG, git={"commit": _COMMIT, "dirty": False, "source": "x"}
+    )
+    snap = FieldCorpus(root).snapshot(_CFG, 100, fields=("u",))
+    assert snap.git_commit == _COMMIT
+
+
+# --- harden-field-reader-pre-f3 §10.5 (design D8.5): one run_metadata path ------------------
+
+
+def test_run_metadata_and_snapshot_share_one_path(tmp_path, monkeypatch):
+    import mosquito_cfd.field_surrogate.corpus as corpus_module
+
+    root = _corpus(tmp_path)
+    run = root / "runs" / _CFG
+    _write_run_metadata(run)
+    (run / "run_metadata.json").rename(run / "renamed_metadata.json")
+    monkeypatch.setattr(corpus_module, "RUN_METADATA_FILENAME", "renamed_metadata.json")
+    corpus = FieldCorpus(root)
+    assert corpus.run_metadata(_CFG)["config"] == _CFG
+    assert corpus.snapshot(_CFG, 100, fields=("u",)).run_id == f"{_CFG}-run"

@@ -5,8 +5,9 @@ a dense :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot`, a
 :class:`~mosquito_cfd.field_surrogate.snapshot.PointCloud` view, ``FieldCorpus`` addressing by
 ``(config_id, step)``, and a bounded DoMINO volume-half adapter.
 
-**This module intentionally imports none of its submodules.** Importing ``corpus`` reaches
-``force_surrogate.dataset`` and therefore ``pandas``, and -- because
+**This module intentionally imports none of its submodules.** ``corpus`` reaches
+``force_surrogate.dataset`` -- and therefore ``pandas`` -- on its first manifest read (lazily;
+#160), and -- because
 ``benchmarks/__init__`` imports ``stress_integral``, which after ``add-field-surrogate-reader``
 imports ``snapshot`` -- an eager re-export would also arm a
 ``benchmarks -> field_surrogate -> force_surrogate -> benchmarks`` import cycle whose survival

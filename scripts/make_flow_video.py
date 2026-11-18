@@ -65,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--plotfile-dir",
         type=Path,
         required=True,
-        help="Directory containing plt##### plotfile subdirectories.",
+        help="Directory containing plt<digits> plotfile subdirectories (any digit width).",
     )
     parser.add_argument("--field-mode", required=True, choices=FIELD_MODES)
     parser.add_argument(

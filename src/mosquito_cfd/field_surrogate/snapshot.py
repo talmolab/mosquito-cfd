@@ -9,11 +9,13 @@ conversion, unwrapped from yt's ``unyt_array`` to bare FP64 numpy.
 
 from __future__ import annotations
 
+import dataclasses
 import gc
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 
@@ -74,10 +76,84 @@ class FieldSnapshot:
         z: Cell-center coordinates along z.
         dx: ``(3,)`` per-axis grid spacing.
         time: Physical simulation time of the plotfile (the phase).
-        source: Path the snapshot was read from (provenance).
+        source: Path the snapshot was read from, as ``Path(path).absolute().as_posix()``: absolute,
+            forward-slashed, ``..`` kept as written, no symlink or mapped-drive resolution. A
+            per-host locator, not a cross-host identity -- the same plotfile read from Windows,
+            WSL and the cluster is spelled differently; ``(config_id, step, run_id)`` identifies
+            it across hosts.
         max_level: The plotfile's AMR level count; always ``0`` today, recorded not inferred.
         field_names: Field order, fixing the ``PointCloud`` column meaning.
+        config_id: Corpus config the snapshot belongs to. ``None`` from a bare
+            :func:`read_field_snapshot`; set only by ``FieldCorpus.snapshot``.
+        step: Timestep of the plotfile, as a Python ``int``; ``None`` unless set by
+            ``FieldCorpus.snapshot``.
+        git_commit: Full 40-character mosquito-cfd **repository** commit the pod recorded (baked
+            into the image at build, ``git.source == "docker-image-build-arg"``) -- not the
+            solver's commit, which is pinned by the image digest. Copied from the run's own
+            ``run_metadata.json``; ``None`` unless set by ``FieldCorpus.snapshot``.
+        docker_image: Digest-pinned image reference (``<repo>@sha256:<64 hex>``) the run used,
+            copied from the run's ``run_metadata.json``; ``None`` unless set by
+            ``FieldCorpus.snapshot``. Never inferred or fabricated.
+        run_id: The pod's identifier for this run attempt, copied from ``run_metadata.json``;
+            ``None`` unless set by ``FieldCorpus.snapshot``. ``(config_id, step, run_id)``
+            identifies a corpus snapshot across hosts and corpora -- every fine-corpus run shares
+            one commit and one image, so those two pin the build, not the run.
+
+    A snapshot survives ``pickle`` (every protocol), ``multiprocessing``'s ``ForkingPickler``,
+    ``copy.copy`` and ``copy.deepcopy``, so a ``DataLoader`` worker can return one. On receipt its
+    arrays are re-frozen and own their data again, whatever the transport did to them: protocols
+    2-4 hand large arrays back writable over the pickle's bytes, protocol 5 as views, deepcopy as
+    writable copies. Restoring that costs memory on the receiver: the unpickler keeps every
+    received array alive until ``loads`` returns, so it briefly holds about twice the snapshot's
+    field bytes (768 MiB of arrays for a full 256x128x256 six-field domain, ~150 ms). For
+    full-domain training, send tensors or point clouds from the worker instead. Pickling or
+    copying refuses a snapshot holding a non-``ndarray`` or non-``float64`` array (only a
+    hand-built one can).
+    ``copy.copy`` never freezes a caller's writable array: it copies it. ``copy.deepcopy`` copies
+    each array twice (its own copy is writable, so the rebuild copies it again). With ``batch_size >=
+    1``, torch's ``default_collate`` cannot batch snapshots: pass a ``collate_fn`` or convert to
+    arrays first.
+
+    The generated ``==`` compares numpy arrays, so it can raise on two distinct snapshots; compare
+    fields explicitly.
     """
+
+    def __reduce__(
+        self,
+    ) -> tuple[Callable[[dict[str, Any]], FieldSnapshot], tuple[dict[str, Any]]]:
+        """Pickle as a plain-dict state rebuilt by :func:`_rebuild_field_snapshot` (#151).
+
+        Returns:
+            The rebuild function and its single argument, the state: every dataclass field, with
+            ``arrays`` as a plain ``dict`` in ``field_names`` order.
+
+        Raises:
+            ValueError: If any array is not exactly a numpy ``ndarray`` (a subclass such as a
+                masked array is refused too) of native ``float64`` (harden-field-reader-pre-f3
+                D8.3).
+        """
+        named = [*(f"arrays[{n!r}]" for n in self.arrays), "x", "y", "z", "dx"]
+        values = [*self.arrays.values(), self.x, self.y, self.z, self.dx]
+        for name, arr in zip(named, values, strict=True):
+            # Exactly ndarray: a subclass (MaskedArray, matrix) would come back as a plain
+            # array with its mask or shape semantics silently dropped.
+            if type(arr) is not np.ndarray:
+                raise ValueError(
+                    f"cannot pickle or copy a FieldSnapshot whose {name} is a "
+                    f"{type(arr).__name__}, not a numpy ndarray"
+                )
+            if arr.dtype != np.float64:
+                # Refused here, at pickling/copying time, rather than cast on some transports and
+                # not others: the reader never produces such an array, and the project refuses
+                # fp32 data rather than widening it (harden-field-reader-pre-f3 D8.3).
+                raise ValueError(
+                    f"cannot pickle or copy a FieldSnapshot whose {name} is "
+                    f"{arr.dtype}, not native float64"
+                )
+        state = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
+        # MappingProxyType cannot be pickled; a plain dict in field order can.
+        state["arrays"] = {name: self.arrays[name] for name in self.arrays}
+        return _rebuild_field_snapshot, (state,)
 
     arrays: Mapping[str, np.ndarray]
     x: np.ndarray
@@ -88,6 +164,11 @@ class FieldSnapshot:
     source: str
     max_level: int
     field_names: tuple[str, ...]
+    config_id: str | None = None
+    step: int | None = None
+    git_commit: str | None = None
+    docker_image: str | None = None
+    run_id: str | None = None
 
     def to_point_cloud(self) -> PointCloud:
         """Flatten to coordinates and values in C-order over ``(nx, ny, nz)``.
@@ -129,6 +210,41 @@ class FieldSnapshot:
             field_names=self.field_names,
             cell_volume=cell_volume,
         )
+
+
+def _refreeze(arr: np.ndarray) -> np.ndarray:
+    """Restore the snapshot array invariant -- read-only, owning, reader's layout -- on receipt."""
+    if arr.size == 0:
+        # The reader allocates zero-size arrays with np.empty (all-zero strides); a pickle hands
+        # them back with C strides. Rebuild them the reader's way (harden-field-reader-pre-f3 D1).
+        arr = np.empty(arr.shape, dtype=np.float64)
+    elif arr.base is not None or arr.flags.writeable or not arr.flags.c_contiguous:
+        # Protocols 2-4 return large arrays over the pickle's bytes, protocol 5 as a view of its
+        # buffer: copy so the array owns its data (`base is None`, the spec's invariant). A
+        # writable array may be the caller's own (copy.copy shares it), so it is copied rather
+        # than frozen in place; a non-C layout is normalized on every transport alike (D8.3).
+        arr = np.array(arr, dtype=np.float64, order="C", copy=True)
+    arr.setflags(write=False)
+    return arr
+
+
+def _rebuild_field_snapshot(state: dict[str, Any]) -> FieldSnapshot:
+    """Unpickle target of :meth:`FieldSnapshot.__reduce__`.
+
+    Module-level so pickle can import it. Goes through the constructor, so a field added later is
+    carried (``__reduce__`` enumerates ``dataclasses.fields``) rather than silently defaulted.
+    """
+    state = dict(state)
+    state["arrays"] = MappingProxyType(
+        {name: _refreeze(arr) for name, arr in state["arrays"].items()}
+    )
+    for axis in ("x", "y", "z", "dx"):
+        state[axis] = _refreeze(state[axis])
+    state["time"] = float(state["time"])
+    state["max_level"] = int(state["max_level"])
+    if state.get("step") is not None:
+        state["step"] = int(state["step"])
+    return FieldSnapshot(**state)
 
 
 def _validate_fields(fields: tuple[str, ...]) -> None:
@@ -192,6 +308,58 @@ def _check_not_inverted(lo: np.ndarray, hi: np.ndarray) -> None:
         # otherwise), hiding swapped corners or a negative margin in centre +/- margin
         # (harden-field-corpus-requests D1).
         raise ValueError("inverted region request (lo > hi): " + "; ".join(inverted))
+
+
+def _validate_request(
+    lo, hi, halo: int, fields: Iterable[str]
+) -> tuple[np.ndarray, np.ndarray, int, tuple[str, ...]]:
+    """Every argument check of :func:`read_field_snapshot`, in order, with no I/O.
+
+    Shared with ``FieldCorpus.snapshot``, which runs it before touching the corpus, so an argument
+    error is reported as such whatever the corpus's state (harden-field-reader-pre-f3 D4).
+
+    Returns:
+        ``(lo, hi, halo, fields)`` normalized: FP64 corners, an ``int`` halo, a ``tuple`` of names.
+        Use the returned ``fields``: an iterator argument is consumed here.
+
+    Raises:
+        ValueError: If ``fields`` is a bare ``str``/``bytes``, names an unknown or duplicate
+            field, ``halo`` is not a non-negative integer, a corner is not a NaN-free 3-vector, or
+            ``lo > hi`` on any axis.
+    """
+    if isinstance(fields, (str, bytes)):
+        # tuple("gradpx") is six one-letter names, and tuple("uvw") silently reads u, v, w.
+        raise ValueError(
+            f"fields must be a sequence of field names, not a bare "
+            f"{type(fields).__name__}: got {fields!r}; did you mean {(fields,)!r}?"
+        )
+    fields = tuple(fields)
+    _validate_fields(fields)
+    halo = _validate_halo(halo)
+    lo_v = _corner(lo, "lo")
+    hi_v = _corner(hi, "hi")
+    _check_not_inverted(lo_v, hi_v)
+    return lo_v, hi_v, halo, fields
+
+
+def _check_plotfile_dir(path: Path) -> None:
+    """Refuse a path that is not a plotfile directory, before ``yt`` is imported.
+
+    Without this, a run directory or an empty directory surfaces as yt's ~40-line format-sniffing
+    dump (#113). Two ``stat``s; both follow symlinks, and any other ``OSError`` propagates.
+    """
+    if not path.is_dir():
+        if path.exists():
+            raise NotADirectoryError(
+                f"plotfile path is not a directory: {path}; a plotfile is a pltNNNNN "
+                f"directory containing a Header file"
+            )
+        raise FileNotFoundError(f"plotfile directory does not exist: {path}")
+    if not (path / "Header").is_file():
+        raise FileNotFoundError(
+            f"no Header file in {path}: not an AMReX plotfile directory (a run directory "
+            f"instead of a pltNNNNN, or a plotfile still being written)"
+        )
 
 
 def _region_bounds(
@@ -287,30 +455,32 @@ def read_field_snapshot(
         The :class:`FieldSnapshot` for the requested region.
 
     Raises:
-        ValueError: If a field name is unknown or absent from the plotfile, if a corner contains
+        ValueError: If ``fields`` is a bare ``str``/``bytes`` rather than a sequence of names, if
+            a field name is unknown or absent from the plotfile, if a corner contains
             NaN, if ``lo > hi`` on any axis (checked before ``yt`` is imported), if the plotfile
             is multi-level (the open CC-F3 decision), or if a field is not FP64 (the fp32-build
             guard).
+        FileNotFoundError: If ``plotfile_path`` does not exist, or is a directory without a
+            ``Header`` file (checked after the argument checks, before ``yt`` is imported).
+        NotADirectoryError: If ``plotfile_path`` exists but is not a directory.
     """
-    fields = tuple(fields)
-    _validate_fields(fields)
-    halo = _validate_halo(halo)
-    lo_v = _corner(lo, "lo")
-    hi_v = _corner(hi, "hi")
-    _check_not_inverted(lo_v, hi_v)
+    lo_v, hi_v, halo, fields = _validate_request(lo, hi, halo, fields)
+    _check_plotfile_dir(Path(plotfile_path))
 
     import yt
 
     # yt logs an INFO line on every dataset load (domain extent, field list, etc.) that would
     # otherwise spam stdout on every snapshot read in a per-frame loop (flow_video) or a training
     # DataLoader (F3). This only raises yt's logging threshold; genuine errors still raise
-    # exceptions regardless of log level, so no failure mode is silenced by this call.
+    # exceptions regardless of log level, so no failure mode is silenced by this call. It is a
+    # process-global side effect, inherited from the pre-refactor adapter and kept deliberately
+    # (#113).
     yt.set_log_level("error")
     ds = yt.load(str(plotfile_path))
 
     if ds.index.max_level != 0:
         raise ValueError(
-            f"read_field_snapshot requires a single-level plotfile; "
+            f"a single-level plotfile is required; {plotfile_path} has "
             f"max_level={ds.index.max_level}. Handling refined levels (interpolate to a uniform "
             f"grid vs. keep a native multi-resolution point cloud) is the open CC-F3 decision -- "
             f"see docs/field_surrogate/roadmap.md. Reading level 0 alone would silently return "
@@ -436,7 +606,9 @@ def read_field_snapshot(
         z=axes[2],
         dx=dx_out,
         time=time,
-        source=str(plotfile_path),
+        # absolute(), not resolve(): no I/O, `..` kept, and no rewrite of a mapped drive to its
+        # UNC form (harden-field-reader-pre-f3 D3).
+        source=Path(plotfile_path).absolute().as_posix(),
         max_level=max_level,
         field_names=fields,
     )
