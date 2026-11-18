@@ -285,8 +285,10 @@ def test_refit_without_decelerating_rows_returns_the_printed_coefficients(fruitf
         tangential_basis, -fruitfly["Fx"][keep], rcond=None
     )
     assert round(float(tangential[3]), 3) == vv.C_FXA_AM
-    # ...and the polynomial part does not come back to the printed digits.
+    # ...and the polynomial does not come back to the printed digits: its constant and its
+    # quadratic coefficient round differently (the linear one happens to round the same).
     assert round(float(tangential[2]), 2) != vv.TRANSL_TANGENTIAL_POLY[2]
+    assert round(float(tangential[0]) * 1e5, 1) != vv.TRANSL_TANGENTIAL_POLY[0] * 1e5
     # On distinct rows the normal terms round differently (stated in the fixture README).
     once = keep & distinct
     normal_once, *_ = np.linalg.lstsq(
@@ -305,8 +307,10 @@ def test_fixture_readme_describes_the_rows_as_they_are():
     assert "43 steady (`sa = 0`), 477 accelerating, 46 decelerating" in readme
     assert "counts 568: 40 steady, 480 accelerating, 48 decelerating" in readme
     assert (
-        "non-negative acceleration returns the printed 3.13, 0.96 and −1.02" in readme
+        "non-negative acceleration returns the printed 3.13, 0.96 and −1.02 for the normal "
+        "terms and 0.104 for the tangential added mass" in readme
     )
+    assert "The same fit does not return the printed tangential polynomial" in readme
     assert (
         "on the 566 distinct rows the normal terms come out 3.14, 0.97 and −1.05"
         in readme

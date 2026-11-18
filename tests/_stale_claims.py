@@ -14,14 +14,24 @@ It is a tripwire, not proof. It reads a document at two widths:
   one after the claim ("T4 resolves it, so #40 is no longer blocking").
 - **Wide, for what the claim is about.** A claim's companion word (T4, #40, PARTIAL, chord) and
   the always-rejected phrases are looked for over the whole sentence (colons not split) or the
-  whole table row, together with the heading or label line just above. So ``| #40 | resolved |``,
-  ``#40: closed`` and a "Resolved." under a "#40" heading are all found.
+  whole table row. So ``| #40 | resolved |`` and ``#40: closed`` are found. Markdown links are
+  reduced to their text first, so ``[#40](url) is closed`` is found too.
 
-Known costs. It fails closed on some true sentences ("Whether T4 resolves the chord PARTIAL is
-not known", "T4 fails to resolve it"): reword them with the negation first. It misses a claim
-excused by an unrelated earlier negation in the same clause ("No doubt T4 resolves ..."), a claim
-worded with none of the listed verbs, setext headings and tables without a leading pipe. The
-number patterns reject those digits with any meaning.
+Known costs.
+
+- It fails closed on some true sentences: "Whether T4 resolves the chord PARTIAL is not known",
+  "T4 fails to resolve it", and any un-negated "resolved" / "explained" / "settled" / "accounts
+  for" in a sentence or table row that also names T4, #40, PARTIAL or the chord. Reword with the
+  negation first, or split the sentence.
+- It does not connect a claim to a heading, label line or parent list item above it: "Resolved."
+  under a "### #40" heading is missed. An earlier version tried; it reached only the first block
+  after the label, and it rejected true sentences across the join. The misses are pinned in the
+  tests.
+- It misses a claim excused by an unrelated earlier negation in the same clause ("No doubt T4
+  resolves ..."), a claim worded with none of the listed verbs ("agrees", "matches"), a claim
+  split over two sentences ("Issue #40. Resolved."), setext headings and tables without a
+  leading pipe.
+- The number patterns reject those digits with any meaning.
 """
 
 from __future__ import annotations
@@ -107,24 +117,27 @@ _SENTENCE_END = re.compile(r"(?<=[.;!?])[)\]\"'’”]*\s+")
 _CLAUSE_END = re.compile(r"(?<=[.;:!?])[)\]\"'’”]*\s+")
 
 
+_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
+
 def normalize(text: str) -> str:
-    """Drop Markdown emphasis and code marks, collapse all whitespace, lower-case."""
+    """Reduce links to their text, drop emphasis and code marks, collapse whitespace, lower-case."""
+    text = _LINK.sub(r"\1", text)
     return " ".join(re.sub(r"[*_`]", "", text).split()).lower()
 
 
-def blocks(text: str) -> list[tuple[str, bool]]:
-    """Structural blocks of a Markdown text, each with whether it is a nested list item.
+def blocks(text: str) -> list[str]:
+    """Structural blocks of a Markdown text.
 
     A heading, a list item, a table row and a paragraph are separate blocks; a wrapped paragraph
     or list item is one block. Blockquote markers are dropped first.
     """
-    out: list[tuple[str, bool]] = []
+    out: list[str] = []
     current: list[str] = []
-    nested = False
 
     def flush() -> None:
         if current:
-            out.append((" ".join(current), nested))
+            out.append(" ".join(current))
             current.clear()
 
     for raw in text.splitlines():
@@ -133,22 +146,14 @@ def blocks(text: str) -> list[tuple[str, bool]]:
             flush()
         elif _HEADING.match(line) or _TABLE_ROW.match(line):
             flush()
-            out.append((line, False))
+            out.append(line)
         elif _LIST_ITEM.match(line):
             flush()
-            nested = line[:1].isspace()
             current.append(line)
         else:
-            if not current:
-                nested = False
             current.append(line)
     flush()
     return out
-
-
-def _is_label(block: str) -> bool:
-    """A heading, or a line that introduces what follows (ends with a colon)."""
-    return bool(_HEADING.match(block)) or normalize(block).endswith(":")
 
 
 def units(text: str) -> list[tuple[str, list[str]]]:
@@ -156,17 +161,10 @@ def units(text: str) -> list[tuple[str, list[str]]]:
 
     For a table row the wide unit is the row and the clauses come from each cell. For other
     blocks the wide unit is a sentence (split after ``.``, ``;``, ``!`` or ``?``) and the clauses
-    are its parts between colons. The heading or label just above a block, or the parent of a
-    nested list item, is prefixed to the wide unit.
+    are its parts between colons.
     """
     result: list[tuple[str, list[str]]] = []
-    previous = ""
-    for block, nested in blocks(text):
-        label = (
-            normalize(previous) + " "
-            if previous and (nested or _is_label(previous))
-            else ""
-        )
+    for block in blocks(text):
         if _TABLE_ROW.match(block):
             clauses = [
                 clause
@@ -174,13 +172,13 @@ def units(text: str) -> list[tuple[str, list[str]]]:
                 for clause in _CLAUSE_END.split(normalize(cell))
                 if clause
             ]
-            result.append((label + normalize(block), clauses))
+            result.append((normalize(block), clauses))
         else:
             for sentence in _SENTENCE_END.split(normalize(block)):
                 if sentence:
-                    clauses = [c for c in _CLAUSE_END.split(sentence) if c]
-                    result.append((label + sentence, clauses))
-        previous = block
+                    result.append(
+                        (sentence, [c for c in _CLAUSE_END.split(sentence) if c])
+                    )
     return result
 
 

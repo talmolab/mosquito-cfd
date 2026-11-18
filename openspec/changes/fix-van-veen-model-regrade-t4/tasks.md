@@ -438,7 +438,7 @@ inside the fixes themselves.
       is now asserted, and each revert fails a named test.
 - [x] 7.6 Docs point at #165 for a finer grid run.
 
-After this commit 507 mutants across seven sets fail a named test.
+After that commit 507 mutants across seven sets failed a named test.
 - [x] 7.7 The "Re (midspan)" row of `RESULTS.md` quoted the paper's range as 100 to 500. The paper
       says 36–252 (§2.6, p. A3-18, read from the PDF). Corrected at the user's request, with a test.
 
@@ -452,3 +452,41 @@ After this commit 507 mutants across seven sets fail a named test.
 - 5.7b: GitHub lists exactly #133 and #141 as the issues the PR closes.
 - 5.9: archiving waits for the merge. A MODIFIED block replaces the whole requirement, so diff the
   live specs against `80d653a` first.
+
+## 9. Fixes after the re-review of section 7 (one more commit; the guard is simplified, not extended)
+
+A third focused re-review found nothing blocking. Every number section 7 added reproduced. Its
+important findings, and what was done:
+
+- [x] 9.1 The guard's heading / label / parent-item prefix (added in section 7) reached only the
+      first block after the label, treated the previous sibling as the "parent", and rejected
+      true sentences across a heading (e.g. a "(#40)" heading above "Resolved on both grids").
+      On the pre-change documents it caught nothing the rest of the guard did not. It is
+      **removed**. The two widths stay. The four constructed cases it handled are pinned as known
+      misses, and five true statements it rejected are pinned as accepted.
+- [x] 9.2 Linked issue references slipped past the always-rejected phrases
+      (`[#40](url) is closed`), in every version of the guard. Links are now reduced to their
+      text before matching. Hits on the pre-change documents are unchanged (57 / 7 / 8 / 14 / 2 /
+      4 / 2 / 3), and zero on the current ones.
+- [x] 9.3 Four sentences from section 7 were bound by no test, although 7.5 said each was. Each
+      is now asserted: the model's chord peak falls in the accelerating part of the stroke; the
+      decelerating-row error exceeds the force itself; the refit does not return the printed
+      tangential polynomial; the tangential added mass is 0.104.
+- [x] 9.4 The #165 references were checked only by a bare "#165 appears". Each of the five
+      places is now asserted by its phrase.
+- [x] 9.5 Smaller: the planform docstring says which chord errors the guard catches (more than
+      about 3 % too small or 13 % too large) and a test brackets the upper side; the marker
+      check's tolerance and its `Raises:` entry are pinned.
+
+Recorded, not changed:
+
+- "Re (midspan) ~100 | 36–252" is true but not strictly like-for-like: the paper does not define
+  the length and velocity scales of its mid-span Reynolds number in the text available. Ours is
+  100 at the peak mid-span speed with the maximum chord, and between 50 and 200 under the other
+  definitions the reviewer tried, all inside the paper's range.
+- `s_cy_marker_quadrature` assumes the chord is the first column of the wing file, so a file with
+  the span along x gives a wrong value from that function (`compute_wing_area_moments` raises a
+  planform mismatch on it). Older than this change.
+
+After this commit 520 mutants across seven sets fail a named test. The guard's limits are listed
+in its module docstring.

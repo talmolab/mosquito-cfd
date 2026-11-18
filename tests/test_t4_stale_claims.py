@@ -78,6 +78,10 @@ _MUST_FAIL = (
     "The chord: explained by the model.",
     "The chord PARTIAL: resolved.",
     "CF_chord_PARTIAL is resolved.",
+    # Issue references are usually links; the URL does not hide the state word.
+    "[#40](https://github.com/talmolab/mosquito-cfd/issues/40) is closed.",
+    "The reading is pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133).",
+    "[#133](https://github.com/talmolab/mosquito-cfd/issues/133) is pending.",
 )
 
 # Structure matters: a negation in a neighbouring heading, bullet, table cell or paragraph must
@@ -116,10 +120,37 @@ _MUST_FAIL_STRUCTURED = {
     "status table: PARTIAL resolved": "| Chord PARTIAL | resolved |\n",
     "status table: chord explained": "| CF_chord | explained by the model |\n",
     "status table: pending": "| pending | #133 |\n",
+    "linked issue in a status table": (
+        "| [#40](https://github.com/talmolab/mosquito-cfd/issues/40) | closed |\n"
+    ),
+}
+
+# Known misses, pinned so nobody assumes the guard covers them: a claim whose subject is in a
+# heading, a label line or a parent list item above it. Connecting them was tried and removed
+# (it reached only the first block after the label and rejected true sentences across the join).
+_KNOWN_STRUCTURAL_MISSES = {
     "heading names the issue": "### #40\n\nResolved.\n",
     "heading names the chord": "### Chord\n\nExplained by the model.\n",
     "nested list item": "- #40\n  - resolved\n",
     "label line then a bullet": "**Chord PARTIAL:**\n\n- resolved\n",
+}
+
+# True statements that sit under a heading or label naming the issue: they must be accepted.
+_TRUE_UNDER_A_HEADING = {
+    "heading with the issue, paragraph about grids": (
+        "### Chord question (#40)\n\nResolved on both grids, the vortex is sharper.\n"
+    ),
+    "heading with the issue, progress note": "### Open question (#40)\n\nDone so far: nothing.\n",
+    "label with the issue, follow-ups": (
+        "Follow-ups to #133:\n\nPending items are listed in #154.\n"
+    ),
+    "T4 heading, unrelated resolved": (
+        "### T4 per-component decomposition\n\nThe sign convention was resolved in #109.\n"
+    ),
+    "heading directly above its paragraph": (
+        "### Chord question (#40)\nResolved on both grids, the vortex is sharper.\n"
+    ),
+    "sibling bullets": "- Issues\n  - tracked in #40\n  - done: the sign fix\n",
 }
 
 # Known miss, kept here so nobody assumes the guard covers it: "agrees" is needed for the
@@ -145,6 +176,18 @@ def test_guard_reports_each_stale_statement(sentence):
 def test_guard_reads_document_structure(name):
     """A negation in a neighbouring block does not excuse a stale claim."""
     assert stale_claims(_MUST_FAIL_STRUCTURED[name]), name
+
+
+@pytest.mark.parametrize("name", list(_KNOWN_STRUCTURAL_MISSES))
+def test_guard_does_not_connect_a_claim_to_a_heading_or_label(name):
+    """Pinned known misses: adding that connection back is a visible change."""
+    assert stale_claims(_KNOWN_STRUCTURAL_MISSES[name]) == []
+
+
+@pytest.mark.parametrize("name", list(_TRUE_UNDER_A_HEADING))
+def test_guard_accepts_true_statements_under_a_heading_naming_the_issue(name):
+    """A heading or label is not joined to the text below it."""
+    assert stale_claims(_TRUE_UNDER_A_HEADING[name]) == []
 
 
 def test_guard_known_miss_is_recorded():

@@ -456,8 +456,8 @@ def compute_wing_area_moments(
     Planform guard: the closed-form ``S_cy`` is right only for the nominal ellipse. The marker
     quadrature of ``S_cy`` is computed from the same wing file, and a difference of more than
     ``_PLANFORM_MISMATCH_TOL`` (15 %) from the closed form raises. This catches gross planform
-    errors only (a rectangle, a chord a few per cent too small or about a tenth too large,
-    the committed markers being 9.9 % low already); a mosquito-shaped wing
+    errors only (a rectangle, a chord more than about 3 % too small or 13 % too large, the
+    committed markers being 9.9 % low already); a mosquito-shaped wing
     of the same span differs by about 8 % and passes, and a wrong span is not seen at all,
     because the markers are placed by ``r_tip``. A zero-area planform, a bad ``r_tip`` or
     ``nbins``, a missing wing file and a too-fine ``nbins`` are reported by their own errors
@@ -476,7 +476,8 @@ def compute_wing_area_moments(
 
     Raises:
         ValueError: if the planform is degenerate (zero area / zero span extent), if
-            ``r_tip < span``, if ``nbins`` is not an integer of at least 5 or is too fine for the
+            ``r_tip < span`` or ``r_tip`` is less than the markers' own spanwise extent, if
+            ``nbins`` is not an integer of at least 5 or is too fine for the
             markers, or if the wing file's marker ``S_cy`` differs from the closed form by more
             than 15 %.
         FileNotFoundError: if the wing file does not exist.

@@ -589,6 +589,8 @@ def test_t4_subsection_states_the_limits_of_the_comparison():
         "about eleven times",  # pinned by tests/test_van_veen_dataset.py
         "decelerates for half of each half-stroke",
         "chord curve is unsupported there",
+        "its peak falls in the accelerating part of the stroke",
+        "and exceeds the force itself",
         "best for an accelerating wing",
         "larger than the committed markers' own",
         "#165",
@@ -813,6 +815,23 @@ def test_closed_grid_issue_is_not_cited_as_the_open_tracker():
     ):
         flat = _flat((root / rel).read_text(encoding="utf-8"))
         assert "#165" in flat, rel
+        # Each place that used to point at the closed issue now names the open one.
+        wanted = {
+            "examples/flapping_wing/RESULTS.md": (
+                "is [#165](https://github.com/talmolab/mosquito-cfd/issues/165); the 256³ "
+                "study was [#50](",
+                "(GCI_fine 27.6 %; a finer run is #165)",
+                "complete at 256³; a finer run is "
+                "[#165](https://github.com/talmolab/mosquito-cfd/issues/165))",
+            ),
+            "docs/aerodynamics_validation/roadmap.md": (
+                "a finer run is [#165](https://github.com/talmolab/mosquito-cfd/issues/165)). "
+                "**#40 is open**",
+                "([#165](https://github.com/talmolab/mosquito-cfd/issues/165) is the finer run)",
+            ),
+        }[rel]
+        for phrase in wanted:
+            assert phrase in flat, (rel, phrase)
         for stale in (
             "is tracked by **[#50]",
             "further refinement is **[#50]",

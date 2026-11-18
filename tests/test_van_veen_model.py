@@ -509,7 +509,9 @@ def test_bad_nbins_is_reported_as_nbins_not_as_a_planform_mismatch(nbins):
     assert vv.s_cy_marker_quadrature(nbins=5) > 0
 
 
-@pytest.mark.parametrize("r_tip", [np.nan, np.inf, 0.0, -1.0, 0.5, 1.0, 2.45, 2.94])
+@pytest.mark.parametrize(
+    "r_tip", [np.nan, np.inf, 0.0, -1.0, 0.5, 1.0, 2.45, 2.94, 2.9499]
+)
 def test_marker_quadrature_rejects_a_bad_r_tip(r_tip):
     """The public cross-check validates r_tip itself.
 
@@ -580,6 +582,18 @@ def test_planform_mismatch_guard(tmp_path, dense_ellipse):
     )
     assert (vv.s_cy_marker_quadrature(cases["chord x0.965"]) - 3.0) / 3.0 == (
         pytest.approx(-0.161, abs=0.004)
+    )
+    # The upper side: the committed markers are 9.9 % low, so a chord 12 % too large still
+    # passes (+13.0 %) and one 13 % too large raises (+15.1 %).
+    wider = _write_vertex(
+        tmp_path / "chord_1.12.vertex", committed * np.array([1.12, 1.0])
+    )
+    assert (vv.s_cy_marker_quadrature(wider) - 3.0) / 3.0 == pytest.approx(
+        0.130, abs=0.004
+    )
+    vv.compute_wing_area_moments(wider)
+    cases["chord x1.13"] = _write_vertex(
+        tmp_path / "chord_1.13.vertex", committed * np.array([1.13, 1.0])
     )
     for name, path in cases.items():
         marker = vv.s_cy_marker_quadrature(path)

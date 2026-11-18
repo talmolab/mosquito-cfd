@@ -290,6 +290,11 @@ the repo-wide grep in task 5.3 remain the primary control.
   `\b(not|never|neither|nor|cannot|no)\b|n['’]t\b|\bun(resolved|explained|settled)`.
   The first version normalized the whole document before splitting; the review measured
   22–57 % of each guarded document inside sentences its negation rule exempted.
+- **Two widths (final form).** The negation test uses the narrow unit above (cell, clause). The
+  companion word and the always-rejected phrases are searched over the whole sentence or table
+  row, with Markdown links reduced to their text. A claim is not connected to a heading or label
+  above it: that was tried, reached only the first block after the label, and rejected true
+  sentences, so it was removed and its cases are pinned as known misses (tasks section 9).
 - **Claim patterns, rejected in a sentence that is not negated.**
   - `(?<![-\w])resolv\w*|(?<![-\w])resolution\W+of\b` together with `t4|#40|partial` in the
     same sentence ("under-resolves" and "under-resolution" are about the grid and are skipped)
