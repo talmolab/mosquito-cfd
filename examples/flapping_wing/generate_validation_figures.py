@@ -6,7 +6,7 @@ returns the key numbers it displays so a test can assert the figure shows the te
 
   V1  three-convention CF overlay vs the [0.5,1.5] band   (F_ref values)
   V2  planform + second-moment integrand c(y)*y^2          (r_gyr, S_yy)
-  V3  scale-invariance scatter before/after                (Delta R^2)
+  V3  scale-invariance scatter, peak-tip vs van Veen F_ref (Delta R^2)
   V4  added-mass decomposition (ib vs added-mass)          (RMS fractions; NOT gated)
   V5  lab-vs-body frame at the alpha=45 deg midstroke      (frame caveat)
 """
@@ -118,7 +118,13 @@ def fig_v2_second_moment(out_dir: Path) -> dict:
 
 
 def fig_v3_scale_invariance(out_dir: Path) -> dict:
-    """V3: predicted-vs-CFD scatter before/after re-normalization; R^2 unchanged."""
+    """V3: predicted-vs-CFD scatter on two F_ref references; R^2 unchanged.
+
+    The committed predictions are van Veen coefficients (F_ref at the radius of gyration). The
+    peak-tip panel shows the same coefficients on F_ref(R_TIP), i.e. divided by
+    k = F_ref(R_TIP) / F_ref(R_GYRATION); it is not the pre-#36 corpus. The summary also records
+    the mean and RMS of the stored arrays, which R^2 cannot see change under a rescale or sign flip.
+    """
     pred = pd.read_parquet(_REPO / "examples/prelim_sweep/surrogate/holdout_predictions.parquet")
     k = compute_force_reference(1.0, 70.0, R_TIP, SPAN, CHORD, RHO).f_ref / \
         compute_force_reference(1.0, 70.0, R_GYRATION, SPAN, CHORD, RHO).f_ref
@@ -127,16 +133,32 @@ def fig_v3_scale_invariance(out_dir: Path) -> dict:
     for i, coef in enumerate(("CF_x", "CF_z")):
         y = pred[f"{coef}_true"].to_numpy(float)
         yhat = pred[f"{coef}_pred"].to_numpy(float)
-        r2b, r2a = _r2(y, yhat), _r2(y * k, yhat * k)
-        out[coef] = {"r2_before": r2b, "r2_after": r2a, "delta": abs(r2b - r2a)}
-        for j, (sc, tag, r2) in enumerate(((1.0, "BEFORE", r2b), (k, "AFTER (van Veen)", r2a))):
+        y_tip, yhat_tip = y / k, yhat / k
+        r2_vv, r2_tip = _r2(y, yhat), _r2(y_tip, yhat_tip)
+        out[coef] = {
+            "r2_van_veen": r2_vv,
+            "r2_peak_tip": r2_tip,
+            "delta": abs(r2_vv - r2_tip),
+            "true_mean": float(np.mean(y)),
+            "true_rms": float(np.sqrt(np.mean(y**2))),
+            "pred_mean": float(np.mean(yhat)),
+            "pred_rms": float(np.sqrt(np.mean(yhat**2))),
+        }
+        panels = (
+            (y_tip, yhat_tip, "peak-tip reference (stored / k)", r2_tip),
+            (y, yhat, "van Veen (committed)", r2_vv),
+        )
+        for j, (yt, yp, tag, r2) in enumerate(panels):
             ax = axes[i][j]
-            ax.scatter(y * sc, yhat * sc, s=6, alpha=0.3, color="#1f77b4")
-            lo, hi = (y * sc).min(), (y * sc).max()
+            ax.scatter(yt, yp, s=6, alpha=0.3, color="#1f77b4")
+            lo, hi = yt.min(), yt.max()
             ax.plot([lo, hi], [lo, hi], "k--", lw=1)
             ax.set_title(f"{coef} {tag}: R2={r2:.6f}")
+            ax.set_xlabel(f"CFD {coef} (lab frame, on wing)")
+            ax.set_ylabel(f"surrogate {coef}")
             ax.grid(alpha=0.25)
-    fig.suptitle("V3  Scale-invariance: re-normalization rescales both axes by k; R^2 unchanged")
+    fig.suptitle("V3  Moving F_ref from r_gyr to r_tip divides both axes by "
+                 "k = F_ref(r_tip)/F_ref(r_gyr); R^2 unchanged")
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(out_dir / "V3_scale_invariance.png", dpi=130)
     plt.close(fig)
@@ -214,7 +236,7 @@ def main(out_dir: Path | None = None) -> dict:
         "v5": fig_v5_lab_vs_body(out_dir),
     }
     (out_dir / "validation_figures_summary.json").write_text(
-        json.dumps(summary, indent=2) + "\n"
+        json.dumps(summary, indent=2) + "\n", newline="\n"
     )
     return summary
 

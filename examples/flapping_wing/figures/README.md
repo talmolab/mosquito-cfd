@@ -42,7 +42,7 @@ axis convention. Values snapshotted in `validation_figures_summary.json`.
 |------|-------|
 | `V1_three_convention_CF` | The three `F_ref` conventions: peak-tip 624.79 → mean-tip 253.22 → **van Veen radius-of-gyration 200.27** (the adopted one). |
 | `V2_second_moment` | Radius of gyration `r_gyr = 1.698` and spanwise second moment `S_yy = 6.80`, traced from the committed `wing.vertex`. |
-| `V3_scale_invariance` | The force surrogate is scale-invariant: held-out R² is unchanged by re-normalization (`ΔR² = 0` for `CF_x`, `CF_z`). |
+| `V3_scale_invariance` | Held-out R² of the coarse force surrogate is unchanged by re-normalization (`ΔR² < 1e-9` for `CF_x`, `CF_z`). Right panels: the committed van Veen coefficients as stored. Left panels: the same coefficients on the peak-tip reference, divided by k = F_ref(r_tip)/F_ref(r_gyr) ≈ 3.12. These are today's on-wing force coefficients (van Veen normalization) re-expressed on F_ref(r_tip), not the pre-#36 corpus. Axes are lab-frame coefficients of the force on the wing ([sign convention](../../../docs/coordinate-convention.md#force-and-moment-sign)). R² values are in `validation_figures_summary.json`. |
 | `V4_added_mass` | The solver's internal-fluid term (`ρ_f·SumU`, called added mass in the code) as an RMS fraction of the IB force on the wing, for the contrast-baseline `forces.csv`: ~10 % stroke, ~40 % lift (reported, not gated). |
 | `V5_lab_vs_body` | Lab- vs body-frame force decomposition at the α = 45° pitch amplitude. |
 
