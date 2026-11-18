@@ -171,6 +171,55 @@ an inference, not a measurement.
    DoMINO's is a fixed-resolution `interp_res` grid over the bounding box, paired with `sdf_grid`
    (#112; see `domino_adapter.py`'s module docstring). Both are arm C's to fix.
 
+### Revision (2026-11-18): F3 becomes a model-comparison bench
+
+Exploratory experiments E0–E7 (2026-11-16/17, local branch `explore-surrogate-experiments`, not
+merged; exploration code, unreviewed) changed what F3 is for. The goal is no longer one verdict but
+a **fair comparison of surrogate families that records where each one breaks**, because different
+physics (fixed motion now, commanded changes later) will favour different models. What changes:
+
+1. **One shared bench, model families plug in.** Same data, same splits, same metrics and
+   yardsticks for every model; limitations recorded as numbers (accuracy, training cost, inference
+   time, memory, degradation with fewer training configs). Every learned-model score is the spread
+   over ≥ 5 seeds (config-resolved scores on this corpus are strongly seed-dependent).
+2. **Two kinds of test, both inside the existing 27 configs, no new CFD:**
+   - *Interpolation:* the corpus's 6 holdout configs, as now.
+   - *Extrapolation:* hold out each face of the 3 × 3 × 3 grid in turn (e.g. all 9 `s55_*`
+     configs) and train on the other 18. Because 18 configs is itself a data cut (E3: the ridge
+     model fell to skill 0.41 on one of five random 18-config subsets), every face score is reported
+     beside random 18-config subsets, so a drop at a face is not mistaken for a drop from less data.
+3. **The hover gate is run on main, not taken from E1.** On hover, arm A is Track B's MLP (a
+   kinematics window adds nothing to periodic kinematics). E1 found it inside the CFD uncertainty
+   yardsticks on the worst of 5 seeds, **narrowly** (worst-seed normal-peak error 3.2% against a
+   3.7% band borrowed from one config, #133) and only *about equal to* the settled-beat difference
+   from E0b (beat 2 vs beat 6: 0.8–2.9% of peak at 45° pitch, 0.8–5.0% at 30°, coarse grid, two
+   configs). The bench re-measures this and records the verdict per component. Entries: the
+   current MLP; the MLP with optional phase harmonics (default off, E4: skill 0.987 → 0.995 with 3
+   harmonics; the shipped default does not change); a Fourier × polynomial ridge model as a
+   reference a learned model must beat (E4: skill 0.9991, reliable only on the full 21 configs).
+4. **Arm C is run on hover even if the gate passes**, as a deliberate exception to decision 2
+   above: the purpose is to learn the family's limits, not to pass a gate. Its yardstick is a
+   field model that needs no encoder: wing-frame POD + a kinematics → coefficients ridge model
+   (E7: near-wing velocity of unseen configs to 8.1% at 64 modes, against a 4.3% reconstruction
+   floor and 19.2% for reusing the nearest training snapshot). Arm C starts as a throwaway spike;
+   it gets a reviewed change only if the spike earns one.
+5. **The baseline flow latent is wing-frame POD, not stock `Mesh_Reduced`.** E5: for the same
+   fluid at full resolution, wing-frame POD reconstructs held-out flow to 4.3% at 64 modes against
+   17.8% for lab-frame POD. E6: stock `Mesh_Reduced` fits at most ~18k nodes on the A5000 and at 216
+   latent values reconstructed held-out flow to 16% against 4.6% for POD (stock, untuned, one seed,
+   8× block-averaged — not a verdict on tuned graph encoders). Any learned encoder is judged
+   against wing-frame POD at equal latent size. The wing-frame box stops at the wing tip; reaching
+   past it needs a wider cached field patch.
+6. **The corpus is rerun, so the bench must be rerunnable.** Corpus runs are 2 beats and the flow
+   needs 4–5 to settle to within 1% of peak (E0b, coarse grid, two configs). The corpus is to be
+   regenerated with longer runs after 2026-11-24, and every bench number is then recomputed.
+   Numbers from the 2-beat corpus are labelled as such.
+
+**What no result here may claim:** anything beyond interpolation inside, and extrapolation one
+grid layer past, a 3 × 3 × 3 grid of configs, on second-beat data that has not settled, for generic
+sinusoidal validation kinematics (not van Veen's and not a mosquito's, #142). Commanded changes,
+history dependence and arms A/B proper still need the commanded-change runs (open question #6).
+
 > **Framing gap (verified 2026-09-21), resolved 2026-10-15:** stock DoMINO is geometry →
 > fields, not a fields → latent encoder. See "F3 framing decision" below for the finding and
 > what replaced the original F3 framing.
@@ -276,7 +325,10 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 |---|---|---|---|---|
 | F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
 | F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ✅ |
-| F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a hover-only gate against the measured CFD uncertainty that decides whether arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields) are also tried on hover data. Also designs and runs the ~3–5 commanded-change configs (with `avg_pressure`) after arm A — always, regardless of the gate. | A5000 (+ cluster for the new configs) | ⬜ |
+| F3a | `add-surrogate-comparison-bench` | **Revision 2026-11-18.** Shared bench (splits incl. grid-face extrapolation with random-18-config controls, metrics, yardsticks, results table, ≥ 5 seeds) + force entries: current MLP, MLP with optional phase harmonics (default off), ridge reference. Records the hover-gate verdict per component. | A5000 | ⬜ |
+| F3b | `add-wing-frame-field-baseline` | Wing-frame resampling, matched-region POD and the kinematics → field ridge model as field entries on F3a's bench; block-by-block reads from the share. Starts after F3a's proposal is approved and after `harden-field-reader-pre-f3` merges. | A5000 | ⬜ |
+| F3c | `add-domino-field-arm` | Arm C (DoMINO, geometry → fields) on hover, judged against F3b. Throwaway spike first; this change only if the spike earns it. Owns the #112 adapter gaps. | A5000 | ⬜ |
+| F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | **Split 2026-11-18:** the hover part is F3a–F3c above; this row keeps the commanded-change configs and arms A/B on them. Original scope: Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a hover-only gate against the measured CFD uncertainty that decides whether arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields) are also tried on hover data. Also designs and runs the ~3–5 commanded-change configs (with `avg_pressure`) after arm A — always, regardless of the gate. | A5000 (+ cluster for the new configs) | ⬜ |
 | F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. **Re-scope after F3:** whether a larger field corpus is needed depends on F3's results on the commanded-change configs; F3's hover gate alone cannot decide it. | cluster | ⬜ |
 | F5 | `add-field-surrogate-dynamics` | Latent-dynamics model (zₜ, kinematicsₜ) → (zₜ₊₁, Fₜ) at production scale, architecture taken from F3's winning arm (DeepONet stays a candidate, not a commitment). Reuses Track B's force labels (`F_t`) unchanged — no force recomputation. | A5000 | ⬜ |
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
@@ -332,13 +384,23 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
    Confirm once F1 lands.
 4. **What is the corpus's own CFD force uncertainty?** — F3's hover gate is defined against it
    and it must be measured on this corpus, not assumed (T3c GCI_fine was CF_normal 3.7% but
-   CF_chord 27.6%).
-5. **Does `Mesh_Reduced` scale from 1,699 2-D nodes to ~8.4 M 3-D cells?** — unverified; the first
-   question for Harpreet Sethi once arm A has a number.
+   CF_chord 27.6%). **Partly answered 2026-11-18 (exploration, to be re-measured by F3a):** the
+   grid band still comes from one config and mixes grid and timestep refinement (#133); the
+   beat-to-beat difference of the 2-beat corpus is mostly start-up transient (E0: 5–17% of peak,
+   median over configs, fine grid); the settled-beat difference is 0.8–5.0% of peak (E0b, coarse,
+   two configs).
+5. **Does `Mesh_Reduced` scale from 1,699 2-D nodes to ~8.4 M 3-D cells?** — **Not in stock
+   form on the A5000 (E6, 2026-11-17):** ~0.6 MiB of GPU memory per node, 18k nodes at batch 1,
+   147k out of memory. Still the first question for Harpreet Sethi: whether it has been run at
+   10⁶–10⁷ nodes, and whether a 3-D convolutional autoencoder on the wing-frame box is the better
+   learned comparator.
 6. **How are commanded-change runs produced?** — unverified whether IAMReX can switch prescribed
    kinematics mid-run. One plausible route is restarting from a checkpoint with an edited deck (the
    corpus already writes checkpoints); the switch must also be smooth enough not to inject a
    wing-velocity discontinuity. F3's proposal settles this before any cluster submission.
+7. **How long must corpus runs be?** — 2 beats today; E0b (coarse, two configs) needs 4 beats at
+   45° pitch and 5 at 30° to settle within 1% of peak. Regeneration planned after 2026-11-24; the
+   fine-grid settling rate is not measured.
 
 ## Out of scope (still deferred)
 
