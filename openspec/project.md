@@ -366,19 +366,26 @@ Conventions that are load-bearing rather than stylistic:
   including its `lo > hi` rejection (`harden-field-corpus-requests` D1).
 - **Multi-level plotfiles are refused**, naming the still-open CC-F3 AMR decision. Reading
   level 0 alone would silently return coarse data and discard the refined patches.
-- **A corpus snapshot is identified by `(config_id, step)` plus the run's digest, not by
-  `source`.**
-  - `FieldCorpus.snapshot` copies `git.commit` and the `<repo>@sha256:` `docker_image` from the
-    `run_metadata.json` the pod wrote into the run directory. It validates them strictly, before
-    reading the plotfile, and never fabricates them.
-  - A run without a valid `run_metadata.json` cannot produce a corpus snapshot.
+- **A corpus snapshot is identified by `(config_id, step, run_id)`, not by `source`.**
+  - `FieldCorpus.snapshot` copies `run_id`, `git.commit` and the `<repo>@sha256:` `docker_image`
+    from the `run_metadata.json` the pod wrote into the run directory. It validates them strictly,
+    before reading the plotfile, and never fabricates them.
+  - `git_commit` is the mosquito-cfd repository commit the pod recorded. The solver build is pinned
+    by the image digest.
+  - A run without a valid `run_metadata.json` cannot produce a corpus snapshot. That includes a run
+    whose `status` is not `completed` and one built from a dirty tree.
   - `source` is `Path(...).absolute().as_posix()`, a per-host locator only: the same bytes are
     spelled differently from Windows, WSL and the cluster.
   - `FieldCorpus.snapshot` and `to_domino_volume` refuse zero-cell snapshots;
     `read_field_snapshot` still returns them.
 - **Snapshots pickle**, so a `DataLoader` worker can return one. Their arrays are re-frozen and
-  own their data on receipt, which costs one copy of each field array per transport. With
-  `batch_size >= 1`, torch's `default_collate` cannot batch them, so pass a `collate_fn`.
+  own their data on receipt.
+  - The receiver briefly holds about 2× the snapshot's field bytes: 768 MiB of arrays for a full
+    256x128x256 six-field domain. For full-domain training, send tensors or point clouds from the
+    worker instead.
+  - A non-`float64` array, which only a hand-built snapshot can hold, cannot be pickled.
+  - With `batch_size >= 1`, torch's `default_collate` cannot batch snapshots, so pass a
+    `collate_fn`.
   See OpenSpec change `harden-field-reader-pre-f3`.
 
 The DoMINO adapter is deliberately partial: stock DoMINO is a geometry->fields surrogate, so

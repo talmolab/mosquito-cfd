@@ -53,6 +53,7 @@ def test_importing_the_package_does_not_import_yt_or_pandas():
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"eagerly imported heavy modules: {result.stdout or result.stderr}"
@@ -902,6 +903,7 @@ def test_package_init_imports_no_submodule():
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "OK", result.stdout
@@ -2095,10 +2097,15 @@ def test_snapshot_crosses_a_spawned_worker_process():
 
     from _spawn_workers import read_fixture_snapshot
 
-    with ProcessPoolExecutor(1, mp_context=get_context("spawn")) as pool:
+    # Not a `with` block: leaving one calls shutdown(wait=True), so a hung child would block CI
+    # despite the result timeout.
+    pool = ProcessPoolExecutor(1, mp_context=get_context("spawn"))
+    try:
         pid, result = pool.submit(
             read_fixture_snapshot, str(FIXTURE.absolute())
         ).result(timeout=180)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     assert pid != os.getpid()
     _assert_snapshot_equivalent(read_field_snapshot(FIXTURE, **FULL), result)
 

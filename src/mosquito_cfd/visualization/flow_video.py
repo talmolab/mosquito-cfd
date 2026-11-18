@@ -323,7 +323,8 @@ def _plotfile_frames(plotfile_dir: str | Path) -> list[Path]:
     plotfile_dir = Path(plotfile_dir)
     if not plotfile_dir.is_dir():
         # Keep the documented ValueError: os.scandir would raise FileNotFoundError here.
-        raise ValueError(f"plotfile directory does not exist: {plotfile_dir}")
+        what = "is not a directory" if plotfile_dir.exists() else "does not exist"
+        raise ValueError(f"plotfile directory {what}: {plotfile_dir}")
     frames = [path for _, path in sorted(scan_plotfiles(plotfile_dir).items())]
     if not frames:
         raise ValueError(

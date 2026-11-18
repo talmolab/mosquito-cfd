@@ -29,7 +29,11 @@ from typing import Any
 import numpy as np
 
 from mosquito_cfd._messages import plain_repr
-from mosquito_cfd.field_surrogate._provenance import read_run_metadata, run_provenance
+from mosquito_cfd.field_surrogate._provenance import (
+    RUN_METADATA_FILENAME,
+    read_run_metadata,
+    run_provenance,
+)
 from mosquito_cfd.field_surrogate.snapshot import (
     DEFAULT_FIELDS,
     FieldSnapshot,
@@ -100,9 +104,16 @@ def scan_plotfiles(run: Path) -> dict[int, Path]:
     entries ``Path.is_dir()`` skipped -- vanished, dangling, looping, or through a file; see
     :func:`_is_dir` -- and any other ``OSError`` propagates.
 
+    Args:
+        run: The directory to list (a run directory, or any directory of plotfiles).
+
+    Returns:
+        Step -> plotfile directory (``run / name``), unordered; sort the keys for step order.
+
     Raises:
         ValueError: If two directories parse to the same step, naming both in sorted order so the
             message does not depend on the filesystem's listing order.
+        OSError: If ``run`` cannot be listed (e.g. ``FileNotFoundError`` if it does not exist).
     """
     found: dict[int, Path] = {}
     # `with` closes the directory handle on the duplicate raise too, not only on exhaustion.
@@ -308,8 +319,13 @@ class FieldCorpus:
             ValueError: If the config is not in the manifest or its run directory is absent, or
                 if ``run_metadata.json`` is absent, unreadable, not JSON, or not a JSON object.
         """
-        path = self.run_dir(config_id) / "run_metadata.json"
-        return read_run_metadata(path, config_id=config_id)
+        return read_run_metadata(
+            self._run_metadata_path(config_id), config_id=config_id
+        )
+
+    def _run_metadata_path(self, config_id: str) -> Path:
+        # The one spelling of the path, shared by run_metadata() and snapshot() (design D8.5).
+        return self.run_dir(config_id) / RUN_METADATA_FILENAME
 
     def snapshot(
         self,
@@ -354,6 +370,9 @@ class FieldCorpus:
             FileNotFoundError: If the resolved plotfile directory has no ``Header`` (checked
                 before the provenance read).
         """
+        # Looked up at call time, as extract_eulerian_box does, so replacing
+        # snapshot.read_field_snapshot takes effect here too. It saves no import cost: the
+        # snapshot module is already imported at module scope.
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
         step = _validate_step(step)
@@ -364,7 +383,7 @@ class FieldCorpus:
         # A plotfile still being written (no Header) is reported as such, not as a provenance
         # error (D8.1).
         _check_plotfile_dir(plotfile)
-        meta_path = self.runs_dir / config_id / "run_metadata.json"
+        meta_path = self._run_metadata_path(config_id)
         meta = read_run_metadata(meta_path, config_id=config_id)
         git_commit, docker_image, run_id = run_provenance(
             meta, config_id=config_id, path=meta_path

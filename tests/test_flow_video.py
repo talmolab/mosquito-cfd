@@ -1157,3 +1157,14 @@ def test_no_frames_is_a_value_error_naming_the_path(tmp_path, kind):
     assert str(path) in str(excinfo.value)
     if kind == "empty_dir":
         assert "plt<digits>" in str(excinfo.value)
+
+
+def test_frame_discovery_says_which_kind_of_bad_path(tmp_path):
+    missing = tmp_path / "missing"
+    regular = tmp_path / "regular"
+    regular.write_text("not a directory")
+    with pytest.raises(ValueError, match="does not exist"):
+        flow_video._plotfile_frames(missing)
+    with pytest.raises(ValueError, match="is not a directory") as excinfo:
+        flow_video._plotfile_frames(regular)
+    assert "does not exist" not in str(excinfo.value)

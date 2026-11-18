@@ -1063,6 +1063,7 @@ def test_reading_provenance_loads_no_force_surrogate_stack(tmp_path):
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout.strip().splitlines()[-1]) == []
@@ -1162,3 +1163,19 @@ def test_clean_tree_flag_is_accepted(tmp_path):
     )
     snap = FieldCorpus(root).snapshot(_CFG, 100, fields=("u",))
     assert snap.git_commit == _COMMIT
+
+
+# --- harden-field-reader-pre-f3 §10.5 (design D8.5): one run_metadata path ------------------
+
+
+def test_run_metadata_and_snapshot_share_one_path(tmp_path, monkeypatch):
+    import mosquito_cfd.field_surrogate.corpus as corpus_module
+
+    root = _corpus(tmp_path)
+    run = root / "runs" / _CFG
+    _write_run_metadata(run)
+    (run / "run_metadata.json").rename(run / "renamed_metadata.json")
+    monkeypatch.setattr(corpus_module, "RUN_METADATA_FILENAME", "renamed_metadata.json")
+    corpus = FieldCorpus(root)
+    assert corpus.run_metadata(_CFG)["config"] == _CFG
+    assert corpus.snapshot(_CFG, 100, fields=("u",)).run_id == f"{_CFG}-run"

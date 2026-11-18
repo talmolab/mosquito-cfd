@@ -103,8 +103,7 @@ def to_domino_volume(
         ValueError: If ``global_params_values`` or ``global_params_reference`` is not a
             non-empty one-dimensional sequence, if they differ in length, or if either contains a
             non-finite value (NaN or +/-inf) -- all checked before the snapshot is touched; or,
-            after those
-            checks, if the snapshot has zero cells on any axis.
+            after those checks, if the snapshot has zero cells on any axis.
     """
     flat = {}
     for name, given in (

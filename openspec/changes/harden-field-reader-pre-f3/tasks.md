@@ -384,7 +384,7 @@ get a narrow re-review afterwards.
   `fix(field-surrogate): run_metadata parser errors keep the prefixed ValueError`.
   - **Red:** a 5000-digit integer and 100000-level nesting each raise the prefixed `ValueError`.
   - **Mutant:** catch only `JSONDecodeError`.
-- [ ] 10.5 **D8.5: smaller items.** Commit
+- [x] 10.5 **D8.5: smaller items.** Commit
   `refactor(field-surrogate): one run_metadata path helper; flow_video message; test timeouts; docs`.
   - **Red:**
     - flow_video on a regular file says "is not a directory";

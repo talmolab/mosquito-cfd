@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import dataclasses
 import gc
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 
@@ -102,16 +103,31 @@ class FieldSnapshot:
     ``copy.copy`` and ``copy.deepcopy``, so a ``DataLoader`` worker can return one. On receipt its
     arrays are re-frozen and own their data again, whatever the transport did to them: protocols
     2-4 hand large arrays back writable over the pickle's bytes, protocol 5 as views, deepcopy as
-    writable copies. Restoring that costs one extra copy of each field array on receipt. With
-    ``batch_size >= 1``, torch's ``default_collate`` cannot batch snapshots: pass a ``collate_fn``
-    or convert to arrays first.
+    writable copies. Restoring that costs memory on the receiver: the unpickler keeps every
+    received array alive until ``loads`` returns, so it briefly holds about twice the snapshot's
+    field bytes (768 MiB of arrays for a full 256x128x256 six-field domain, ~150 ms). For
+    full-domain training, send tensors or point clouds from the worker instead. Pickling or
+    copying refuses a snapshot holding a non-``float64`` array (only a hand-built one can).
+    ``copy.copy`` never freezes a caller's writable array: it copies it. With ``batch_size >=
+    1``, torch's ``default_collate`` cannot batch snapshots: pass a ``collate_fn`` or convert to
+    arrays first.
 
     The generated ``==`` compares numpy arrays, so it can raise on two distinct snapshots; compare
     fields explicitly.
     """
 
-    def __reduce__(self):
-        """Pickle as a plain-dict state rebuilt by :func:`_rebuild_field_snapshot` (#151)."""
+    def __reduce__(
+        self,
+    ) -> tuple[Callable[[dict[str, Any]], FieldSnapshot], tuple[dict[str, Any]]]:
+        """Pickle as a plain-dict state rebuilt by :func:`_rebuild_field_snapshot` (#151).
+
+        Returns:
+            The rebuild function and its single argument, the state: every dataclass field, with
+            ``arrays`` as a plain ``dict`` in ``field_names`` order.
+
+        Raises:
+            ValueError: If any array is not native ``float64`` (harden-field-reader-pre-f3 D8.3).
+        """
         named = [*(f"arrays[{n!r}]" for n in self.arrays), "x", "y", "z", "dx"]
         values = [*self.arrays.values(), self.x, self.y, self.z, self.dx]
         for name, arr in zip(named, values, strict=True):
@@ -201,7 +217,7 @@ def _refreeze(arr: np.ndarray) -> np.ndarray:
     return arr
 
 
-def _rebuild_field_snapshot(state: dict) -> FieldSnapshot:
+def _rebuild_field_snapshot(state: dict[str, Any]) -> FieldSnapshot:
     """Unpickle target of :meth:`FieldSnapshot.__reduce__`.
 
     Module-level so pickle can import it. Goes through the constructor, so a field added later is
@@ -284,7 +300,7 @@ def _check_not_inverted(lo: np.ndarray, hi: np.ndarray) -> None:
 
 
 def _validate_request(
-    lo, hi, halo, fields
+    lo, hi, halo: int, fields: Iterable[str]
 ) -> tuple[np.ndarray, np.ndarray, int, tuple[str, ...]]:
     """Every argument check of :func:`read_field_snapshot`, in order, with no I/O.
 
@@ -293,6 +309,12 @@ def _validate_request(
 
     Returns:
         ``(lo, hi, halo, fields)`` normalized: FP64 corners, an ``int`` halo, a ``tuple`` of names.
+        Use the returned ``fields``: an iterator argument is consumed here.
+
+    Raises:
+        ValueError: If ``fields`` is a bare ``str``/``bytes``, names an unknown or duplicate
+            field, ``halo`` is not a non-negative integer, a corner is not a NaN-free 3-vector, or
+            ``lo > hi`` on any axis.
     """
     if isinstance(fields, (str, bytes)):
         # tuple("gradpx") is six one-letter names, and tuple("uvw") silently reads u, v, w.

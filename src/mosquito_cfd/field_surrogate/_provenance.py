@@ -30,7 +30,11 @@ _COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 #: repository of lowercase reference characters; it does not parse the full OCI grammar.
 _IMAGE_RE = re.compile(r"[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}")
 
-_FILE = "run_metadata.json"
+#: The file every corpus pod writes into its run directory.
+RUN_METADATA_FILENAME = "run_metadata.json"
+
+#: The field tag for file-level errors (the file itself failed, not one of its keys).
+_FILE = RUN_METADATA_FILENAME
 
 
 def _error(config_id: str, path: Path, field: str, detail: str) -> ValueError:
