@@ -2279,3 +2279,65 @@ def test_amr_refusal_names_no_function_and_reports_max_level(monkeypatch):
     message = str(excinfo.value)
     assert "CC-F3" in message
     assert "read_field_snapshot requires" not in message
+
+
+# --- harden-field-reader-pre-f3 §10.3 (design D8.3): consistent rebuild for hand-built snapshots
+
+
+def _hand_built(u: np.ndarray, x: np.ndarray | None = None):
+    from types import MappingProxyType
+
+    from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
+
+    nx, ny, nz = u.shape
+    return FieldSnapshot(
+        arrays=MappingProxyType({"u": u}),
+        x=np.arange(nx, dtype=np.float64) + 0.5 if x is None else x,
+        y=np.arange(ny, dtype=np.float64) + 0.5,
+        z=np.arange(nz, dtype=np.float64) + 0.5,
+        dx=np.ones(3),
+        time=0.5,
+        source="hand-built",
+        max_level=0,
+        field_names=("u",),
+    )
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize(
+    ("where", "dtype"),
+    [("u", np.float32), ("u", np.int64), ("u", ">f8"), ("x", np.float32)],
+    ids=["u-float32", "u-int64", "u-big-endian-f8", "x-float32"],
+)
+def test_non_fp64_arrays_cannot_be_pickled_or_copied(transport, where, dtype):
+    base = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    if where == "u":
+        snap = _hand_built(base.astype(dtype))
+    else:
+        snap = _hand_built(base, x=np.array([0.5, 1.5], dtype=dtype))
+    with pytest.raises(ValueError, match=rf"\b{where}\b.*float64"):
+        _transports()[transport](snap)
+
+
+def test_copy_never_freezes_the_callers_arrays():
+    import copy
+
+    u = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    snap = _hand_built(u)
+    assert u.flags.writeable and snap.x.flags.writeable
+    result = copy.copy(snap)
+    assert u.flags.writeable, "copy.copy froze the caller's array"
+    assert snap.x.flags.writeable
+    assert result.arrays["u"].flags.writeable is False
+    assert result.arrays["u"].base is None
+    assert not np.shares_memory(result.arrays["u"], u)
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+def test_fortran_ordered_arrays_come_back_c_contiguous(transport):
+    u = np.asfortranarray(np.arange(24, dtype=np.float64).reshape(2, 3, 4))
+    u.setflags(write=False)
+    result = _transports()[transport](_hand_built(u))
+    got = result.arrays["u"]
+    assert got.flags.c_contiguous and got.flags.writeable is False and got.base is None
+    np.testing.assert_array_equal(got, u)

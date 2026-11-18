@@ -368,7 +368,7 @@ get a narrow re-review afterwards.
   - **Real-corpus re-check:** all 27 runs still pass and each carries its `run_id`.
   - **Mutants:** drop each of the three new checks; `!= "completed"` → `is None`; `dirty is True`
     instead of `not False`.
-- [ ] 10.3 **D8.3: consistent rebuild.** Commit
+- [x] 10.3 **D8.3: consistent rebuild.** Commit
   `fix(field-surrogate): FieldSnapshot pickling refuses non-FP64 arrays and never freezes the caller's`.
   - **Red:**
     - a hand-built `float32`, an `int64` and a `>f8` array each raise `ValueError` naming the array

@@ -112,6 +112,17 @@ class FieldSnapshot:
 
     def __reduce__(self):
         """Pickle as a plain-dict state rebuilt by :func:`_rebuild_field_snapshot` (#151)."""
+        named = [*(f"arrays[{n!r}]" for n in self.arrays), "x", "y", "z", "dx"]
+        values = [*self.arrays.values(), self.x, self.y, self.z, self.dx]
+        for name, arr in zip(named, values, strict=True):
+            if np.asarray(arr).dtype != np.float64:
+                # Refused here, at pickling/copying time, rather than cast on some transports and
+                # not others: the reader never produces such an array, and the project refuses
+                # fp32 data rather than widening it (harden-field-reader-pre-f3 D8.3).
+                raise ValueError(
+                    f"cannot pickle or copy a FieldSnapshot whose {name} is "
+                    f"{np.asarray(arr).dtype}, not native float64"
+                )
         state = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
         # MappingProxyType cannot be pickled; a plain dict in field order can.
         state["arrays"] = {name: self.arrays[name] for name in self.arrays}
@@ -180,9 +191,11 @@ def _refreeze(arr: np.ndarray) -> np.ndarray:
         # The reader allocates zero-size arrays with np.empty (all-zero strides); a pickle hands
         # them back with C strides. Rebuild them the reader's way (harden-field-reader-pre-f3 D1).
         arr = np.empty(arr.shape, dtype=np.float64)
-    elif arr.base is not None:
+    elif arr.base is not None or arr.flags.writeable or not arr.flags.c_contiguous:
         # Protocols 2-4 return large arrays over the pickle's bytes, protocol 5 as a view of its
-        # buffer: copy so the array owns its data (`base is None`, the spec's invariant).
+        # buffer: copy so the array owns its data (`base is None`, the spec's invariant). A
+        # writable array may be the caller's own (copy.copy shares it), so it is copied rather
+        # than frozen in place; a non-C layout is normalized on every transport alike (D8.3).
         arr = np.array(arr, dtype=np.float64, order="C", copy=True)
     arr.setflags(write=False)
     return arr
