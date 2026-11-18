@@ -282,7 +282,9 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 | F6 | `add-field-surrogate-evidence-figure` | Stage-2 evidence figure: predicted-vs-CFD on held-out configs, Stage-2 surrogate vs. Track B MLP vs. CFD (CC-4 honesty conventions carried over). | local | ⬜ |
 
 **Dependency order:** F1 → F2 (can start in parallel once the fixture exists, cluster-free) → F3
-(needs F2's reader + the fine corpus; arm A needs only Track B's labels) → F4 (only after F3's
+(needs F2's reader + the fine corpus; arm A needs only Track B's labels. F2 snapshots are
+DataLoader-safe (picklable) and carry `(config_id, step, run_id)` + the run digest
+(`harden-field-reader-pre-f3`, #169)) → F4 (only after F3's
 commanded-change results; see its re-scope note) → F5 (needs F3's winning arm + Track B's existing force labels) → F6 (needs
 F5's predictions). **F1 is superseded (see above); F2 onward now depend on
 `add-fine-corpus-field-capture` for corpus data instead.**

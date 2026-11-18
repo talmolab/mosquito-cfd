@@ -396,7 +396,7 @@ get a narrow re-review afterwards.
     - docstrings: `git_commit` meaning, `_provenance` rationale, `scan_plotfiles` `Args`/`Returns`,
       type hints, the stray line break, the stale `__init__`, and the 2× pickle cost in
       `FieldSnapshot`, `project.md` and the CHANGELOG.
-- [ ] 10.6 Re-run:
+- [x] 10.6 Re-run:
   - the touched test files, lint and `openspec validate --strict`;
   - the mutants for 10.1–10.5;
   - the A/B parity script;
@@ -427,7 +427,7 @@ get a narrow re-review afterwards.
 
   Put each entry at the top of its subsection. Commit `docs: CHANGELOG entries for
   harden-field-reader-pre-f3`.
-- [ ] 9.3 Comment on #113 with the status table from proposal.md ("advances #113").
+- [x] 9.3 Comment on #113 with the status table from proposal.md ("advances #113").
 - [x] 9.4 Filed as #159 (validators) and #160 (manifest import), with the user's approval
   (2026-11-17). Original task text: File a follow-up issue: `force_surrogate.sidecar.validate_image_digest` uses `search`, and
   `metadata_capture._FULL_SHA_RE` uses `$`, so both are looser than `_provenance`'s full matches.
@@ -436,7 +436,7 @@ get a narrow re-review afterwards.
   read loads pandas and pyarrow, switches the matplotlib backend to `Agg`, and costs about 4.6 s per
   spawned worker. It proposes moving `load_manifest_configs` to a light module. Ask the user before
   filing either issue.
-- [ ] 9.5 **After merge, with the user's go-ahead,** run `/cleanup-merged` in this worktree.
+- [x] 9.5 **After merge, with the user's go-ahead,** run `/cleanup-merged` in this worktree.
   `docs/field_surrogate/roadmap.md`'s F3 dependency line (`:285`) gains: "F2 snapshots are
   DataLoader-safe (picklable) and carry `(config_id, step)` + the run digest
   (harden-field-reader-pre-f3)". Commit it with the archive.
