@@ -50,9 +50,9 @@
 
 ## 0. Baselines and the proposal commit
 
-- [ ] 0.1 Run the full suite on `80d653a` in this worktree, once **with** `MOSQUITO_CFD_PLOTFILE_ROOT`
+- [x] 0.1 Run the full suite on `80d653a` in this worktree, once **with** `MOSQUITO_CFD_PLOTFILE_ROOT`
   set to the Z: plotfile root. Record the pass, skip and fail counts.
-- [ ] 0.2 **Parity baseline.** Run these tests and record their pass counts:
+- [x] 0.2 **Parity baseline.** Run these tests and record their pass counts:
   - `test_read_is_bit_identical_to_a_full_grid_reference`
   - `test_real_multi_fab_read_is_bit_identical_to_a_full_grid_reference`
   - `test_extract_eulerian_box_matches_the_frozen_pre_refactor_oracle` (halo 0–3)
@@ -61,7 +61,7 @@
   - `test_legacy_wrapper_returns_writable_arrays_like_the_oracle`
 
   Run `scripts/verify_eulerian_box_ab.py` on Z:. 159 cases are expected.
-- [ ] 0.3 Commit `docs(openspec): propose harden-field-reader-pre-f3` (the change directory only).
+- [x] 0.3 Commit `docs(openspec): propose harden-field-reader-pre-f3` (the change directory only).
 
 ## 1. Snapshot provenance fields and `source` spelling (D3)
 
@@ -322,12 +322,12 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
 
 ## 8. Parity, full suite, mutation record
 
-- [ ] 8.1 Re-run the 0.2 set and `scripts/verify_eulerian_box_ab.py` on Z:. The counts must equal
+- [x] 8.1 Re-run the 0.2 set and `scripts/verify_eulerian_box_ab.py` on Z:. The counts must equal
   the baseline, and the A/B total must be 159.
-- [ ] 8.2 Run the full suite with `MOSQUITO_CFD_PLOTFILE_ROOT` set, so the edited
+- [x] 8.2 Run the full suite with `MOSQUITO_CFD_PLOTFILE_ROOT` set, so the edited
   `test_flow_video_plotfile.py` runs. It must be green, apart from 0.1's pre-existing items,
   unchanged.
-- [ ] 8.3 **Mutation runner.** Use a scratchpad runner with saved-bytes restore and
+- [x] 8.3 **Mutation runner.** Use a scratchpad runner with saved-bytes restore and
   `PYTHONDONTWRITEBYTECODE=1`. Each mutant must be killed:
 
   | Area | Mutants |
