@@ -577,7 +577,9 @@ def _v3_source_mismatches(summary: dict) -> list[str]:
     trainer's R^2 function and against ``metrics.json``; the mean/RMS fields against numpy
     recomputations of the stored (van Veen) arrays. Value messages carry their source in the
     path (``v3.CF_x.r2_van_veen[metrics.json]: ...``), so a disagreement between the two sources
-    says which one moved. A malformed summary or ``metrics.json`` is reported, not raised.
+    says which one moved. A non-dict ``v3`` or ``v3.<coef>`` block, a missing key, and a
+    ``metrics.json`` without ``per_target.<coef>.r2`` are reported as messages; a structurally
+    different file (e.g. ``per_target`` not a dict, invalid JSON) raises, which also fails the test.
     """
     pred = pd.read_parquet(_PRED)
     per_target = _read_json(_METRICS).get("per_target", {})
@@ -645,7 +647,9 @@ def test_stale_v3_values_are_rejected(regenerated):
         path = f"v3.{coef}.r2_van_veen"
         value = f": committed {stale!r} != fresh "
         assert any(m.startswith(path + value) for m in against_fresh), against_fresh
-        assert not any(m.startswith(path + ": missing") for m in against_fresh)
+        assert not any(m.startswith(path + ": missing") for m in against_fresh), (
+            against_fresh
+        )
         # Each source reports its own value mismatch, so neither check can be dropped unseen.
         for source in ("[parquet]", "[metrics.json]"):
             prefix = path + source + value
@@ -659,6 +663,24 @@ def test_committed_v3_matches_parquet_and_metrics():
     """
     mismatches = _v3_source_mismatches(_read_json(_COMMITTED_SUMMARY))
     assert mismatches == [], "\n".join(mismatches)
+
+
+def test_v3_metrics_check_reads_metrics_json(tmp_path, monkeypatch):
+    """The metrics.json check reads metrics.json, not a value it could share with the parquet.
+
+    The committed metrics.json R^2 equals the parquet R^2 exactly, so only a drifted copy can
+    tell the two sources apart: exactly one mismatch, tagged ``[metrics.json]``.
+    """
+    metrics = _read_json(_METRICS)
+    metrics["per_target"]["CF_x"]["r2"] = 0.5
+    drifted = tmp_path / "metrics.json"
+    drifted.write_text(json.dumps(metrics), encoding="utf-8")
+    monkeypatch.setitem(globals(), "_METRICS", drifted)
+    committed = _read_json(_COMMITTED_SUMMARY)
+    r2 = committed["v3"]["CF_x"]["r2_van_veen"]
+    assert _v3_source_mismatches(committed) == [
+        f"v3.CF_x.r2_van_veen[metrics.json]: committed {r2!r} != fresh 0.5"
+    ]
 
 
 def _render_v3(
@@ -731,7 +753,8 @@ def test_v3_panels_plot_both_normalizations(
                 xlabel, ylabel = ax.get_xlabel(), ax.get_ylabel()
                 assert coef in xlabel and "lab frame" in xlabel and "on wing" in xlabel
                 assert coef in ylabel and "surrogate" in ylabel
-        # (d) No before/after wording anywhere.
+        # (d) No before/after wording anywhere; the suptitle exists.
+        assert fig.get_suptitle(), "V3 has no suptitle"
         titles = [ax.get_title() for ax in fig.axes] + [fig.get_suptitle()]
         for text in titles:
             assert "BEFORE" not in text and "AFTER" not in text, text

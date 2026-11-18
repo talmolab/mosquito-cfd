@@ -195,3 +195,12 @@ panel titles showing each other's R² (equal to six decimals).
   lint paths. Per 2.3, only the edited hunks are lint-checked (`ruff check` passes); the file is not
   reformatted.
 - **3.5's Linux measurement did not run** (WSL hangs, see above). D2's sentence stays conditional.
+- **Source-check messages carry a source tag, and there is a fifth message kind (from /review-pr).**
+  `_v3_source_mismatches` writes value messages as `v3.<coef>.<field>[parquet]: committed ... !=
+  fresh ...` and `v3.<coef>.r2_van_veen[metrics.json]: ...`, and reports `...[metrics.json]: missing
+  in metrics.json`. Design D2's four formats describe `_summary_mismatches`. The tag was added
+  because the review found the metrics.json comparison could be deleted, or pointed at the parquet
+  R², with no test failing: the two sources agree exactly. The messages still start with the
+  dotted path and use D2's value form. `test_stale_v3_values_are_rejected` requires both tags.
+  `test_v3_metrics_check_reads_metrics_json` drifts a copy of `metrics.json` and expects exactly
+  one `[metrics.json]` mismatch. Mutants 4.21–4.23 cover the deletion, the tag, and the re-pointing.
