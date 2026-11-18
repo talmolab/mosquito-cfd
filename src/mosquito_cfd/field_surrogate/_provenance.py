@@ -63,7 +63,9 @@ def read_run_metadata(path: Path, *, config_id: str) -> dict[str, Any]:
         raise _error(config_id, path, _FILE, f"cannot be read: {exc}") from exc
     try:
         meta = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
+        # JSONDecodeError is a ValueError; so is the int-digit limit ("Exceeds the limit (4300
+        # digits)"), and deep nesting raises RecursionError -- all are "not valid JSON" (D8.5).
         raise _error(config_id, path, _FILE, f"is not valid JSON: {exc}") from exc
     if not isinstance(meta, dict):
         raise _error(

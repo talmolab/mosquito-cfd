@@ -380,7 +380,7 @@ get a narrow re-review afterwards.
     - drop the dtype check;
     - drop the writable condition;
     - drop the contiguity condition.
-- [ ] 10.4 **D8.5: JSON parser errors.** Commit
+- [x] 10.4 **D8.5: JSON parser errors.** Commit
   `fix(field-surrogate): run_metadata parser errors keep the prefixed ValueError`.
   - **Red:** a 5000-digit integer and 100000-level nesting each raise the prefixed `ValueError`.
   - **Mutant:** catch only `JSONDecodeError`.

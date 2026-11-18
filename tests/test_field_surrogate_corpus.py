@@ -888,6 +888,8 @@ def _bad_metadata_cases():
         ("non_utf8", b"\xff\xfe\x00garbage", run_dir_file),
         ("invalid_json", b"{not json", run_dir_file),
         ("top_level_array", b"[1, 2, 3]", run_dir_file),
+        ("int_beyond_digit_limit", b'{"x": ' + b"1" * 5000 + b"}", run_dir_file),
+        ("nesting_beyond_recursion", b"[" * 100000 + b"]" * 100000, run_dir_file),
         ("config_absent", {"config": _MISSING}, "config"),
         ("config_null", {"config": None}, "config"),
         ("config_other", {"config": "s55_f115_p30"}, "config"),
