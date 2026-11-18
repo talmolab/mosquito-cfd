@@ -95,7 +95,7 @@ D2/D3.
 - [x] 3.4 `uv run pytest -v -m "not gpu"` (whole suite) green; `uv run ruff check src/ tests/
       scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`
       and `uv run ruff format --check` on the same paths, as in `.github/workflows/ci.yml`.
-- [ ] 3.5 Under WSL `Ubuntu` (first run `wsl -d Ubuntu -- uv --version` with a 60 s timeout; a hang
+- [x] 3.5 Under WSL `Ubuntu` (first run `wsl -d Ubuntu -- uv --version` with a 60 s timeout; a hang
       or error counts as unavailable: report and ask, the fallback being CI's own Linux run of the
       PR): `git -C <worktree> archive <sha> | tar -x
       -C ~/v3check` (committed bytes only, no `.venv`); in it `uv sync --frozen --group viz` (as
@@ -164,12 +164,12 @@ panel titles showing each other's R² (equal to six decimals).
 
 - [x] 6.1 Re-read proposal/design/spec against the implementation; record any deviation with a
       "Why N instead of M?" section.
-- [ ] 6.2 Comment on #137: items 3–4 done here; items 1–2 open.
-- [ ] 6.3 `/review-pr`, adversarial re-review of each fix commit, `/pre-merge-check`. Before the
+- [x] 6.2 Comment on #137: items 3–4 done here; items 1–2 open.
+- [x] 6.3 `/review-pr`, adversarial re-review of each fix commit, `/pre-merge-check`. Before the
       push: `git status --short` empty; user approval; then `git push -u origin
       refresh-v3-validation-figure` (the branch's upstream is `origin/main`; never a bare
       `git push`), and verify `git rev-parse --abbrev-ref @{u}`. User approval before opening the PR.
-- [ ] 6.4 After merge: archive on a branch off updated `origin/main` (diff live specs first); add
+- [x] 6.4 After merge: archive on a branch off updated `origin/main` (diff live specs first); add
       `docs/force_surrogate/roadmap.md` row 16; ask before pushing; remove worktree and branches.
 
 ## Implementation record
@@ -190,8 +190,10 @@ panel titles showing each other's R² (equal to six decimals).
 
   4.23 survived on `66ec81b` (found by the adversarial re-review of that fix) and is killed from
   `75c2bf3` on; its kill is the red evidence for `test_v3_metrics_check_reads_metrics_json`.
-- 3.5 is open: WSL `Ubuntu` is running, but `wsl -d Ubuntu -- bash -lc 'uv --version'` hit the 60 s
-  timeout, so per 3.5 it counts as unavailable and the user decides (see the deviations below).
+- 3.5: WSL `Ubuntu` is running, but `wsl -d Ubuntu -- bash -lc 'uv --version'` hit the 60 s
+  timeout, so per 3.5 it counted as unavailable. The user chose the fallback: PR #172's CI run on
+  ubuntu-latest at `fa3fb2b`, where all seven new guard and V3 tests passed (job log shows each
+  PASSED). Resolved as pass/fail; the maximum difference was not measured.
 
 ### Why N instead of M? (deviations from the approved tasks)
 
@@ -206,7 +208,8 @@ panel titles showing each other's R² (equal to six decimals).
 - **The generator file is not `ruff format`-clean, at HEAD or after this change.** It is not in CI's
   lint paths. Per 2.3, only the edited hunks are lint-checked (`ruff check` passes); the file is not
   reformatted.
-- **3.5's Linux measurement did not run** (WSL hangs, see above). D2's sentence stays conditional.
+- **3.5's Linux check was CI's pass/fail, not a local measurement** (WSL hangs, see above). Design
+  D2 records the CI result.
 - **Source-check messages carry a source tag, and there is a fifth message kind (from /review-pr).**
   `_v3_source_mismatches` writes value messages as `v3.<coef>.<field>[parquet]: committed ... !=
   fresh ...` and `v3.<coef>.r2_van_veen[metrics.json]: ...`, and reports `...[metrics.json]: missing

@@ -68,9 +68,9 @@ spacing 1.1e-16, so `1e-12` is about 9,000 ulps; `R² = 1 − SS_res/SS_tot` dam
 R². `v1`, `v2`, `v4`, `v5` involve no cancellation. For the mean/RMS fields the worst conditioning is
 CF_x `true_mean` (Σ|y|/|Σy| ≈ 68): numpy's pairwise summation bounds its error by about 2e-13
 relative, and eight summation orders differ by at most 9.3e-15. A future field with Σ|a|/|Σa| above
-about 300 would need a looser tolerance. This is to be confirmed on Linux before the
-push (task 3.5); if any value differs by more than `1e-12`, the change stops and the tolerance is
-revisited with the user. After 3.5 runs, this sentence is replaced by the measured maximum.
+about 300 would need a looser tolerance. On Linux (PR #172's CI, ubuntu-latest, at `fa3fb2b`) the
+guard against the Windows-written summary passed at `1e-12`. That run gives pass/fail only; the
+largest Linux-vs-Windows difference was not measured, because WSL was unavailable locally (task 3.5).
 
 A test asserts the helper returns `[]`, and fails listing every message otherwise.
 
