@@ -2348,3 +2348,10 @@ def test_fortran_ordered_arrays_come_back_c_contiguous(transport):
     got = result.arrays["u"]
     assert got.flags.c_contiguous and got.flags.writeable is False and got.base is None
     np.testing.assert_array_equal(got, u)
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+def test_non_ndarray_arrays_cannot_be_pickled_or_copied(transport):
+    snap = _hand_built(np.arange(24, dtype=np.float64).reshape(2, 3, 4), x=[0.5, 1.5])
+    with pytest.raises(ValueError, match=r"\bx\b.*ndarray"):
+        _transports()[transport](snap)

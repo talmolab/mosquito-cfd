@@ -404,6 +404,15 @@ get a narrow re-review afterwards.
 
   Then do a narrow adversarial re-review of 10.1–10.5.
 
+- [x] 10.7 **Hardening from the narrow re-review of §10.**
+  - **Red:**
+    - `git.dirty` of `null` and `0` are refused. Without them, a truthiness check (`if git.get("dirty")`) survived as a mutant;
+    - a whitespace-only `run_id` (`" "`, `"
+"`) is refused;
+    - a hand-built snapshot holding a Python list instead of an `ndarray` raises `ValueError` naming the array when pickled or copied.
+  - **Docs:** `copy.deepcopy` copies each array twice: once by deepcopy, once by the rebuild, because deepcopy's copies are writable. Documented, not optimised: deepcopy is not the DataLoader transport.
+  - **Mutants:** `if git.get("dirty"):`; `run_id` truthiness without `.strip()`; drop the `isinstance(arr, np.ndarray)` check.
+
 ## 9. Docs and close-out
 
 - [x] 9.1 `openspec/project.md` §"Field Surrogate Reader (Stage 2)": add to its conventions list that
@@ -414,7 +423,7 @@ get a narrow re-review afterwards.
   origin/main` (no rebase). Following #140's precedent:
   - under `### Fixed`, one bullet each for #151 and #144, plus the #113 hardening with the
     `**BREAKING:**` sub-bullets from proposal.md, ending `(#151)`, `(#144)`, `(advances #113)`;
-  - under `### Added`, `FieldCorpus.run_metadata`, `scan_plotfiles` and the four snapshot fields.
+  - under `### Added`, `FieldCorpus.run_metadata`, `scan_plotfiles` and the five snapshot fields (`run_id` added in §10.2).
 
   Put each entry at the top of its subsection. Commit `docs: CHANGELOG entries for
   harden-field-reader-pre-f3`.

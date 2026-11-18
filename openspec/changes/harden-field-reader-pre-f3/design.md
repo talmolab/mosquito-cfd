@@ -31,7 +31,7 @@ transport delivers it, so the rebuild re-imposes it.
 - `state` maps **every** dataclass field name, from `dataclasses.fields(FieldSnapshot)`, to its
   value, with `arrays` as a plain `dict` in `field_names` order.
 - Building `state` from `dataclasses.fields` means a field added later is carried automatically.
-  The four provenance fields have defaults, so a hard-coded list that omitted one would silently
+  The provenance fields (five, with `run_id`; D8.2) have defaults, so a hard-coded list that omitted one would silently
   unpickle it as `None`.
 
 `_rebuild_field_snapshot` is module-level, so pickle can import it. It normalizes each array in
@@ -210,7 +210,7 @@ them, possibly onto this module.
 
 **No fabrication.** This keeps the rule in `add-field-surrogate-reader` design D7 that a digest is
 never fabricated. #113 points out that the record already exists, so it is copied, never inferred.
-`read_field_snapshot` leaves all four fields `None`. The corpus path has no fallback.
+`read_field_snapshot` leaves all five provenance fields `None`. The corpus path has no fallback.
 
 ## D5. Zero-cell refusal at both training-facing entry points
 

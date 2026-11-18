@@ -98,7 +98,7 @@ def run_provenance(
 
     Raises:
         ValueError: If ``config`` is absent, not a string, or names another config; if
-            ``status`` is not ``"completed"``; if ``run_id`` is not a non-empty string; if
+            ``status`` is not ``"completed"``; if ``run_id`` is not a non-blank string; if
             ``git`` is not an object; if ``git.commit`` is not a 40-character lowercase hex
             string; if ``git.dirty`` is present and not ``False``; or if ``docker_image`` is
             not a ``<repo>@sha256:<64 hex>`` string.
@@ -117,9 +117,9 @@ def run_provenance(
         raise _error(config_id, path, "status", f"must be 'completed', got {status!r}")
 
     run_id = meta.get("run_id")
-    if not (isinstance(run_id, str) and run_id):
+    if not (isinstance(run_id, str) and run_id.strip()):
         raise _error(
-            config_id, path, "run_id", f"must be a non-empty string, got {run_id!r}"
+            config_id, path, "run_id", f"must be a non-blank string, got {run_id!r}"
         )
 
     git = meta.get("git")

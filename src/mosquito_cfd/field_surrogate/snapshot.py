@@ -107,8 +107,10 @@ class FieldSnapshot:
     received array alive until ``loads`` returns, so it briefly holds about twice the snapshot's
     field bytes (768 MiB of arrays for a full 256x128x256 six-field domain, ~150 ms). For
     full-domain training, send tensors or point clouds from the worker instead. Pickling or
-    copying refuses a snapshot holding a non-``float64`` array (only a hand-built one can).
-    ``copy.copy`` never freezes a caller's writable array: it copies it. With ``batch_size >=
+    copying refuses a snapshot holding a non-``ndarray`` or non-``float64`` array (only a
+    hand-built one can).
+    ``copy.copy`` never freezes a caller's writable array: it copies it. ``copy.deepcopy`` copies
+    each array twice (its own copy is writable, so the rebuild copies it again). With ``batch_size >=
     1``, torch's ``default_collate`` cannot batch snapshots: pass a ``collate_fn`` or convert to
     arrays first.
 
@@ -126,18 +128,24 @@ class FieldSnapshot:
             ``arrays`` as a plain ``dict`` in ``field_names`` order.
 
         Raises:
-            ValueError: If any array is not native ``float64`` (harden-field-reader-pre-f3 D8.3).
+            ValueError: If any array is not a numpy ``ndarray`` of native ``float64``
+                (harden-field-reader-pre-f3 D8.3).
         """
         named = [*(f"arrays[{n!r}]" for n in self.arrays), "x", "y", "z", "dx"]
         values = [*self.arrays.values(), self.x, self.y, self.z, self.dx]
         for name, arr in zip(named, values, strict=True):
-            if np.asarray(arr).dtype != np.float64:
+            if not isinstance(arr, np.ndarray):
+                raise ValueError(
+                    f"cannot pickle or copy a FieldSnapshot whose {name} is a "
+                    f"{type(arr).__name__}, not a numpy ndarray"
+                )
+            if arr.dtype != np.float64:
                 # Refused here, at pickling/copying time, rather than cast on some transports and
                 # not others: the reader never produces such an array, and the project refuses
                 # fp32 data rather than widening it (harden-field-reader-pre-f3 D8.3).
                 raise ValueError(
                     f"cannot pickle or copy a FieldSnapshot whose {name} is "
-                    f"{np.asarray(arr).dtype}, not native float64"
+                    f"{arr.dtype}, not native float64"
                 )
         state = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)}
         # MappingProxyType cannot be pickled; a plain dict in field order can.

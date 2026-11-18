@@ -27,7 +27,8 @@ The snapshot SHALL also carry five optional provenance fields, each defaulting t
   pod recorded (baked into the image at build). It is not the solver's commit; the solver build is
   pinned by the image digest;
 - `docker_image`: a `str` that fully matches `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`;
-- `run_id`: a non-empty `str`, the pod's identifier for this run attempt.
+- `run_id`: a non-blank `str` (not empty, not whitespace only), the pod's identifier for this run
+  attempt.
 
 `(config_id, step, run_id)` identifies a corpus snapshot across hosts and corpora; the commit and
 image pin the code and build that produced it. `read_field_snapshot` SHALL leave all five `None`,
@@ -60,15 +61,17 @@ different strides. So the rebuild SHALL do two things:
 
 It SHALL then mark every array read-only. The rebuild never changes an array the caller still holds:
 `copy.copy` of a hand-built snapshot with writable arrays leaves the caller's arrays writable.
-Pickling or copying a snapshot any of whose arrays is not native FP64 (`dtype == np.float64`) SHALL
-raise `ValueError` naming the array, at pickling or copying time, rather than casting on some
+Pickling or copying a snapshot any of whose arrays is not a numpy `ndarray` of native FP64
+(`dtype == np.float64`) SHALL raise `ValueError` naming the array, at pickling or copying time, rather than casting on some
 transports and not others.
 
 Restoring the invariant costs memory on the receiving side. The unpickler keeps every received
 array alive until `loads` returns, so the receiver briefly holds about twice the snapshot's field
 bytes, plus the pickle payload itself. For a full 256x128x256 domain with six FP64 fields that is
 768 MiB of arrays (about 1.15 GiB with the payload), and about 150 ms more per sample. Copying per key does not lower this. A `DataLoader` that moves full-domain snapshots should
-send tensors or point clouds from the worker instead.
+send tensors or point clouds from the worker instead. `copy.deepcopy` copies each array twice,
+because deepcopy's own copies are writable and the rebuild copies writable arrays; it is not a
+`DataLoader` transport.
 
 It SHALL carry every dataclass field, enumerated from the
 dataclass rather than from a hand-written list (`harden-field-reader-pre-f3` design D1). Tests SHALL
@@ -568,7 +571,8 @@ any of the following holds:
   copied into the wrong run directory must not lend its digest to another run's plotfiles.
 - `meta["status"]` is absent or is not the string `"completed"`. A failed or incomplete run, whose
   late plotfiles may be unphysical, cannot lend its provenance to a training example.
-- `meta["run_id"]` is absent, is not a `str`, or is empty.
+- `meta["run_id"]` is absent, is not a `str`, or is blank (empty or whitespace only). The value is
+  returned unstripped.
 - `meta["git"]` is not an object, or `meta["git"]["commit"]` is absent, is not a `str`, or does not
   fully match `[0-9a-f]{40}`. The full match refuses a trailing newline and uppercase hex.
 - `meta["git"]["dirty"]` is present and is not `False`. A run built from a dirty tree names a commit
@@ -648,9 +652,9 @@ this requirement and is tracked separately.
   - a top-level JSON array;
   - a `config` that is absent, `null`, or names a different config;
   - a `status` that is absent or `"failed"`;
-  - a `run_id` that is absent, `5`, or `""`;
+  - a `run_id` that is absent, `5`, `""`, or `" "`;
   - a `git` that is absent or `null`;
-  - a `git.dirty` that is `true` or `"no"`;
+  - a `git.dirty` that is `true`, `"no"`, `null`, or `0`;
   - a `git.commit` that is absent, `123`, 7 characters, 40 uppercase hex characters, or 40 hex
     characters plus a trailing newline;
   - a `docker_image` that is absent, `5`, tagged `:latest`, a bare `sha256:<64 hex>`,

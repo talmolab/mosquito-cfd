@@ -44,7 +44,7 @@ The measured facts the design rests on are in design.md, in one place each:
   - `FieldSnapshot` gains `config_id`, `step`, `git_commit`, `docker_image` and `run_id`, each
     defaulting to `None`. `run_id` was added after the pre-PR review (D8.2).
   - New `FieldCorpus.run_metadata(config_id)`.
-  - `FieldCorpus.snapshot` fills the four fields from the run's own `run_metadata.json`, strictly
+  - `FieldCorpus.snapshot` fills the five fields from the run's own `run_metadata.json`, strictly
     validated, before any yt work (D3, D4).
   - A new dependency-free module `field_surrogate/_provenance.py` holds the strict checks (D4).
 - **#113: zero-cell refusal** in `FieldCorpus.snapshot` and `to_domino_volume` (D5).
