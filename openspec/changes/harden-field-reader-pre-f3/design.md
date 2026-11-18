@@ -179,7 +179,13 @@ them, possibly onto this module.
   1. `_validate_step(step)`, then `snapshot._validate_request(lo, hi, halo, fields)`. Both are pure,
      with no I/O, so an argument error is reported as such whatever the corpus state.
   2. `plotfile(config_id, step)`: manifest, run directory, the step's presence.
-  3. `run_metadata(config_id)` and `run_provenance(...)`.
+  3. `read_run_metadata(runs_dir / config_id / "run_metadata.json", config_id=...)` and
+     `run_provenance(...)`.
+
+     **Why not `run_metadata(config_id)`?** The implementation calls the same reader directly.
+     `plotfile()` has already checked the manifest and the run directory, so going through
+     `run_metadata()` would repeat those checks, and `run_provenance` needs the file's path for its
+     messages anyway. The behaviour is identical: same reader, same errors, same file.
   4. `read_field_snapshot(...)`.
   5. The zero-cell refusal (D5).
   6. `dataclasses.replace(snap, config_id=config_id, step=step, git_commit=..., docker_image=...)`.
