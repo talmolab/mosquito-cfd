@@ -348,7 +348,7 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
 Each item is red then green in one commit, as in §1–§7. Every new guard gets a mutant, and all fixes
 get a narrow re-review afterwards.
 
-- [ ] 10.1 **D8.1: normalized arguments and the Header check.** Commit
+- [x] 10.1 **D8.1: normalized arguments and the Header check.** Commit
   `fix(field-surrogate): FieldCorpus.snapshot reads the normalized fields and checks the plotfile before provenance`.
   - **Red:**
     - a generator and an iterator of `("u", "v")` give `field_names == ("u", "v")`;

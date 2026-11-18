@@ -33,6 +33,7 @@ from mosquito_cfd.field_surrogate._provenance import read_run_metadata, run_prov
 from mosquito_cfd.field_surrogate.snapshot import (
     DEFAULT_FIELDS,
     FieldSnapshot,
+    _check_plotfile_dir,
     _validate_request,
 )
 
@@ -352,14 +353,21 @@ class FieldCorpus:
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
         step = _validate_step(step)
-        lo_v, hi_v, halo_v, _ = _validate_request(lo, hi, halo, fields)
+        # The NORMALIZED values are what gets read: _validate_request consumes an iterator
+        # `fields`, so passing the caller's object on would read zero fields (design D8.1).
+        lo_v, hi_v, halo_v, fields_v = _validate_request(lo, hi, halo, fields)
         plotfile = self.plotfile(config_id, step)
+        # A plotfile still being written (no Header) is reported as such, not as a provenance
+        # error (D8.1).
+        _check_plotfile_dir(plotfile)
         meta_path = self.runs_dir / config_id / "run_metadata.json"
         meta = read_run_metadata(meta_path, config_id=config_id)
         git_commit, docker_image = run_provenance(
             meta, config_id=config_id, path=meta_path
         )
-        snap = read_field_snapshot(plotfile, lo=lo, hi=hi, halo=halo, fields=fields)
+        snap = read_field_snapshot(
+            plotfile, lo=lo_v, hi=hi_v, halo=halo_v, fields=fields_v
+        )
         counts = (snap.x.size, snap.y.size, snap.z.size)
         if 0 in counts:
             # A zero-point example is structurally valid, batches, and trains on nothing: refuse it

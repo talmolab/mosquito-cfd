@@ -1118,3 +1118,28 @@ def test_corpus_snapshot_accepts_one_cell_and_zero_column_requests(tmp_path):
     no_columns = corpus.snapshot(_CFG, 100, fields=())
     assert (no_columns.x.size, no_columns.y.size, no_columns.z.size) == (6, 6, 6)
     assert no_columns.field_names == ()
+
+
+# --- harden-field-reader-pre-f3 §10.1 (design D8.1) -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "make_fields",
+    [lambda: (f for f in ("u", "v")), lambda: iter(["u", "v"])],
+    ids=["generator", "iterator"],
+)
+def test_iterator_fields_are_read_not_consumed_by_validation(tmp_path, make_fields):
+    root = _corpus(tmp_path)
+    _write_run_metadata(root / "runs" / _CFG)
+    snap = FieldCorpus(root).snapshot(_CFG, 100, fields=make_fields())
+    assert snap.field_names == ("u", "v")
+    assert list(snap.arrays) == ["u", "v"]
+
+
+def test_headerless_plotfile_error_wins_over_provenance(tmp_path):
+    root = _corpus(tmp_path)  # no run_metadata.json
+    plt = root / "runs" / _CFG / "plt00100"
+    (plt / "Header").unlink()
+    with pytest.raises(FileNotFoundError, match="Header") as excinfo:
+        FieldCorpus(root).snapshot(_CFG, 100)
+    assert "run_metadata" not in str(excinfo.value)
