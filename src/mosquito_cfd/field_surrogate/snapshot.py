@@ -78,19 +78,25 @@ class FieldSnapshot:
         source: Path the snapshot was read from, as ``Path(path).absolute().as_posix()``: absolute,
             forward-slashed, ``..`` kept as written, no symlink or mapped-drive resolution. A
             per-host locator, not a cross-host identity -- the same plotfile read from Windows,
-            WSL and the cluster is spelled differently; ``(config_id, step)`` plus the digest
-            fields identify it across hosts.
+            WSL and the cluster is spelled differently; ``(config_id, step, run_id)`` identifies
+            it across hosts.
         max_level: The plotfile's AMR level count; always ``0`` today, recorded not inferred.
         field_names: Field order, fixing the ``PointCloud`` column meaning.
         config_id: Corpus config the snapshot belongs to. ``None`` from a bare
             :func:`read_field_snapshot`; set only by ``FieldCorpus.snapshot``.
         step: Timestep of the plotfile, as a Python ``int``; ``None`` unless set by
             ``FieldCorpus.snapshot``.
-        git_commit: Full 40-character commit of the solver build that wrote the run, copied from
-            the run's own ``run_metadata.json``; ``None`` unless set by ``FieldCorpus.snapshot``.
+        git_commit: Full 40-character mosquito-cfd **repository** commit the pod recorded (baked
+            into the image at build, ``git.source == "docker-image-build-arg"``) -- not the
+            solver's commit, which is pinned by the image digest. Copied from the run's own
+            ``run_metadata.json``; ``None`` unless set by ``FieldCorpus.snapshot``.
         docker_image: Digest-pinned image reference (``<repo>@sha256:<64 hex>``) the run used,
             copied from the run's ``run_metadata.json``; ``None`` unless set by
             ``FieldCorpus.snapshot``. Never inferred or fabricated.
+        run_id: The pod's identifier for this run attempt, copied from ``run_metadata.json``;
+            ``None`` unless set by ``FieldCorpus.snapshot``. ``(config_id, step, run_id)``
+            identifies a corpus snapshot across hosts and corpora -- every fine-corpus run shares
+            one commit and one image, so those two pin the build, not the run.
 
     A snapshot survives ``pickle`` (every protocol), ``multiprocessing``'s ``ForkingPickler``,
     ``copy.copy`` and ``copy.deepcopy``, so a ``DataLoader`` worker can return one. On receipt its
@@ -124,6 +130,7 @@ class FieldSnapshot:
     step: int | None = None
     git_commit: str | None = None
     docker_image: str | None = None
+    run_id: str | None = None
 
     def to_point_cloud(self) -> PointCloud:
         """Flatten to coordinates and values in C-order over ``(nx, ny, nz)``.

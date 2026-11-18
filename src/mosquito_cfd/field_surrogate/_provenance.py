@@ -2,13 +2,17 @@
 
 Standard library only, by contract: importing ``mosquito_cfd.force_surrogate`` loads pandas and
 pyarrow and switches the process's matplotlib backend, which no provenance read should do
-(harden-field-reader-pre-f3 D4). The force-surrogate validators are deliberately not reused: they
-accept a trailing-newline commit and a tag-plus-digest image (#159).
+(harden-field-reader-pre-f3 D4). The force-surrogate validators are deliberately not reused (#159):
+their commit check's ``$`` anchor accepts a trailing newline, their image check uses ``search`` and
+so accepts junk around a digest (and strips whitespace), and wrong types escape as ``TypeError`` or
+``AttributeError``. A ``<repo>:<tag>@sha256:<hex>`` reference is accepted here, as OCI resolves it
+by the digest.
 
 Every error is a ``ValueError`` of exactly the form
 ``run_metadata for config <repr(config_id)> (<path>): <field>: <detail>``, where ``<field>`` is
-``run_metadata.json`` (the file itself), ``config``, ``git``, ``git.commit`` or ``docker_image``.
-Nothing is defaulted, stripped, inferred or fabricated.
+``run_metadata.json`` (the file itself), ``config``, ``status``, ``run_id``, ``git``,
+``git.commit``, ``git.dirty`` or ``docker_image``. Nothing is defaulted, stripped, inferred or
+fabricated.
 """
 
 from __future__ import annotations
@@ -73,8 +77,8 @@ def read_run_metadata(path: Path, *, config_id: str) -> dict[str, Any]:
 
 def run_provenance(
     meta: dict[str, Any], *, config_id: str, path: Path
-) -> tuple[str, str]:
-    """Validate and return a run's ``(git_commit, docker_image)``, exactly as written.
+) -> tuple[str, str, str]:
+    """Validate and return a run's ``(git_commit, docker_image, run_id)``, exactly as written.
 
     Args:
         meta: The parsed ``run_metadata.json`` object.
@@ -82,12 +86,16 @@ def run_provenance(
         path: The file ``meta`` came from (used in error messages).
 
     Returns:
-        ``(git_commit, docker_image)``: the file's own strings, neither stripped nor rewritten.
+        ``(git_commit, docker_image, run_id)``: the file's own strings, neither stripped nor
+        rewritten. ``git_commit`` is the mosquito-cfd repository commit the pod recorded, not
+        the solver's; the solver build is pinned by the image digest.
 
     Raises:
-        ValueError: If ``config`` is absent, not a string, or names another config; if ``git``
-            is not an object; if ``git.commit`` is not a 40-character lowercase hex string; or if
-            ``docker_image`` is not a ``<repo>@sha256:<64 hex>`` string.
+        ValueError: If ``config`` is absent, not a string, or names another config; if
+            ``status`` is not ``"completed"``; if ``run_id`` is not a non-empty string; if
+            ``git`` is not an object; if ``git.commit`` is not a 40-character lowercase hex
+            string; if ``git.dirty`` is present and not ``False``; or if ``docker_image`` is
+            not a ``<repo>@sha256:<64 hex>`` string.
     """
     path = Path(path)
     config = meta.get("config")
@@ -96,6 +104,17 @@ def run_provenance(
     if config != config_id:
         # A file copied into the wrong run directory must not lend its digest to another run.
         raise _error(config_id, path, "config", f"names {config!r}, not {config_id!r}")
+
+    status = meta.get("status")
+    if status != "completed":
+        # A failed or incomplete run's late plotfiles may be unphysical (design D8.2).
+        raise _error(config_id, path, "status", f"must be 'completed', got {status!r}")
+
+    run_id = meta.get("run_id")
+    if not (isinstance(run_id, str) and run_id):
+        raise _error(
+            config_id, path, "run_id", f"must be a non-empty string, got {run_id!r}"
+        )
 
     git = meta.get("git")
     if not isinstance(git, dict):
@@ -108,6 +127,14 @@ def run_provenance(
             "git.commit",
             f"must be a full 40-character lowercase hex SHA, got {commit!r}",
         )
+    if "dirty" in git and git["dirty"] is not False:
+        # A dirty tree means the named commit did not produce the code that ran (D8.2).
+        raise _error(
+            config_id,
+            path,
+            "git.dirty",
+            f"must be false when present, got {git['dirty']!r}",
+        )
 
     image = meta.get("docker_image")
     if not (isinstance(image, str) and _IMAGE_RE.fullmatch(image)):
@@ -117,4 +144,4 @@ def run_provenance(
             "docker_image",
             f"must be a digest-pinned '<repo>@sha256:<64 hex>' reference, got {image!r}",
         )
-    return commit, image
+    return commit, image, run_id

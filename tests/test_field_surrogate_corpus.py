@@ -891,6 +891,13 @@ def _bad_metadata_cases():
         ("config_absent", {"config": _MISSING}, "config"),
         ("config_null", {"config": None}, "config"),
         ("config_other", {"config": "s55_f115_p30"}, "config"),
+        ("status_absent", {"status": _MISSING}, "status"),
+        ("status_failed", {"status": "failed"}, "status"),
+        ("run_id_absent", {"run_id": _MISSING}, "run_id"),
+        ("run_id_int", {"run_id": 5}, "run_id"),
+        ("run_id_empty", {"run_id": ""}, "run_id"),
+        ("dirty_true", {"git": {"commit": _COMMIT, "dirty": True}}, "git.dirty"),
+        ("dirty_str", {"git": {"commit": _COMMIT, "dirty": "no"}}, "git.dirty"),
         ("git_absent", {"git": _MISSING}, "git"),
         ("git_null", {"git": None}, "git"),
         ("commit_absent", {"git": {"source": "x"}}, commit_key),
@@ -965,6 +972,7 @@ def test_valid_provenance_reaches_the_read_and_is_carried_verbatim(
     assert type(snap.step) is int and snap.step == 100
     assert snap.git_commit == _COMMIT
     assert snap.docker_image == _IMAGE
+    assert snap.run_id == f"{_CFG}-run"
     want = read_field_snapshot(
         corpus.plotfile(_CFG, 100), lo=(-np.inf,) * 3, hi=(np.inf,) * 3
     )
@@ -1143,3 +1151,12 @@ def test_headerless_plotfile_error_wins_over_provenance(tmp_path):
     with pytest.raises(FileNotFoundError, match="Header") as excinfo:
         FieldCorpus(root).snapshot(_CFG, 100)
     assert "run_metadata" not in str(excinfo.value)
+
+
+def test_clean_tree_flag_is_accepted(tmp_path):
+    root = _corpus(tmp_path)
+    _write_run_metadata(
+        root / "runs" / _CFG, git={"commit": _COMMIT, "dirty": False, "source": "x"}
+    )
+    snap = FieldCorpus(root).snapshot(_CFG, 100, fields=("u",))
+    assert snap.git_commit == _COMMIT

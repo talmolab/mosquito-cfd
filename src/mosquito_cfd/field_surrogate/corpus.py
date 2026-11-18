@@ -338,17 +338,21 @@ class FieldCorpus:
 
         Returns:
             The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile,
-            with ``config_id``, ``step`` (a Python ``int``), ``git_commit`` and ``docker_image``
-            set. The last two are copied from the run's ``run_metadata.json``, never inferred.
+            with ``config_id``, ``step`` (a Python ``int``), ``git_commit``, ``docker_image``
+            and ``run_id`` set. The last three are copied from the run's ``run_metadata.json``,
+            never inferred.
 
         Raises:
             ValueError: An invalid ``step`` or region argument (before any I/O); anything
                 :meth:`plotfile` raises; a missing or unverifiable ``run_metadata.json`` (absent,
-                unreadable, not a JSON object, a ``config`` naming another run, a commit that is
-                not 40 lowercase hex characters, or an image that is not ``<repo>@sha256:<64
-                hex>``); anything ``read_field_snapshot`` raises; and a region with zero cells
-                on any axis (refused after the read, which costs nothing for such a region).
-            FileNotFoundError: If the resolved plotfile directory has no ``Header``.
+                unreadable, not a JSON object, a ``config`` naming another run, a ``status``
+                other than ``"completed"``, an empty ``run_id``, a commit that is not 40
+                lowercase hex characters, ``git.dirty`` set, or an image that is not
+                ``<repo>@sha256:<64 hex>``); anything ``read_field_snapshot`` raises; and a
+                region with zero cells on any axis (refused after the read, which costs nothing
+                for such a region).
+            FileNotFoundError: If the resolved plotfile directory has no ``Header`` (checked
+                before the provenance read).
         """
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
@@ -362,7 +366,7 @@ class FieldCorpus:
         _check_plotfile_dir(plotfile)
         meta_path = self.runs_dir / config_id / "run_metadata.json"
         meta = read_run_metadata(meta_path, config_id=config_id)
-        git_commit, docker_image = run_provenance(
+        git_commit, docker_image, run_id = run_provenance(
             meta, config_id=config_id, path=meta_path
         )
         snap = read_field_snapshot(
@@ -385,4 +389,5 @@ class FieldCorpus:
             step=step,
             git_commit=git_commit,
             docker_image=docker_image,
+            run_id=run_id,
         )

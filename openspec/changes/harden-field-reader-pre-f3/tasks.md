@@ -356,7 +356,7 @@ get a narrow re-review afterwards.
   - **Mutants:**
     - pass the raw `fields`;
     - drop the `_check_plotfile_dir` call.
-- [ ] 10.2 **D8.2: `run_id`, `status`, `git.dirty`.** Commit
+- [x] 10.2 **D8.2: `run_id`, `status`, `git.dirty`.** Commit
   `feat(field-surrogate): corpus snapshots carry run_id; refuse incomplete and dirty-tree runs`.
   - **Red:**
     - add negative cases for status absent or `"failed"`, run_id absent, `5` or `""`, and git.dirty

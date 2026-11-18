@@ -1922,7 +1922,7 @@ def test_point_cloud_peak_is_its_outputs():
 
 # --- harden-field-reader-pre-f3 §1: source spelling and the optional provenance fields --------
 
-PROVENANCE_FIELDS = ("config_id", "step", "git_commit", "docker_image")
+PROVENANCE_FIELDS = ("config_id", "step", "git_commit", "docker_image", "run_id")
 
 
 def test_source_is_absolute_and_posix_for_a_relative_path(monkeypatch):
@@ -1975,8 +1975,8 @@ def test_provenance_fields_trail_and_default_to_none():
     from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
 
     names = [f.name for f in dataclasses.fields(FieldSnapshot)]
-    assert tuple(names[-4:]) == PROVENANCE_FIELDS
-    for f in dataclasses.fields(FieldSnapshot)[-4:]:
+    assert tuple(names[-5:]) == PROVENANCE_FIELDS
+    for f in dataclasses.fields(FieldSnapshot)[-5:]:
         assert f.default is None, f.name
 
 
@@ -1988,6 +1988,7 @@ _PROVENANCE_SET = {
     "step": 100,
     "git_commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
     "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:" + "0" * 64,
+    "run_id": "s35_f085_p30-run",
 }
 
 
@@ -2016,7 +2017,7 @@ def _assert_snapshot_equivalent(original, result) -> None:
     assert type(result.max_level) is int and result.max_level == original.max_level
     if result.step is not None:
         assert type(result.step) is int
-    for attr in ("source", "config_id", "step", "git_commit", "docker_image"):
+    for attr in ("source", "config_id", "step", "git_commit", "docker_image", "run_id"):
         assert getattr(result, attr) == getattr(original, attr), attr
     want_pc, got_pc = original.to_point_cloud(), result.to_point_cloud()
     assert got_pc.field_names == want_pc.field_names
