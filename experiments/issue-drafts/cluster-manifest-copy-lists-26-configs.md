@@ -1,6 +1,6 @@
 # Draft issue: the fine corpus's manifest copy on the cluster share lists 26 configs, not 27
 
-**Status:** draft only, not filed. Found during the surrogate exploration (2026-11-16); nothing changed.
+**Status:** filed 2026-11-17 as #167. Found during the surrogate exploration (2026-11-16); nothing changed.
 
 ## What
 

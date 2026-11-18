@@ -1,6 +1,6 @@
 # Draft issue: wing markers stored in a plotfile lag the plotfile's time by exactly 2Δt
 
-**Status:** draft only, not filed. Found during the surrogate exploration (2026-11-16); no fix attempted.
+**Status:** filed 2026-11-17 as #166. Found during the surrogate exploration (2026-11-16); no fix attempted.
 
 ## What
 

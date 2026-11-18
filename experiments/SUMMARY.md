@@ -32,12 +32,12 @@ its folder; the surrogate recommendation is in
 | E6 | Stock `Mesh_Reduced` fits at most about 18k nodes on the A5000 and, at 216 latent values, reconstructs held-out flow at 16% error against 4.6% for POD. | `e6_mesh_reduced/figures/mesh_reduced_vs_pod.png` | **The memory limit: yes.** The 16% vs 4.6%: **only as "stock, untuned, one seed, 8× block-averaged"** — it is not a verdict on tuned graph encoders. |
 | E7 | A ridge model given only kinematics and phase predicts the near-wing velocity field of unseen configs to 8.1% error in the wing frame at 64 modes, against a 4.3% reconstruction floor and 19.2% for reusing the nearest training snapshot. | `e7_kin2field/figures/kin2field_error.png` | **Yes, as interpolation.** Six holdout configs inside the 3 × 3 × 3 grid, second beat only, box stops at the wing tip. The lab-frame equivalent is 24%. Report is `e7_kin2field/REPORT.md`, not a notebook. |
 
-## Issue drafts (not filed, nothing fixed)
+## Issues found (filed 2026-11-17 as #166 and #167; nothing fixed)
 
 - [plotfile-markers-lag-header-time-by-two-steps.md](issue-drafts/plotfile-markers-lag-header-time-by-two-steps.md):
-  wing-marker positions in a plotfile match the kinematics at t − 2Δt, not at the header time.
+  wing-marker positions in a plotfile match the kinematics at t − 2Δt, not at the header time (#166).
 - [cluster-manifest-copy-lists-26-configs.md](issue-drafts/cluster-manifest-copy-lists-26-configs.md):
-  the manifest copy on the cluster share lacks `s55_f115_p30`; the committed manifest has all 27.
+  the manifest copy on the cluster share lacks `s55_f115_p30`; the committed manifest has all 27 (#167).
 
 ## Observations that are not bugs but affect the corpus
 
