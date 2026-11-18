@@ -124,7 +124,10 @@ IAMReX SHALL support loading immersed boundary markers from external `.vertex` f
 
 ### Requirement: Prescribed Sinusoidal Kinematics
 
-IAMReX SHALL update wing marker positions each timestep according to van Veen et al. (2022) sinusoidal kinematics.
+IAMReX SHALL update wing marker positions each timestep according to **generic sinusoidal validation
+kinematics**: stroke `φ(t) = φ₀·sin(ωt)` and pitch `α(t) = α₀·cos(ωt)`, so the wing pitches through
+horizontal at each stroke reversal. This waveform is the project's own. It is **not** taken from van Veen
+et al. (2022), whose simulations hold the angle of attack constant within each single stroke (§2.5).
 
 #### Scenario: Stroke angle varies sinusoidally
 
@@ -150,35 +153,6 @@ IAMReX SHALL update wing marker positions each timestep according to van Veen et
 **When** advancing from step n to step n+1
 **Then** marker positions are recomputed based on the new time t = (n+1)×Δt
 
----
-
-### Requirement: Validation Against Van Veen Parameters
-
-The implementation SHALL reproduce van Veen et al. (2022) simulation parameters.
-
-#### Scenario: Frequency matches van Veen
-
-**Given** the hardcoded kinematics implementation
-**Then** wingbeat frequency = 600 Hz exactly
-
-#### Scenario: Stroke amplitude matches van Veen
-
-**Given** the hardcoded kinematics implementation
-**Then** stroke amplitude = ±70° (140° peak-to-peak)
-
-#### Scenario: Pitch angle matches van Veen
-
-**Given** the hardcoded kinematics implementation
-**Then** pitch angle at midstroke = 45°
-
-#### Scenario: Reynolds number range achievable
-
-**Given** van Veen parameters and standard air properties (ν = 1.56×10⁻⁵ m²/s)
-**When** computing Re = U_tip × chord / ν
-**Then** Re is in the range 100–300 for typical tip velocities
-
----
-
 ### Requirement: Force Output Compatibility
 
 Force data from moving bodies SHALL be extractable using the existing analysis pipeline.
@@ -196,4 +170,34 @@ Force data from moving bodies SHALL be extractable using the existing analysis p
 **Then** forces show periodic behavior with period T = 1/600 s
 
 ---
+
+### Requirement: Reference Kinematic Parameters
+
+The implementation SHALL use the project's reference kinematic parameters. They are the project's own
+choices and are not a parameter set simulated by van Veen et al. (2022), whose simulations hold the angle
+of attack constant over single strokes.
+
+#### Scenario: Frequency is 600 Hz
+
+**Given** the hardcoded kinematics implementation
+**When** its wingbeat frequency is read
+**Then** wingbeat frequency = 600 Hz exactly
+
+#### Scenario: Stroke amplitude is ±70°
+
+**Given** the hardcoded kinematics implementation
+**When** its stroke amplitude is read
+**Then** stroke amplitude = ±70° (140° peak-to-peak)
+
+#### Scenario: Pitch amplitude is 45°
+
+**Given** the hardcoded kinematics implementation
+**When** its pitch amplitude is read
+**Then** pitch angle at midstroke = 45°
+
+#### Scenario: Reynolds number range achievable
+
+**Given** the reference parameters and standard air properties (ν = 1.56×10⁻⁵ m²/s)
+**When** computing Re = U_tip × chord / ν
+**Then** Re is in the range 100–300 for typical tip velocities
 
