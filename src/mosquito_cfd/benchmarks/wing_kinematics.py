@@ -6,8 +6,9 @@ the analytic wing rotation ``R(t)`` — imported by the body-frame force decompo
 copy of the kinematics (force-surrogate CC-3 / the coordinate-convention DRY requirement).
 
 **New (van Veen 2022) convention** — matches the paper verbatim (§2.4, fig 1f; JFM 936:A3):
-``R = Rz(φ)·Ry(α)·Rx(θ)`` with stroke ``φ`` about the lab vertical **z**, pitch/angle-of-attack
-``α`` about the **span (y)** axis, and deviation ``θ`` about the chord (x). Axes: **x = chord**
+``R = Rz(φ)·Ry(α)·Rx(θ)`` with stroke ``φ`` about the lab vertical **z**, geometric pitch
+``α`` about the **span (y)** axis (van Veen's angle of attack only while the wing moves in the
+positive stroke direction), and deviation ``θ`` about the chord (x). Axes: **x = chord**
 (toward the trailing edge), **y = span** (toward the tip), **z = wing-normal / vertical**. van Veen
 labels stroke ``γ`` and pitch ``φ``; this repo uses ``φ`` (stroke) and ``α`` (pitch) — the *same*
 composition, different letters (do not conflate). See ``docs/coordinate-convention.md``.
@@ -54,7 +55,7 @@ def rotation_matrix(
 
     Args:
         phi: Stroke angle [rad] (about lab z).
-        alpha: Pitch / angle-of-attack [rad] (about the span y).
+        alpha: Geometric pitch [rad] (about the span y).
         theta: Deviation angle [rad] (about the chord x); default 0 (planar stroke).
 
     Returns:
@@ -83,10 +84,15 @@ def euler_angles(
     pitch_amp_rad: float,
     deviation_amp_rad: float = 0.0,
 ) -> tuple[float, float, float]:
-    """Sinusoidal van Veen kinematics (mirror of ``WingKinematics.H::ComputeEulerAngles``).
+    """Generic sinusoidal validation kinematics (mirror of ``WingKinematics.H::ComputeEulerAngles``).
 
     ``φ(t) = φ_amp·sin(ωt)`` (stroke), ``α(t) = α_amp·cos(ωt)`` (pitch, 90° lead),
     ``θ(t) = θ_amp·sin(2ωt)`` (deviation), with ``ω = 2π·frequency``.
+
+    The waveform is this project's, not from van Veen et al. (2022): the paper supplies the axes
+    and the rotation order, and each of its simulations is one stroke at a constant angle of
+    attack. Here the pitch passes through zero at each stroke reversal, so the wing is flat there
+    and the opposite edge leads on the return stroke (issue #142).
 
     Args:
         time: Simulation time [dimensionless].

@@ -17,8 +17,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mosquito_cfd.benchmarks import van_veen_model as vv
 from mosquito_cfd.benchmarks.flapping_wing import (
     STEADY_WINDOW_T0,
+    T4_NORMAL_MAG_TOL,
     VAN_VEEN_CF_TARGETS,
     VAN_VEEN_MATCH_TOL,
     added_mass_fraction,
@@ -54,7 +56,7 @@ _HEADLINE_TABLES = (
 )
 # Magnitudes recomputed from the committed CSVs by the tests above.
 _HEADLINE_VERIFIED = {0.03, 1.46, 2.35, 2.37, 2.61, 0.92, 1.06, 0.52}
-# van Veen reference targets + derived gap/tol carried in the tables (NOT our data, not recomputed).
+# T2a targets + derived gap/tol carried in the tables (NOT our data, not recomputed).
 _HEADLINE_REFERENCE = {2.4, 0.3, 0.21, 0.6}
 
 # The #40 cheap-interim subsection (added-mass-subtracted body-frame diagnostic). It lives under its
@@ -294,9 +296,12 @@ def test_interim_framing_is_honest_and_disambiguated():
     """
     doc = _doc()
     section = _flat(_interim_section(doc)).lower()
-    # Honest framing: isolates a share, does NOT resolve; residual ~2x van Veen's 0.3; deferred to T4.
+    # Honest framing: isolates a share, does NOT resolve; residual ~2x the 0.3 target. Neither the
+    # interim nor T4 resolves the chord PARTIAL, so the section must not say either does.
     assert "isolat" in section
     assert "does not resolve" in section or "not resolve" in section
+    assert "resolved by" not in section and "resolves" not in section
+    assert "t2a target" in section and "van veen's translational" not in section
     assert ("~2×" in section) or ("~2x" in section) or ("2×" in section)
     assert "0.3" in section
     assert "t4" in section and "#40" in section
@@ -315,12 +320,12 @@ def test_interim_framing_is_honest_and_disambiguated():
     # "Same peaks" note tying the 3-sig-fig totals to the body-frame table's 0.92 / 2.61.
     assert "same peaks" in section
     assert "0.92" in section and "2.61" in section
-    # The Validation-Status row is updated BY T4 (not by the interim) from PARTIAL to
-    # validated-against-model; the interim is not the edit that changed the verdict (T4's is).
+    # The Validation-Status row states what T4 supports: the normal peak magnitude is validated
+    # against the model; the chord is reported, not explained.
     assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
     assert (
-        "| Body-frame van Veen comparison | VALIDATED (vs QS model, magnitude; pending [#133](https://github.com/talmolab/mosquito-cfd/issues/133)) |"
-        in doc
+        "| Body-frame van Veen comparison | VALIDATED against van Veen's quasi-steady model "
+        "(normal peak magnitude); chord reported, not explained by the model |" in doc
     )
 
 
@@ -333,43 +338,201 @@ _FINE = "examples/flapping_wing/forces_fine.csv"
 # cells cannot collide with the two headline tables under the existing enumeration guard.
 _T4_HEADER_SUB = "per-component decomposition"
 # Decimal cells of the T4 table: CFD totals (fine grid, T3c) + van Veen model peaks (recomputed).
-_T4_TABLE_VERIFIED = {2.23, 2.48, 0.41, 0.43}
+_T4_TABLE_VERIFIED = {2.23, 2.27, 0.41, 0.107}
+
+
+def _t4_section(doc: str) -> str:
+    """Text of the `### T4 per-component decomposition …` subsection up to the next header."""
+    lines = doc.splitlines()
+    start = next(
+        k
+        for k, ln in enumerate(lines)
+        if ln.startswith("### ") and _T4_HEADER_SUB in ln.lower()
+    )
+    end = next(
+        (
+            k
+            for k, ln in enumerate(lines[start + 1 :], start + 1)
+            if ln.startswith("## ") or ln.startswith("### ")
+        ),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def _has_number(text: str, literal: str) -> bool:
+    """``literal`` occurs in ``text`` as a whole number (not inside a longer one)."""
+    return re.search(rf"(?<![\d.]){re.escape(literal)}(?!\d)", text) is not None
+
+
+def _decimals(text: str) -> set[str]:
+    """Every decimal number in ``text``, as written.
+
+    Section, equation and figure references (``§3.1.2``, ``eq 3.12``) and labels such as ``S1.1``
+    are not numbers and are skipped; a number that ends a sentence is still found.
+    """
+    text = re.sub(r"§\d+(\.\d+)*|\b(eq|fig)\s+\d+(\.\d+)*", " ", text)
+    return set(re.findall(r"(?<![\w.])\d+\.\d+(?!\.?\d)", text))
 
 
 def test_t4_decomposition_numbers_reproduce():
-    """The Tier T4 decomposition numbers recompute from the committed FINE-grid CSV (T3c, PR #52)
-    AND appear in RESULTS.md, the verdict is updated to validated-against-model / chord-grid-limited,
-    and the pre-existing enumeration guards + the T3b section are unperturbed.
+    """The Tier T4 decomposition numbers recompute from the committed CSVs AND appear in the T4
+    subsection of RESULTS.md; the pre-existing enumeration guards + the T3b section are unperturbed.
 
     Scenario: T4 decomposition numbers recompute (fine grid) and are asserted present. No
     ``medium_csv`` is passed — pairing the finest grid as the 2-grid function's "coarse" role would
     invert the GCI-band semantics; the T3c 3-grid Richardson/GCI numbers are reported separately.
+
+    Together the pins fail under the reversion of any one model correction: the gaps move with
+    ``S_cy``, the chord peaks with the unit of eq 3.12, and a signed pitch raises.
     """
     r = decompose_wing_force(_FINE, **_T3B_KIN)
-    # (a) recompute — graded magnitude, reported phase / known-answer chord / chord total.
-    assert r["normal_peak_model"] == pytest.approx(2.48, abs=0.02)
-    assert r["normal_peak_cfd"] == pytest.approx(2.23, abs=0.02)
-    assert r["normal_mag_gap_rel"] == pytest.approx(0.11, abs=0.01)
+    # (a) recompute — graded magnitude, then the reported numbers.
+    assert r["normal_peak_model"] == pytest.approx(2.2663, abs=5e-4)
+    assert r["normal_peak_cfd"] == pytest.approx(2.2277, abs=5e-4)
+    assert r["normal_mag_gap_rel"] == pytest.approx(0.0174, abs=5e-4)
     assert r["normal_mag_pass"] is True
-    assert r["normal_peak_phase_gap"] == pytest.approx(0.055, abs=0.01)
-    assert r["transl_chord_peak"] == pytest.approx(0.42, abs=0.01)
-    assert r["chord_peak_model"] == pytest.approx(0.43, abs=0.02)
-    assert r["chord_peak_cfd"] == pytest.approx(0.41, abs=0.01)
+    assert r["normal_peak_phase_gap"] == pytest.approx(0.0277, abs=5e-4)
+    assert r["normal_curve_rmse"] == pytest.approx(0.163, abs=5e-4)
+    assert r["normal_curve_corr"] == pytest.approx(0.978, abs=5e-4)
+    assert r["chord_curve_corr"] == pytest.approx(0.970, abs=5e-4)
+    assert r["chord_peak_model"] == pytest.approx(0.1070, abs=5e-4)
+    assert r["chord_peak_cfd"] == pytest.approx(0.4114, abs=5e-4)
+    assert r["transl_chord_peak"] == pytest.approx(0.0573, abs=5e-4)
     assert r["chord_gci_band"] is None
     assert r["chord_converges_toward_model"] is None
+    # "The CFD peak comes first": its phase precedes the model's within the same half-stroke.
+    assert r["normal_peak_phase_cfd"] < r["normal_peak_phase_model"]
+    assert abs(r["normal_peak_phase_model"] - r["normal_peak_phase_cfd"]) < 0.25
+    # "The model's peak falls just after mid-stroke, where its Wagner term changes sign": the
+    # Wagner normal force is negative while the wing speeds up and positive while it slows.
+    assert 0.5 < r["normal_peak_phase_model"] < 0.52
+    phase, wagner = r["series"]["phase"], r["series"]["model_wagner"][1]
+    assert (wagner[(phase > 0.45) & (phase < 0.499)] < 0).all()
+    assert (wagner[(phase > 0.501) & (phase < 0.55)] > 0).all()
+    # Coarse is graded too; medium is reported.
+    coarse = decompose_wing_force(_NEWCONV, **_T3B_KIN)
+    medium = decompose_wing_force(_MEDIUM, **_T3B_KIN)
+    assert coarse["normal_mag_gap_rel"] == pytest.approx(0.1303, abs=5e-4)
+    assert coarse["normal_mag_pass"] is True
+    assert medium["normal_mag_gap_rel"] == pytest.approx(0.0285, abs=5e-4)
 
     doc = _doc()
-    # (b) the T4 literals are present in the doc.
-    for lit in ("2.48", "0.43", "0.055", "0.42", "2.23", "0.41"):
-        assert lit in doc, f"T4 literal {lit!r} missing from RESULTS.md"
+    section = _t4_section(doc)
+    # (b) every number the T4 subsection states is the recomputed one, matched as a whole number
+    # inside the subsection (a stray copy elsewhere in the file does not satisfy this).
+    a_mid, b_mid, c_mid = vv.TRANSL_TANGENTIAL_POLY
+    literals = {
+        "model normal peak": f"{r['normal_peak_model']:.2f}",
+        "CFD normal peak": f"{r['normal_peak_cfd']:.2f}",
+        "relative gap": f"{100 * r['normal_mag_gap_rel']:.1f} %",
+        "tolerance": f"{100 * T4_NORMAL_MAG_TOL:.0f} %",
+        "phase gap": f"{r['normal_peak_phase_gap']:.3f}",
+        "curve RMSE": f"{r['normal_curve_rmse']:.3f}",
+        "normal correlation": f"{r['normal_curve_corr']:+.2f}",
+        "chord correlation": f"{r['chord_curve_corr']:+.2f}",
+        "model chord peak": f"{r['chord_peak_model']:.3f}",
+        "CFD chord peak": f"{r['chord_peak_cfd']:.2f}",
+        "chord ratio": f"{r['chord_peak_cfd'] / r['chord_peak_model']:.1f} times",
+        "translational-chord window peak": f"{r['transl_chord_peak']:.3f}",
+        "translational chord at mid-stroke": f"{a_mid * 45.0**2 + b_mid * 45.0 + c_mid:.3f}",
+        "coarse gap": f"{100 * coarse['normal_mag_gap_rel']:.1f} %",
+        "medium gap": f"{100 * medium['normal_mag_gap_rel']:.1f} %",
+    }
+    # The window holds a second CFD normal peak, on the following half-stroke. The grade uses the
+    # larger one; the docs state the other and the gap against it.
+    series = r["series"]
+    later = series["time"] >= 0.75
+    second_peak = float(series["cfd_normal"][later].max())
+    assert second_peak == pytest.approx(2.0065, abs=5e-4)
+    assert second_peak < r["normal_peak_cfd"]
+    second_gap = abs(r["normal_peak_model"] - second_peak) / second_peak
+    assert second_gap == pytest.approx(0.1295, abs=5e-4)
+    assert second_gap < T4_NORMAL_MAG_TOL  # it would also pass, with a small margin
+    literals["second CFD normal peak"] = f"{second_peak:.2f}"
+    literals["gap against the second peak"] = f"{100 * second_gap:.1f} %"
+    lower_by = f"{100 * (1 - second_peak / r['normal_peak_cfd']):.0f} % lower"
+    assert lower_by == "10 % lower" and lower_by in section
+    # "The model's own peak for that half-stroke falls just past the end of the data."
+    assert r["normal_peak_phase_model"] + 0.5 > float(series["time"].max())
+    assert "falls just past the end of the data" in _flat(section)
+    # "Its peak falls in the accelerating part of the stroke": at the model's chord peak the
+    # stroke rate and the stroke acceleration have the same sign.
+    k = int(np.argmax(np.abs(series["model_chord"])))
+    t_peak = float(series["time"][k])
+    rate, accel = np.cos(2 * np.pi * t_peak), -np.sin(2 * np.pi * t_peak)
+    assert rate * accel > 0
+    # "an `F_ref` built on that same `S_yy`, which is larger than the committed markers' own":
+    # a marker quadrature of integral c*y**2 dy, independent of the module's.
+    verts = np.loadtxt("examples/flapping_wing/wing.vertex", skiprows=1)
+    y_m = verts[:, 1] + (3.0 - verts[:, 1].max())
+    edges = np.linspace(y_m.min(), y_m.max(), 31)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    chord_m = np.array(
+        [
+            np.ptp(verts[(y_m >= lo) & (y_m <= hi), 0])
+            for lo, hi in zip(edges[:-1], edges[1:], strict=True)
+        ]
+    )
+    marker_s_yy = float(np.trapezoid(chord_m * centres**2, centres))
+    assert 6.0 < marker_s_yy < 6.5 < vv.compute_wing_area_moments().s_yy
+    # Both curves dip slightly below zero before each reversal (the docs say so).
+    assert 0.05 < float((series["model_normal"] < 0).mean()) < 0.2
+    assert 0.05 < float((series["cfd_normal"] < 0).mean()) < 0.2
+    assert (
+        literals["model normal peak"] == "2.27" and literals["relative gap"] == "1.7 %"
+    )
+    for what, lit in literals.items():
+        assert _has_number(section, lit), (
+            f"T4 {what} {lit!r} missing from the T4 subsection"
+        )
+    # Each number sits in the phrase that names it, so two numbers cannot be swapped.
+    flat_section = _flat(section)
+    m_n, c_n = literals["model normal peak"], literals["CFD normal peak"]
+    m_c, c_c = literals["model chord peak"], literals["CFD chord peak"]
+    bound = (
+        f"| **CF_normal** (lift) | {c_n} | {m_n} |",
+        f"| **CF_chord** (tangential) | {c_c} | {m_c} |",
+        f"model {m_n} vs CFD {c_n} on the fine grid, a relative gap of "
+        f"{literals['relative gap']}",
+        f"`T4_NORMAL_MAG_TOL` ({literals['tolerance']})",
+        f"coarse grid (gap {literals['coarse gap']})",
+        f"medium-grid gap ({literals['medium gap']})",
+        f"The two peaks are {literals['phase gap']} cycle apart",
+        f"over the window: {literals['curve RMSE']}",
+        f"normal {literals['normal correlation']}, chord {literals['chord correlation']}",
+        f"the model's chord peak is {m_c} and the CFD's is {c_c}",
+        f"the CFD peak is {literals['chord ratio']} the model's",
+        f"**Translational-chord window peak**: "
+        f"{literals['translational-chord window peak']}",
+        f"it is {literals['translational chord at mid-stroke']} at mid-stroke",
+        f"a second normal peak, {literals['second CFD normal peak']}",
+        f"the model's peak is {literals['gap against the second peak']} high",
+    )
+    for phrase in bound:
+        assert phrase in flat_section, phrase
+    # ...and the subsection states no other decimal: a wrong copy of a number in the prose fails
+    # even when the right one is also present. The CFD numbers it cross-references are recomputed
+    # here too (grid peaks, the T3c Richardson extrapolant and GCI_fine, the window start).
+    grid = wing_grid_convergence_from_body_forces(_NEWCONV, _MEDIUM, _FINE, **_T3B_KIN)
+    cross_referenced = {
+        f"{STEADY_WINDOW_T0:.2f}",
+        f"{coarse['chord_peak_cfd']:.2f}",
+        f"{medium['chord_peak_cfd']:.3f}",
+        f"{grid['cf_chord']['cf_exact_richardson']:.2f}",
+        f"{100 * grid['cf_chord']['gci_fine']:.1f}",
+    }
+    assert cross_referenced == {"0.05", "0.92", "0.554", "0.32", "27.6"}
+    recomputed = _decimals(" ".join(literals.values())) | cross_referenced
+    stated = _decimals(section)
+    assert stated == recomputed, (
+        f"T4 subsection decimals: unexpected {sorted(stated - recomputed)}, "
+        f"missing {sorted(recomputed - stated)}"
+    )
 
     # (c) the T4 subsection uses a distinct `### ` header not containing the two scanned substrings,
     # and its table cells are asserted-complete (a new T4 decimal cell fails here).
-    t4_header = next(
-        ln
-        for ln in doc.splitlines()
-        if ln.startswith("### ") and _T4_HEADER_SUB in ln.lower()
-    )
+    t4_header = section.splitlines()[0]
     assert "lab-frame magnitudes" not in t4_header
     assert "Body-frame per-component van Veen comparison" not in t4_header
     t4_nums = _table_numbers(doc.lower(), _T4_HEADER_SUB)
@@ -378,11 +541,28 @@ def test_t4_decomposition_numbers_reproduce():
         f"missing {sorted(_T4_TABLE_VERIFIED - t4_nums)}"
     )
 
-    # (d) the wing Validation-Status row is updated to validated-against-model / chord-grid-limited,
-    # references #50 (the grid complement), and no longer reads PARTIAL / an open #40 for the wing.
+    # (d) the wing Validation-Status row reads validated-against-model, references #50 (the grid
+    # complement), and no longer reads PARTIAL.
     assert "validated against van veen" in doc.lower()
     assert "| Body-frame van Veen comparison | PARTIAL |" not in doc
     assert "#50" in doc
+    status = next(
+        ln
+        for ln in doc.splitlines()
+        if ln.startswith("| Body-frame van Veen comparison |")
+    )
+    for phrase in (
+        f"CF_normal {c_n} vs model {m_n}",
+        f"rel gap {literals['relative gap']} < {literals['tolerance']} tol",
+        f"CF_chord {c_c} vs model {m_c}",
+        f"peak-phase gap ({literals['phase gap']} cycle)",
+        f"following half-stroke's CFD peak, {literals['second CFD normal peak']}, the gap is "
+        f"{literals['gap against the second peak']}",
+    ):
+        assert phrase in status, f"status row lacks {phrase!r}"
+    assert _decimals(status) <= recomputed | {"0.3"}, sorted(
+        _decimals(status) - recomputed
+    )
 
     # (e) the pre-existing headline-table + interim enumeration guards are unperturbed, and the T3b
     # "Grid convergence" section and the new figure's Output Files row are present.
@@ -394,20 +574,91 @@ def test_t4_decomposition_numbers_reproduce():
     assert "fig_force_decomposition" in doc
 
 
-def test_t4_resolution_attributed_to_t4_not_the_interim():
-    """The verdict change is attributed to T4, and the interim still frames itself as isolating the
-    share (not itself resolving #40).
+def test_t4_subsection_states_the_limits_of_the_comparison():
+    """The T4 subsection says what the comparison cannot show, and names the open issues.
 
-    Scenario: Honest framing — verdict updated BY T4 (not by the interim).
+    Scenario: RESULTS.md states the graded normal, the reported chord and the limits.
+    """
+    section = _flat(_t4_section(_doc())).lower()
+    for phrase in (
+        "validated against van veen's quasi-steady model at matched kinematics",
+        "different phases",  # the two peaks are not the same instant
+        "just after mid-stroke",
+        "wagner term changes sign",
+        "the grade uses the larger",
+        "about eleven times",  # pinned by tests/test_van_veen_dataset.py
+        "decelerates for half of each half-stroke",
+        "chord curve is unsupported there",
+        "its peak falls in the accelerating part of the stroke",
+        "and exceeds the force itself",
+        "best for an accelerating wing",
+        "larger than the committed markers' own",
+        "#165",
+        "divided by an `f_ref` built on that same `s_yy`",
+        "first wingbeat",
+        "impulsive start",
+        "mixed planform bases",
+        "§3.1.2",
+        "§4.4",
+        "the graded normal does not",
+        "no pitch-rotation term",
+        "s1.1",
+        "not published with the article",
+        "fig 1c–e",
+        "#40 is open",
+        "#135",
+        "#155",
+        "#156",
+        "reported, not gated",
+    ):
+        assert phrase in section, phrase
+    # The chord is stated side by side, naming the grid, and is not called explained.
+    assert "does not explain" in section
+    assert "does not resolve the cf_chord partial" in section
+    # The digits of the §4.4 coefficient set are not quoted (its constant is a superseded number).
+    assert "1.0e-4" not in section
+
+
+def test_t2a_note_names_the_targets_and_their_follow_up():
+    """The T2a targets are called targets, with one note under the first T2a table (design D10)."""
+    doc = _doc()
+    flat = _flat(doc)
+    note = flat[flat.index("**About the targets.**") :]
+    note = note[: note.index("**Honest framing")]
+    assert "VAN_VEEN_CF_TARGETS" in note
+    assert "[#154](https://github.com/talmolab/mosquito-cfd/issues/154)" in note
+    assert "not re-graded" in note
+    # The paper's printed values at 45 degrees, recomputed from the pinned coefficients.
+    a, b, c = vv.TRANSL_TANGENTIAL_POLY
+    assert _has_number(note, f"{vv.C_FZA_TRANSL * np.sin(np.radians(45.0)):.2f}")
+    assert _has_number(note, f"{a * 45.0**2 + b * 45.0 + c:.3f}")
+    # The note sits under the first T2a table, before the lab-frame section.
+    assert doc.index("**About the targets.**") < doc.index("## Summary")
+    # No section still attributes the pinned targets to van Veen's translational coefficients.
+    for stale in (
+        "van Veen (**translational-only**, Fig 4)",
+        "van Veen's translational ~0.3",
+        "van Veen's **translational-only**",
+        "van Veen (transl.)",
+        "`C_Fz,transl`",
+        "`C_Fx,transl`",
+    ):
+        assert stale not in flat, stale
+
+
+def test_interim_does_not_claim_t4_resolves_the_chord():
+    """The interim isolates a share; neither it nor T4 resolves the chord PARTIAL.
+
+    Scenario: Honest framing. This inverts the earlier assertion that the interim points the
+    resolution at T4: the corrected model leaves the chord unexplained.
     """
     doc = _doc()
     section = _interim_section(doc).lower()
-    # The interim still isolates a share and points the RESOLUTION at the T4 decomposition.
     assert "isolat" in section
     assert "t4" in section
-    assert ("resolved by" in section) or ("resolves" in section)
-    # The interim itself does not resolve #40 (that framing survives).
+    assert "resolved by" not in section and "resolves" not in section
     assert "does not resolve" in section or "not resolve" in section
+    assert "#40" in section
 
 
 # --- Tier T3b: grid-convergence numbers recompute from the committed coarse + medium CSVs ------
@@ -542,7 +793,7 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
 
     Design D5: "total" keeps one meaning, the IB force on the wing ``ib_w``; the solver's ``ρ_f·SumU`` is
     an internal-fluid term, not van Veen's added mass; which force van Veen should be compared with is
-    #135; the T4 RMSE note points at #133; and no stale "total hydrodynamic force" claim survives.
+    #135; and no stale "total hydrodynamic force" claim survives.
     """
     doc = _doc()
     flat = _flat(doc)
@@ -550,75 +801,41 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert "measured as the IB force on the wing `ib_w`" in flat
     assert "not van Veen's added-mass component" in flat
     assert "the name is historical" in flat
-    assert "#135" in flat and "#133" in flat
+    assert "#135" in flat
     assert "is the **total** hydrodynamic force" not in flat
     assert "coordinate-convention.md#force-and-moment-sign" in flat
-    # The T4 section flags that its normal-force numbers await the #133 model-sign fix.
-    assert "Pending [#133](" in flat and "should not be relied on until then" in flat
-    # The pending note also covers the chord: same stroke-direction cause, plus eq 3.12's degrees.
-    note = flat[flat.index("Pending [#133](") :]
-    note = note[: note.index("| body-frame peak |")]
-    for phrase in (
-        "The chord comparison is affected too",
-        "degrees",
-        "0.18",
-        "#40 resolved",
-        "status table",
-    ):
-        assert phrase in note, phrase
-    assert "close agreement, grid-limited (#50), pending #133" in flat
+
+
+def test_closed_grid_issue_is_not_cited_as_the_open_tracker():
+    """#50 (the 256³ study) is closed; further refinement is #165, in RESULTS and the roadmap."""
     root = Path(__file__).resolve().parents[1]
-    roadmap = (root / "docs/aerodynamics_validation/roadmap.md").read_text(
-        encoding="utf-8"
-    )
-    # #40 is the chord question, so the roadmap must not call it resolved "for the normal".
-    assert "#40's chord question is pending [#133](" in _flat(roadmap)
-    assert "the graded normal magnitude passes" in _flat(roadmap)
-    assert "#40 resolved for the normal force" not in _flat(roadmap)
-    # The T4 figure's note covers the normal only; the CHANGELOG must not claim more.
-    changelog = _flat((root / "docs/CHANGELOG.md").read_text(encoding="utf-8"))
-    assert "The T4 figure flags the normal" in changelog
-    assert (
-        "The figure and RESULTS.md flag this, for the chord comparison" not in changelog
-    )
-    readme = (root / "examples/flapping_wing/figures/README.md").read_text(
-        encoding="utf-8"
-    )
-    assert "the #40 CF_chord resolution, is pending [#133](" in _flat(readme)
-    t4 = doc[doc.index("**Reported (not gated):** the normal **peak-phase gap**") :]
-    assert "#133" in t4[: t4.index("\n\n")]
-
-
-# Every claim that T4 resolved the chord question (#40) must cite #133, which found that T4's chord
-# model is fed the signed pitch and radians (review of #136). Checked per paragraph, and per row in a
-# table, across the three documents that make the claim, so a new unflagged claim fails here too.
-_CHORD_RESOLUTION_CLAIM = re.compile(
-    r"resolved by the (?:\"?T4|T4)|resolves the CF_chord|resolved the CF_chord"
-    r"|Resolves the (?:T2a |#40 )?CF_chord|#40 closed|#40 resolved|0\.3–0\.43"
-    r"|validated against van Veen's quasi-steady model|full QS model total"
-)
-_CHORD_CLAIM_DOCS = (
-    "examples/flapping_wing/RESULTS.md",
-    "docs/aerodynamics_validation/roadmap.md",
-    "examples/flapping_wing/figures/README.md",
-)
-
-
-def _blocks(text: str):
-    """Paragraphs of ``text``; a table yields one block per row."""
-    for para in re.split(r"\n\s*\n", text):
-        lines = para.splitlines()
-        if lines and all(ln.lstrip().startswith("|") for ln in lines):
-            yield from lines
-        else:
-            yield para
-
-
-@pytest.mark.parametrize("rel", _CHORD_CLAIM_DOCS)
-def test_every_chord_resolution_claim_cites_133(rel):
-    """No paragraph or table row says the chord is resolved without pointing at #133."""
-    text = (Path(__file__).resolve().parents[1] / rel).read_text(encoding="utf-8")
-    claims = [b for b in _blocks(text) if _CHORD_RESOLUTION_CLAIM.search(b)]
-    assert claims, f"{rel}: no chord-resolution claim found; the guard would be vacuous"
-    unflagged = [" ".join(b.split())[:160] for b in claims if "#133" not in b]
-    assert not unflagged, (rel, unflagged)
+    for rel in (
+        "examples/flapping_wing/RESULTS.md",
+        "docs/aerodynamics_validation/roadmap.md",
+    ):
+        flat = _flat((root / rel).read_text(encoding="utf-8"))
+        assert "#165" in flat, rel
+        # Each place that used to point at the closed issue now names the open one.
+        wanted = {
+            "examples/flapping_wing/RESULTS.md": (
+                "is [#165](https://github.com/talmolab/mosquito-cfd/issues/165); the 256³ "
+                "study was [#50](",
+                "(GCI_fine 27.6 %; a finer run is #165)",
+                "complete at 256³; a finer run is "
+                "[#165](https://github.com/talmolab/mosquito-cfd/issues/165))",
+            ),
+            "docs/aerodynamics_validation/roadmap.md": (
+                "a finer run is [#165](https://github.com/talmolab/mosquito-cfd/issues/165)). "
+                "**#40 is open**",
+                "([#165](https://github.com/talmolab/mosquito-cfd/issues/165) is the finer run)",
+            ),
+        }[rel]
+        for phrase in wanted:
+            assert phrase in flat, (rel, phrase)
+        for stale in (
+            "is tracked by **[#50]",
+            "further refinement is **[#50]",
+            "tight grid verdict (#50)",
+            "deferred (512³+, H100/grant hardware — [#50]",
+        ):
+            assert stale not in flat, (rel, stale)

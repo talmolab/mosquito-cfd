@@ -1,4 +1,4 @@
-"""Grid-convergence figure (Tier T3b): peak body-frame CF, coarse vs medium, vs van Veen.
+"""Grid-convergence figure (Tier T3b): peak body-frame CF, coarse vs medium, vs the T2a target.
 
 Cluster-free — recomputes the coarse->medium relative change + 2-grid GCI band directly from the two
 committed IB-particle CSVs (via ``wing_grid_convergence_from_body_forces``), so the headline
@@ -17,6 +17,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from mosquito_cfd.benchmarks.flapping_wing import VAN_VEEN_CF_TARGETS
 from mosquito_cfd.benchmarks.wing_convergence import (
     wing_grid_convergence_from_body_forces,
 )
@@ -24,7 +25,9 @@ from mosquito_cfd.benchmarks.wing_convergence import (
 _HERE = Path(__file__).parent
 _COARSE = _HERE / "forces_t2a_newconv.csv"
 _MEDIUM = _HERE / "forces_medium.csv"
-_VAN_VEEN = {"cf_chord": 0.3, "cf_normal": 2.4}  # van Veen 2022 translational reference
+# The reference line is the pinned T2a target, read from VAN_VEEN_CF_TARGETS when the figure is
+# drawn (never a typed number). Keys into that dict, per component.
+_TARGET_KEYS = {"cf_chord": "cf_chord_peak", "cf_normal": "cf_normal_peak"}
 _LABELS = {
     "cf_chord": "CF_chord (tangential)",
     "cf_normal": "CF_normal (lift)",
@@ -39,7 +42,8 @@ def make_figure(out: Path = _HERE / "figures" / "fig_grid_convergence.png") -> P
     fig, axes = plt.subplots(1, 2, figsize=(9, 4.2))
     for ax, comp in zip(axes, ("cf_chord", "cf_normal")):
         d = conv[comp]
-        coarse, medium, ref = d["cf_coarse"], d["cf_medium"], _VAN_VEEN[comp]
+        ref = VAN_VEEN_CF_TARGETS[_TARGET_KEYS[comp]]
+        coarse, medium = d["cf_coarse"], d["cf_medium"]
         bars = ax.bar(
             [0, 1],
             [coarse, medium],
@@ -54,7 +58,7 @@ def make_figure(out: Path = _HERE / "figures" / "fig_grid_convergence.png") -> P
             lw=2,
             color="#55a868",
             zorder=2,
-            label=f"van Veen 2022 ~ {ref}",
+            label=f"T2a target (pinned) {ref:g}",
         )
         for b, v in zip(bars, (coarse, medium)):
             ax.text(
@@ -89,7 +93,9 @@ def make_figure(out: Path = _HERE / "figures" / "fig_grid_convergence.png") -> P
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     out.parent.mkdir(exist_ok=True)
     fig.savefig(out, dpi=150, bbox_inches="tight")
-    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    fig.savefig(
+        out.with_suffix(".pdf"), bbox_inches="tight", metadata={"CreationDate": None}
+    )
     plt.close(fig)
     return out
 
