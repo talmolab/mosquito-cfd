@@ -118,7 +118,7 @@ def fig_v2_second_moment(out_dir: Path) -> dict:
 
 
 def fig_v3_scale_invariance(out_dir: Path) -> dict:
-    """V3: predicted-vs-CFD scatter on the peak-tip and the van Veen reference; R^2 unchanged.
+    """V3: predicted-vs-CFD scatter on two F_ref references; R^2 unchanged.
 
     The committed predictions are van Veen coefficients (F_ref at the radius of gyration). The
     peak-tip panel shows the same coefficients on F_ref(R_TIP), i.e. divided by
