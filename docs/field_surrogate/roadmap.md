@@ -191,12 +191,12 @@ physics (fixed motion now, commanded changes later) will favour different models
 3. **The hover gate is run on main, not taken from E1.** On hover, arm A is Track B's MLP (a
    kinematics window adds nothing to periodic kinematics). E1 found it inside the CFD uncertainty
    yardsticks on the worst of 5 seeds, **narrowly** (worst-seed normal-peak error 3.2% against a
-   3.7% band borrowed from one config, #133) and only *about equal to* the settled-beat difference
+   3.7% band borrowed from one config, T3c in `examples/flapping_wing/RESULTS.md`) and only *about equal to* the settled-beat difference
    from E0b (beat 2 vs beat 6: 0.8–2.9% of peak at 45° pitch, 0.8–5.0% at 30°, coarse grid, two
    configs). The bench re-measures this and records the verdict per component. Entries: the
    current MLP; the MLP with optional phase harmonics (default off, E4: skill 0.987 → 0.995 with 3
    harmonics; the shipped default does not change); a Fourier × polynomial ridge model as a
-   reference a learned model must beat (E4: skill 0.9991, reliable only on the full 21 configs).
+   reference a learned model must beat (E4: skill 0.9991 on the full 21 configs; its collapse on one 18-config subset is retested by F3a).
 4. **Arm C is run on hover even if the gate passes**, as a deliberate exception to decision 2
    above: the purpose is to learn the family's limits, not to pass a gate. Its yardstick is a
    field model that needs no encoder: wing-frame POD + a kinematics → coefficients ridge model
@@ -385,7 +385,7 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
 4. **What is the corpus's own CFD force uncertainty?** — F3's hover gate is defined against it
    and it must be measured on this corpus, not assumed (T3c GCI_fine was CF_normal 3.7% but
    CF_chord 27.6%). **Partly answered 2026-11-18 (exploration, to be re-measured by F3a):** the
-   grid band still comes from one config and mixes grid and timestep refinement (#133); the
+   grid band still comes from one config and mixes grid and timestep refinement (T3c, `examples/flapping_wing/RESULTS.md`); the
    beat-to-beat difference of the 2-beat corpus is mostly start-up transient (E0: 5–17% of peak,
    median over configs, fine grid); the settled-beat difference is 0.8–5.0% of peak (E0b, coarse,
    two configs).
