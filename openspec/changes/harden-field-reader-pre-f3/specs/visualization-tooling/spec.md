@@ -15,7 +15,8 @@ two agree on which plotfiles exist.
   `ValueError` naming both, rather than rendering the same instant twice.
 - **Missing or empty directory.** A `plotfile_dir` that does not exist or is not a directory, and
   a directory with no plotfile, SHALL each raise `ValueError` naming the directory, as before. The
-  no-plotfile message SHALL describe the accepted name as `plt<digits>`.
+  message SHALL say which: "does not exist" only for a missing path, "is not a directory" for one
+  that exists, and the no-plotfile message SHALL describe the accepted name as `plt<digits>`.
 
 `build_flow_video`'s documentation and the `make_flow_video.py --plotfile-dir` help SHALL describe
 the accepted names as `plt<digits>` of any width.

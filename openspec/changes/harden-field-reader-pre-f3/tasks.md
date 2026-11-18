@@ -343,6 +343,67 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
   Tabulate mutant → killing test → result in the PR body. For any survivor, add a test, or record why
   it is equivalent.
 
+## 10. Pre-PR self-review fixes (design D8)
+
+Each item is red then green in one commit, as in §1–§7. Every new guard gets a mutant, and all fixes
+get a narrow re-review afterwards.
+
+- [ ] 10.1 **D8.1: normalized arguments and the Header check.** Commit
+  `fix(field-surrogate): FieldCorpus.snapshot reads the normalized fields and checks the plotfile before provenance`.
+  - **Red:**
+    - a generator and an iterator of `("u", "v")` give `field_names == ("u", "v")`;
+    - a `Header`-less `plt00100` with no metadata raises `FileNotFoundError` naming `Header`.
+  - **Mutants:**
+    - pass the raw `fields`;
+    - drop the `_check_plotfile_dir` call.
+- [ ] 10.2 **D8.2: `run_id`, `status`, `git.dirty`.** Commit
+  `feat(field-surrogate): corpus snapshots carry run_id; refuse incomplete and dirty-tree runs`.
+  - **Red:**
+    - add negative cases for status absent or `"failed"`, run_id absent, `5` or `""`, and git.dirty
+      `true` or `"no"`;
+    - the positive control carries `run_id`;
+    - the pickle provenance variant includes `run_id`;
+    - the trailing-fields test expects five fields;
+    - the bare read leaves `run_id` unset.
+  - **Real-corpus re-check:** all 27 runs still pass and each carries its `run_id`.
+  - **Mutants:** drop each of the three new checks; `!= "completed"` → `is None`; `dirty is True`
+    instead of `not False`.
+- [ ] 10.3 **D8.3: consistent rebuild.** Commit
+  `fix(field-surrogate): FieldSnapshot pickling refuses non-FP64 arrays and never freezes the caller's`.
+  - **Red:**
+    - a hand-built `float32`, an `int64` and a `>f8` array each raise `ValueError` naming the array
+      under every transport;
+    - a hand-built snapshot with writable C-ordered FP64 arrays, after `copy.copy`, leaves the
+      caller's arrays writable while the copy's are read-only;
+    - an F-ordered FP64 array comes back C-contiguous under every transport.
+  - **Mutants:**
+    - drop the dtype check;
+    - drop the writable condition;
+    - drop the contiguity condition.
+- [ ] 10.4 **D8.5: JSON parser errors.** Commit
+  `fix(field-surrogate): run_metadata parser errors keep the prefixed ValueError`.
+  - **Red:** a 5000-digit integer and 100000-level nesting each raise the prefixed `ValueError`.
+  - **Mutant:** catch only `JSONDecodeError`.
+- [ ] 10.5 **D8.5: smaller items.** Commit
+  `refactor(field-surrogate): one run_metadata path helper; flow_video message; test timeouts; docs`.
+  - **Red:**
+    - flow_video on a regular file says "is not a directory";
+    - the path helper is used by both `run_metadata()` and `snapshot()`, pinned by monkeypatching the
+      constant.
+  - **Changes with no red test:**
+    - the spawn test gets `shutdown(wait=False, cancel_futures=True)`;
+    - the subprocess tests get `timeout=120`;
+    - docstrings: `git_commit` meaning, `_provenance` rationale, `scan_plotfiles` `Args`/`Returns`,
+      type hints, the stray line break, the stale `__init__`, and the 2× pickle cost in
+      `FieldSnapshot`, `project.md` and the CHANGELOG.
+- [ ] 10.6 Re-run:
+  - the touched test files, lint and `openspec validate --strict`;
+  - the mutants for 10.1–10.5;
+  - the A/B parity script;
+  - the full suite with the plotfile root.
+
+  Then do a narrow adversarial re-review of 10.1–10.5.
+
 ## 9. Docs and close-out
 
 - [x] 9.1 `openspec/project.md` §"Field Surrogate Reader (Stage 2)": add to its conventions list that

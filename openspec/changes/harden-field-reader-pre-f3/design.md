@@ -38,8 +38,11 @@ transport delivers it, so the rebuild re-imposes it.
 `arrays`, `x`, `y`, `z` and `dx`:
 - `size == 0` → `np.empty(a.shape, dtype=np.float64)`. That is the reader's own zero-cell allocation
   (#150 D5), so the strides match.
-- `base is not None` → `np.array(a, dtype=np.float64, order="C", copy=True)`.
+- `base is not None`, writable, or not C-contiguous → `np.array(a, dtype=np.float64, order="C",
+  copy=True)` (amended in D8.3).
 - Every array then gets `setflags(write=False)`.
+
+`__reduce__` refuses, with `ValueError`, any array that is not native FP64 (D8.3).
 
 It also restores the scalars and the mapping:
 - `time` goes through `float()`;
@@ -56,12 +59,18 @@ the reader uses.
 correct for an immutable value. On main it already works, because the `MappingProxyType` is shared
 shallowly.
 
-**Cost.** Every pickle transport copies each field array once more on receipt (the 3-D arrays arrive
-`bytes`-backed at protocols 2–4 and as views at 5). The receiver's transient peak per array is two
-copies of it. The alternative is to accept a read-only array whose `base` is the private unpickled
-`bytes`, which nothing else references. That would weaken the spec's `base is None` invariant, which
-exists so "no writable object shares its memory" is checkable by a single attribute. The copy is
-kept. F3 may still choose to send tensors or point clouds instead of whole snapshots.
+**Cost (corrected in D8.4).** Every pickle transport copies each field array once more on receipt.
+The 3-D arrays arrive `bytes`-backed at protocols 2–4 and as views at 5.
+
+The first draft said the transient peak was two copies **per array**. That was wrong. The unpickler
+keeps every received array alive until `loads` returns, so the receiver holds about **2× the whole
+snapshot's field bytes**, and copying per key does not lower it.
+
+The alternative is to accept a read-only array whose `base` is the private unpickled `bytes`, which
+nothing else references. That would weaken the spec's `base is None` invariant, which exists so that
+"no writable object shares its memory" is checkable by a single attribute. On the corrected numbers
+the user chose to keep the copy (2026-11-17). F3 should send tensors or point clouds instead of
+whole full-domain snapshots.
 
 **Rejected: a plain-`dict` `arrays`.** That is mutable, so a caller could add or replace a field and
 desynchronize it from `field_names`.
@@ -156,15 +165,20 @@ manifest; `s55_f115_p30` is absent from it but its run is present and valid. The
   - an `OSError` or `UnicodeDecodeError` occurs on read, chained;
   - the JSON is invalid;
   - the top level is not an object.
-- **`run_provenance(meta, *, config_id, path) -> tuple[str, str]`.** Requires each of the following
-  to be a `str`:
+- **`run_provenance(meta, *, config_id, path) -> tuple[str, str, str]`** (amended in D8.2).
+  Requires each of the following to be a `str`:
   - `meta["config"] == config_id`;
+  - `meta["status"] == "completed"`;
+  - `meta["run_id"]`, non-empty;
   - `meta["git"]["commit"]`, `fullmatch` `[0-9a-f]{40}`;
   - `meta["docker_image"]`, `fullmatch` `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`.
 
+  It also requires `meta["git"]["dirty"]`, when present, to be `False`.
+
   Any absence, wrong type or mismatch raises `ValueError` with the fixed prefix
   `run_metadata for config {config_id!r} ({path}): ` followed by the failed field's dotted name
-  (`run_metadata.json`, `config`, `git`, `git.commit`, `docker_image`). The image pattern is
+  (`run_metadata.json`, `config`, `status`, `run_id`, `git`, `git.commit`, `git.dirty`,
+  `docker_image`). The image pattern is
   `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`, fullmatched. It checks the digest suffix and a
   plausible repository, not the full OCI grammar.
 
@@ -178,18 +192,14 @@ them, possibly onto this module.
 - **`FieldCorpus.snapshot(config_id, step, *, lo, hi, halo, fields)`**, in this order:
   1. `_validate_step(step)`, then `snapshot._validate_request(lo, hi, halo, fields)`. Both are pure,
      with no I/O, so an argument error is reported as such whatever the corpus state.
-  2. `plotfile(config_id, step)`: manifest, run directory, the step's presence.
-  3. `read_run_metadata(runs_dir / config_id / "run_metadata.json", config_id=...)` and
-     `run_provenance(...)`.
-
-     **Why not `run_metadata(config_id)`?** The implementation calls the same reader directly.
-     `plotfile()` has already checked the manifest and the run directory, so going through
-     `run_metadata()` would repeat those checks, and `run_provenance` needs the file's path for its
-     messages anyway. The behaviour is identical: same reader, same errors, same file.
-  4. `read_field_snapshot(...)`.
+  2. `plotfile(config_id, step)`: manifest, run directory, the step's presence. Then
+     `_check_plotfile_dir(plotfile)` (D8.1).
+  3. `run_metadata(config_id)` and `run_provenance(...)`. Both use one path helper,
+     `_run_metadata_path(config_id)`, built on the `RUN_METADATA_FILENAME` constant (D8.5).
+  4. `read_field_snapshot(...)` with the normalized `(lo, hi, halo, fields)` from step 1 (D8.1).
   5. The zero-cell refusal (D5).
-  6. `dataclasses.replace(snap, config_id=config_id, step=step, git_commit=..., docker_image=...)`.
-     This copies no array.
+  6. `dataclasses.replace(snap, config_id=config_id, step=step, git_commit=..., docker_image=...,
+     run_id=...)`. This copies no array.
 
   The provenance checks come **before** the read, so a corpus without provenance fails in
   milliseconds, not after a 256-cubed read.
@@ -251,6 +261,78 @@ equivalent skip list and the duplicate refusal.
   directly.
 - `corpus.py` imports only `snapshot`, `_messages`, `_provenance` and numpy at module scope. There is
   no cycle.
+
+## D8. Amendments from the pre-PR self-review (`/review-pr`, 2026-11-17)
+
+Five reviewers ran on `81170af`. Each amendment below states what changed from the approved
+proposal and why.
+
+**D8.1 A generator `fields` passed to `FieldCorpus.snapshot` read zero fields (BLOCKING, a
+regression).**
+- **Cause:** `_validate_request` consumed the iterator with `tuple(fields)`, and the raw, now
+  exhausted `fields` was passed on to `read_field_snapshot`. On main, `snapshot()` passed `fields`
+  straight through, so this was introduced by this change. Two reviewers found it independently.
+- **Fix:** `FieldCorpus.snapshot` passes the normalized values from step 1 on to the read.
+- **Also:** `_check_plotfile_dir(plotfile)` now runs before the provenance read. A plotfile still
+  being written was reported as a missing `run_metadata.json`.
+- **Why N instead of M:** the approved order checked a plotfile only by `is_dir()` before
+  provenance. The spec's own "plotfile errors win over provenance errors" requires the `Header` check
+  to come first too.
+
+**D8.2 `run_id`, `status` and `git.dirty` (the user's decision, 2026-11-17).**
+- **Problem:** all 27 runs share one commit and one image digest. So `(config_id, step, git_commit,
+  docker_image)` does not identify a run; a rerun, or the coarse corpus with the same config names,
+  collides.
+- **Fix:** snapshots now carry the pod's `run_id`, unique per attempt. For all 27 runs it matches the
+  committed `run_metadata_<config>.json`.
+- **New refusals:**
+  - `status != "completed"`: a failed run's late plotfiles may be unphysical;
+  - `git.dirty`, when present and not `False`.
+- **`git_commit` is relabelled** as the mosquito-cfd repository commit that the pod recorded
+  (`git.source == "docker-image-build-arg"`), not the solver's. The solver build is pinned only by the
+  image digest.
+- **Why N instead of M:** the approved proposal claimed cross-host identity from four fields. Measured
+  on Z:, that was false.
+
+**D8.3 Consistent rebuild for hand-built snapshots.**
+- **Problem:**
+  - `_refreeze` converted dtype and layout only when `base is not None`. A hand-built `float32` or
+    F-ordered array therefore came back changed or unchanged depending on the protocol, the array size
+    and the transport.
+  - `copy.copy` froze the caller's own writable arrays, because the same objects were shared and then
+    `setflags` was applied.
+- **Fix:**
+  - `__reduce__` now refuses non-native-FP64 arrays with `ValueError`. That matches the reader's
+    refusal of fp32 plotfiles, and is better than casting silently.
+  - `_refreeze` copies any array that has a `base`, is writable, or is not C-contiguous.
+- Reader-built snapshots are unaffected: they are native, C-contiguous, owning and read-only, so
+  `copy.copy` still shares their arrays.
+
+**D8.4 Pickle cost corrected (D1 "Cost").**
+- **Measured:** the receiver holds about 2× the snapshot's field bytes until `loads` returns, not 2×
+  per array: 768 MiB of arrays for a full domain (about 1.15 GiB with the payload), and about 150 ms
+  more per sample. Copying per key does not lower it, because the unpickler's memo keeps the
+  originals alive.
+- **Decision:** the user kept the invariant on these numbers. The docs now state them, and say that
+  F3 should send tensors or point clouds rather than full-domain snapshots.
+
+**D8.5 Smaller fixes.**
+- `read_run_metadata` also maps the parser's `ValueError` (integer digit limit) and `RecursionError`
+  (deep nesting) to the prefixed error.
+- One path helper and one filename constant replace the two spellings of the `run_metadata.json`
+  path. That supersedes the "Why not `run_metadata(config_id)`?" note added in reconciliation.
+- `flow_video` says "is not a directory" for an existing non-directory path.
+- The spawn test shuts its pool down without waiting, so a hung child cannot block CI.
+- Subprocess tests get timeouts.
+- Docstrings: `scan_plotfiles` gains `Args`/`Returns`; `_provenance`'s rationale is corrected (it does
+  accept `repo:tag@sha256:`, which OCI resolves by digest); `field_surrogate/__init__` was stale.
+
+**Not changed:**
+- **The DataLoader `fork` path is unverified on any host.** CI has no torch, Windows has no fork, and
+  WSL hangs on the development machine. The spawn rows passed with torch, and the spawn-pool test
+  covers the same `ForkingPickler` queue. The PR body says so.
+- **`fields=()` stays allowed** through `FieldCorpus.snapshot` (user decision): it supports
+  coordinates-only reads.
 
 ## Verification strategy
 

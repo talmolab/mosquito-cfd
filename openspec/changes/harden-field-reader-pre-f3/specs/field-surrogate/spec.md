@@ -17,15 +17,22 @@ the caller wrote them, so `a/../b` and `b` give different values. It is delibera
 D3). `source` is a
 **per-host locator**, not a cross-host identity: reads of the same plotfile from Windows, WSL and
 the cluster still spell it differently. The cross-host identity of a corpus snapshot is
-`(config_id, step)` plus the run's digest-pinned provenance (see "Corpus snapshots carry run
-identity and digest-pinned provenance").
+`(config_id, step, run_id)`, with the run's digest-pinned build provenance (see "Corpus snapshots
+carry run identity and digest-pinned provenance").
 
-The snapshot SHALL also carry four optional provenance fields, each defaulting to `None`:
-`config_id` (`str`), `step` (`int`), `git_commit` (a 40-character lowercase hex `str`) and
-`docker_image` (a `str` that fully matches `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`).
-`read_field_snapshot` SHALL
-leave all four `None`, since a bare plotfile path does not establish them, and SHALL NOT infer any of
-them from the path or fabricate a value. Only `FieldCorpus.snapshot` fills them.
+The snapshot SHALL also carry five optional provenance fields, each defaulting to `None`:
+- `config_id` (`str`);
+- `step` (`int`);
+- `git_commit`: a 40-character lowercase hex `str`, the mosquito-cfd **repository** commit that the
+  pod recorded (baked into the image at build). It is not the solver's commit; the solver build is
+  pinned by the image digest;
+- `docker_image`: a `str` that fully matches `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`;
+- `run_id`: a non-empty `str`, the pod's identifier for this run attempt.
+
+`(config_id, step, run_id)` identifies a corpus snapshot across hosts and corpora; the commit and
+image pin the code and build that produced it. `read_field_snapshot` SHALL leave all five `None`,
+since a bare plotfile path does not establish them, and SHALL NOT infer any of them from the path or
+fabricate a value. Only `FieldCorpus.snapshot` fills them.
 
 Before `yt` is imported, and after **every** argument check (the `fields` type, names and
 duplicates; `halo`; each corner's shape and NaN; inversion), `read_field_snapshot` SHALL check that the plotfile path names a directory containing a regular file
@@ -49,9 +56,21 @@ fields equal. This holds for zero-cell snapshots too. Pickle transports restore 
 backed by the pickle's own buffer, or as non-owning views, and restore zero-size arrays with
 different strides. So the rebuild SHALL do two things:
 - rebuild every zero-size array exactly as the reader allocates one;
-- copy every other array whose `base` is not `None`.
+- copy every other array whose `base` is not `None`, that is writable, or that is not C-contiguous.
 
-It SHALL then mark every array read-only. It SHALL carry every dataclass field, enumerated from the
+It SHALL then mark every array read-only. The rebuild never changes an array the caller still holds:
+`copy.copy` of a hand-built snapshot with writable arrays leaves the caller's arrays writable.
+Pickling or copying a snapshot any of whose arrays is not native FP64 (`dtype == np.float64`) SHALL
+raise `ValueError` naming the array, at pickling or copying time, rather than casting on some
+transports and not others.
+
+Restoring the invariant costs memory on the receiving side. The unpickler keeps every received
+array alive until `loads` returns, so the receiver briefly holds about twice the snapshot's field
+bytes, plus the pickle payload itself. For a full 256x128x256 domain with six FP64 fields that is
+768 MiB of arrays (about 1.15 GiB with the payload), and about 150 ms more per sample. Copying per key does not lower this. A `DataLoader` that moves full-domain snapshots should
+send tensors or point clouds from the worker instead.
+
+It SHALL carry every dataclass field, enumerated from the
 dataclass rather than from a hand-written list (`harden-field-reader-pre-f3` design D1). Tests SHALL
 compare snapshots property by property: the dataclass's generated `==` compares numpy arrays and
 can raise on two distinct snapshots (whenever an array has more than one element, or none).
@@ -87,7 +106,7 @@ that this holds trivially because each read allocates a fresh buffer, so a test 
   rotation `(-Ωy, Ωx, 0)` with `Ω = 1.3` to within floating-point equality, whose arrays are bare FP64
   numpy indexed `[ix, iy, iz]`, whose `dx` is `[1, 1, 1]`, whose `time` is `0.5`, whose `max_level` is
   `0`, whose `source` equals `Path(fixture).absolute().as_posix()`, and whose `config_id`, `step`,
-  `git_commit` and `docker_image` are all `None`
+  `git_commit`, `docker_image` and `run_id` are all `None`
 
 #### Scenario: `source` is absolute and POSIX-spelled whatever the caller passed
 
@@ -539,15 +558,21 @@ SHALL raise `ValueError`, with the message prefix below and the field tag `run_m
 any of the following holds:
 - `path` is not a regular file;
 - reading or decoding it raises `OSError` or `UnicodeDecodeError` (chained);
-- it is not valid JSON;
+- it is not valid JSON, including JSON the parser refuses with `ValueError` or `RecursionError`
+  (an integer beyond Python's digit limit, or nesting deeper than the recursion limit);
 - its top level is not a JSON object.
 
-**`run_provenance(meta, *, config_id, path) -> tuple[str, str]`** returns
-`(git_commit, docker_image)`. It SHALL raise `ValueError` when any of the following holds:
+**`run_provenance(meta, *, config_id, path) -> tuple[str, str, str]`** returns
+`(git_commit, docker_image, run_id)`. It SHALL raise `ValueError` when any of the following holds:
 - `meta["config"]` is absent, is not a `str`, or differs from `config_id`. A `run_metadata.json`
   copied into the wrong run directory must not lend its digest to another run's plotfiles.
+- `meta["status"]` is absent or is not the string `"completed"`. A failed or incomplete run, whose
+  late plotfiles may be unphysical, cannot lend its provenance to a training example.
+- `meta["run_id"]` is absent, is not a `str`, or is empty.
 - `meta["git"]` is not an object, or `meta["git"]["commit"]` is absent, is not a `str`, or does not
   fully match `[0-9a-f]{40}`. The full match refuses a trailing newline and uppercase hex.
+- `meta["git"]["dirty"]` is present and is not `False`. A run built from a dirty tree names a commit
+  that did not produce the code.
 - `meta["docker_image"]` is absent, is not a `str`, or does not fully match
   `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`. The check covers the digest suffix and a non-empty
   repository of lowercase reference characters; it does not parse the full OCI reference grammar.
@@ -561,7 +586,8 @@ Every message from either function SHALL have exactly the form
 `run_metadata for config <repr(config_id)> (<path>): <field>: <detail>`, built with the builtin
 `repr`, so a test can assert that it starts with the prefix followed by `<field>: `. The path, which
 contains `run_metadata.json`, cannot satisfy that assertion by accident. `<field>` SHALL be one of
-`run_metadata.json` (the file itself), `config`, `git`, `git.commit` or `docker_image`.
+`run_metadata.json` (the file itself), `config`, `status`, `run_id`, `git`, `git.commit`,
+`git.dirty` or `docker_image`.
 
 The values returned SHALL be the file's strings exactly, never stripped or rewritten.
 
@@ -575,17 +601,20 @@ so a caller's mutation of one result, including nested values, cannot reach a la
 1. Validate `step` and the region arguments (`fields`, `halo`, `lo`, `hi`) with the same pure
    checks `read_field_snapshot` uses, before any I/O. An argument error is therefore reported as
    such whatever the corpus's state.
-2. Resolve `plotfile(config_id, step)`.
+2. Resolve `plotfile(config_id, step)` and apply `read_field_snapshot`'s plotfile-directory check
+   to it (a `Header` file must exist). A plotfile still being written is therefore reported as such,
+   not as a provenance error.
 3. Read and validate the run's provenance.
-4. Read the plotfile.
+4. Read the plotfile with the **normalized** arguments that step 1 returned. An iterator or generator
+   `fields` is consumed once, in step 1, and its names are what step 4 reads.
 5. Apply the zero-cell refusal.
 
 The provenance checks SHALL run before the plotfile is read, so a corpus without valid provenance
 fails before the cost of a yt read.
 
 The returned snapshot's `config_id` and `step` SHALL be the validated arguments (`step` a Python
-`int` even when given as `np.integer`). Its `git_commit` and `docker_image` SHALL be the values
-`run_provenance` returned. Nothing SHALL be fabricated, defaulted or inferred: there is no fallback
+`int` even when given as `np.integer`). Its `git_commit`, `docker_image` and `run_id` SHALL be the
+values `run_provenance` returned. Nothing SHALL be fabricated, defaulted or inferred: there is no fallback
 to `None`, to the running checkout's git, or to an image tag. Its arrays, coordinates, `dx`, `time`,
 `max_level`, `field_names` and `source` SHALL be exactly those `read_field_snapshot` returns for
 `plotfile(config_id, step)`.
@@ -602,8 +631,8 @@ this requirement and is tracked separately.
   equal to the config id, a 40-character lowercase `git.commit`, and a `docker_image` of the form
   `ghcr.io/talmolab/mosquito-cfd@sha256:<64 hex>`
 - **When** `FieldCorpus.snapshot(config_id, np.int64(100))` is called
-- **Then** the snapshot's `config_id`, `step` (`type(step) is int`), `git_commit` and
-  `docker_image` equal the file's values exactly; and its arrays, coordinates, `dx`, `time`,
+- **Then** the snapshot's `config_id`, `step` (`type(step) is int`), `git_commit`, `docker_image`
+  and `run_id` equal the file's values exactly; and its arrays, coordinates, `dx`, `time`,
   `max_level`, `field_names` and `source` equal, property by property,
   `read_field_snapshot(plotfile(config_id, 100))`'s
 
@@ -614,9 +643,14 @@ this requirement and is tracked separately.
   - a directory;
   - non-UTF-8 bytes;
   - invalid JSON;
+  - an integer with 5000 digits;
+  - nesting 100000 levels deep;
   - a top-level JSON array;
   - a `config` that is absent, `null`, or names a different config;
+  - a `status` that is absent or `"failed"`;
+  - a `run_id` that is absent, `5`, or `""`;
   - a `git` that is absent or `null`;
+  - a `git.dirty` that is `true` or `"no"`;
   - a `git.commit` that is absent, `123`, 7 characters, 40 uppercase hex characters, or 40 hex
     characters plus a trailing newline;
   - a `docker_image` that is absent, `5`, tagged `:latest`, a bare `sha256:<64 hex>`,
@@ -631,11 +665,20 @@ this requirement and is tracked separately.
 
 #### Scenario: Argument errors and plotfile errors win over provenance errors
 
-- **Given** a run directory holding `plt00100` and **no** `run_metadata.json`
+- **Given** a run directory holding `plt00100` and **no** `run_metadata.json`, and separately a run
+  directory whose `plt00100` has no `Header` and no `run_metadata.json`
 - **When** `FieldCorpus.snapshot` is called with `fields="u"`, with `lo > hi`, with `step=-1`, with
-  an unknown config, and with a step that has no plotfile
-- **Then** each raises its own argument, config or step `ValueError` and not the provenance error,
-  and the argument errors are raised with no manifest read and no directory listed
+  an unknown config, with a step that has no plotfile, and on the `Header`-less plotfile
+- **Then** each raises its own argument, config, step or plotfile error and not the provenance
+  error (the `Header`-less case raises `FileNotFoundError` naming `Header`), and the argument errors
+  are raised with no manifest read and no directory listed
+
+#### Scenario: An iterator of field names is read, not consumed by validation
+
+- **Given** a corpus with valid provenance
+- **When** `FieldCorpus.snapshot` is called with `fields` a generator, and an iterator, of `"u"`
+  and `"v"`
+- **Then** the snapshot's `field_names` is `("u", "v")` and it carries both arrays
 
 #### Scenario: run_metadata is read through, not reshaped
 

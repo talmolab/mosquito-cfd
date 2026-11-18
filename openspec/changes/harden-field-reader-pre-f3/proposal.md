@@ -41,8 +41,8 @@ The measured facts the design rests on are in design.md, in one place each:
   `FileNotFoundError` / `NotADirectoryError` before `import yt` (D2).
 - **#113: provenance.**
   - `source` becomes absolute and POSIX-spelled.
-  - `FieldSnapshot` gains `config_id`, `step`, `git_commit` and `docker_image`, each defaulting to
-    `None`.
+  - `FieldSnapshot` gains `config_id`, `step`, `git_commit`, `docker_image` and `run_id`, each
+    defaulting to `None`. `run_id` was added after the pre-PR review (D8.2).
   - New `FieldCorpus.run_metadata(config_id)`.
   - `FieldCorpus.snapshot` fills the four fields from the run's own `run_metadata.json`, strictly
     validated, before any yt work (D3, D4).
@@ -72,7 +72,9 @@ Each item is also marked in `docs/CHANGELOG.md`.
   `run_metadata.json` now raises `ValueError` where it used to return a snapshot. Valid means:
   - a 40-hex commit;
   - an `<image>@sha256:<64 hex>` reference;
-  - a `config` equal to the run.
+  - a `config` equal to the run;
+  - `status == "completed"`, a non-empty `run_id`, and no `git.dirty: true` (added after the pre-PR
+    review, design D8.2).
 
   All 27 real fine-corpus runs pass (D4). `read_field_snapshot` is unaffected.
 - **`FieldCorpus.snapshot` and `to_domino_volume` refuse zero-cell snapshots.**
@@ -85,7 +87,10 @@ Each item is also marked in `docs/CHANGELOG.md`.
   - it skips non-directory `plt*` entries;
   - it raises on two directories for one step, where it used to render both;
   - a nonexistent `plotfile_dir` still raises `ValueError`.
-- **`FieldSnapshot` gains four trailing defaulted fields.** This is additive for construction.
+- **Pickling or copying a `FieldSnapshot` with a non-FP64 array raises `ValueError`** (D8.3). Only
+  hand-built snapshots can have one; the reader never produces one.
+- **`FieldSnapshot` gains five trailing defaulted fields** (`run_id` added in D8.2). This is additive
+  for construction.
   `repr` shows them. `==` was already unusable between two distinct snapshots: the dataclass `eq`
   compares numpy arrays and can raise (any array with more than one element, or with none). This
   change does not alter that.
