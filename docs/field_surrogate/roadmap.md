@@ -185,7 +185,7 @@ physics (fixed motion now, commanded changes later) will favour different models
 2. **Two kinds of test, both inside the existing 27 configs, no new CFD:**
    - *Interpolation:* the corpus's 6 holdout configs, as now.
    - *Extrapolation:* hold out each face of the 3 × 3 × 3 grid in turn (e.g. all 9 `s55_*`
-     configs) and train on the other 18. Because 18 configs is itself a data cut (E3: the ridge
+     configs) and train on the other 18. Because 18 configs is itself a data cut (E4: the ridge
      model fell to skill 0.41 on one of five random 18-config subsets), every face score is reported
      beside random 18-config subsets, so a drop at a face is not mistaken for a drop from less data.
 3. **The hover gate is run on main, not taken from E1.** On hover, arm A is Track B's MLP (a
@@ -215,8 +215,8 @@ physics (fixed motion now, commanded changes later) will favour different models
    regenerated with longer runs after 2026-11-24, and every bench number is then recomputed.
    Numbers from the 2-beat corpus are labelled as such.
 
-**What no result here may claim:** anything beyond interpolation inside, and extrapolation one
-grid layer past, a 3 × 3 × 3 grid of configs, on second-beat data that has not settled, for generic
+**What no result here may claim:** anything beyond interpolation inside, and extrapolation to a
+held-out outer layer of, a 3 × 3 × 3 grid of configs, on second-beat data that has not settled, for generic
 sinusoidal validation kinematics (not van Veen's and not a mosquito's, #142). Commanded changes,
 history dependence and arms A/B proper still need the commanded-change runs (open question #6).
 
