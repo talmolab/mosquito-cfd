@@ -1,6 +1,7 @@
 # Surrogate exploration: one-page summary
 
-Branch `explore-surrogate-experiments` (local only, cut from `main` at `80d653a`). Written
+Branch `explore-surrogate-experiments` (pushed to `origin` on 2026-11-18 as a backup, no pull
+request; cut from `main` at `80d653a`). Written
 2026-11-17 for the lab meeting on 2026-11-24. Each experiment's full report is `report.html` in
 its folder; the surrogate recommendation is in
 [surrogate-recommendation.md](surrogate-recommendation.md).
