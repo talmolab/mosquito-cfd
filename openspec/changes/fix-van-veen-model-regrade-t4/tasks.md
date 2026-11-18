@@ -270,27 +270,27 @@ Any failure here: stop and ask the user. Nothing is committed.
 
 ## 5. Close-out
 
-- [ ] 5.1 Re-read `proposal.md`, the spec deltas and this file against the implementation; record any
+- [x] 5.1 Re-read `proposal.md`, the spec deltas and this file against the implementation; record any
       deviation in a "Why N instead of M?" section before committing it.
-- [ ] 5.2 Re-run the full mutant list after the last fix commit; `pytest -rs` shows no new skip.
-- [ ] 5.3 Repo-wide grep for `2.48`, `0.43`, `0.42`, `0.055`, `0.058`, `#133`, `resolv` across `src/`,
+- [x] 5.2 Re-run the full mutant list after the last fix commit; `pytest -rs` shows no new skip.
+- [x] 5.3 Repo-wide grep for `2.48`, `0.43`, `0.42`, `0.055`, `0.058`, `#133`, `resolv` across `src/`,
       `docs/`, `examples/`, test docstrings and the live specs; explain each remaining hit.
-- [ ] 5.4 Re-run the five figure scripts at HEAD into a scratch directory and confirm the committed
+- [x] 5.4 Re-run the five figure scripts at HEAD into a scratch directory and confirm the committed
       PNGs match.
-- [ ] 5.5 `uv run --frozen pytest -m "not gpu"` from Git Bash; CI's two ruff commands verbatim, plus
+- [x] 5.5 `uv run --frozen pytest -m "not gpu"` from Git Bash; CI's two ruff commands verbatim, plus
       `ruff check` and `ruff format --check` on `examples/flapping_wing/` and `scripts`;
       `openspec validate fix-van-veen-model-regrade-t4 --strict`.
-- [ ] 5.6 `/review-pr`; a focused re-review of every fix commit.
-- [ ] 5.7 Closing-keyword gate over `git log --format=%B origin/main..HEAD`, the PR title and the PR
+- [x] 5.6 `/review-pr`; a focused re-review of every fix commit.
+- [x] 5.7 Closing-keyword gate over `git log --format=%B origin/main..HEAD`, the PR title and the PR
       body: `grep -inE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b:?\s+(\S+/\S+)?(#|https://github\.com/\S+/(issues|pull)/)[0-9]'`
       returns nothing. The prose form "does not resolve #40" is for the docs only; it must not appear
       in a commit message, the PR title or the PR body.
-- [ ] 5.7b The PR body, and only the PR body, closes #141 and #133 (user decision). After the gate
+- [x] 5.7b The PR body, and only the PR body, closes #141 and #133 (user decision). After the gate
       in 5.7, the only closing keywords found are those two. #40, #135 and #142 are named with
       "advances" or not at all.
-- [ ] 5.8 `git fetch`; `git merge-base --is-ancestor origin/main HEAD` (merge main in if not, re-run
+- [x] 5.8 `git fetch`; `git merge-base --is-ancestor origin/main HEAD` (merge main in if not, re-run
       the suite); stop for user approval before pushing.
-- [ ] 5.9 `/pre-merge-check`. At archive time, diff the live specs against `80d653a` first: a MODIFIED
+- [x] 5.9 `/pre-merge-check`. At archive time, diff the live specs against `80d653a` first: a MODIFIED
       block replaces the whole requirement.
 
 ## Deviations from the approved plan
@@ -441,3 +441,14 @@ inside the fixes themselves.
 After this commit 507 mutants across seven sets fail a named test.
 - [x] 7.7 The "Re (midspan)" row of `RESULTS.md` quoted the paper's range as 100 to 500. The paper
       says 36–252 (§2.6, p. A3-18, read from the PDF). Corrected at the user's request, with a test.
+
+## 8. Close-out record (2026-11-18)
+
+- 5.6: `/review-pr` ran on commits 1–5 and a focused re-review on the section 6 commit. The
+  section 7 commit has mutation tests and the full suite behind it and no independent re-review;
+  the user approved pushing on that basis.
+- 5.5 / 5.8: after merging main, 2203 passed and 22 skipped (environment skips only); coverage 93 %
+  overall, 99 % for `van_veen_model.py`. CI on the PR (#168) is green, including the first Linux run.
+- 5.7b: GitHub lists exactly #133 and #141 as the issues the PR closes.
+- 5.9: archiving waits for the merge. A MODIFIED block replaces the whole requirement, so diff the
+  live specs against `80d653a` first.
