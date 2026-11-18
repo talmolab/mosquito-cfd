@@ -10,10 +10,16 @@ canonical AMReX name ``plt{step:05d}`` with a single ``is_dir()`` and lists the 
 only when that name is not a directory. A listing is one ``os.scandir`` with no Python-level
 ``stat`` per entry: each entry's type comes from its ``DirEntry``. Every path the module takes
 or returns is a ``pathlib.Path``.
+
+``snapshot()`` stamps each snapshot with its ``(config_id, step)`` and the run's digest-pinned
+provenance -- ``git.commit`` and ``docker_image`` -- copied from the ``run_metadata.json`` the pod
+wrote into the run directory, strictly validated and never fabricated; a run without one cannot
+produce a corpus snapshot. ``run_metadata()`` returns that file read through.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import os
 import re
@@ -23,7 +29,17 @@ from typing import Any
 import numpy as np
 
 from mosquito_cfd._messages import plain_repr
-from mosquito_cfd.field_surrogate.snapshot import DEFAULT_FIELDS, FieldSnapshot
+from mosquito_cfd.field_surrogate._provenance import (
+    RUN_METADATA_FILENAME,
+    read_run_metadata,
+    run_provenance,
+)
+from mosquito_cfd.field_surrogate.snapshot import (
+    DEFAULT_FIELDS,
+    FieldSnapshot,
+    _check_plotfile_dir,
+    _validate_request,
+)
 
 #: Plotfile directory names are ``plt`` followed by ASCII digits only, matched with ``fullmatch``
 #: against the whole name. ``plt00300.old`` and ``pltXXXXX`` are deliberately not matched, nor are
@@ -71,11 +87,13 @@ def _is_dir(entry: os.DirEntry) -> bool:
         return False
 
 
-def _scan(run: Path) -> dict[int, Path]:
+def scan_plotfiles(run: Path) -> dict[int, Path]:
     """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
 
-    The shared listing behind ``steps()`` and ``plotfile()``'s fallback, so both give the same
-    verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
+    The repository's one definition of "which plotfiles a directory holds": the listing behind
+    ``steps()`` and ``plotfile()``'s fallback, and ``visualization.flow_video``'s frame discovery
+    (#144), so every consumer gives the same verdict on the same directory. Any digit width counts
+    (AMReX's ``plt{step:05d}`` has six digits from step 100000 on); sort the keys for step order. Non-directories are filtered out BEFORE the duplicate check: a
     stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
 
     One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``
@@ -86,9 +104,16 @@ def _scan(run: Path) -> dict[int, Path]:
     entries ``Path.is_dir()`` skipped -- vanished, dangling, looping, or through a file; see
     :func:`_is_dir` -- and any other ``OSError`` propagates.
 
+    Args:
+        run: The directory to list (a run directory, or any directory of plotfiles).
+
+    Returns:
+        Step -> plotfile directory (``run / name``), unordered; sort the keys for step order.
+
     Raises:
         ValueError: If two directories parse to the same step, naming both in sorted order so the
             message does not depend on the filesystem's listing order.
+        OSError: If ``run`` cannot be listed (e.g. ``FileNotFoundError`` if it does not exist).
     """
     found: dict[int, Path] = {}
     # `with` closes the directory handle on the duplicate raise too, not only on exhaustion.
@@ -216,7 +241,7 @@ class FieldCorpus:
             ValueError: If the config is not in the manifest, its run directory is absent, or
                 two directories parse to the same step (e.g. ``plt100`` and ``plt00100``).
         """
-        return sorted(_scan(self.run_dir(config_id)))
+        return sorted(scan_plotfiles(self.run_dir(config_id)))
 
     def global_params(self, config_id: str) -> dict[str, Any]:
         """Return this config's kinematic parameters from the manifest.
@@ -267,7 +292,7 @@ class FieldCorpus:
         if canonical.is_dir():
             return canonical
         run = self.run_dir(config_id)
-        found = _scan(run)
+        found = scan_plotfiles(run)
         if step in found:
             return found[step]
         # Available steps come from the scan already done: calling steps() here re-ran the
@@ -277,6 +302,30 @@ class FieldCorpus:
             f"(no 'plt<digits>' directory parses to step {step}); "
             f"available steps: {sorted(found)}"
         )
+
+    def run_metadata(self, config_id: str) -> dict[str, Any]:
+        """Return the run's own pod-written ``run_metadata.json``, read through unchanged.
+
+        Parsed afresh on every call -- never cached -- so mutating a result cannot reach a later
+        call, and a file the pod writes at the end of a run is seen.
+
+        Args:
+            config_id: Config name as listed in the manifest.
+
+        Returns:
+            The parsed JSON object, with no key added, defaulted, renamed or derived.
+
+        Raises:
+            ValueError: If the config is not in the manifest or its run directory is absent, or
+                if ``run_metadata.json`` is absent, unreadable, not JSON, or not a JSON object.
+        """
+        return read_run_metadata(
+            self._run_metadata_path(config_id), config_id=config_id
+        )
+
+    def _run_metadata_path(self, config_id: str) -> Path:
+        # The one spelling of the path, shared by run_metadata() and snapshot() (design D8.5).
+        return self.run_dir(config_id) / RUN_METADATA_FILENAME
 
     def snapshot(
         self,
@@ -288,7 +337,12 @@ class FieldCorpus:
         halo: int = 0,
         fields: tuple[str, ...] = DEFAULT_FIELDS,
     ) -> FieldSnapshot:
-        """Read one training example's field snapshot.
+        """Read one training example's field snapshot, with the run's identity and digest.
+
+        Order (harden-field-reader-pre-f3 D4): the ``step`` and region arguments are checked with
+        no I/O; then the plotfile is resolved; then the run's ``run_metadata.json`` is read and
+        validated -- **before** the plotfile is read, so a run without valid provenance fails
+        fast; then the plotfile is read.
 
         Args:
             config_id: Config name as listed in the manifest.
@@ -299,14 +353,60 @@ class FieldCorpus:
             fields: Short names to read.
 
         Returns:
-            The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile.
+            The :class:`~mosquito_cfd.field_surrogate.snapshot.FieldSnapshot` for that plotfile,
+            with ``config_id``, ``step`` (a Python ``int``), ``git_commit``, ``docker_image``
+            and ``run_id`` set. The last three are copied from the run's ``run_metadata.json``,
+            never inferred.
 
         Raises:
-            ValueError: Anything :meth:`plotfile` raises (a bad ``step`` before any I/O), and
-                anything ``read_field_snapshot`` raises, including ``lo > hi`` on any axis.
+            ValueError: An invalid ``step`` or region argument (before any I/O); anything
+                :meth:`plotfile` raises; a missing or unverifiable ``run_metadata.json`` (absent,
+                unreadable, not a JSON object, a ``config`` naming another run, a ``status``
+                other than ``"completed"``, an empty ``run_id``, a commit that is not 40
+                lowercase hex characters, ``git.dirty`` set, or an image that is not
+                ``<repo>@sha256:<64 hex>``); anything ``read_field_snapshot`` raises; and a
+                region with zero cells on any axis (refused after the read, which costs nothing
+                for such a region).
+            FileNotFoundError: If the resolved plotfile directory has no ``Header`` (checked
+                before the provenance read).
         """
+        # Looked up at call time, as extract_eulerian_box does, so replacing
+        # snapshot.read_field_snapshot takes effect here too. It saves no import cost: the
+        # snapshot module is already imported at module scope.
         from mosquito_cfd.field_surrogate.snapshot import read_field_snapshot
 
-        return read_field_snapshot(
-            self.plotfile(config_id, step), lo=lo, hi=hi, halo=halo, fields=fields
+        step = _validate_step(step)
+        # The NORMALIZED values are what gets read: _validate_request consumes an iterator
+        # `fields`, so passing the caller's object on would read zero fields (design D8.1).
+        lo_v, hi_v, halo_v, fields_v = _validate_request(lo, hi, halo, fields)
+        plotfile = self.plotfile(config_id, step)
+        # A plotfile still being written (no Header) is reported as such, not as a provenance
+        # error (D8.1).
+        _check_plotfile_dir(plotfile)
+        meta_path = self._run_metadata_path(config_id)
+        meta = read_run_metadata(meta_path, config_id=config_id)
+        git_commit, docker_image, run_id = run_provenance(
+            meta, config_id=config_id, path=meta_path
+        )
+        snap = read_field_snapshot(
+            plotfile, lo=lo_v, hi=hi_v, halo=halo_v, fields=fields_v
+        )
+        counts = (snap.x.size, snap.y.size, snap.z.size)
+        if 0 in counts:
+            # A zero-point example is structurally valid, batches, and trains on nothing: refuse it
+            # here, at the corpus entry point every field consumer uses (harden-field-reader-pre-f3
+            # D5). read_field_snapshot itself keeps returning it, as specified.
+            raise ValueError(
+                f"zero-cell snapshot for config {config_id!r} step={step}: region "
+                f"lo={tuple(float(v) for v in lo_v)} hi={tuple(float(v) for v in hi_v)} "
+                f"halo={halo_v} has {counts} cells per axis; a training example needs at least "
+                f"one cell on every axis"
+            )
+        return dataclasses.replace(
+            snap,
+            config_id=config_id,
+            step=step,
+            git_commit=git_commit,
+            docker_image=docker_image,
+            run_id=run_id,
         )

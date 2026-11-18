@@ -28,6 +28,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from mosquito_cfd._messages import plain_repr
 from mosquito_cfd.benchmarks.lev import q_criterion, vorticity_magnitude
+from mosquito_cfd.field_surrogate.corpus import scan_plotfiles
 from mosquito_cfd.force_surrogate.sidecar import (
     capture_surrogate_run_metadata,
     validate_image_digest,
@@ -316,11 +317,18 @@ def _euler_angles(t: float, kwargs: dict[str, Any]) -> tuple[float, float, float
 
 
 def _plotfile_frames(plotfile_dir: str | Path) -> list[Path]:
+    # The corpus's own listing, so flow_video and FieldCorpus agree on which frames exist: any
+    # digit width (plt100000 onward was skipped by the old plt????? glob, #144), directories only,
+    # ordered by step, two directories for one step refused (harden-field-reader-pre-f3 D7).
     plotfile_dir = Path(plotfile_dir)
-    frames = sorted(plotfile_dir.glob("plt?????"))
+    if not plotfile_dir.is_dir():
+        # Keep the documented ValueError: os.scandir would raise FileNotFoundError here.
+        what = "is not a directory" if plotfile_dir.exists() else "does not exist"
+        raise ValueError(f"plotfile directory {what}: {plotfile_dir}")
+    frames = [path for _, path in sorted(scan_plotfiles(plotfile_dir).items())]
     if not frames:
         raise ValueError(
-            f"no plotfiles found under {plotfile_dir} (expected plt##### dirs)"
+            f"no plotfiles found under {plotfile_dir} (expected plt<digits> dirs)"
         )
     return frames
 
@@ -460,7 +468,8 @@ def build_flow_video(
     """Render one of the 4 generalized CFD-field videos and write the provenance triple.
 
     Args:
-        plotfile_dir: Directory containing ``plt#####`` plotfile subdirectories.
+        plotfile_dir: Directory containing ``plt<digits>`` plotfile subdirectories, of any digit
+            width (``plt00100``, ``plt100000``), rendered in step order.
         field_mode: One of ``"wake-slice"``, ``"combined-3d"``, ``"lev-3d"``, ``"zvelocity-3d"``.
         vertex_path: Path to the ``.vertex`` marker file (used by every mode except
             ``wake-slice``, which draws only a hinge marker, matching the vault wake script).
@@ -497,8 +506,9 @@ def build_flow_video(
     Raises:
         ValueError: If ``docker_image_digest`` is a mutable tag, ``field_mode`` is not one of the
             4 valid modes, ``fps`` is not positive, ``box_margin`` is not a real number
-            converting to a finite ``float > 0``, no plotfiles are found under
-            ``plotfile_dir``, or the center/hinge/kinematics parameters cannot be fully resolved
+            converting to a finite ``float > 0``, ``plotfile_dir`` is not a directory or holds
+            no ``plt<digits>`` plotfile directory, two of its plotfile directories parse to the
+            same step, or the center/hinge/kinematics parameters cannot be fully resolved
             (see :func:`mosquito_cfd.visualization.wing_render.resolve_kinematics_kwargs`).
     """
     validate_image_digest(docker_image_digest)  # fail-fast before any I/O

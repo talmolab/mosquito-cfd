@@ -53,6 +53,7 @@ def test_importing_the_package_does_not_import_yt_or_pandas():
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"eagerly imported heavy modules: {result.stdout or result.stderr}"
@@ -215,7 +216,7 @@ def test_reads_fixture_full_extent():
     snap = read_field_snapshot(FIXTURE, **FULL)
 
     assert snap.max_level == 0
-    assert Path(snap.source) == FIXTURE
+    assert snap.source == FIXTURE.absolute().as_posix()
     assert type(snap.time) is float
     assert snap.time == pytest.approx(0.5)
 
@@ -738,7 +739,7 @@ def test_multi_level_plotfile_is_refused(monkeypatch):
     log = _patch_yt(monkeypatch, max_level=2)
     with pytest.raises(ValueError, match="CC-F3") as excinfo:
         read_field_snapshot(FIXTURE, **FULL)
-    assert "2" in str(excinfo.value)
+    assert "max_level=2" in str(excinfo.value)
     assert log == [], "refusal must precede any field read"
 
 
@@ -902,6 +903,7 @@ def test_package_init_imports_no_submodule():
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "OK", result.stdout
@@ -1418,7 +1420,7 @@ def _assert_bit_identical(snap, path, lo, hi, halo) -> None:
     assert snap.dx.dtype == np.float64 and snap.dx.shape == (3,)
     assert snap.dx.flags.writeable is False
     assert type(snap.time) is float and snap.time == want["time"]
-    assert snap.source == str(path)
+    assert snap.source == Path(path).absolute().as_posix()
     assert type(snap.max_level) is int and snap.max_level == want["max_level"]
 
 
@@ -1918,3 +1920,455 @@ def test_point_cloud_peak_is_its_outputs():
     del pc
     peak = _traced_peak(snap.to_point_cloud)
     assert peak <= 1.02 * outputs + 64 * 1024, f"peak {peak / outputs:.3f} x outputs"
+
+
+# --- harden-field-reader-pre-f3 §1: source spelling and the optional provenance fields --------
+
+PROVENANCE_FIELDS = ("config_id", "step", "git_commit", "docker_image", "run_id")
+
+
+def test_source_is_absolute_and_posix_for_a_relative_path(monkeypatch):
+    monkeypatch.chdir(FIXTURE.parent)
+    want = FIXTURE.absolute().as_posix()
+    for given in (Path(FIXTURE.name), FIXTURE.name):
+        snap = read_field_snapshot(given, **FULL)
+        assert snap.source == want, given
+        assert "\\" not in snap.source
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="backslash paths are Windows-only")
+def test_source_is_posix_for_a_backslash_windows_path():
+    snap = read_field_snapshot(str(FIXTURE).replace("/", "\\"), **FULL)
+    assert snap.source == FIXTURE.absolute().as_posix()
+    assert "\\" not in snap.source
+
+
+def test_source_keeps_dotdot_segments_as_written(monkeypatch):
+    # absolute() keeps `..`; resolve() and os.path.abspath collapse it. This distinguishes them
+    # on every OS, including Windows, where the symlink case below cannot run.
+    monkeypatch.chdir(FIXTURE.parent)
+    given = Path("..") / FIXTURE.parent.name / FIXTURE.name
+    snap = read_field_snapshot(given, **FULL)
+    assert "/../" in snap.source
+    assert snap.source == given.absolute().as_posix()
+    assert Path(snap.source).resolve() == FIXTURE.resolve()
+
+
+def test_source_keeps_a_directory_symlink_spelling(tmp_path):
+    link = tmp_path / "link_plt"
+    try:
+        link.symlink_to(FIXTURE, target_is_directory=True)
+    except OSError as exc:  # WinError 1314 without the symlink privilege
+        pytest.skip(f"cannot create a directory symlink here: {exc}")
+    snap = read_field_snapshot(link, **FULL)
+    assert snap.source == link.absolute().as_posix()
+    assert snap.source != FIXTURE.resolve().as_posix()
+
+
+def test_bare_read_leaves_provenance_fields_unset():
+    snap = read_field_snapshot(FIXTURE, **FULL)
+    for name in PROVENANCE_FIELDS:
+        assert getattr(snap, name) is None, name
+
+
+def test_provenance_fields_trail_and_default_to_none():
+    import dataclasses
+
+    from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
+
+    names = [f.name for f in dataclasses.fields(FieldSnapshot)]
+    assert tuple(names[-5:]) == PROVENANCE_FIELDS
+    for f in dataclasses.fields(FieldSnapshot)[-5:]:
+        assert f.default is None, f.name
+
+
+# --- harden-field-reader-pre-f3 §2: pickle / copy round-trip (#151) ----------------------------
+
+_ROUND_TRIP_FIELDS = ("w", "u", "density")  # deliberately not alphabetical
+_PROVENANCE_SET = {
+    "config_id": "s35_f085_p30",
+    "step": 100,
+    "git_commit": "5d5f1ad49da19f9aeafeeaf86e535d04ef28d6c5",
+    "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:" + "0" * 64,
+    "run_id": "s35_f085_p30-run",
+}
+
+
+def _snapshot_arrays(snap):
+    yield from ((f"arrays[{n}]", a) for n, a in snap.arrays.items())
+    for axis in ("x", "y", "z", "dx"):
+        yield axis, getattr(snap, axis)
+
+
+def _assert_snapshot_equivalent(original, result) -> None:
+    """Every round-trip property of the snapshot contract, asserted on ``result``."""
+    from types import MappingProxyType
+
+    assert type(result.arrays) is MappingProxyType
+    assert list(result.arrays) == list(result.field_names) == list(original.field_names)
+    for (name, want), (_, got) in zip(
+        _snapshot_arrays(original), _snapshot_arrays(result), strict=True
+    ):
+        assert got.dtype == np.float64, name
+        assert got.shape == want.shape, name
+        assert got.strides == want.strides, (name, got.strides, want.strides)
+        assert got.tobytes() == want.tobytes(), name
+        assert got.flags.writeable is False, name
+        assert got.base is None, (name, type(got.base))
+    assert type(result.time) is float and result.time == original.time
+    assert type(result.max_level) is int and result.max_level == original.max_level
+    if result.step is not None:
+        assert type(result.step) is int
+    for attr in ("source", "config_id", "step", "git_commit", "docker_image", "run_id"):
+        assert getattr(result, attr) == getattr(original, attr), attr
+    want_pc, got_pc = original.to_point_cloud(), result.to_point_cloud()
+    assert got_pc.field_names == want_pc.field_names
+    for attr in ("coords", "values", "cell_volume"):
+        w, g = getattr(want_pc, attr), getattr(got_pc, attr)
+        assert g.shape == w.shape and g.tobytes() == w.tobytes(), attr
+
+
+@functools.cache
+def _round_trip_snapshots():
+    import dataclasses
+
+    def read(**region):
+        return read_field_snapshot(FIXTURE, fields=_ROUND_TRIP_FIELDS, **region)
+
+    full = read(**FULL)
+    snaps = {
+        "full": full,
+        "sub_box": read(lo=(1.0, 1.2, 0.4), hi=(3.2, 4.0, 2.5)),
+        "zero_cell": read(lo=(1e9,) * 3, hi=(1e9,) * 3),
+        "x_empty": read(lo=(6.2, -np.inf, -np.inf), hi=(6.3, np.inf, np.inf)),
+        "provenance": dataclasses.replace(full, **_PROVENANCE_SET),
+        "numpy_scalars": dataclasses.replace(
+            full, time=np.float64(0.5), max_level=np.int64(0), step=np.int64(100)
+        ),
+    }
+    assert snaps["zero_cell"].arrays["u"].shape == (0, 0, 0)
+    assert snaps["x_empty"].arrays["u"].shape == (0, 6, 6)
+    return snaps
+
+
+def _via_pickle(protocol):
+    import pickle
+
+    return lambda s: pickle.loads(pickle.dumps(s, protocol=protocol))
+
+
+def _via_forking_pickler(s):
+    import pickle
+    from multiprocessing.reduction import ForkingPickler
+
+    return pickle.loads(bytes(ForkingPickler.dumps(s)))
+
+
+def _transports():
+    import copy
+    import pickle
+
+    out = {f"pickle{p}": _via_pickle(p) for p in range(2, pickle.HIGHEST_PROTOCOL + 1)}
+    out["forking_pickler"] = _via_forking_pickler
+    out["copy"] = copy.copy
+    out["deepcopy"] = copy.deepcopy
+    return out
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize(
+    "variant",
+    ["full", "sub_box", "zero_cell", "x_empty", "provenance", "numpy_scalars"],
+)
+def test_snapshot_round_trips_with_every_property(variant, transport):
+    original = _round_trip_snapshots()[variant]
+    result = _transports()[transport](original)
+    _assert_snapshot_equivalent(original, result)
+    with pytest.raises(ValueError):
+        result.arrays["u"][...] = 0.0
+    with pytest.raises(TypeError):
+        result.arrays["u"] = np.zeros(1)  # type: ignore[index]
+
+
+def test_snapshot_crosses_a_spawned_worker_process():
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import get_context
+
+    from _spawn_workers import read_fixture_snapshot
+
+    # Not a `with` block: leaving one calls shutdown(wait=True), so a hung child would block CI
+    # despite the result timeout.
+    pool = ProcessPoolExecutor(1, mp_context=get_context("spawn"))
+    try:
+        pid, result = pool.submit(
+            read_fixture_snapshot, str(FIXTURE.absolute())
+        ).result(timeout=180)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    assert pid != os.getpid()
+    _assert_snapshot_equivalent(read_field_snapshot(FIXTURE, **FULL), result)
+
+
+def _dataloader_contexts():
+    import multiprocessing
+
+    return [
+        pytest.param(
+            m,
+            marks=pytest.mark.skipif(
+                m not in multiprocessing.get_all_start_methods(),
+                reason=f"start method {m!r} unavailable here",
+            ),
+        )
+        for m in ("spawn", "fork")
+    ]
+
+
+@pytest.mark.parametrize("collate", ["identity", "default_convert"])
+@pytest.mark.parametrize("context", _dataloader_contexts())
+def test_dataloader_workers_return_snapshots(context, collate):
+    pytest.importorskip(
+        "torch",
+        reason="torch is only in the Linux-gated `train` group; run with "
+        "`uv sync --group train` (Linux/WSL) or `uv run --with torch`",
+    )
+    from _torch_workers import SnapshotDataset, identity
+    from torch.utils.data import DataLoader
+
+    loader = DataLoader(
+        SnapshotDataset(str(FIXTURE.absolute())),
+        batch_size=None,
+        num_workers=2,
+        collate_fn=identity if collate == "identity" else None,
+        multiprocessing_context=context,
+    )
+    want = read_field_snapshot(FIXTURE, **FULL)
+    items = list(loader)
+    assert len(items) == 4
+    for item in items:
+        _assert_snapshot_equivalent(want, item)
+
+
+# --- harden-field-reader-pre-f3 §3: plotfile path pre-check (#113) ----------------------------
+
+
+def _not_a_plotfile(kind: str, tmp_path: Path) -> Path:
+    if kind == "missing":
+        return tmp_path / "no_such_plotfile"
+    if kind == "regular_file":
+        path = tmp_path / "plt00100"
+        path.write_text("not a plotfile\n")
+        return path
+    path = tmp_path / "plt00100"
+    path.mkdir()
+    if kind == "header_is_a_directory":
+        (path / "Header").mkdir()
+    return path
+
+
+@pytest.mark.parametrize(
+    ("kind", "error", "names_header"),
+    [
+        ("missing", FileNotFoundError, False),
+        ("regular_file", NotADirectoryError, False),
+        ("empty_dir", FileNotFoundError, True),
+        ("header_is_a_directory", FileNotFoundError, True),
+    ],
+)
+def test_non_plotfile_path_fails_before_yt_is_imported(
+    monkeypatch, tmp_path, kind, error, names_header
+):
+    path = _not_a_plotfile(kind, tmp_path)
+    # Poisoned: `import yt` raises ImportError, so a check placed after the import surfaces as
+    # ImportError -- and the unpoisoned nonexistent case would already be yt's own error.
+    monkeypatch.setitem(sys.modules, "yt", None)
+    with pytest.raises(OSError) as excinfo:
+        read_field_snapshot(path, **FULL)
+    assert type(excinfo.value) is error
+    assert str(path) in str(excinfo.value)
+    if names_header:
+        assert "Header" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"fields": "u"},
+        {"fields": ("nope",)},
+        {"fields": ("u", "u")},
+        {"halo": -1},
+        {"halo": 1.5},
+        {"lo": (0.0, 0.0), "hi": (np.inf,) * 3},
+        {"lo": (np.nan, 0.0, 0.0), "hi": (np.inf,) * 3},
+        {"lo": (4.0, 4.0, 4.0), "hi": (2.0, 2.0, 2.0)},
+    ],
+    ids=[
+        "bare_string_field",
+        "unknown_field",
+        "duplicate_field",
+        "neg_halo",
+        "float_halo",
+        "corner_shape",
+        "nan_corner",
+        "inverted",
+    ],
+)
+def test_argument_errors_win_over_the_path_check(monkeypatch, tmp_path, bad):
+    monkeypatch.setitem(sys.modules, "yt", None)
+    kwargs = {**FULL, **bad}
+    with pytest.raises(ValueError):
+        read_field_snapshot(tmp_path / "no_such_plotfile", **kwargs)
+
+
+def test_reader_docstring_lists_the_path_errors():
+    raises = read_field_snapshot.__doc__.split("Raises:", 1)[1]
+    assert "FileNotFoundError" in raises
+    assert "NotADirectoryError" in raises
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell anchor ------------------------------------------
+
+#: Regions with zero cells on some axis (fixture domain [0, 6)^3, dx = 1). Shared by the anchor
+#: below and by the training-entry-point refusals in the corpus and DoMINO tests.
+ZERO_CELL_REQUESTS = {
+    "beyond_domain_by_more_than_halo": (
+        {"lo": (10.0, 0.0, 0.0), "hi": (11.0, 6.0, 6.0), "halo": 1},
+        (0, 6, 6),
+    ),
+    "point_on_upper_edge": ({"lo": (6.0, 3.0, 3.0), "hi": (6.0, 3.0, 3.0)}, (0, 1, 1)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ZERO_CELL_REQUESTS))
+def test_reader_still_returns_zero_cell_snapshots(case):
+    # Anchor: read_field_snapshot keeps its specified zero-cell result; only the training-facing
+    # entry points (FieldCorpus.snapshot, to_domino_volume) refuse one.
+    region, shape = ZERO_CELL_REQUESTS[case]
+    snap = read_field_snapshot(FIXTURE, **region)
+    assert snap.arrays["u"].shape == shape
+    assert (snap.x.size, snap.y.size, snap.z.size) == shape
+
+
+# --- harden-field-reader-pre-f3 §6: smaller request checks (#113) -----------------------------
+
+
+@pytest.mark.parametrize("value", ["gradpx", "uvw", "u", b"u"])
+@pytest.mark.parametrize("where", ["fixture", "nonexistent"])
+def test_bare_string_fields_are_rejected(tmp_path, where, value):
+    path = FIXTURE if where == "fixture" else tmp_path / "no_such_plotfile"
+    with pytest.raises(ValueError) as excinfo:
+        read_field_snapshot(path, fields=value, **FULL)
+    message = str(excinfo.value)
+    assert "fields must be a sequence of field names" in message
+    assert repr((value,)) in message  # the suggested one-element tuple
+
+
+@pytest.mark.parametrize("fields", [("gradpx",), ["u", "v"]], ids=["tuple", "list"])
+def test_field_sequences_still_read(fields):
+    snap = read_field_snapshot(FIXTURE, fields=fields, **FULL)
+    assert snap.field_names == tuple(fields)
+
+
+def test_bare_string_fields_lose_to_nothing_before_the_path_check(
+    monkeypatch, tmp_path
+):
+    # The str check is an argument check: it precedes the path pre-check and `import yt`.
+    monkeypatch.setitem(sys.modules, "yt", None)
+    with pytest.raises(ValueError, match="fields must be a sequence"):
+        read_field_snapshot(tmp_path / "no_such_plotfile", fields="u", **FULL)
+
+
+def test_amr_refusal_names_no_function_and_reports_max_level(monkeypatch):
+    _patch_yt(monkeypatch, max_level=2)
+    with pytest.raises(ValueError, match=r"max_level=2") as excinfo:
+        read_field_snapshot(FIXTURE, **FULL)
+    message = str(excinfo.value)
+    assert "CC-F3" in message
+    assert "read_field_snapshot requires" not in message
+
+
+# --- harden-field-reader-pre-f3 §10.3 (design D8.3): consistent rebuild for hand-built snapshots
+
+
+def _hand_built(u: np.ndarray, x: np.ndarray | None = None):
+    from types import MappingProxyType
+
+    from mosquito_cfd.field_surrogate.snapshot import FieldSnapshot
+
+    nx, ny, nz = u.shape
+    return FieldSnapshot(
+        arrays=MappingProxyType({"u": u}),
+        x=np.arange(nx, dtype=np.float64) + 0.5 if x is None else x,
+        y=np.arange(ny, dtype=np.float64) + 0.5,
+        z=np.arange(nz, dtype=np.float64) + 0.5,
+        dx=np.ones(3),
+        time=0.5,
+        source="hand-built",
+        max_level=0,
+        field_names=("u",),
+    )
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize(
+    ("where", "dtype"),
+    [("u", np.float32), ("u", np.int64), ("u", ">f8"), ("x", np.float32)],
+    ids=["u-float32", "u-int64", "u-big-endian-f8", "x-float32"],
+)
+def test_non_fp64_arrays_cannot_be_pickled_or_copied(transport, where, dtype):
+    base = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    if where == "u":
+        snap = _hand_built(base.astype(dtype))
+    else:
+        snap = _hand_built(base, x=np.array([0.5, 1.5], dtype=dtype))
+    with pytest.raises(ValueError, match=rf"\b{where}\b.*float64"):
+        _transports()[transport](snap)
+
+
+def test_copy_never_freezes_the_callers_arrays():
+    import copy
+
+    u = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    snap = _hand_built(u)
+    assert u.flags.writeable and snap.x.flags.writeable
+    result = copy.copy(snap)
+    assert u.flags.writeable, "copy.copy froze the caller's array"
+    assert snap.x.flags.writeable
+    assert result.arrays["u"].flags.writeable is False
+    assert result.arrays["u"].base is None
+    assert not np.shares_memory(result.arrays["u"], u)
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+def test_fortran_ordered_arrays_come_back_c_contiguous(transport):
+    u = np.asfortranarray(np.arange(24, dtype=np.float64).reshape(2, 3, 4))
+    u.setflags(write=False)
+    result = _transports()[transport](_hand_built(u))
+    got = result.arrays["u"]
+    assert got.flags.c_contiguous and got.flags.writeable is False and got.base is None
+    np.testing.assert_array_equal(got, u)
+
+
+@pytest.mark.parametrize("transport", sorted(_transports()))
+def test_non_ndarray_arrays_cannot_be_pickled_or_copied(transport):
+    snap = _hand_built(np.arange(24, dtype=np.float64).reshape(2, 3, 4), x=[0.5, 1.5])
+    with pytest.raises(ValueError, match=r"\bx\b.*ndarray"):
+        _transports()[transport](snap)
+
+
+# np.matrix is pending deprecation; it is built here only to prove a subclass is refused.
+@pytest.mark.filterwarnings("ignore::PendingDeprecationWarning")
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize("kind", ["masked", "matrix"])
+def test_ndarray_subclasses_are_refused_not_converted(transport, kind):
+    # A MaskedArray would come back as a plain ndarray with its mask silently dropped.
+    base = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    if kind == "masked":
+        snap = _hand_built(np.ma.masked_array(base, mask=base > 10))
+        where = "u"
+    else:
+        snap = _hand_built(base, x=np.matrix([[0.5, 1.5]]))
+        where = "x"
+    with pytest.raises(ValueError, match=where + r".*not a numpy ndarray"):
+        _transports()[transport](snap)

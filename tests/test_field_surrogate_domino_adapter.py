@@ -287,3 +287,83 @@ def test_grid_paragraph_states_the_upstream_difference():
     text = " ".join(paragraphs[0].split())
     for claim in ("interp_res", "sdf_grid", "snapshot's resolution", "F3"):
         assert claim in text, f"the grid paragraph does not state {claim!r}"
+
+
+# --- harden-field-reader-pre-f3 §5: zero-cell refusal at the DoMINO adapter -------------------
+
+
+def _zero_cell_snapshot():
+    snap = read_field_snapshot(
+        FIXTURE, lo=(10.0, 0.0, 0.0), hi=(11.0, 6.0, 6.0), halo=1
+    )
+    assert snap.arrays["u"].shape == (0, 6, 6)
+    return snap
+
+
+def test_zero_cell_snapshot_cannot_become_a_domino_example():
+    snap = _zero_cell_snapshot()
+    with pytest.raises(ValueError) as excinfo:
+        _adapt(snap)
+    message = str(excinfo.value)
+    assert "(0, 6, 6)" in message
+    assert snap.source in message
+
+
+def test_one_cell_snapshot_is_a_domino_example():
+    out = _adapt(read_field_snapshot(FIXTURE, lo=(2.5, 2.5, 2.5), hi=(2.5, 2.5, 2.5)))
+    assert out["volume_mesh_centers"].shape == (1, 3)
+
+
+def test_global_params_are_checked_before_the_zero_cell_guard():
+    with pytest.raises(ValueError, match="same length"):
+        to_domino_volume(
+            _zero_cell_snapshot(),
+            global_params_values=(1.0, 2.0, 3.0),
+            global_params_reference=(1.0, 2.0),
+        )
+
+
+# --- harden-field-reader-pre-f3 §6: global params must be 1-D and non-empty -------------------
+
+
+@pytest.mark.parametrize(
+    ("values", "reference", "argument", "shape"),
+    [
+        (
+            [[1, 2, 3], [4, 5, 6]],
+            [[1, 2], [3, 4], [5, 6]],
+            "global_params_values",
+            "(2, 3)",
+        ),
+        ((), (), "global_params_values", "(0,)"),
+        (3.0, 3.0, "global_params_values", "()"),
+        ((1.0, 2.0, 3.0), [[1.0], [2.0], [3.0]], "global_params_reference", "(3, 1)"),
+    ],
+    ids=["two_d", "empty", "zero_d", "one_d_vs_column"],
+)
+def test_global_params_must_be_non_empty_and_one_dimensional(
+    values, reference, argument, shape
+):
+    with pytest.raises(ValueError) as excinfo:
+        to_domino_volume(
+            _snapshot(), global_params_values=values, global_params_reference=reference
+        )
+    message = str(excinfo.value)
+    assert argument in message
+    assert f"shape {shape}" in message
+
+
+class _UntouchableSnapshot:
+    def __getattr__(self, name):
+        raise AssertionError(
+            f"snapshot touched ({name}) before the params were checked"
+        )
+
+
+def test_bad_global_params_are_reported_before_the_snapshot_is_touched():
+    with pytest.raises(ValueError, match="global_params_values"):
+        to_domino_volume(
+            _UntouchableSnapshot(),
+            global_params_values=[[1, 2, 3]],
+            global_params_reference=[1, 2, 3],
+        )
