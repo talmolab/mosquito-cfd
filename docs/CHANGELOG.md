@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Field-surrogate provenance for F3 (`harden-field-reader-pre-f3`).
+  - `FieldSnapshot` gains `config_id`, `step`, `git_commit` and `docker_image`, each defaulting to `None`. A bare `read_field_snapshot` leaves them unset.
+  - `FieldCorpus.snapshot` fills them. The commit and the digest-pinned image are copied from the `run_metadata.json` the pod wrote into the run directory.
+  - New `FieldCorpus.run_metadata(config_id)` returns that file read through, unchanged.
+  - New stdlib-only `field_surrogate/_provenance.py` does the strict checks: a 40-character lowercase commit, a `<repo>@sha256:<64 hex>` image, and a `config` equal to the run.
+  - New public `field_surrogate.corpus.scan_plotfiles`, the one shared definition of which `plt<digits>` directories a run holds.
+
+  All 27 fine-corpus runs pass. (advances #113)
 - Force/moment sign groundwork (PR1 of four for #109; no data or behaviour change yet).
   - `docs/coordinate-convention.md` gains a `## Force and moment sign` section. It states that IAMReX's `ib_force`/`ib_moment` act on the fluid and that derived wing coefficients are to be the IB force and moment on the wing. Pinned pending notes record that the committed corpus coefficients and flapping-wing series still carry the on-fluid sign; a guard ties each note to its data or code path.
   - `tests/test_ib_force_sign_convention.py` pins the convention by physics. Over all 57 committed runs, the work the solver's hinge-referenced moments do from rest is non-negative at every row and in its increment after the impulsive-start transient (`t = 0.005`), and raw force and moment share one convention. The coefficient-side mirror is a strict xfail until the corpora are re-extracted.
@@ -60,6 +68,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - T4 per-component force-decomposition (`make_force_decomposition_figure.py`, `fig_force_decomposition`) now compares the van Veen quasi-steady model against the fine 256³ grid (`forces_fine.csv`, T3c) instead of the coarse 64³ grid: CF_normal 2.23 vs model 2.48 (rel gap ~11%, still within the 16% tolerance); CF_chord 0.41 vs model 0.43 (close agreement, down from the coarse-grid 0.92). `decompose_wing_force` is no longer called with `medium_csv` here — pairing the finest grid as the 2-grid GCI function's "coarse" role inverted the convergence-direction semantics; RESULTS.md's T4 section and Validation Status row now cite the T3c 3-grid Richardson/GCI numbers instead
 
 ### Fixed
+- `FieldSnapshot` can now be pickled and deep-copied, so a `DataLoader` worker can return one.
+  - The `MappingProxyType` field made every pickle fail.
+  - `__reduce__` now rebuilds the snapshot through its constructor, restoring the snapshot invariant on receipt: arrays read-only and owning their data, zero-size arrays laid out as the reader allocates them, `time` a `float`, `max_level`/`step` an `int`.
+  - Restoring ownership costs one extra copy of each field array per transport.
+  - With `batch_size >= 1`, torch's `default_collate` cannot batch snapshots, so pass a `collate_fn`. (#151)
+- `flow_video` dropped every frame from step 100000 on, without saying so: its `plt?????` glob only matched five-digit names.
+  - It now discovers frames with `FieldCorpus`'s own `scan_plotfiles` and orders them by step.
+  - **BREAKING (minor):** non-directory `plt*` entries are now skipped, and two directories for the same step (`plt100`, `plt00100`) raise `ValueError` where both used to be rendered.
+  - A missing `plotfile_dir` still raises `ValueError`. (#144)
+- Field-surrogate reader hardening (advances #113).
+  - `read_field_snapshot` refuses a path that is not a plotfile directory before `yt` is imported: a nonexistent path raises `FileNotFoundError`, a regular file `NotADirectoryError`, and a directory without a `Header` `FileNotFoundError`. These replaced yt's 40-line format-sniffing dump.
+  - The AMR refusal no longer names a function, since `extract_eulerian_box` reaches it too.
+  - **BREAKING:** `FieldCorpus.snapshot` requires a valid `run_metadata.json` in the run directory and raises `ValueError` without one. It checks it before reading the plotfile.
+  - **BREAKING:** `FieldCorpus.snapshot` and `to_domino_volume` refuse a zero-cell snapshot, which would batch and train on nothing. `read_field_snapshot` still returns zero-cell snapshots.
+  - **BREAKING:** `FieldCorpus.snapshot` checks its region arguments before any I/O.
+  - **BREAKING:** `FieldSnapshot.source` is `Path(path).absolute().as_posix()` rather than `str(path)`: absolute, forward-slashed, `..` kept, no symlink or mapped-drive resolution. It is a per-host locator; `(config_id, step)` plus the digest is the cross-host identity.
+  - **BREAKING:** `fields` given as a bare `str` or `bytes` raises `ValueError`. Before, `"uvw"` silently read u, v and w, and `"gradpx"` was split into six one-letter fields.
+  - **BREAKING:** `to_domino_volume` requires each global-params argument to be a non-empty one-dimensional sequence. Before, `[[1, 2, 3], [4, 5, 6]]` folded to `(6, 1)` and `()` was accepted.
 - `FieldCorpus` plotfile names are `plt` followed by ASCII digits, matched against the whole name. `\d` accepted non-ASCII decimal digits (`plt١٠٠` listed as step 100) and `$` accepted a trailing newline (`plt100\n`); beside a real `plt00100`, either made `steps()` raise "ambiguous" (#145)
 - **BREAKING:** field-surrogate requests that were always caller bugs now raise `ValueError` instead of returning a plausible-looking result: `read_field_snapshot` (and so `extract_eulerian_box`) rejects an inverted region (`lo > hi` on any axis) before `yt` is imported, where it returned a small region built from the padded indices (#122); `flow_video.build_flow_video` rejects a `box_margin` that is not a real number (`int`, `float`, `Fraction` or numpy real scalar; not `bool` or `np.timedelta64`) converting to a finite `float` > 0, in every mode, before any I/O; an `int` beyond the int64 range is accepted while it converts to a finite `float` (`2**1023` is, `10**400` is not) (#122); `sphere_cv_steadiness_fraction` rejects an inlet not strictly upstream of the outlet before reading a plotfile, as `sphere_cv_drag_cd` already did, and both now also reject a NaN `x_inlet`/`x_outlet` in those terms instead of letting it reach the reader; `FieldCorpus.plotfile`/`snapshot` reject a `step` that is not a non-negative `int`/`np.integer` (`"100"`, `100.0`, `True`, `-1`) before any I/O; and `FieldCorpus.steps` and `plotfile`'s scan raise when two directories parse to one step (`plt100` and `plt00100`), where `steps()` returned the step twice and `plotfile()` returned whichever was listed first (#121). `FieldCorpus.plotfile` now resolves the canonical `plt{step:05d}` with one `is_dir()` and lists the run directory only on a miss (#121; the remaining NFS cost is #112). `test_rejects_non_positive_fps` could not fail (its `match="fps"` matched the `tmp_path` in an unrelated error) and now matches the guard's own message; numpy number and bool scalars in the `step`, `halo` and `box_margin` messages are shown as plain values (`got 1.9`, not `got np.float64(1.9)`)
 - Argo `activeDeadlineSeconds` (86400s → 98280s, both sweep and smoke workflows), `retryStrategy.retryPolicy` (`"OnFailure"` → `"Always"`, so a pod deleted by preemption is retried), and `backoff.maxDuration` (`"4h"` → `"20h"`, actually covering the configured retry limit); `submit_workflow.sh smoke` now defaults to the corpus's CFL-worst config rather than its mildest one, and rejects `--parallelism`/`--active-deadline-seconds` (issues #95, #90) (#97)

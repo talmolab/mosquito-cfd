@@ -349,7 +349,7 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
   snapshots pickle, that `FieldCorpus.snapshot` requires a valid `run_metadata.json` and carries
   `(config_id, step)` plus the digest, and that `source` is a per-host locator. Commit
   `docs(field-surrogate): project.md conventions for snapshot provenance and pickling`.
-- [ ] 9.2 `docs/CHANGELOG.md`, the **last** commit before the PR, written after `git merge
+- [x] 9.2 `docs/CHANGELOG.md`, the **last** commit before the PR, written after `git merge
   origin/main` (no rebase). Following #140's precedent:
   - under `### Fixed`, one bullet each for #151 and #144, plus the #113 hardening with the
     `**BREAKING:**` sub-bullets from proposal.md, ending `(#151)`, `(#144)`, `(advances #113)`;
