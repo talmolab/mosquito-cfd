@@ -2355,3 +2355,20 @@ def test_non_ndarray_arrays_cannot_be_pickled_or_copied(transport):
     snap = _hand_built(np.arange(24, dtype=np.float64).reshape(2, 3, 4), x=[0.5, 1.5])
     with pytest.raises(ValueError, match=r"\bx\b.*ndarray"):
         _transports()[transport](snap)
+
+
+# np.matrix is pending deprecation; it is built here only to prove a subclass is refused.
+@pytest.mark.filterwarnings("ignore::PendingDeprecationWarning")
+@pytest.mark.parametrize("transport", sorted(_transports()))
+@pytest.mark.parametrize("kind", ["masked", "matrix"])
+def test_ndarray_subclasses_are_refused_not_converted(transport, kind):
+    # A MaskedArray would come back as a plain ndarray with its mask silently dropped.
+    base = np.arange(24, dtype=np.float64).reshape(2, 3, 4)
+    if kind == "masked":
+        snap = _hand_built(np.ma.masked_array(base, mask=base > 10))
+        where = "u"
+    else:
+        snap = _hand_built(base, x=np.matrix([[0.5, 1.5]]))
+        where = "x"
+    with pytest.raises(ValueError, match=where + r".*not a numpy ndarray"):
+        _transports()[transport](snap)

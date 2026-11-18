@@ -128,13 +128,16 @@ class FieldSnapshot:
             ``arrays`` as a plain ``dict`` in ``field_names`` order.
 
         Raises:
-            ValueError: If any array is not a numpy ``ndarray`` of native ``float64``
-                (harden-field-reader-pre-f3 D8.3).
+            ValueError: If any array is not exactly a numpy ``ndarray`` (a subclass such as a
+                masked array is refused too) of native ``float64`` (harden-field-reader-pre-f3
+                D8.3).
         """
         named = [*(f"arrays[{n!r}]" for n in self.arrays), "x", "y", "z", "dx"]
         values = [*self.arrays.values(), self.x, self.y, self.z, self.dx]
         for name, arr in zip(named, values, strict=True):
-            if not isinstance(arr, np.ndarray):
+            # Exactly ndarray: a subclass (MaskedArray, matrix) would come back as a plain
+            # array with its mask or shape semantics silently dropped.
+            if type(arr) is not np.ndarray:
                 raise ValueError(
                     f"cannot pickle or copy a FieldSnapshot whose {name} is a "
                     f"{type(arr).__name__}, not a numpy ndarray"

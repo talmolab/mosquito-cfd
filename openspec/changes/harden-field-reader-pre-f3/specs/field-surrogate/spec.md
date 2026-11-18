@@ -62,7 +62,8 @@ different strides. So the rebuild SHALL do two things:
 It SHALL then mark every array read-only. The rebuild never changes an array the caller still holds:
 `copy.copy` of a hand-built snapshot with writable arrays leaves the caller's arrays writable.
 Pickling or copying a snapshot any of whose arrays is not a numpy `ndarray` of native FP64
-(`dtype == np.float64`) SHALL raise `ValueError` naming the array, at pickling or copying time, rather than casting on some
+(`dtype == np.float64`), or that is an `ndarray` subclass such as a masked array, SHALL raise
+`ValueError` naming the array, at pickling or copying time, rather than casting on some
 transports and not others.
 
 Restoring the invariant costs memory on the receiving side. The unpickler keeps every received

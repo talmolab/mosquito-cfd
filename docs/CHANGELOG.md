@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The `MappingProxyType` field made every pickle fail.
   - `__reduce__` now rebuilds the snapshot through its constructor, restoring the snapshot invariant on receipt: arrays read-only and owning their data, zero-size arrays laid out as the reader allocates them, `time` a `float`, `max_level`/`step` an `int`.
   - Restoring ownership costs memory on the receiver: it briefly holds about 2× the snapshot's field bytes (768 MiB of arrays for a full 256x128x256 six-field domain). For full-domain training, send tensors or point clouds from the worker.
-  - **BREAKING (minor):** pickling or copying a snapshot that holds an array that is not a numpy `float64` `ndarray` raises `ValueError`. Only a hand-built snapshot can hold one.
+  - **BREAKING (minor):** pickling or copying a snapshot that holds an array that is not exactly a numpy `float64` `ndarray` (a list, another dtype, or a subclass such as a masked array, whose mask would be lost) raises `ValueError`. Only a hand-built snapshot can hold one.
   - With `batch_size >= 1`, torch's `default_collate` cannot batch snapshots, so pass a `collate_fn`. (#151)
 - `flow_video` dropped every frame from step 100000 on, without saying so: its `plt?????` glob only matched five-digit names.
   - It now discovers frames with `FieldCorpus`'s own `scan_plotfiles` and orders them by step.

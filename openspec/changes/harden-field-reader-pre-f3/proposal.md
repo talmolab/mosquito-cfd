@@ -73,7 +73,7 @@ Each item is also marked in `docs/CHANGELOG.md`.
   - a 40-hex commit;
   - an `<image>@sha256:<64 hex>` reference;
   - a `config` equal to the run;
-  - `status == "completed"`, a non-empty `run_id`, and no `git.dirty: true` (added after the pre-PR
+  - `status == "completed"`, a non-blank `run_id`, and no `git.dirty: true` (added after the pre-PR
     review, design D8.2).
 
   All 27 real fine-corpus runs pass (D4). `read_field_snapshot` is unaffected.
@@ -87,8 +87,11 @@ Each item is also marked in `docs/CHANGELOG.md`.
   - it skips non-directory `plt*` entries;
   - it raises on two directories for one step, where it used to render both;
   - a nonexistent `plotfile_dir` still raises `ValueError`.
-- **Pickling or copying a `FieldSnapshot` with a non-FP64 array raises `ValueError`** (D8.3). Only
-  hand-built snapshots can have one; the reader never produces one.
+- **Pickling or copying a `FieldSnapshot` whose array is not exactly a numpy `ndarray` of native
+  FP64 raises `ValueError`** (D8.3): a non-FP64 dtype, a list, or an `ndarray` subclass such as a
+  masked array. Only hand-built snapshots can have one; the reader never produces one.
+- **`FieldCorpus.snapshot` checks its region arguments before any I/O**, so an invalid argument
+  is reported as such even when the corpus is broken.
 - **`FieldSnapshot` gains five trailing defaulted fields** (`run_id` added in D8.2). This is additive
   for construction.
   `repr` shows them. `==` was already unusable between two distinct snapshots: the dataclass `eq`

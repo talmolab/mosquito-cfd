@@ -169,7 +169,7 @@ manifest; `s55_f115_p30` is absent from it but its run is present and valid. The
   Requires each of the following to be a `str`:
   - `meta["config"] == config_id`;
   - `meta["status"] == "completed"`;
-  - `meta["run_id"]`, non-empty;
+  - `meta["run_id"]`, non-blank (not empty, not whitespace only);
   - `meta["git"]["commit"]`, `fullmatch` `[0-9a-f]{40}`;
   - `meta["docker_image"]`, `fullmatch` `[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}`.
 
