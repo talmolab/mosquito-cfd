@@ -15,6 +15,7 @@ import pytest
 
 from mosquito_cfd.benchmarks.lev import q_criterion
 from mosquito_cfd.benchmarks.stress_integral import extract_eulerian_box
+from mosquito_cfd.field_surrogate.corpus import scan_plotfiles
 from mosquito_cfd.visualization.flow_video import DEFAULT_Q_THRESHOLD, build_flow_video
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +121,7 @@ def test_renders_lev_3d_video(tmp_path):
     lo = tuple(c - box_margin for c in center)
     hi = tuple(c + box_margin for c in center)
     found_lev_core = False
-    for plt_path in sorted(plotfile_dir.glob("plt?????")):
+    for _, plt_path in sorted(scan_plotfiles(plotfile_dir).items()):
         box = extract_eulerian_box(str(plt_path), lo=lo, hi=hi)
         q = q_criterion(box["u"], box["v"], box["w"], box["dx"])
         if int((q > DEFAULT_Q_THRESHOLD).sum()) > 10:

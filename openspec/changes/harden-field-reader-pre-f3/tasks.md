@@ -301,7 +301,7 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
 `corpus.py`, `flow_video.py`, `scripts/make_flow_video.py`, `tests/test_flow_video.py` and
 `tests/test_flow_video_plotfile.py`.
 
-- [ ] 7.1 **Red tests** in `tests/test_flow_video.py`.
+- [x] 7.1 **Red tests** in `tests/test_flow_video.py`.
   - `plt99999`, `plt100000`, `plt00100`, a file `plt00200`, a directory `plt00300.old` and a
     directory `plt١٠٠` give `[plt00100, plt99999, plt100000]`.
   - `flow_video.scan_plotfiles is corpus.scan_plotfiles`.
@@ -310,7 +310,7 @@ Commit: `fix(visualization): flow_video discovers frames with the corpus's scan_
     the path. The empty-directory message names `plt<digits>`.
   - **Expected red:** `plt100000` missing; the file `plt00200` included; `AttributeError` on
     `scan_plotfiles`.
-- [ ] 7.2 **Green.**
+- [x] 7.2 **Green.**
   - Rename `_scan` to `scan_plotfiles` at its three references (`corpus.py:74`, `:219` and `:270`),
     with a public docstring. Do not export it from `field_surrogate/__init__.py`.
   - Rewrite `_plotfile_frames` per D7.

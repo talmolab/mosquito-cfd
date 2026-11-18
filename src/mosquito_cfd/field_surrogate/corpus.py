@@ -82,11 +82,13 @@ def _is_dir(entry: os.DirEntry) -> bool:
         return False
 
 
-def _scan(run: Path) -> dict[int, Path]:
+def scan_plotfiles(run: Path) -> dict[int, Path]:
     """Map step -> plotfile directory for every ``plt<digits>`` directory in ``run``.
 
-    The shared listing behind ``steps()`` and ``plotfile()``'s fallback, so both give the same
-    verdict on the same directory. Non-directories are filtered out BEFORE the duplicate check: a
+    The repository's one definition of "which plotfiles a directory holds": the listing behind
+    ``steps()`` and ``plotfile()``'s fallback, and ``visualization.flow_video``'s frame discovery
+    (#144), so every consumer gives the same verdict on the same directory. Any digit width counts
+    (AMReX's ``plt{step:05d}`` has six digits from step 100000 on); sort the keys for step order. Non-directories are filtered out BEFORE the duplicate check: a
     stray file named like a plotfile is never a duplicate (harden-field-corpus-requests D5).
 
     One ``os.scandir`` lists the directory, and each entry's type comes from its ``DirEntry``
@@ -227,7 +229,7 @@ class FieldCorpus:
             ValueError: If the config is not in the manifest, its run directory is absent, or
                 two directories parse to the same step (e.g. ``plt100`` and ``plt00100``).
         """
-        return sorted(_scan(self.run_dir(config_id)))
+        return sorted(scan_plotfiles(self.run_dir(config_id)))
 
     def global_params(self, config_id: str) -> dict[str, Any]:
         """Return this config's kinematic parameters from the manifest.
@@ -278,7 +280,7 @@ class FieldCorpus:
         if canonical.is_dir():
             return canonical
         run = self.run_dir(config_id)
-        found = _scan(run)
+        found = scan_plotfiles(run)
         if step in found:
             return found[step]
         # Available steps come from the scan already done: calling steps() here re-ran the
