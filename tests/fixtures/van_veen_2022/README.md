@@ -32,8 +32,8 @@ redistributed here with attribution on that basis; the authors have been asked t
   degrees (uint8), `sr` the stroke rate in rad/s (uint16), `sa` the stroke acceleration in
   rad/s² (int32), and `Fx`, `Fy`, `Fz` the forces in N at the end of each simulation.
   - The rows are 566 distinct simulations: each non-steady one is stored twice, byte for byte.
-    Distinct rows: 43 steady (`sa = 0`), 477 accelerating, 46 decelerating. (The paper's §2.6
-    counts 568.)
+    Distinct rows: 43 steady (`sa = 0`), 477 accelerating, 46 decelerating. The paper's §2.6
+    counts 568: 40 steady, 480 accelerating, 48 decelerating.
   - All decelerating rows are at 36°.
 - `wing_geometry_DB.mat`: 14 wings (fruit fly, mosquito, 12 ellipses). For each: `wing` (name),
   `outline`, the chord profile `c` at spanwise stations `y`, `span`, `chord_max`, `chord_mean`,
@@ -44,7 +44,10 @@ redistributed here with attribution on that basis; the authors have been asked t
 Read with `scipy.io.loadmat` only, and cast every column to `float64` first: `sr**2` overflows
 in uint16. The comparison in the tests takes the fluid density as 1; the paper's value is not in
 the text available to this project (issue #156). With that density, a fit to the rows with
-non-negative acceleration returns the paper's printed coefficients to the digits printed.
+non-negative acceleration returns the printed 3.13, 0.96 and −1.02 for the normal terms and 0.104
+for the tangential added mass. That holds on the rows as stored, where each non-steady simulation
+counts twice; on the 566 distinct rows the normal terms come out 3.14, 0.97 and −1.05. The same
+fit does not return the printed tangential polynomial.
 
 ## What the data does not support
 

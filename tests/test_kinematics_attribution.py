@@ -180,3 +180,10 @@ def test_validation_deck_is_deliberately_untouched():
     meta = json.loads(_read("examples/flapping_wing/run_metadata_t2a.json"))
     assert meta["inputs"]["hash"] == hashlib.sha256(deck.read_bytes()).hexdigest()
     assert "prescribed van Veen kinematics" in deck.read_text(encoding="utf-8")
+
+
+def test_reynolds_row_quotes_the_papers_range():
+    """The paper's mid-span Reynolds range is 36-252 (section 2.6, p. A3-18), not 100-500."""
+    flat = _flat(_read("examples/flapping_wing/RESULTS.md"))
+    assert "| Re (midspan) | ~100 | 36–252 (§2.6) | within the paper's range |" in flat
+    assert "100–500" not in flat

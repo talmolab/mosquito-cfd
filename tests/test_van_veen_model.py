@@ -509,11 +509,21 @@ def test_bad_nbins_is_reported_as_nbins_not_as_a_planform_mismatch(nbins):
     assert vv.s_cy_marker_quadrature(nbins=5) > 0
 
 
-@pytest.mark.parametrize("r_tip", [np.nan, np.inf, 0.0, -1.0])
+@pytest.mark.parametrize("r_tip", [np.nan, np.inf, 0.0, -1.0, 0.5, 1.0, 2.45, 2.94])
 def test_marker_quadrature_rejects_a_bad_r_tip(r_tip):
-    """The public cross-check validates r_tip itself (it used to return a negative S_cy)."""
+    """The public cross-check validates r_tip itself.
+
+    The committed markers span 2.95, so any r_tip below that puts markers inboard of the hinge;
+    r_tip = 1.0 used to return a negative S_cy.
+    """
     with pytest.raises(ValueError, match=r"^r_tip="):
         vv.s_cy_marker_quadrature(r_tip=r_tip)
+
+
+def test_marker_quadrature_accepts_r_tip_at_the_marker_span():
+    """r_tip equal to the markers' own span puts the root marker exactly on the hinge."""
+    assert vv.s_cy_marker_quadrature(r_tip=2.95) > 0
+    assert vv.s_cy_marker_quadrature(r_tip=4.0) > vv.s_cy_marker_quadrature()
 
 
 def test_profile_moments_validates_its_profile():

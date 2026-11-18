@@ -456,7 +456,8 @@ def compute_wing_area_moments(
     Planform guard: the closed-form ``S_cy`` is right only for the nominal ellipse. The marker
     quadrature of ``S_cy`` is computed from the same wing file, and a difference of more than
     ``_PLANFORM_MISMATCH_TOL`` (15 %) from the closed form raises. This catches gross planform
-    errors only (a rectangle, a chord wrong by more than a few per cent); a mosquito-shaped wing
+    errors only (a rectangle, a chord a few per cent too small or about a tenth too large,
+    the committed markers being 9.9 % low already); a mosquito-shaped wing
     of the same span differs by about 8 % and passes, and a wrong span is not seen at all,
     because the markers are placed by ``r_tip``. A zero-area planform, a bad ``r_tip`` or
     ``nbins``, a missing wing file and a too-fine ``nbins`` are reported by their own errors
@@ -548,6 +549,11 @@ def _marker_moment_quadrature(
     if not (np.isfinite(extent) and extent > 0):
         raise ValueError("degenerate planform: zero spanwise extent in wing.vertex")
     y = span_coord + (r_tip - span_coord.max())  # hinge distance; tip marker -> r_tip
+    if y.min() < -1e-9:
+        raise ValueError(
+            f"r_tip={r_tip} is less than the markers' spanwise extent ({extent:.6g}): markers "
+            "would fall inboard of the hinge"
+        )
     edges = np.linspace(y.min(), y.max(), nbins + 1)
     ctr = 0.5 * (edges[:-1] + edges[1:])
     counts = np.array(

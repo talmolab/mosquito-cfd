@@ -248,10 +248,18 @@ def test_refit_without_decelerating_rows_returns_the_printed_coefficients(fruitf
     """Fitting the rows with non-negative acceleration gives the paper's printed values.
 
     3.13, 0.96 and -1.02 for the normal terms and 0.104 for the tangential added mass, each to
-    the digits printed. This is the strongest evidence that the density is 1 in the dataset's
-    units, and it explains why a fit over all rows puts the tangential added mass below its
-    printed interval.
+    the digits printed. This is evidence that the density is 1 in the dataset's units, and it
+    explains why a fit over all rows puts the tangential added mass below its printed interval.
+
+    It holds on the rows as stored, where each non-steady simulation counts twice. On the 566
+    distinct rows the normal terms come out 3.14, 0.97 and -1.05 (the added mass is still
+    0.104), so the match says something about how the paper's fit weighted its rows, not only
+    about the density. The tangential polynomial is not recovered by this fit either way.
     """
+    rows = np.column_stack([fruitfly[k] for k in ("aoa", "sr", "sa", "Fx", "Fy", "Fz")])
+    _, first = np.unique(rows, axis=0, return_index=True)
+    distinct = np.zeros(len(rows), dtype=bool)
+    distinct[first] = True
     keep = fruitfly["sa"] >= 0
     a = np.radians(fruitfly["aoa"])[keep]
     deg, w, wd = fruitfly["aoa"][keep], fruitfly["sr"][keep], fruitfly["sa"][keep]
@@ -277,6 +285,14 @@ def test_refit_without_decelerating_rows_returns_the_printed_coefficients(fruitf
         tangential_basis, -fruitfly["Fx"][keep], rcond=None
     )
     assert round(float(tangential[3]), 3) == vv.C_FXA_AM
+    # ...and the polynomial part does not come back to the printed digits.
+    assert round(float(tangential[2]), 2) != vv.TRANSL_TANGENTIAL_POLY[2]
+    # On distinct rows the normal terms round differently (stated in the fixture README).
+    once = keep & distinct
+    normal_once, *_ = np.linalg.lstsq(
+        normal_basis[distinct[keep]], fruitfly["Fz"][once], rcond=None
+    )
+    assert [round(float(v), 2) for v in normal_once] == [3.14, 0.97, -1.05]
 
 
 def test_fixture_readme_describes_the_rows_as_they_are():
@@ -286,3 +302,13 @@ def test_fixture_readme_describes_the_rows_as_they_are():
     assert "1,089 rows" in readme and "566 distinct" in readme
     assert "stored twice" in readme
     assert "decelerating rows are at 36°" in readme
+    assert "43 steady (`sa = 0`), 477 accelerating, 46 decelerating" in readme
+    assert "counts 568: 40 steady, 480 accelerating, 48 decelerating" in readme
+    assert (
+        "non-negative acceleration returns the printed 3.13, 0.96 and −1.02" in readme
+    )
+    assert (
+        "on the 566 distinct rows the normal terms come out 3.14, 0.97 and −1.05"
+        in readme
+    )
+    assert "to the digits printed" not in readme

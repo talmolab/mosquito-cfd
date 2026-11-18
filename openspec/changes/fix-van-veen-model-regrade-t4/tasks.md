@@ -396,8 +396,8 @@ issue. Their important findings, and what was done:
 - [x] 6.12 `F_ref` shares the nominal-area `S_yy` basis (science I4). Stated in the T4 limits.
 - [x] 6.13 "The model's normal force keeps one sign" was false: both curves dip below zero before
       each reversal (behaviour 4). Reworded in the figures README and the figure script.
-- [x] 6.14 #50 is closed but was cited as tracking further refinement (behaviour 5). Reworded: the
-      256³ study was #50; no finer run is scheduled. Whether to file an issue is the user's call.
+- [x] 6.14 #50 is closed but was cited as tracking further refinement (behaviour 5). The user
+      asked for an issue: a 512³ run is #165, and the docs point there.
 - [x] 6.15 Smaller: `*.mat binary` in `.gitattributes`; the dataset test finds its fixtures from
       its own path and skips the git check outside a checkout; the §4.4 coefficients are in the
       code comment the spec asks for; component docstrings no longer say "body-frame"; the
@@ -409,10 +409,35 @@ Recorded, not changed:
 - The commit message of `e0cb8f1` says the pilot report states the grid numbers; only the
   force-surrogate roadmap does. `8ba89a0` also removed the creation date from the K1 PDF without
   saying so. Recorded commits are not rewritten.
-- The "Re (midspan) ~100 | 100–500 | MATCH" row of `RESULTS.md`: a reviewer reports the paper's
-  range as 36–252. Not verified against the paper text here, so the row is left for the user.
 - The V5 figure's "deferred to T4" annotation, and a `chord_converges_toward_model` key whose
   name says more than its value means. Both are older than this change.
 - The refit on rows with non-negative acceleration returns the printed coefficients (3.13, 0.96,
   −1.02, 0.104). This explains the "0.094, below its interval" row in `design.md` and belongs in
   #156 as a question to the authors.
+
+## 7. Fixes after the re-review of section 6 (one more commit on top)
+
+A focused re-review of the section 6 commit found no blocking issue and five important ones, all
+inside the fixes themselves.
+
+- [x] 7.1 The rewritten guard lost claims the first version caught: a colon or a cell boundary
+      could separate a claim from the word that says what it is about (`#40: resolved.`,
+      `| #40 | resolved |`, a "Resolved." under a "#40" heading). The guard now reads at two
+      widths: the negation test stays narrow (cell, clause); the companion word and the
+      always-rejected phrases are searched over the whole sentence or table row plus the heading
+      or label above. The reviewer's inputs are in the must-fail lists.
+- [x] 7.2 `s_cy_marker_quadrature` still returned a negative value for a small positive `r_tip`.
+      It now raises when any marker would fall inboard of the hinge.
+- [x] 7.3 The fixture README said a refit "returns the paper's printed coefficients to the digits
+      printed". True for four coefficients, on the rows as stored only. Reworded, with the
+      distinct-row values, and pinned.
+- [x] 7.4 "so the model's own chord peak is uncertain" did not follow: the peak falls while the
+      wing accelerates. `RESULTS.md` now says the chord curve is unsupported while the wing
+      decelerates, and a test pins where the peak falls.
+- [x] 7.5 Ten new sentences were bound by no test, including two of section 6's own fixes. Each
+      is now asserted, and each revert fails a named test.
+- [x] 7.6 Docs point at #165 for a finer grid run.
+
+After this commit 507 mutants across seven sets fail a named test.
+- [x] 7.7 The "Re (midspan)" row of `RESULTS.md` quoted the paper's range as 100 to 500. The paper
+      says 36–252 (§2.6, p. A3-18, read from the PDF). Corrected at the user's request, with a test.

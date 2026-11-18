@@ -26,6 +26,7 @@ _MUST_PASS = (
     "#40 advanced, not resolved",
     "the peak ratio is drop_frac ≈ −0.42",
     "The chord question is unsettled.",
+    "CF_chord drops 66.5 % and CF_normal is grid-settled.",
     "T4_NORMAL_MAG_TOL is resolved from its sourced inputs.",
     "This PR closes #401.",
     "The viscosity is 0.115 % of that.",
@@ -68,6 +69,15 @@ _MUST_FAIL = (
     "T4 resolves the chord PARTIAL, so #40 is no longer blocking.",
     "The CFD chord is no longer far from the model: T4 resolves the PARTIAL.",
     "(The grid is not converged.) T4 resolves the chord PARTIAL.",
+    # A colon between a claim and what it is about does not hide it.
+    "#40: resolved.",
+    "#40: closed",
+    "Issue #40: done.",
+    "Closes: #40",
+    "The reading is pending: #133.",
+    "The chord: explained by the model.",
+    "The chord PARTIAL: resolved.",
+    "CF_chord_PARTIAL is resolved.",
 )
 
 # Structure matters: a negation in a neighbouring heading, bullet, table cell or paragraph must
@@ -100,6 +110,16 @@ _MUST_FAIL_STRUCTURED = {
     "negated paragraph running into a heading": (
         "This part is not final\n### T4 resolves the chord PARTIAL\n"
     ),
+    # The claim and what it is about sit in different cells, or under a heading or label.
+    "status table: issue and state in two cells": "| #40 | resolved |\n",
+    "status table: closed": "| #40 | closed |\n",
+    "status table: PARTIAL resolved": "| Chord PARTIAL | resolved |\n",
+    "status table: chord explained": "| CF_chord | explained by the model |\n",
+    "status table: pending": "| pending | #133 |\n",
+    "heading names the issue": "### #40\n\nResolved.\n",
+    "heading names the chord": "### Chord\n\nExplained by the model.\n",
+    "nested list item": "- #40\n  - resolved\n",
+    "label line then a bullet": "**Chord PARTIAL:**\n\n- resolved\n",
 }
 
 # Known miss, kept here so nobody assumes the guard covers it: "agrees" is needed for the
@@ -262,6 +282,12 @@ def test_figures_readme_gives_the_t4_verdict_in_words():
     assert "RESULTS.md" in section
     assert "not explained by the model" in section
     assert "within the graded tolerance" in section
+    # Both normal curves dip below zero before each reversal (pinned in the RESULTS test), and
+    # the CFD's second peak is the lower one.
+    assert "small negative dip before each reversal" in section
+    assert "keeps one sign" not in section and "keep one sign" not in section
+    assert "The CFD's second normal peak is lower than its first" in section
+    assert "at mid-stroke is its Wagner term changing sign" in section
     # Grid and tier labels ("256³", "T3c/#52") are not decimals; a model or CFD value would be.
     assert re.findall(r"\d+\.\d+", section) == []
     # The sign anchor other tests rely on stays on the rewritten row.
@@ -286,6 +312,7 @@ def test_roadmap_t4_row_gives_the_verdict_in_words():
     assert "translational + added-mass + Wagner" in row and "Fig 13" in row
     assert "does not resolve the T2a CF_chord PARTIAL" in row
     assert "does not explain" in row and "#40 is open" in row
+    assert "a finer run is [#165](" in row and "#50" not in row
     assert "RESULTS.md" in row
     # The only decimal in the row is the CFD chord's GCI_fine, pinned by the T3c test.
     assert set(re.findall(r"\d+\.\d+", row)) == {"27.6"}

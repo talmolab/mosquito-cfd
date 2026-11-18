@@ -288,7 +288,7 @@ coarse grid (gap 13.0 %); the medium-grid gap (2.9 %) is reported. The tolerance
 these results and is unchanged. The grade uses the larger of the two CFD normal peaks in the
 window. The fine-grid CFD has a second normal peak, 2.01, on the following half-stroke, 10 % lower
 than the first; against it the model's peak is 12.9 % high, which is inside the tolerance with
-little margin.
+little margin. (The model's own peak for that half-stroke falls just past the end of the data.)
 
 **Reported, not gated:**
 
@@ -301,8 +301,8 @@ little margin.
   is open: **#40 is open** ([#40](https://github.com/talmolab/mosquito-cfd/issues/40)). The CFD chord
   is also not grid-converged (0.92 coarse → 0.554 medium → 0.41 fine; the T3c Richardson
   extrapolant is 0.32, `GCI_fine = 27.6 %`, see "Grid convergence (T3c)" below); further
-  refinement (512³+, H100/grant hardware) is not scheduled; the 256³ study was
-  [#50](https://github.com/talmolab/mosquito-cfd/issues/50).
+  refinement (512³+, H100/grant hardware) is [#165](https://github.com/talmolab/mosquito-cfd/issues/165); the 256³
+  study was [#50](https://github.com/talmolab/mosquito-cfd/issues/50).
 - **Translational-chord window peak**: 0.057 (eq 3.12 on our kinematics; it is 0.042 at
   mid-stroke and larger where the angle of attack is lower). This checks the implementation
   against a known answer. It is not a comparison with the CFD.
@@ -326,10 +326,11 @@ little margin.
 - The paper gives two coefficient sets for eq 3.12 (§3.1.2 and §4.4). This analysis uses §3.1.2's.
   The chord outputs depend on that choice; the graded normal does not.
 - The model has no pitch-rotation term (the paper's §2.8), and our wing pitches continuously.
-- The paper's dataset supports the model's tangential force for an accelerating wing only. On its
-  decelerating rows the tangential error is about eleven times larger
-  (`tests/test_van_veen_dataset.py`). Our wing decelerates for half of each half-stroke, so the
-  model's own chord peak is uncertain. The CFD chord is several times larger either way.
+- The paper's dataset supports the model's tangential force best for an accelerating wing. On its
+  decelerating rows the model's relative tangential error is about eleven times that on the
+  accelerating rows, and exceeds the force itself (`tests/test_van_veen_dataset.py`). Our wing
+  decelerates for half of each half-stroke, so the model's chord curve is unsupported there. Its
+  peak falls in the accelerating part of the stroke.
 - The recipe for feeding the model a reversing wing (angle of attack folded into 0°–90°, forces
   applied along the direction of motion) rests on the paper's fig 1c–e and §3.3. The
   supplementary text S1.1, which describes the authors' own recipe, is not published with the
@@ -535,7 +536,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 | Marker motion (span-tip sweeps) | PASS | ±70° arc in the x–y stroke plane (fig_wing_phases.pdf) |
 | Force periodicity | PASS | 1 full cycle captured |
 | Peak lift at mid-stroke | PASS | \|Fz\| peaks at t≈0.5 (φ≈0, φ̇ max) — correct translational signature |
-| Body-frame van Veen comparison | VALIDATED against van Veen's quasi-steady model (normal peak magnitude); chord reported, not explained by the model | T4 (fine 256³ grid): CF_normal 2.23 vs model 2.27 → magnitude consistent (graded, rel gap 1.7 % < 16 % tol). CF_chord 0.41 vs model 0.107: reported, not explained by the model, and grid-limited (GCI_fine 27.6 %; the 256³ study was #50). T4 does not resolve the T2a **PARTIAL** (coarse-grid CF_chord 0.92 vs the ~0.3 T2a target); the chord question is open in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)** (see "T4 per-component decomposition"). The peak-phase gap (0.028 cycle) is reported, not gated. The gap is not a precision: against the second half-stroke's CFD peak, 2.01, the gap is 12.9 % |
+| Body-frame van Veen comparison | VALIDATED against van Veen's quasi-steady model (normal peak magnitude); chord reported, not explained by the model | T4 (fine 256³ grid): CF_normal 2.23 vs model 2.27 → magnitude consistent (graded, rel gap 1.7 % < 16 % tol). CF_chord 0.41 vs model 0.107: reported, not explained by the model, and grid-limited (GCI_fine 27.6 %; a finer run is #165). T4 does not resolve the T2a **PARTIAL** (coarse-grid CF_chord 0.92 vs the ~0.3 T2a target); the chord question is open in **[#40](https://github.com/talmolab/mosquito-cfd/issues/40)** (see "T4 per-component decomposition"). The peak-phase gap (0.028 cycle) is reported, not gated. The gap is not a precision: against the following half-stroke's CFD peak, 2.01, the gap is 12.9 % |
 | Grid convergence (T3b, report-only) | REPORTED | Coarse↔medium: CF_chord −66.5 % (0.923→0.554), CF_normal −11.7 %; 2-grid GCI band + LEV present on both grids (see "Grid convergence (T3b)"). Chord drop supports the coarse-grid boundary-layer under-resolution hypothesis (#40) but is not grid-converged at medium — #40 advanced, not resolved |
 | Grid convergence (T3c, 3-grid report-only) | REPORTED | Both components monotone. CF_normal: p_obs=1.38, Richardson=2.162, GCI_fine=3.7 %. CF_chord: p_obs=1.37, Richardson=0.321, GCI_fine=27.6 %. Further refinement deferred to H100. Closes #50 |
 | Induced velocity field | PASS | Non-zero physical dipole (ns.init_iter=2), u ∈ [−9.98, +1.90] |
@@ -547,7 +548,7 @@ scheduled per `run_metadata_t2a.json` — its exact node/GPU was not the focus.*
 
 | Quantity | Simulation (new convention) | van Veen | Status |
 |----------|-----------|---------------------|--------|
-| Re (midspan) | ~100 | 100–500 | MATCH |
+| Re (midspan) | ~100 | 36–252 (§2.6) | within the paper's range |
 | **Body-frame CF_normal** | **2.61** | ~2.4 (T2a target) | within tol (gap +0.21) |
 | Body-frame CF_chord | 0.92 | ~0.3 (T2a target) | above target; not explained by T4 (#40) |
 
@@ -565,8 +566,8 @@ comparing the 6-DOF force with `ib_w` — is delivered in the [added-mass-subtra
 subsection](#added-mass-subtracted-body-frame-diagnostic-40-cheap-interim) above (it isolates the
 size of the internal-fluid term). The chord's **grid**
 sensitivity is the T3c fine-grid line
-(**[#50](https://github.com/talmolab/mosquito-cfd/issues/50)**, complete at 256³; no finer run
-is scheduled).
+(**[#50](https://github.com/talmolab/mosquito-cfd/issues/50)**, complete at 256³; a finer run is
+[#165](https://github.com/talmolab/mosquito-cfd/issues/165)).
 
 ---
 

@@ -453,6 +453,29 @@ def test_t4_decomposition_numbers_reproduce():
     literals["gap against the second peak"] = f"{100 * second_gap:.1f} %"
     lower_by = f"{100 * (1 - second_peak / r['normal_peak_cfd']):.0f} % lower"
     assert lower_by == "10 % lower" and lower_by in section
+    # "The model's own peak for that half-stroke falls just past the end of the data."
+    assert r["normal_peak_phase_model"] + 0.5 > float(series["time"].max())
+    assert "falls just past the end of the data" in _flat(section)
+    # "Its peak falls in the accelerating part of the stroke": at the model's chord peak the
+    # stroke rate and the stroke acceleration have the same sign.
+    k = int(np.argmax(np.abs(series["model_chord"])))
+    t_peak = float(series["time"][k])
+    rate, accel = np.cos(2 * np.pi * t_peak), -np.sin(2 * np.pi * t_peak)
+    assert rate * accel > 0
+    # "an `F_ref` built on that same `S_yy`, which is larger than the committed markers' own":
+    # a marker quadrature of integral c*y**2 dy, independent of the module's.
+    verts = np.loadtxt("examples/flapping_wing/wing.vertex", skiprows=1)
+    y_m = verts[:, 1] + (3.0 - verts[:, 1].max())
+    edges = np.linspace(y_m.min(), y_m.max(), 31)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    chord_m = np.array(
+        [
+            np.ptp(verts[(y_m >= lo) & (y_m <= hi), 0])
+            for lo, hi in zip(edges[:-1], edges[1:], strict=True)
+        ]
+    )
+    marker_s_yy = float(np.trapezoid(chord_m * centres**2, centres))
+    assert 6.0 < marker_s_yy < 6.5 < vv.compute_wing_area_moments().s_yy
     # Both curves dip slightly below zero before each reversal (the docs say so).
     assert 0.05 < float((series["model_normal"] < 0).mean()) < 0.2
     assert 0.05 < float((series["cfd_normal"] < 0).mean()) < 0.2
@@ -533,7 +556,7 @@ def test_t4_decomposition_numbers_reproduce():
         f"rel gap {literals['relative gap']} < {literals['tolerance']} tol",
         f"CF_chord {c_c} vs model {m_c}",
         f"peak-phase gap ({literals['phase gap']} cycle)",
-        f"second half-stroke's CFD peak, {literals['second CFD normal peak']}, the gap is "
+        f"following half-stroke's CFD peak, {literals['second CFD normal peak']}, the gap is "
         f"{literals['gap against the second peak']}",
     ):
         assert phrase in status, f"status row lacks {phrase!r}"
@@ -564,7 +587,11 @@ def test_t4_subsection_states_the_limits_of_the_comparison():
         "wagner term changes sign",
         "the grade uses the larger",
         "about eleven times",  # pinned by tests/test_van_veen_dataset.py
-        "decelerat",
+        "decelerates for half of each half-stroke",
+        "chord curve is unsupported there",
+        "best for an accelerating wing",
+        "larger than the committed markers' own",
+        "#165",
         "divided by an `f_ref` built on that same `s_yy`",
         "first wingbeat",
         "impulsive start",
@@ -775,3 +802,21 @@ def test_results_vocabulary_states_the_sign_and_the_open_question():
     assert "#135" in flat
     assert "is the **total** hydrodynamic force" not in flat
     assert "coordinate-convention.md#force-and-moment-sign" in flat
+
+
+def test_closed_grid_issue_is_not_cited_as_the_open_tracker():
+    """#50 (the 256³ study) is closed; further refinement is #165, in RESULTS and the roadmap."""
+    root = Path(__file__).resolve().parents[1]
+    for rel in (
+        "examples/flapping_wing/RESULTS.md",
+        "docs/aerodynamics_validation/roadmap.md",
+    ):
+        flat = _flat((root / rel).read_text(encoding="utf-8"))
+        assert "#165" in flat, rel
+        for stale in (
+            "is tracked by **[#50]",
+            "further refinement is **[#50]",
+            "tight grid verdict (#50)",
+            "deferred (512³+, H100/grant hardware — [#50]",
+        ):
+            assert stale not in flat, (rel, stale)

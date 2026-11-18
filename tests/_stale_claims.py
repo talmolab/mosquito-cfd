@@ -4,18 +4,24 @@ The corrected van Veen model no longer supports several statements the docs used
 resolves the chord PARTIAL (#40), that the CFD chord sits close to or converges to the model, and
 a set of superseded model numbers. :func:`stale_claims` finds those statements in a document.
 
-It is a tripwire, not proof. How it reads a document:
+It is a tripwire, not proof. It reads a document at two widths:
 
-- The text is cut into *blocks* first: a heading, a list item, a table cell and a paragraph are
-  each their own block, so a "not" in one cannot excuse a claim in another.
-- Each block is cut into sentences (after ``.``, ``;``, ``:``, ``!`` or ``?``).
-- A *claim* pattern is skipped only when a negation comes **before** it in the same sentence,
-  because the docs are required to say "T4 does not resolve the chord PARTIAL". A negation after
-  the claim ("T4 resolves it, so #40 is no longer blocking") does not excuse it.
+- **Narrow, for the negation test.** The text is cut into blocks (a heading, a list item, a table
+  cell and a paragraph are each their own), and each block into clauses (after ``.``, ``;``,
+  ``:``, ``!`` or ``?``). A *claim* pattern is excused only by a negation that comes **before**
+  it in the same clause, because the docs are required to say "T4 does not resolve the chord
+  PARTIAL". A "not" in a neighbouring cell, bullet or heading excuses nothing, and neither does
+  one after the claim ("T4 resolves it, so #40 is no longer blocking").
+- **Wide, for what the claim is about.** A claim's companion word (T4, #40, PARTIAL, chord) and
+  the always-rejected phrases are looked for over the whole sentence (colons not split) or the
+  whole table row, together with the heading or label line just above. So ``| #40 | resolved |``,
+  ``#40: closed`` and a "Resolved." under a "#40" heading are all found.
 
-Known costs: "It is not true that nothing changed: ..." style double negatives are not parsed; a
-claim worded with none of the listed verbs is missed; and the number patterns reject those digits
-with any meaning.
+Known costs. It fails closed on some true sentences ("Whether T4 resolves the chord PARTIAL is
+not known", "T4 fails to resolve it"): reword them with the negation first. It misses a claim
+excused by an unrelated earlier negation in the same clause ("No doubt T4 resolves ..."), a claim
+worded with none of the listed verbs, setext headings and tables without a leading pipe. The
+number patterns reject those digits with any meaning.
 """
 
 from __future__ import annotations
@@ -26,22 +32,24 @@ import re
 import tokenize
 
 _NEGATION = re.compile(
-    r"\b(not|never|neither|nor|cannot|no)\b|n['’]t\b|\bun(resolved|explained|settled)"
+    r"\b(not|never|neither|nor|cannot|no)\b|n['’]t\b|\bun(resolved|explained)"
 )
 
-# (name, pattern, companion): rejected unless a negation precedes the match in its sentence.
-# With a companion, both must occur in the same sentence.
+# (name, pattern, companion): rejected unless a negation precedes the match in its clause.
+# With a companion, the companion must occur in the wide unit around the clause.
 _CLAIMS: tuple[tuple[str, re.Pattern[str], re.Pattern[str] | None], ...] = (
     # "under-resolves" and "under-resolution" are about the grid, as is "resolution" unless it is
     # "the resolution of" something, so those forms are left alone. So is "unresolved".
     (
         "T4 resolves the chord PARTIAL",
         re.compile(r"(?<![-\w])resolv\w*|(?<![-\w])resolution\W+of\b"),
-        re.compile(r"\bt4\b|#40(?!\d)|\bpartial\b"),
+        # No leading \b on "partial": normalize() strips underscores, so CF_chord_PARTIAL
+        # arrives as "cfchordpartial".
+        re.compile(r"\bt4\b|#40(?!\d)|partial\b"),
     ),
     (
         "the model explains the chord",
-        re.compile(r"(?<![-\w])explain\w*|\baccounts?\W+for\b|\bsettle[sd]?\b"),
+        re.compile(r"(?<![-\w])explain\w*|\baccounts?\W+for\b|(?<![-\w])settle[sd]?\b"),
         re.compile(r"chord"),
     ),
     (
@@ -93,8 +101,10 @@ _ALWAYS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
 _LIST_ITEM = re.compile(r"^\s*([-*+]|\d+[.)])\s+")
 _TABLE_ROW = re.compile(r"^\s*\|")
-# A sentence ends at . ; : ! or ?, optionally followed by a closing bracket or quote, then a space.
-_SENTENCE_END = re.compile(r"(?<=[.;:!?])[)\]\"'’”]*\s+")
+# A sentence ends at . ; ! or ?, optionally followed by a closing bracket or quote, then a space.
+# A clause also ends at a colon.
+_SENTENCE_END = re.compile(r"(?<=[.;!?])[)\]\"'’”]*\s+")
+_CLAUSE_END = re.compile(r"(?<=[.;:!?])[)\]\"'’”]*\s+")
 
 
 def normalize(text: str) -> str:
@@ -102,66 +112,98 @@ def normalize(text: str) -> str:
     return " ".join(re.sub(r"[*_`]", "", text).split()).lower()
 
 
-def blocks(text: str) -> list[str]:
-    """Structural blocks of a Markdown text: headings, list items, table cells, paragraphs.
+def blocks(text: str) -> list[tuple[str, bool]]:
+    """Structural blocks of a Markdown text, each with whether it is a nested list item.
 
-    A wrapped paragraph or list item is one block; a blank line, a heading, a new list item or a
-    table row starts a new one. Blockquote markers are dropped first.
+    A heading, a list item, a table row and a paragraph are separate blocks; a wrapped paragraph
+    or list item is one block. Blockquote markers are dropped first.
     """
-    out: list[str] = []
+    out: list[tuple[str, bool]] = []
     current: list[str] = []
+    nested = False
 
     def flush() -> None:
         if current:
-            out.append(" ".join(current))
+            out.append((" ".join(current), nested))
             current.clear()
 
     for raw in text.splitlines():
         line = re.sub(r"^\s*(>\s?)+", "", raw)
         if not line.strip():
             flush()
-        elif _HEADING.match(line):
+        elif _HEADING.match(line) or _TABLE_ROW.match(line):
             flush()
-            out.append(line)
-        elif _TABLE_ROW.match(line):
-            flush()
-            out.extend(cell for cell in line.split("|") if cell.strip())
+            out.append((line, False))
         elif _LIST_ITEM.match(line):
             flush()
+            nested = line[:1].isspace()
             current.append(line)
         else:
+            if not current:
+                nested = False
             current.append(line)
     flush()
     return out
 
 
-def sentences(text: str) -> list[str]:
-    """Normalized sentences of ``text``, block by block."""
-    result: list[str] = []
-    for block in blocks(text):
-        result.extend(s for s in _SENTENCE_END.split(normalize(block)) if s)
+def _is_label(block: str) -> bool:
+    """A heading, or a line that introduces what follows (ends with a colon)."""
+    return bool(_HEADING.match(block)) or normalize(block).endswith(":")
+
+
+def units(text: str) -> list[tuple[str, list[str]]]:
+    """``(wide, clauses)`` pairs: the wide unit and the narrow clauses inside it.
+
+    For a table row the wide unit is the row and the clauses come from each cell. For other
+    blocks the wide unit is a sentence (split after ``.``, ``;``, ``!`` or ``?``) and the clauses
+    are its parts between colons. The heading or label just above a block, or the parent of a
+    nested list item, is prefixed to the wide unit.
+    """
+    result: list[tuple[str, list[str]]] = []
+    previous = ""
+    for block, nested in blocks(text):
+        label = (
+            normalize(previous) + " "
+            if previous and (nested or _is_label(previous))
+            else ""
+        )
+        if _TABLE_ROW.match(block):
+            clauses = [
+                clause
+                for cell in block.split("|")
+                for clause in _CLAUSE_END.split(normalize(cell))
+                if clause
+            ]
+            result.append((label + normalize(block), clauses))
+        else:
+            for sentence in _SENTENCE_END.split(normalize(block)):
+                if sentence:
+                    clauses = [c for c in _CLAUSE_END.split(sentence) if c]
+                    result.append((label + sentence, clauses))
+        previous = block
     return result
 
 
-def _negated_before(sentence: str, position: int) -> bool:
-    return _NEGATION.search(sentence[:position]) is not None
+def _negated_before(clause: str, position: int) -> bool:
+    return _NEGATION.search(clause[:position]) is not None
 
 
 def stale_claims(text: str) -> list[tuple[str, str]]:
-    """``(pattern name, sentence)`` for every stale claim found in ``text``."""
+    """``(pattern name, wide unit)`` for every stale claim found in ``text``."""
     hits: list[tuple[str, str]] = []
-    for sentence in sentences(text):
+    for wide, clauses in units(text):
         for name, pattern in _ALWAYS:
-            if pattern.search(sentence):
-                hits.append((name, sentence))
+            if pattern.search(wide):
+                hits.append((name, wide))
         for name, pattern, companion in _CLAIMS:
-            if companion is not None and not companion.search(sentence):
+            if companion is not None and not companion.search(wide):
                 continue
             if any(
-                not _negated_before(sentence, m.start())
-                for m in pattern.finditer(sentence)
+                not _negated_before(clause, m.start())
+                for clause in clauses
+                for m in pattern.finditer(clause)
             ):
-                hits.append((name, sentence))
+                hits.append((name, wide))
     return hits
 
 
