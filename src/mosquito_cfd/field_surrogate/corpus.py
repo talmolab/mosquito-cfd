@@ -29,7 +29,7 @@ from typing import Any
 import numpy as np
 
 from mosquito_cfd._messages import plain_repr
-from mosquito_cfd.field_surrogate._provenance import (
+from mosquito_cfd._provenance import (
     RUN_METADATA_FILENAME,
     read_run_metadata,
     run_provenance,

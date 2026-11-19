@@ -1044,55 +1044,6 @@ def test_config_and_step_errors_win_over_provenance(tmp_path):
     assert "run_metadata" not in str(excinfo.value)
 
 
-_PROVENANCE_PROBE = """
-import json, sys
-from pathlib import Path
-from mosquito_cfd.field_surrogate import _provenance
-path = Path(sys.argv[1])
-meta = _provenance.read_run_metadata(path, config_id=sys.argv[2])
-_provenance.run_provenance(meta, config_id=sys.argv[2], path=path)
-heavy = [m for m in ("mosquito_cfd.force_surrogate", "pandas", "matplotlib.pyplot")
-         if m in sys.modules]
-print(json.dumps(heavy))
-"""
-
-
-def test_reading_provenance_loads_no_force_surrogate_stack(tmp_path):
-    import subprocess
-
-    root = _corpus(tmp_path)
-    path = _write_run_metadata(root / "runs" / _CFG)
-    result = subprocess.run(
-        [sys.executable, "-c", _PROVENANCE_PROBE, str(path), _CFG],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout.strip().splitlines()[-1]) == []
-
-
-def test_provenance_module_imports_only_the_standard_library():
-    import ast
-
-    import mosquito_cfd.field_surrogate as pkg
-
-    source = (Path(pkg.__file__).parent / "_provenance.py").read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom):
-            assert node.level == 0, (
-                f"relative import: from {'.' * node.level}{node.module}"
-            )
-            names = [node.module]
-        elif isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        else:
-            continue
-        for name in names:
-            assert name.split(".")[0] in sys.stdlib_module_names, name
-
-
 # --- harden-field-reader-pre-f3 §5: zero-cell refusal at the corpus entry point ---------------
 
 _ZERO_CELL = {

@@ -54,14 +54,15 @@ them in one place.
 
 ## 0. Baselines and the proposal commit
 
-- [ ] 0.1 Run the full suite at `c87e39c` in this worktree, and record the pass, skip and fail counts.
+- [x] 0.1 Run the full suite at `c87e39c` in this worktree, and record the pass, skip and fail counts.
+  Result (with `uv sync --frozen --group viz`): 2443 passed, 27 skipped, 16 deselected, 0 failed.
 - [x] 0.2 The #160 baseline (design E1) is already recorded. It will be re-run in 2.4.
 - [x] 0.3 Commit `openspec/changes/share-light-corpus-helpers/**` with this checkbox and 0.2 ticked:
   `docs(openspec): propose share-light-corpus-helpers (advances #160, #159)`.
 
 ## 1. Move `_provenance` to the top level, then add the predicates
 
-- [ ] 1.1 **Pure move (no behavior change).**
+- [x] 1.1 **Pure move (no behavior change).**
   - `git mv src/mosquito_cfd/field_surrogate/_provenance.py src/mosquito_cfd/_provenance.py` with the
     content untouched.
   - Change `corpus.py:32`'s import path.
