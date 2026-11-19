@@ -79,7 +79,7 @@ them in one place.
     `test_field_surrogate_corpus`. That works because `pyproject.toml:106` sets
     `pythonpath = ["tests"]`.
   - Commit: `refactor(provenance): move field_surrogate/_provenance.py to mosquito_cfd/ (advances #159)`.
-- [ ] 1.2 **Red.** In `tests/test_light_corpus_helpers.py`:
+- [x] 1.2 **Red.** In `tests/test_light_corpus_helpers.py`:
   - `test_is_full_commit_sha_table` and `test_is_pinned_image_ref_table` cover exactly the value
     lists in the field-surrogate scenario "The shared predicates accept exactly the strict forms and
     never raise". That includes `"g"*40`, `"@sha256:"+…`, the uppercase repository and digest, the
@@ -94,7 +94,7 @@ them in one place.
 
     Expected red: none on the code. These are stricter anchors of an already-clean module, so record
     them as anchors. Their discriminating power is shown in §5 (S6 mutants).
-- [ ] 1.3 **Green.**
+- [x] 1.3 **Green.**
   - Add `is_full_commit_sha` and `is_pinned_image_ref` (design D2), and use them in `run_provenance`.
   - Rewrite the module docstring for the new location and role:
     - shared by `field_surrogate`, `force_surrogate` and `benchmarks`;
