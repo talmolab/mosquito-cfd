@@ -368,15 +368,17 @@ test, amended into its section's commit **before** the PR, not as a new commit.
   ```
   git diff --name-only c87e39c -- src/mosquito_cfd/force_surrogate/__init__.py src/mosquito_cfd/force_surrogate/train.py src/mosquito_cfd/force_surrogate/evidence_figure.py tests/test_committed_surrogate_provenance.py docs/field_surrogate/roadmap.md experiments/
   ```
-- [ ] 6.5 `git merge origin/main` (no rebase). Run the full suite, lint, and
+- [x] 6.5 `git merge origin/main` (no rebase). Run the full suite, lint, and
   `openspec validate --strict`.
-- [ ] 6.6 Last commit: `docs(changelog): share-light-corpus-helpers (advances #160, #159)`.
+  Result: origin/main still `c87e39c` ("Already up to date"); 2535 passed, 27 skipped,
+  16 deselected; ruff check/format OK; validate OK.
+- [x] 6.6 Last commit: `docs(changelog): share-light-corpus-helpers (advances #160, #159)`.
   - Add the `docs/CHANGELOG.md` entries under `## [Unreleased]`, using the file's style: 2–3 bullets.
     Mark the image rule `**BREAKING:**`. Mark the type, newline and private-module items
     `**BREAKING (minor):**`.
   - Correct line 16's `field_surrogate/_provenance.py` to `mosquito_cfd/_provenance.py`.
-- [ ] 6.6.1 Run `openspec validate share-light-corpus-helpers --strict` once more after 6.6.
-- [ ] 6.7 Reconcile the implementation against `proposal.md`, `design.md` and every spec delta. Record
+- [x] 6.6.1 Run `openspec validate share-light-corpus-helpers --strict` once more after 6.6.
+- [x] 6.7 Reconcile the implementation against `proposal.md`, `design.md` and every spec delta. Record
   any deviation in a `### Why N instead of M?` section before `/pre-merge-check`.
 - [ ] 6.8 In the PR body:
   - note the image-rule rollout: after merge, `--docker-digest` takes the full reference;
