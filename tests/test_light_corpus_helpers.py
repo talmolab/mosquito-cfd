@@ -193,7 +193,7 @@ _MANIFEST_CONFIG = {
 
 
 def _load_manifest_configs():
-    from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+    from mosquito_cfd._manifest import load_manifest_configs
 
     return load_manifest_configs
 
@@ -255,3 +255,86 @@ def test_manifest_reader_invalid_json_message_is_pinned(tmp_path):
 
 def test_missing_manifest_is_file_not_found(tmp_path):
     assert type(_manifest_error(tmp_path / "absent.json")) is FileNotFoundError
+
+
+@pytest.mark.parametrize(
+    ("text", "type_name"),
+    [("5", "int"), ('"configs"', "str"), ("null", "NoneType"), ("[]", "list")],
+    ids=["int", "str", "null", "list"],
+)
+def test_non_object_manifest_top_level_is_a_value_error(tmp_path, text, type_name):
+    path = tmp_path / "sweep_manifest.json"
+    path.write_text(text, encoding="utf-8")
+    err = _manifest_error(path)
+    assert type(err) is ValueError, repr(err)
+    assert str(err) == (
+        f"manifest {path} top level is a {type_name}, not an object; not a sweep manifest"
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "prefix"),
+    [
+        (b"[" * 100_000 + b"]" * 100_000, "is not valid JSON: "),
+        (b'{"configs": [' + b"9" * 5000 + b"]}", "is not valid JSON: "),
+        (b"\xff\xfe{", "is not valid UTF-8: "),
+    ],
+    ids=["deep_nesting", "int_digit_limit", "non_utf8"],
+)
+def test_unparseable_manifest_is_a_value_error(tmp_path, payload, prefix):
+    path = tmp_path / "sweep_manifest.json"
+    path.write_bytes(payload)
+    err = _manifest_error(path)
+    assert type(err) is ValueError, repr(err)
+    assert str(err).startswith(f"sweep manifest {path} {prefix}"), str(err)[:200]
+
+
+def test_manifest_reexport_is_the_same_object():
+    import mosquito_cfd.force_surrogate as fs
+    import mosquito_cfd.force_surrogate.dataset as dataset
+
+    manifest = importlib.import_module("mosquito_cfd._manifest")
+    assert manifest.load_manifest_configs is dataset.load_manifest_configs
+    assert manifest.load_manifest_configs is fs.load_manifest_configs
+    assert manifest._REQUIRED_CONFIG_KEYS is dataset._REQUIRED_CONFIG_KEYS
+    assert manifest._validate_configs is dataset._validate_configs
+
+
+def test_manifest_module_imports_only_the_standard_library():
+    _assert_stdlib_only(PKG_DIR / "_manifest.py")
+
+
+_MANIFEST_PROBE = """
+from pathlib import Path
+from mosquito_cfd import _manifest
+configs = _manifest.load_manifest_configs(Path(sys.argv[1]))
+assert [c["name"] for c in configs] == ["c0"], configs
+"""
+
+
+def test_manifest_alone_loads_nothing_heavy(tmp_path):
+    path = tmp_path / "sweep_manifest.json"
+    path.write_text(json.dumps({"configs": [_MANIFEST_CONFIG]}), encoding="utf-8")
+    assert _run_child(_MANIFEST_PROBE, _HEAVY, str(path)) == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [5, {"configs": [{k: v for k, v in _MANIFEST_CONFIG.items() if k != "reynolds"}]}],
+    ids=["top_level_int", "missing_reynolds"],
+)
+def test_field_and_force_paths_raise_the_same_manifest_error(tmp_path, content):
+    from mosquito_cfd.field_surrogate.corpus import FieldCorpus
+    from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+
+    root = tmp_path / "corpus"
+    root.mkdir()
+    path = root / "sweep_manifest.json"
+    path.write_text(json.dumps(content), encoding="utf-8")
+    with pytest.raises(BaseException) as field:
+        FieldCorpus(root).config_ids()
+    with pytest.raises(BaseException) as force:
+        load_manifest_configs(path)
+    assert type(field.value) is ValueError, repr(field.value)
+    assert type(force.value) is ValueError, repr(force.value)
+    assert str(field.value) == str(force.value)

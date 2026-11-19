@@ -127,7 +127,7 @@ them in one place.
   `spy` is called once. It is green at HEAD.
 
   Commit: `test(manifest): pin load_manifest_configs messages before the move (advances #160)`.
-- [ ] 2.2 **Red, written against `force_surrogate.dataset.load_manifest_configs`** (so the red shows
+- [x] 2.2 **Red, written against `force_surrogate.dataset.load_manifest_configs`** (so the red shows
   the real defect, not `ModuleNotFoundError`). Expected red is recorded per test.
   - `test_non_object_manifest_top_level_is_a_value_error`: top level `5`, `"configs"` and `null`
     each give `type(e) is ValueError`, naming the path and the type.
@@ -148,7 +148,7 @@ them in one place.
     - Red: file not found.
   - `test_manifest_alone_loads_nothing_heavy`: subprocess child (b) from design D7.
     - Red: `ModuleNotFoundError` in the child.
-- [ ] 2.3 **Green.**
+- [x] 2.3 **Green.**
   - Create `src/mosquito_cfd/_manifest.py` (design D4).
   - In `dataset.py`, delete the three definitions and re-export them from `_manifest` with the
     redundant-alias form in design D4 (`… as _REQUIRED_CONFIG_KEYS`, and so on). A plain import
