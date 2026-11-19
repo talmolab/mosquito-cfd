@@ -3,17 +3,17 @@
 ``units.json`` declares the (dimensionless) unit of each dataset column, validated on both
 write and read against :data:`UNITS_VOCABULARY` (CC-5). Run provenance reuses
 :func:`mosquito_cfd.benchmarks.metadata.capture_run_metadata`, additionally requiring a
-Docker image digest and allowing a caller-supplied timestamp so artifacts are reproducible
-rather than wall-clock-stamped (CC-1).
+digest-pinned Docker image reference and allowing a caller-supplied timestamp so artifacts are
+reproducible rather than wall-clock-stamped (CC-1).
 """
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
+from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.benchmarks.metadata import capture_run_metadata
 
 # Allowed dimensionless units (CC-5). The validated pipeline is dimensionless; a physical
@@ -25,15 +25,6 @@ UNITS_VOCABULARY: frozenset[str] = frozenset(
         "dimensionless (f*)",
     }
 )
-
-# A content-addressable image digest: `sha256:` + EXACTLY 64 lowercase hex chars, optionally
-# prefixed by a registry/repo (e.g. `ghcr.io/org/img@sha256:<64hex>`). The trailing negative
-# lookahead rejects a 65th+ hex character immediately following the run -- without it, `.search`
-# (no end-anchor) would match just the first 64 characters of a longer hex run and silently
-# accept an invalid overlong digest (OpenSpec change fix-digest-validation-exact-length). Not
-# `.fullmatch`-based: callers legitimately pass a full `repo@sha256:<64hex>` reference, not a bare
-# digest, so the pattern must still be found *within* a larger string.
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}(?![0-9a-f])")
 
 
 def load_json_clear_error(path: Path, *, label: str) -> dict:
@@ -115,30 +106,34 @@ def read_units_sidecar(path: Path) -> dict[str, str]:
 
 
 def validate_image_digest(docker_image_digest: str) -> str:
-    """Validate (no I/O) that a string is a content-addressable image digest, and return it.
+    """Validate (no I/O) that a value is a digest-pinned image reference, and return it unchanged.
 
-    Pure regex guard, separable from :func:`capture_surrogate_run_metadata` so a caller can
-    fail-fast on a mutable/missing digest **without** paying the git/hardware probe that the
-    full capture performs (CC-1).
+    Pure guard, separable from :func:`capture_surrogate_run_metadata` so a caller can fail fast on
+    a mutable or missing digest **without** paying the git/hardware probe that the full capture
+    performs (CC-1). The rule is the shared
+    :func:`mosquito_cfd._provenance.is_pinned_image_ref` (share-light-corpus-helpers, #159).
 
     Args:
-        docker_image_digest: Candidate image reference; must contain ``sha256:``. Surrounding
-            whitespace is stripped.
+        docker_image_digest: Candidate image reference, ``<repo>@sha256:<64 hex>`` (e.g.
+            ``ghcr.io/talmolab/mosquito-cfd@sha256:...``; ``<repo>:<tag>@sha256:<64 hex>`` also
+            passes). Nothing is stripped or normalized.
 
     Returns:
-        The stripped digest.
+        The value, exactly as given.
 
     Raises:
-        ValueError: If the value is empty, blank, or not a content-addressable digest.
+        ValueError: For any other value, whatever its type: a mutable tag, a bare
+            ``sha256:<hex>`` digest, text or whitespace around the reference, a wrong-length or
+            uppercase digest, or a non-string. The message ends with the value's ``repr``.
     """
-    digest = (docker_image_digest or "").strip()
-    if not _DIGEST_RE.search(digest):
+    if not is_pinned_image_ref(docker_image_digest):
         raise ValueError(
-            "docker_image_digest must be a content-addressable image digest of the form "
-            "'sha256:<64 hex chars>' (e.g. 'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a "
-            f"mutable tag like ':latest' is not reproducible. Got {docker_image_digest!r}"
+            "docker_image_digest must be a content-addressable, digest-pinned image reference "
+            "of the form '<repo>@sha256:<64 hex>' (e.g. "
+            "'ghcr.io/talmolab/mosquito-cfd@sha256:...'); a mutable tag like ':latest' or a "
+            f"bare 'sha256:...' digest is not accepted. Got {docker_image_digest!r}"
         )
-    return digest
+    return docker_image_digest
 
 
 def capture_surrogate_run_metadata(
@@ -152,16 +147,18 @@ def capture_surrogate_run_metadata(
     """Capture run provenance for a force-surrogate artifact.
 
     Wraps :func:`mosquito_cfd.benchmarks.metadata.capture_run_metadata`, additionally
-    requiring a Docker image digest (so runs are pinned to a content-addressable image,
-    not a mutable tag) and allowing a caller-supplied timestamp for reproducibility
+    requiring a digest-pinned Docker image reference (so runs are pinned to a
+    content-addressable image, not a mutable tag) and allowing a caller-supplied timestamp for
+    reproducibility
     (CC-1). The base function has no ``timestamp`` parameter and stamps
     ``datetime.now(UTC)``, so the caller value is applied by overriding the returned
     dict's ``timestamp``.
 
     Args:
-        docker_image_digest: Content-addressable pinned image reference; must contain
-            ``sha256:`` (e.g. ``ghcr.io/talmolab/mosquito-cfd@sha256:...``). Surrounding
-            whitespace is stripped. A mutable tag (``:latest``) is rejected.
+        docker_image_digest: Digest-pinned image reference, ``<repo>@sha256:<64 hex>`` (e.g.
+            ``ghcr.io/talmolab/mosquito-cfd@sha256:...``), recorded exactly as given. A mutable
+            tag (``:latest``) or a bare ``sha256:`` digest is rejected; see
+            :func:`validate_image_digest`.
         inputs_file: Optional inputs file; its SHA256 is recorded under ``inputs.hash``
             when the file exists.
         timestamp: Optional caller-supplied ISO-8601 timestamp; overrides the wall-clock
@@ -170,12 +167,12 @@ def capture_surrogate_run_metadata(
         extra: Optional extra metadata merged into the result.
 
     Returns:
-        Metadata dict including ``git``, ``hardware``, ``docker_image`` (the digest), and
-        (when ``inputs_file`` exists) ``inputs.hash``.
+        Metadata dict including ``git``, ``hardware``, ``docker_image`` (the reference,
+        unchanged), and (when ``inputs_file`` exists) ``inputs.hash``.
 
     Raises:
-        ValueError: If ``docker_image_digest`` is empty, blank, or not a content-
-            addressable digest (does not contain ``sha256:``).
+        ValueError: If ``docker_image_digest`` is not a digest-pinned image reference (see
+            :func:`validate_image_digest`).
     """
     digest = validate_image_digest(docker_image_digest)
     metadata = capture_run_metadata(

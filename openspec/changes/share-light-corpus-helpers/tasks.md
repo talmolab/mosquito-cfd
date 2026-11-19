@@ -213,7 +213,7 @@ them in one place.
 
 ## 4. Image rule: `validate_image_digest` full-strict (atomic)
 
-- [ ] 4.1 **Red.**
+- [x] 4.1 **Red.**
   - In `tests/test_force_surrogate_sidecar.py`:
     - Replace `test_validate_image_digest_accepts_and_strips` (`:20`) with
       `test_validate_image_digest_returns_value_unchanged`. The full reference and the
@@ -235,7 +235,7 @@ them in one place.
   - In `tests/test_generate_run_metadata_cli.py`: `main()` with a pod file whose `docker_image` is a
     bare digest raises `ValueError` matching `content-addressable`, and leaves no output file. Red:
     succeeds.
-- [ ] 4.2 **Green** (design D5).
+- [x] 4.2 **Green** (design D5).
   - `sidecar.validate_image_digest` uses `is_pinned_image_ref` with the D5 message. Remove `_DIGEST_RE`
     and its comment.
   - Rewrite the docstrings at `sidecar.py:118–139` (no "stripped" and no "Returns: The stripped

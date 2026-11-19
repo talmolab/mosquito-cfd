@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.force_surrogate import metadata_capture as mc
 from mosquito_cfd.force_surrogate.sidecar import capture_surrogate_run_metadata
 
@@ -39,7 +40,7 @@ _REAL_COMMITTED_METADATA = (
     / "run_metadata_s35_f085_p45.json"
 )
 
-DIGEST = "sha256:" + "0" * 64
+DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "0" * 64
 
 
 def _load_json(path: Path) -> dict:
@@ -285,7 +286,7 @@ def test_docker_digest_field_is_single_named_and_validated():
     pod_metadata = _load_json(_POD_METADATA)
     digest = mc.extract_docker_image(pod_metadata)
     assert digest == pod_metadata["docker_image"]
-    assert digest.startswith("sha256:")
+    assert is_pinned_image_ref(digest)
 
 
 def test_malformed_digest_is_rejected():
@@ -686,7 +687,8 @@ def _assemble(**overrides):
 
 def test_assemble_metadata_produces_normalized_schema():
     result = _assemble()
-    assert result["docker_image"].startswith("sha256:")
+    assert result["docker_image"] == _load_json(_POD_METADATA)["docker_image"]
+    assert is_pinned_image_ref(result["docker_image"])
     assert "image_digest" not in result
     assert (
         result["deck_sha256"]
@@ -1214,3 +1216,31 @@ def test_pod_run_metadata_rejects_non_object_top_level(tmp_path, text, type_name
     assert str(err) == (
         f"pod-side run_metadata.json {path} top level is a {type_name}, not an object"
     )
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize(
+    "docker_image",
+    [
+        _ABSENT,
+        None,
+        5,
+        "sha256:" + "f" * 64,
+        "ghcr.io/talmolab/mosquito-cfd@sha256:" + "f" * 64 + "\n",
+    ],
+    ids=["absent", "null", "int", "bare_digest", "trailing_newline"],
+)
+def test_extract_docker_image_rejects_non_reference(docker_image):
+    pod_metadata = _load_json(_POD_METADATA)
+    if docker_image is _ABSENT:
+        del pod_metadata["docker_image"]
+        value = None
+    else:
+        pod_metadata["docker_image"] = docker_image
+        value = docker_image
+    message = _raises_value_error_naming(
+        mc.extract_docker_image, pod_metadata, value=value
+    )
+    assert "content-addressable" in message

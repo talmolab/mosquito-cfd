@@ -19,9 +19,10 @@ artifact — nothing is re-typed by a human:
   baked-image) adds a ``source`` key (``"cli-override"`` / ``"docker-image-build-arg"``) absent
   from a normal live-git-derived block, and omits ``branch``/``dirty``/``diff_hash``/
   ``repository`` since none of those are knowable without an actual ``.git`` to inspect.
-- ``docker_image``: the pod file's validated ``sha256:...`` digest (single field — no separate
-  mutable-tag field, unlike the committed t3c/pilot schema's ``docker_image``/``image_digest``
-  split).
+- ``docker_image``: the pod's digest-pinned reference (``<repo>@sha256:<64 hex>``), recorded
+  exactly as the pod wrote it — never stripped; a bare digest is refused (see
+  :func:`extract_docker_image`). A single field — no separate mutable-tag field, unlike the
+  committed t3c/pilot schema's ``docker_image``/``image_digest`` split.
 - ``deck_sha256``: a freshly computed SHA256 of the actual ``--deck`` file supplied, verified to
   match the pod file's recorded ``deck_sha256`` (see the trust-one-artifact guards below) and
   persisted here so deck identity remains auditable after the pod-side (uncommitted) artifacts
@@ -509,18 +510,20 @@ def load_pod_run_metadata(path: Path | str) -> dict[str, Any]:
 
 
 def extract_docker_image(pod_metadata: dict[str, Any]) -> str:
-    """Extract and validate the pod's docker image digest.
+    """Extract and validate the pod's digest-pinned docker image reference.
 
     Args:
         pod_metadata: The loaded pod-side ``run_metadata.json``.
 
     Returns:
-        The validated ``sha256:...`` digest.
+        The pod's ``docker_image``, exactly as written (``<repo>@sha256:<64 hex>``).
 
     Raises:
-        ValueError: If the value is not a content-addressable digest.
+        ValueError: If ``docker_image`` is absent or not a digest-pinned reference (see
+            :func:`mosquito_cfd.force_surrogate.sidecar.validate_image_digest`); an absent key
+            reports as ``None``.
     """
-    return validate_image_digest(pod_metadata.get("docker_image", ""))
+    return validate_image_digest(pod_metadata.get("docker_image"))
 
 
 def extract_git_info(pod_metadata: dict[str, Any]) -> dict[str, Any]:
