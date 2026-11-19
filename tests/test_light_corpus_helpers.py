@@ -338,3 +338,49 @@ def test_field_and_force_paths_raise_the_same_manifest_error(tmp_path, content):
     assert type(field.value) is ValueError, repr(field.value)
     assert type(force.value) is ValueError, repr(force.value)
     assert str(field.value) == str(force.value)
+
+
+# --- FieldCorpus reads the manifest without the force-surrogate stack (#160) -----------------
+
+_CORPUS_HEAVY = (
+    "mosquito_cfd.force_surrogate",
+    "pandas",
+    "pyarrow",
+    "matplotlib.pyplot",
+)
+
+_CORPUS_PROBE = """
+from pathlib import Path
+from mosquito_cfd.field_surrogate.corpus import FieldCorpus
+ids = FieldCorpus(Path(sys.argv[1])).config_ids()
+assert ids == ["c0", "c1"], ids
+"""
+
+
+def test_manifest_read_loads_no_force_surrogate_stack(tmp_path):
+    root = tmp_path / "corpus"
+    root.mkdir()
+    configs = [_MANIFEST_CONFIG, {**_MANIFEST_CONFIG, "name": "c1", "index": 1}]
+    (root / "sweep_manifest.json").write_text(
+        json.dumps({"configs": configs}), encoding="utf-8"
+    )
+    assert _run_child(_CORPUS_PROBE, _CORPUS_HEAVY, str(root)) == []
+
+
+def test_corpus_imports_no_force_surrogate_or_benchmarks():
+    # Covers code paths the subprocess child does not run: no import anywhere in corpus.py,
+    # nested (lazy) imports included, may reach the force-surrogate stack or benchmarks.
+    source = (PKG_DIR / "field_surrogate" / "corpus.py").read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            names = [node.module or ""] + [
+                f"{node.module}.{a.name}" for a in node.names
+            ]
+        elif isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        else:
+            continue
+        for name in names:
+            assert not name.startswith(
+                ("mosquito_cfd.force_surrogate", "mosquito_cfd.benchmarks")
+            ), f"line {node.lineno}: {name}"

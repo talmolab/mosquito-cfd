@@ -161,7 +161,7 @@ them in one place.
     (`TypeError` on both paths). After it, it is green, and it stays green through 2.4.
   - `corpus.py` is **untouched** in this commit.
   - Commit: `refactor(manifest): extract stdlib-only _manifest.py and re-export from force_surrogate.dataset (advances #160)`.
-- [ ] 2.4 **Red, then green: `FieldCorpus` switch (atomic).**
+- [x] 2.4 **Red, then green: `FieldCorpus` switch (atomic).**
   - Red:
     - `test_manifest_read_loads_no_force_surrogate_stack` (child (a), design D7).
       - Red: the child lists `mosquito_cfd.force_surrogate`, `pandas`, `pyarrow` and `matplotlib.pyplot`.
