@@ -164,7 +164,8 @@ def build_kinematics_video(
     Args:
         vertex_path: Path to the ``.vertex`` marker file.
         out_dir: Output directory.
-        docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (CC-1).
         label: Output filename label -- writes ``<label>_kinematics_preview.mp4``
             (`design.md` D5).

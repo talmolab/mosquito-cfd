@@ -430,7 +430,8 @@ def run_sweep(
     Args:
         manifest_path: Path to ``sweep_manifest.json``.
         output_root: Host directory (cluster mount) holding the per-config run dirs.
-        docker_digest: Pinned ``sha256:`` container reference (a mutable tag is rejected).
+        docker_digest: Digest-pinned container reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected).
         timestamp: Caller-supplied ISO-8601 timestamp recorded in every ``run_metadata.json``.
         executor: The injected cluster-launch seam ``executor(command, *, cwd) -> ExecResult``.
         workspace: RunAI workspace name to exec into.

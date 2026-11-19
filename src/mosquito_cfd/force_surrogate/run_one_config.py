@@ -172,7 +172,8 @@ def run_config(
             command and as the ``deck`` provenance field).
         max_step: Expected step count (drives the completion check).
         output_root: Host/in-pod directory holding the per-config run dirs (e.g. ``/workspace/runs``).
-        docker_digest: Pinned ``sha256:`` container reference (a mutable tag is rejected).
+        docker_digest: Digest-pinned container reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected).
         timestamp: Caller-supplied ISO-8601 timestamp recorded in ``run_metadata.json``.
         mpi_runner: Injected runner seam ``mpi_runner(argv, *, cwd) -> ExecResult``. The real
             implementation runs ``subprocess.run(mpirun ...)``; tests inject a fake.

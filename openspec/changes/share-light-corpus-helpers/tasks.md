@@ -255,7 +255,7 @@ them in one place.
       `is_pinned_image_ref`;
     - `:91` follows the `DIGEST` change.
   - Commit: `fix(force-surrogate): validate_image_digest full-matches a digest-pinned reference and returns it unchanged (advances #159)`.
-- [ ] 4.3 **Docs and help-text sweep (own commit, after 4.2).**
+- [x] 4.3 **Docs and help-text sweep (own commit, after 4.2).**
   - Rewrite the eight `--docker-digest` `help=` strings to
     `"Digest-pinned image reference, <repo>@sha256:<64hex> (a bare sha256 digest or a mutable tag is rejected)."`.
     Each string ends with its own existing parenthetical where one adds information, such as

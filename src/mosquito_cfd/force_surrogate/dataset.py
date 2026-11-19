@@ -660,7 +660,7 @@ def build_run_metadata(
 ) -> dict:
     """Capture provenance for a dataset build (CC-1), recording any dropped configs.
 
-    Wraps :func:`capture_surrogate_run_metadata` (which requires a pinned ``sha256:``
+    Wraps :func:`capture_surrogate_run_metadata` (which requires a digest-pinned ``<repo>@sha256:``
     container digest — the dataset is downstream of the PR3 container run — and accepts a
     caller-supplied timestamp). The dropped-config names are passed via ``extra``; because
     the base capture merges ``extra`` with ``dict.update``, they land at the **top level**
@@ -668,7 +668,8 @@ def build_run_metadata(
     truncated corpus is auditable.
 
     Args:
-        docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected).
         timestamp: Caller-supplied ISO-8601 timestamp.
         dropped_configs: Config names skipped under ``allow_missing`` (``[]`` if none).
         inputs_file: Optional inputs file whose SHA256 is recorded.
