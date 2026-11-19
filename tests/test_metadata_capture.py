@@ -1139,3 +1139,78 @@ def test_assemble_metadata_raises_on_row_count_mismatch_uses_raw_count(tmp_path)
     ok.write_text(json.dumps(pod_metadata), encoding="utf-8")
     result = _assemble(pod_metadata_path=ok)
     assert result["timing"]["timesteps"] == 4706
+
+
+# ---------------------------------------------------------------------------
+# share-light-corpus-helpers (#159): full-match SHAs, ValueError-only, repr in the message
+# ---------------------------------------------------------------------------
+
+
+def _raises_value_error_naming(func, *args, value, **kwargs) -> str:
+    """Call ``func``; assert it raises exactly ``ValueError`` whose message has ``repr(value)``."""
+    with pytest.raises(BaseException) as excinfo:
+        func(*args, **kwargs)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)
+    assert repr(value) in str(err), str(err)
+    return str(err)
+
+
+def test_extract_git_info_rejects_trailing_newline_commit():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"]["commit"] = "a" * 40 + "\n"
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value="a" * 40 + "\n")
+
+
+def test_resolve_git_info_rejects_trailing_newline_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    _raises_value_error_naming(
+        mc.resolve_git_info,
+        pod_metadata,
+        git_commit_override="a" * 40 + "\n",
+        value="a" * 40 + "\n",
+    )
+
+
+@pytest.mark.parametrize(
+    "git",
+    [None, ["x"], "abc", [["commit", "a" * 40]], {"commit": 123}],
+    ids=["null", "list", "str", "list_of_pairs", "int_commit"],
+)
+def test_extract_git_info_rejects_wrongly_typed_git(git):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = git
+    value = git["commit"] if isinstance(git, dict) else git
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value=value)
+
+
+def test_extract_git_info_rejects_absent_git_block_naming_none():
+    pod_metadata = _load_json(_POD_METADATA)
+    del pod_metadata["git"]
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value=None)
+
+
+def test_resolve_git_info_rejects_non_string_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    _raises_value_error_naming(
+        mc.resolve_git_info, pod_metadata, git_commit_override=123, value=123
+    )
+
+
+@pytest.mark.parametrize("pod_metadata", [{"git": None}, {}], ids=["null", "absent"])
+def test_valid_override_never_reads_the_pod_git_block(pod_metadata):
+    result = mc.resolve_git_info(pod_metadata, git_commit_override="b" * 40)
+    assert result == {"commit": "b" * 40, "source": "cli-override"}
+
+
+@pytest.mark.parametrize(("text", "type_name"), [("[]", "list"), ("5", "int")])
+def test_pod_run_metadata_rejects_non_object_top_level(tmp_path, text, type_name):
+    path = tmp_path / "run_metadata.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)
+    assert str(err) == (
+        f"pod-side run_metadata.json {path} top level is a {type_name}, not an object"
+    )

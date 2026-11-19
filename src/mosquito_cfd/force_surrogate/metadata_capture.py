@@ -93,6 +93,7 @@ from typing import Any
 
 import numpy as np
 
+from mosquito_cfd._provenance import is_full_commit_sha
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
 from mosquito_cfd.force_surrogate.sidecar import (
@@ -100,7 +101,6 @@ from mosquito_cfd.force_surrogate.sidecar import (
     validate_image_digest,
 )
 
-_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SOURCE_CLI_OVERRIDE = (
     "cli-override"  # mirrors benchmarks.metadata._SOURCE_DOCKER_BUILD_ARG
 )
@@ -494,12 +494,18 @@ def load_pod_run_metadata(path: Path | str) -> dict[str, Any]:
 
     Raises:
         FileNotFoundError: If ``path`` does not exist.
-        ValueError: If the file is not valid JSON.
+        ValueError: If the file is not valid JSON, or its top level is not a JSON object.
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"pod-side run_metadata.json not found: {path}")
-    return load_json_clear_error(path, label="pod-side run_metadata.json")
+    meta = load_json_clear_error(path, label="pod-side run_metadata.json")
+    if not isinstance(meta, dict):
+        raise ValueError(
+            f"pod-side run_metadata.json {path} top level is a {type(meta).__name__}, "
+            "not an object"
+        )
+    return meta
 
 
 def extract_docker_image(pod_metadata: dict[str, Any]) -> str:
@@ -524,19 +530,23 @@ def extract_git_info(pod_metadata: dict[str, Any]) -> dict[str, Any]:
         pod_metadata: The loaded pod-side ``run_metadata.json``.
 
     Returns:
-        The ``git`` sub-dict, unchanged.
+        A copy of the ``git`` object.
 
     Raises:
-        ValueError: If ``git.commit`` is missing or not a full 40-character SHA.
+        ValueError: If ``git`` is absent or not a JSON object (a list of pairs is refused, not
+            coerced), or if ``git.commit`` is absent or not a full 40-character lowercase SHA
+            (:func:`mosquito_cfd._provenance.is_full_commit_sha`). The message names the
+            offending value's ``repr``; an absent key reports as ``None``.
     """
-    git = dict(pod_metadata.get("git", {}))
-    commit = git.get("commit", "") or ""
-    if not _FULL_SHA_RE.match(commit):
+    git = pod_metadata.get("git")
+    if not isinstance(git, dict):
+        raise ValueError(f"git must be an object; got {git!r}")
+    commit = git.get("commit")
+    if not is_full_commit_sha(commit):
         raise ValueError(
-            f"git commit must be a full 40-character SHA; got {commit!r} "
-            f"(length {len(commit)})"
+            f"git commit must be a full 40-character lowercase hex SHA; got {commit!r}"
         )
-    return git
+    return dict(git)
 
 
 def resolve_git_info(
@@ -569,10 +579,11 @@ def resolve_git_info(
             :func:`extract_git_info`.
     """
     if git_commit_override is not None:
-        if not _FULL_SHA_RE.match(git_commit_override):
+        # Checked first and alone: a valid override never reads the pod's git block.
+        if not is_full_commit_sha(git_commit_override):
             raise ValueError(
-                f"--git-commit override must be a full 40-character SHA; got "
-                f"{git_commit_override!r} (length {len(git_commit_override)})"
+                "--git-commit override must be a full 40-character lowercase hex SHA; got "
+                f"{git_commit_override!r}"
             )
         return {"commit": git_commit_override, "source": _SOURCE_CLI_OVERRIDE}
     return extract_git_info(pod_metadata)

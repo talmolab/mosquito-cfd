@@ -479,3 +479,17 @@ def test_get_git_info_treats_malformed_baked_commit_as_absent_uppercase(
     result = mc.get_git_info(tmp_path)
 
     assert result == {"error": "git not available or not a repository"}
+
+
+def test_get_git_info_treats_malformed_baked_commit_as_absent_trailing_newline(
+    tmp_path, monkeypatch
+):
+    """share-light-corpus-helpers (#159): the old ``^...$`` + ``re.match`` check accepted a valid
+    SHA followed by a newline; the shared full-match predicate does not."""
+    monkeypatch.setattr(mc.subprocess, "run", _always_fails_run)
+    monkeypatch.setenv("MOSQUITO_CFD_COMMIT", "c" * 40 + "\n")
+
+    assert mc._baked_commit_env() is None
+    assert mc.get_git_info(tmp_path) == {
+        "error": "git not available or not a repository"
+    }

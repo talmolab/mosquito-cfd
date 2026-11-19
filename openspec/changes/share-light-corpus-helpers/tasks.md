@@ -184,7 +184,7 @@ them in one place.
 
 ## 3. Commit rule and `ValueError`-only (`metadata_capture`, `benchmarks`)
 
-- [ ] 3.1 **Red** (record anchors separately from reds):
+- [x] 3.1 **Red** (record anchors separately from reds):
   - `tests/test_metadata_capture.py`:
     - Reds:
       - `extract_git_info` with commit `"a"*40+"\n"`, and `resolve_git_info(git_commit_override="a"*40+"\n")`:
@@ -203,7 +203,7 @@ them in one place.
   - `tests/test_benchmarks_metadata.py`: `MOSQUITO_CFD_COMMIT="a"*40+"\n"` makes `_baked_commit_env()`
     return `None`, and in the no-`.git` setup `get_git_info` returns the error dict. Red: the value is
     returned.
-- [ ] 3.2 **Green** (design D6).
+- [x] 3.2 **Green** (design D6).
   - In `metadata_capture`: `extract_git_info`, `resolve_git_info` (override first) and
     `load_pod_run_metadata` use `is_full_commit_sha` and the type checks. Delete `_FULL_SHA_RE`.
   - In `benchmarks/metadata._baked_commit_env`: use `is_full_commit_sha`, and delete `_FULL_SHA_RE`
