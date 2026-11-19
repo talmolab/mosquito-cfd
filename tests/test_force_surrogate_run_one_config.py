@@ -539,3 +539,12 @@ def test_subprocess_mpi_runner_maps_returncode_and_output(tmp_path):
     )
     assert result.returncode == 3
     assert "hi" in result.stdout
+
+
+def test_bare_digest_rejected(tmp_path):
+    """share-light-corpus-helpers (#159): a bare ``sha256:<hex>`` is not a pinned reference."""
+    kw = _setup(tmp_path, name="cfg_a")
+    kw["docker_digest"] = "sha256:" + "a" * 64
+    fake = FakeRunner(rows=5)
+    with pytest.raises(ValueError, match="content-addressable"):
+        run_config(**kw, mpi_runner=fake)

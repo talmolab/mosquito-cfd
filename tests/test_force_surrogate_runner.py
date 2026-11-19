@@ -917,3 +917,19 @@ def test_public_api_reexported():
         "Completion",
     ):
         assert hasattr(fs, symbol), symbol
+
+
+def test_run_sweep_rejects_bare_digest_before_any_run(tmp_path):
+    """share-light-corpus-helpers (#159): a bare ``sha256:<hex>`` is not a pinned reference."""
+    manifest = _make_manifest(tmp_path, [_cfg("a")])
+    fake = FakeExecutor()
+    with pytest.raises(ValueError, match="content-addressable"):
+        run_sweep(
+            manifest,
+            tmp_path / "runs",
+            docker_digest="sha256:" + "a" * 64,
+            timestamp=TS,
+            executor=fake,
+            workspace="ws",
+        )
+    assert fake.calls == []

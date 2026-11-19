@@ -153,10 +153,21 @@ redundant-alias form, which ruff and type checkers treat as an explicit re-expor
 ```python
 from mosquito_cfd._manifest import (
     _REQUIRED_CONFIG_KEYS as _REQUIRED_CONFIG_KEYS,
+)
+from mosquito_cfd._manifest import (
     _validate_configs as _validate_configs,
+)
+from mosquito_cfd._manifest import (
     load_manifest_configs as load_manifest_configs,
 )
 ```
+
+### Why three import statements instead of one?
+
+The approved design showed a single parenthesized import. Ruff's isort runs with
+`combine-as-imports` off, its default, so it splits aliased names into one statement each (`I001`
+on the combined form). Behavior is identical. The identity test pins all three names, and
+mutation D1 confirms it.
 
 **Parity boundary.** Messages are unchanged for every object-top-level manifest that is valid UTF-8,
 whose JSON the parser accepts, and that the old reader rejected. The documented exceptions are:

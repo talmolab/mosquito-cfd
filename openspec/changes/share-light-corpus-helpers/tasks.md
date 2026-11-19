@@ -356,12 +356,14 @@ test, amended into its section's commit **before** the PR, not as a new commit.
     and `train.py:928, :935, :1206`;
   - `sidecar.load_json_clear_error` lets `RecursionError` escape from a deeply nested pod-side
     `run_metadata.json`.
-- [ ] 6.2 Re-run every committed `*run_metadata*.json` through the **shipped**
+- [x] 6.2 Re-run every committed `*run_metadata*.json` through the **shipped**
   `is_full_commit_sha` and `is_pinned_image_ref`. Confirm that design E2's table still holds.
+  Result: only the four already-failing files fail (T3c commit and image; the three pilot files
+  image); the fixture now passes. Matches E2.
 - [ ] 6.3 Run `tests/test_light_corpus_helpers.py` and the changed test files on Linux: `gh-04`, at
   the pushed SHA after the user allows a push, or CI. The subprocess, environment and
   path-in-message tests are OS-sensitive.
-- [ ] 6.4 Check that this prints nothing:
+- [x] 6.4 Check that this prints nothing:
 
   ```
   git diff --name-only c87e39c -- src/mosquito_cfd/force_surrogate/__init__.py src/mosquito_cfd/force_surrogate/train.py src/mosquito_cfd/force_surrogate/evidence_figure.py tests/test_committed_surrogate_provenance.py docs/field_surrogate/roadmap.md experiments/
