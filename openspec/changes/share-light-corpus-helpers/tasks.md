@@ -298,7 +298,7 @@ Record each mutant's SHA, the mutant itself, the test that kills it, and the red
 appended to this file. Restore from saved bytes after each. A surviving non-equivalent mutant gets a
 test, amended into its section's commit **before** the PR, not as a new commit.
 
-- [ ] 5.1 **Provenance.**
+- [x] 5.1 **Provenance.**
   - `is_full_commit_sha`:
     - `fullmatch` → `match` with `^…$`;
     - drop the `isinstance` check (expect `TypeError` on `b"…"`);
@@ -314,7 +314,7 @@ test, amended into its section's commit **before** the PR, not as a new commit.
       `_provenance` (the AST test must fail);
     - drop the parent's `mosquito_cfd.__file__` assertion while the child gets a wrong `PYTHONPATH`
       (record that this mutant survives without the assertion, and that the assertion kills it).
-- [ ] 5.2 **Manifest.**
+- [x] 5.2 **Manifest.**
   - `_manifest`:
     - drop the top-level `isinstance(dict)` check;
     - narrow the except to `(json.JSONDecodeError, RecursionError)`;
@@ -329,7 +329,7 @@ test, amended into its section's commit **before** the PR, not as a new commit.
   - `_manifest`: insert `importlib.import_module("pandas")` (the AST test must fail).
   - `dataset` keeps its own copy instead of re-exporting (the identity test must fail).
   - `_IoSpy` patches the old `fs_dataset` target (`:699` must fail).
-- [ ] 5.3 **Force side and benchmarks.**
+- [x] 5.3 **Force side and benchmarks.**
   - `extract_git_info`:
     - drop the `git` `isinstance` check;
     - keep the `dict(git)` coercion;
@@ -346,7 +346,7 @@ test, amended into its section's commit **before** the PR, not as a new commit.
     message to report `None`, not `''`.
   - Equivalent mutant to record, not hunt: `validate_image_digest` returning `value.strip()`. The
     predicate already refuses whitespace.
-- [ ] 5.4 Commit the table: `docs(openspec): record mutation results for share-light-corpus-helpers (advances #160, #159)`.
+- [x] 5.4 Commit the table: `docs(openspec): record mutation results for share-light-corpus-helpers (advances #160, #159)`.
 
 ## 6. Verification, follow-ups and close-out
 
@@ -382,3 +382,48 @@ test, amended into its section's commit **before** the PR, not as a new commit.
   - mention F3a's worktree owner, because `validate_image_digest` tightens under their callers too.
 - [ ] 6.9 After #171 merges, update the F3 dependency line in `docs/field_surrogate/roadmap.md` (near
   :285) in a separate docs PR. Not part of this change.
+
+## Mutation results (section 5)
+
+Run at code SHA `d256ab4` in a throwaway worktree (`git worktree add --detach … d256ab4`),
+`PYTHONDONTWRITEBYTECODE=1`, `PYTHONPATH=<mutation worktree>/src`, each mutant restored from saved
+bytes, no concurrent test run (scratchpad `mutate.py`). Result: 32 mutants, 0 unexpected; 29
+killed, 3 survived as predicted. P0 and V3 are equivalent controls. G2a is the hazard
+demonstration: with the child's `PYTHONPATH` on another tree and the `__file__` assertion dropped,
+the corpus lazy-import mutant survives; G2b, with the assertion kept, kills it. The mutation
+worktree was clean after the run (`git status --short` empty).
+
+| id | mutant | expect | result | killing test / note |
+|---|---|---|---|---|
+| P1 | is_full_commit_sha: fullmatch -> match with ^...$ | killed | killed | `tests/test_light_corpus_helpers.py::test_is_full_commit_sha_table['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'-False]` |
+| P2 | is_full_commit_sha: drop isinstance | killed | killed | `tests/test_light_corpus_helpers.py::test_is_full_commit_sha_table[123-False]` |
+| P3 | _COMMIT_RE [0-9a-f] -> [0-9a-z] | killed | killed | `tests/test_light_corpus_helpers.py::test_is_full_commit_sha_table['gggggggggggggggggggggggggggggggggggggggg'-False]` |
+| I1 | is_pinned_image_ref: fullmatch -> search | killed | killed | `tests/test_light_corpus_helpers.py::test_is_pinned_image_ref_table['GHCR.io/x@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'-False]` |
+| I2 | is_pinned_image_ref: drop isinstance | killed | killed | `tests/test_light_corpus_helpers.py::test_is_pinned_image_ref_table[5-False]` |
+| I3 | repository class -> .* | killed | killed | `tests/test_light_corpus_helpers.py::test_is_pinned_image_ref_table['ghcr.io/X@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'-False]` |
+| I4 | repository optional (?:...@)?sha256: | killed | killed | `tests/test_light_corpus_helpers.py::test_is_pinned_image_ref_table['sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'-False]` |
+| P0 | run_provenance back to inline regexes (equivalent control) | survives | survived | `` |
+| G1 | _provenance: dead importlib.import_module('mosquito_cfd.force_surrogate') | killed | killed | `tests/test_light_corpus_helpers.py::test_provenance_module_imports_only_the_standard_library` |
+| G2a | child PYTHONPATH -> other tree + __file__ assert dropped, with corpus lazy-import mutant | survives | survived | `` |
+| G2b | same, __file__ assert kept | killed | killed | `tests/test_light_corpus_helpers.py::test_manifest_read_loads_no_force_surrogate_stack` |
+| M1 | _manifest: drop top-level isinstance(dict) | killed | killed | `tests/test_light_corpus_helpers.py::test_non_object_manifest_top_level_is_a_value_error[int]` |
+| M2 | _manifest: except narrowed to (JSONDecodeError, RecursionError) | killed | killed | `tests/test_light_corpus_helpers.py::test_unparseable_manifest_is_a_value_error[int_digit_limit]` |
+| M3 | _manifest: drop RecursionError | killed | killed | `tests/test_light_corpus_helpers.py::test_unparseable_manifest_is_a_value_error[deep_nesting]` |
+| M4 | _manifest: drop UnicodeDecodeError handling | killed | killed | `tests/test_light_corpus_helpers.py::test_unparseable_manifest_is_a_value_error[non_utf8]` |
+| M5 | _manifest: invalid-JSON prefix changed | killed | killed | `tests/test_light_corpus_helpers.py::test_manifest_reader_invalid_json_message_is_pinned` |
+| M6 | _manifest: dead importlib.import_module('pandas') | killed | killed | `tests/test_light_corpus_helpers.py::test_manifest_module_imports_only_the_standard_library` |
+| C1 | corpus._configs: restore lazy force_surrogate.dataset import | killed | killed | `tests/test_light_corpus_helpers.py::test_manifest_read_loads_no_force_surrogate_stack` |
+| C2 | corpus: module-level name import of load_manifest_configs | killed | killed | `tests/test_field_surrogate_corpus.py::test_global_params_never_returns_a_shortened_dict` |
+| D1 | dataset keeps its own copy instead of re-exporting | killed | killed | `tests/test_light_corpus_helpers.py::test_manifest_reexport_is_the_same_object` |
+| S1 | _IoSpy patches the old fs_dataset target | killed | killed | `tests/test_field_surrogate_corpus.py::test_io_spy_sees_a_real_plotfile_lookup` |
+| F1 | extract_git_info: drop git isinstance | killed | killed | `tests/test_metadata_capture.py::test_extract_git_info_rejects_wrongly_typed_git[null]` |
+| F2 | extract_git_info: keep dict(git) coercion | killed | killed | `tests/test_metadata_capture.py::test_extract_git_info_rejects_wrongly_typed_git[list]` |
+| F3 | extract_git_info: restore ^...$ + re.match | killed | killed | `tests/test_metadata_capture.py::test_extract_git_info_rejects_trailing_newline_commit` |
+| F4 | resolve_git_info: restore .match for the override | killed | killed | `tests/test_metadata_capture.py::test_resolve_git_info_rejects_trailing_newline_override` |
+| F5 | resolve_git_info: type-check git before the override branch | killed | killed | `tests/test_metadata_capture.py::test_valid_override_never_reads_the_pod_git_block[null]` |
+| F6 | load_pod_run_metadata: drop top-level isinstance | killed | killed | `tests/test_metadata_capture.py::test_pod_run_metadata_rejects_non_object_top_level[[]-list]` |
+| B1 | _baked_commit_env: restore ^...$ + re.match | killed | killed | `tests/test_benchmarks_metadata.py::test_get_git_info_treats_malformed_baked_commit_as_absent_trailing_newline` |
+| V1 | validate_image_digest: strip before the check | killed | killed | `tests/test_force_surrogate_sidecar.py::test_validate_image_digest_rejects_loose_or_mistyped[' ghcr.io/talmolab/mosquito-cfd@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']` |
+| V2 | validate_image_digest: restore the .search pattern | killed | killed | `tests/test_force_surrogate_sidecar.py::test_validate_image_digest_rejects_loose_or_mistyped['sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']` |
+| V3 | validate_image_digest returns value.strip() (equivalent) | survives | survived | `` |
+| X1 | extract_docker_image: restore `or ""` | killed | killed | `tests/test_metadata_capture.py::test_extract_docker_image_rejects_non_reference[absent]` |
