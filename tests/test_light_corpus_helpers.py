@@ -173,3 +173,85 @@ _IMAGE_CASES = [
 @pytest.mark.parametrize(("value", "expected"), _IMAGE_CASES, ids=repr)
 def test_is_pinned_image_ref_table(value, expected):
     assert _provenance.is_pinned_image_ref(value) is expected
+
+
+# --- the shared manifest reader (force-surrogate ADDED requirement, design D4) ---------------
+
+_REQUIRED_KEYS_LITERAL = (
+    "['frequency_fstar', 'index', 'name', 'pitch_amp_deg', 'reynolds', 'split', "
+    "'stroke_amp_deg']"
+)
+_MANIFEST_CONFIG = {
+    "name": "c0",
+    "index": 0,
+    "stroke_amp_deg": 35.0,
+    "frequency_fstar": 0.85,
+    "pitch_amp_deg": 30.0,
+    "reynolds": 42.5,
+    "split": "train",
+}
+
+
+def _load_manifest_configs():
+    from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
+
+    return load_manifest_configs
+
+
+def _manifest_error(path: Path) -> BaseException:
+    with pytest.raises(BaseException) as excinfo:
+        _load_manifest_configs()(path)
+    return excinfo.value
+
+
+# Pinned from the pre-move reader's output (share-light-corpus-helpers task 2.1): the move must
+# not change a single message for an object-top-level manifest.
+_PINNED = {
+    "no_configs": (
+        {"schema_version": 1},
+        "manifest {path} has no 'configs' key; not a sweep manifest",
+    ),
+    "configs_not_a_list": (
+        {"configs": {}},
+        "manifest 'configs' must be a list, got dict",
+    ),
+    "config_not_a_mapping": (
+        {"configs": [5]},
+        "manifest config 0 is not a mapping: 5",
+    ),
+    "config_missing_a_key": (
+        {"configs": [{k: v for k, v in _MANIFEST_CONFIG.items() if k != "reynolds"}]},
+        "manifest config 0 is missing required key(s) ['reynolds']; expected at least "
+        + _REQUIRED_KEYS_LITERAL,
+    ),
+    "duplicate_name": (
+        {"configs": [_MANIFEST_CONFIG, {**_MANIFEST_CONFIG, "index": 1}]},
+        "duplicate config name 'c0' in manifest (config 1); names must be unique so each "
+        "maps to one CSV and one split",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_PINNED))
+def test_manifest_reader_messages_are_pinned(tmp_path, case):
+    content, template = _PINNED[case]
+    path = tmp_path / "sweep_manifest.json"
+    path.write_text(json.dumps(content), encoding="utf-8")
+    err = _manifest_error(path)
+    assert type(err) is ValueError
+    assert str(err) == template.format(path=f"{path}")
+
+
+def test_manifest_reader_invalid_json_message_is_pinned(tmp_path):
+    path = tmp_path / "sweep_manifest.json"
+    path.write_text("{", encoding="utf-8")
+    err = _manifest_error(path)
+    assert type(err) is ValueError
+    assert str(err) == (
+        f"sweep manifest {path} is not valid JSON: Expecting property name enclosed in "
+        "double quotes: line 1 column 2 (char 1)"
+    )
+
+
+def test_missing_manifest_is_file_not_found(tmp_path):
+    assert type(_manifest_error(tmp_path / "absent.json")) is FileNotFoundError

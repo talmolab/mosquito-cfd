@@ -107,7 +107,7 @@ them in one place.
 
 ## 2. `_manifest`: pin, extract and re-export, then switch `FieldCorpus`
 
-- [ ] 2.1 **Anchor (green at HEAD, own commit).** Add `test_manifest_reader_messages_are_pinned`,
+- [x] 2.1 **Anchor (green at HEAD, own commit).** Add `test_manifest_reader_messages_are_pinned`,
   which imports `load_manifest_configs` from `mosquito_cfd.force_surrogate.dataset`. It covers
   object-top-level manifests with:
   - no `configs`;
