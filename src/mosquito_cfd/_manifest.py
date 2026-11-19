@@ -6,8 +6,10 @@ manifest on its first call, inside every training data-loader worker, and import
 switch the process's matplotlib backend. ``mosquito_cfd.force_surrogate.dataset`` re-exports
 everything here as the same objects, so its callers are unchanged.
 
-Every rejection is a ``ValueError`` naming the manifest path, except a missing file, which stays
-``FileNotFoundError``.
+Every rejection of the file's *contents* (not UTF-8, not JSON, not a sweep manifest) is a
+``ValueError`` naming the manifest path. Errors opening the path are not wrapped: a missing file
+stays ``FileNotFoundError``, and any other ``OSError`` (a directory, a permission error) escapes as
+raised, as before the move.
 """
 
 from __future__ import annotations
@@ -69,7 +71,8 @@ def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
         The validated ``configs`` list.
 
     Raises:
-        FileNotFoundError: If the manifest does not exist.
+        FileNotFoundError: If the manifest does not exist. (Other ``OSError`` from opening the
+            path, e.g. a directory, is raised unwrapped.)
         ValueError: If the file is not valid UTF-8 or not valid JSON (including JSON the parser
             refuses with ``ValueError`` or ``RecursionError``: an integer beyond Python's digit
             limit, or nesting deeper than the recursion limit); if its top level is not a JSON

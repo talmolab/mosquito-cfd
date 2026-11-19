@@ -105,7 +105,7 @@ def read_units_sidecar(path: Path) -> dict[str, str]:
     return data
 
 
-def validate_image_digest(docker_image_digest: str) -> str:
+def validate_image_digest(docker_image_digest: object) -> str:
     """Validate (no I/O) that a value is a digest-pinned image reference, and return it unchanged.
 
     Pure guard, separable from :func:`capture_surrogate_run_metadata` so a caller can fail fast on

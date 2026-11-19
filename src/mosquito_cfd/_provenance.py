@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 #: A full 40-character lowercase commit SHA. Use only through :func:`is_full_commit_sha`: with
 #: ``match``, ``^...$`` would accept a trailing newline.
@@ -39,7 +39,7 @@ RUN_METADATA_FILENAME = "run_metadata.json"
 _FILE = RUN_METADATA_FILENAME
 
 
-def is_full_commit_sha(value: object) -> bool:
+def is_full_commit_sha(value: object) -> TypeGuard[str]:
     """Whether ``value`` is a ``str`` that fully matches ``[0-9a-f]{40}``.
 
     Total: never raises. A trailing newline, surrounding whitespace, uppercase hex, a short SHA,
@@ -48,7 +48,7 @@ def is_full_commit_sha(value: object) -> bool:
     return isinstance(value, str) and _COMMIT_RE.fullmatch(value) is not None
 
 
-def is_pinned_image_ref(value: object) -> bool:
+def is_pinned_image_ref(value: object) -> TypeGuard[str]:
     """Whether ``value`` is a ``str`` that fully matches ``<repo>@sha256:<64 lowercase hex>``.
 
     The repository is one or more lowercase reference characters (``[a-z0-9][a-z0-9._/:-]*``), so

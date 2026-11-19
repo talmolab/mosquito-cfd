@@ -23,6 +23,8 @@ from mosquito_cfd import _provenance
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
 PKG_DIR = Path(mosquito_cfd.__file__).resolve().parent
+# The AST checks read PKG_DIR: make sure it is this tree, not another editable install.
+assert PKG_DIR == (SRC / "mosquito_cfd").resolve(), (PKG_DIR, SRC)
 
 #: Modules no light helper may pull in (design D7, children (b) and (c)).
 _HEAVY = (

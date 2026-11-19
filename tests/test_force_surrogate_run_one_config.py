@@ -548,3 +548,7 @@ def test_bare_digest_rejected(tmp_path):
     fake = FakeRunner(rows=5)
     with pytest.raises(ValueError, match="content-addressable"):
         run_config(**kw, mpi_runner=fake)
+    # Validated before any run or write: no runner call, nothing under output_root.
+    assert fake.calls == []
+    out = kw["output_root"]
+    assert not out.exists() or not any(out.rglob("*")), list(out.rglob("*"))

@@ -38,6 +38,11 @@ about 4.6 s cold):
 | `import mosquito_cfd.field_surrogate.corpus` | 0.37 s | 211 | none |
 | first `FieldCorpus(root).config_ids()` | 2.77 s | 787 | `mosquito_cfd.force_surrogate`, `pandas`, `pyarrow`, `matplotlib.pyplot` |
 
+After the change: 0.00 s, 212 → 214 modules, none of them loaded. The saving covers manifest and
+metadata reads only. A worker's first `snapshot()` still imports yt (about 3 s, ~1200 modules,
+`matplotlib` but not `pyplot`), a pre-existing cost that F3 should absorb with a forkserver preload
+or persistent workers (PR review, performance lens).
+
 **E2. Committed `*run_metadata*.json` audit.** All 50 files from `git ls-files '*run_metadata*.json'`
 were run through the old and strict checks (scratchpad `audit_run_metadata.py`). Task 6.2 re-runs
 the audit with the shipped predicates.
