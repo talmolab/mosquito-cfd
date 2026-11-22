@@ -223,7 +223,9 @@ def effective_block(capability: str, name: str, **paths: Path | None) -> str:
 
 _CC_REF = re.compile(r"\bCC-\d+")
 _GRID_JOIN = re.compile(r"(?<=\d)[x×](?=\d)")
-_TOKEN = re.compile(r"(?<![A-Za-z_#.\d])\d+(?:[.,]\d+)*(?:e[-+]?\d+)?(?!\d)", re.ASCII)
+_TOKEN = re.compile(
+    r"(?<![A-Za-z_#.\d])\d+(?:[.,]\d+)*(?:[eE][-+]?\d+)?(?!\d)", re.ASCII
+)
 _SUPERSCRIPT = re.compile(r"\d[⁰¹²³⁴-⁹⁻⁺]")
 
 
@@ -245,11 +247,12 @@ def superscripts_after_digits(text: str) -> list[str]:
 
 def format_like(value: float, literal: str) -> str:
     """``value`` rendered in ``literal``'s notation: decimals, comma grouping or e-notation."""
-    if "e" in literal:
-        mantissa = literal.split("e")[0]
+    if "e" in literal.lower():
+        e = "E" if "E" in literal else "e"
+        mantissa = literal.split(e)[0]
         digits = len(mantissa.split(".")[1]) if "." in mantissa else 0
         m, exp = f"{value:.{digits}e}".split("e")
-        return f"{m}e{int(exp)}"
+        return f"{m}{e}{int(exp)}"
     digits = len(literal.split(".")[1]) if "." in literal else 0
     grouping = "," if "," in literal else ""
     return f"{value:{grouping}.{digits}f}"
@@ -292,6 +295,16 @@ def check_block(
         failures.append(
             f"{name}: superscript exponent {sup!r} hides an order of magnitude"
         )
+    bound: Counter[tuple[str, str]] = Counter()
+    for e in entries:
+        bound[(_collapse(e.phrase), e.literal)] += e.count
+    for (phrase, literal), n in bound.items():
+        sites = flat.count(phrase) * number_tokens(phrase).count(literal)
+        if phrase in flat and n > sites:
+            failures.append(
+                f"{name}: {literal!r} is registered x{n} under phrase {phrase!r} but occurs "
+                f"{sites} time(s) in the phrase's sites"
+            )
     for e in entries:
         phrase = _collapse(e.phrase)
         if phrase not in flat:

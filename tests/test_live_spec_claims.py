@@ -277,6 +277,7 @@ def test_default_paths_resolve_from_the_module_at_call_time(tmp_path, monkeypatc
         ("within 1e-9", ["1e-9"]),
         ("fell to 3.06e-4", ["3.06e-4"]),
         ("5.17e7 rows", ["5.17e7"]),
+        ("cost 2E9 and 2.5E-3", ["2E9", "2.5E-3"]),
         ("N=12,535 rows", ["12,535"]),
         (">1,000× speedup", ["1,000"]),
         ("LF-newline UTF-8 and ISO-8601", ["8", "8601"]),
@@ -305,6 +306,7 @@ def test_superscript_after_a_digit_is_found():
         (3722400.0, "3.72e6", "3.72e6"),
         (5.17e7, "5.17e7", "5.17e7"),
         (3.0607e-4, "3.06e-4", "3.06e-4"),
+        (2.0e9, "2E9", "2E9"),
         (12535, "12,535", "12,535"),
         (310.34, "310", "310"),
         (144.0, "144", "144"),
@@ -333,8 +335,8 @@ FS, FWV = "force-surrogate", "flapping-wing-validation"
 # Patterns are written against ``_stale_claims.normalize`` output: links reduced; ``*``, ``_``
 # and backticks dropped; whitespace collapsed; lower case.
 RETIRED: dict[str, re.Pattern[str]] = {
-    "coarse latency speedup ~310x": re.compile(r"310\s*×\s*on the coarse grid"),
-    "parallelism factor 12,009": re.compile(r"12,009"),
+    "coarse latency speedup ~310x": re.compile(r"310\s*[×x]\s*on the coarse grid"),
+    "parallelism factor 12,009": re.compile(r"12[,\s\u202f]?009"),
     "QS model under-predicts": re.compile(r"fit that under-predicts"),
     "stale numbers tracked in #115": re.compile(
         r"tracked (separately )?in (issue )?#115"
@@ -345,14 +347,16 @@ RETIRED: dict[str, re.Pattern[str]] = {
     "two orders of magnitude": re.compile(r"two orders of\s+magnitude"),
     "usable tolerance window": re.compile(r"usable tolerance window"),
     "config_mean_r2 physically-central": re.compile(r"physically-central"),
-    "QS RMS ratio ~0.7": re.compile(r"≈\s*0\.7\)"),
+    "QS RMS ratio ~0.7": re.compile(r"[≈~]\s*0\.7\)"),
     "covered only 83%": re.compile(r"covered only 83\s*%"),
     "observed dt 3.06e-4": re.compile(r"3\.06e-4"),
-    "alpha=0 called mid-stroke": re.compile(r"α\s*=\s*0\s+mid-?stroke"),
-    "~0 at mid-stroke": re.compile(r"≈\s*0\s+at\s+mid-?stroke"),
-    "quarter-period mid-stroke": re.compile(r"quarter-period\s+mid-?stroke"),
+    "alpha=0 called mid-stroke": re.compile(
+        r"(α|alpha)\s*=\s*0\s+(at\s+)?mid[-\s\u2011]?stroke"
+    ),
+    "~0 at mid-stroke": re.compile(r"[≈~]\s*0\s+at\s+mid[-\s\u2011]?stroke"),
+    "quarter-period mid-stroke": re.compile(r"quarter-period\s+mid[-\s\u2011]?stroke"),
     # Forward-only: PR #168 already removed these; they guard against a regression.
-    "T4 compared with coarse CFD 2.61": re.compile(r"vs\s+cfd\s*≈\s*2\.61"),
+    "T4 compared with coarse CFD 2.61": re.compile(r"vs\.?\s+cfd\s*[≈~]\s*2\.61"),
     "T4 phase gap ~0.058": re.compile(r"~\s*0\.058"),
 }
 
@@ -520,6 +524,22 @@ MUST_PASS = (
     "At stroke reversal (t = T/4), φ is at amplitude and α (∝ cos) is 0.",
 )
 
+# The MUST_PASS sentences quoted from a spec, with the spec they must actually occur in, so a
+# corrective rewording cannot leave the "accepts the corrective text" test passing on a sentence
+# the spec no longer contains.
+MUST_PASS_IN_SPEC = {
+    MUST_PASS[0]: FS,
+    MUST_PASS[1]: FS,
+    MUST_PASS[2]: FS,
+    MUST_PASS[3]: FS,
+    MUST_PASS[4]: FS,
+    MUST_PASS[5]: FWV,
+    MUST_PASS[6]: FWV,
+    MUST_PASS[7]: FWV,
+    MUST_PASS[8]: FWV,
+    MUST_PASS[9]: FWV,
+}
+
 # Fixed strings in requirements this change does not touch: the scan cannot pass vacuously.
 SPEC_ANCHORS = {
     FS: "### Requirement: Moment coefficients are referenced to the wing hinge",
@@ -544,6 +564,13 @@ def test_retired_patterns_match_their_examples(pname):
 def test_retired_patterns_accept_the_corrective_text(sentence):
     """Scenario: Retired patterns accept the corrective text."""
     assert sc.retired_hits(sentence, RETIRED, "MUST_PASS") == []
+
+
+@pytest.mark.parametrize("sentence", list(MUST_PASS_IN_SPEC))
+def test_spec_quoted_corrective_text_is_in_the_spec(sentence):
+    """The quoted corrective sentence is really in its spec's effective text."""
+    capability = MUST_PASS_IN_SPEC[sentence]
+    assert normalize(sentence) in normalize(sc.effective_text(capability)), capability
 
 
 def _scan_spec(capability: str, text: str) -> list[str]:
@@ -708,7 +735,8 @@ _STALE_SITES = {
     },
 }
 
-# (stale block, number token, count beyond the registry): computed in review round 2/3.
+# (stale block, number token, minimum count beyond the registry). The check is >=, so adding
+# or removing a registry entry with the same literal does not break this permanent red.
 _STALE_EXTRA_TOKENS = {
     "Sane–Dickinson quasi-steady reference (computed, not overlaid)": {
         "1": 1,
@@ -757,11 +785,12 @@ def test_stale_fixtures_trip_the_guard():
         assert expected <= found, (name, expected - found)
     for name, extra in _STALE_EXTRA_TOKENS.items():
         failures = sc.check_block(name, blocks[name], REGISTRY[name])
+        joined = "\n".join(failures)
         for tok, n in extra.items():
-            assert f"unregistered number {tok!r} (x{n})" in "\n".join(failures), (
-                name,
-                tok,
+            m = re.search(
+                rf"unregistered number {re.escape(repr(tok))} \(x(\d+)\)", joined
             )
+            assert m and int(m[1]) >= n, (name, tok, n)
     # Config-resolved's stale claim is a word: the registry passes it, only the tripwire flags it.
     cr = "Config-resolved (phase-honest) evaluation metrics"
     assert not [
@@ -809,227 +838,183 @@ def _speedup(key: str) -> Callable[[], float]:
 
 
 E = sc.Entry
+
+
+def P(phrase: str, *items: tuple) -> list[sc.Entry]:
+    """Entries sharing one phrase: each item is ``(literal, kind, source[, count])``."""
+    return [E(phrase, *item) for item in items]
+
+
 _KNOWN = "synthetic known-answer input of the scenario"
 _KNOWN_OUT = (
-    "synthetic known-answer output, pinned by tests/test_force_surrogate_train.py"
+    "synthetic known-answer output, pinned by tests/test_force_surrogate_train.py::"
 )
 _THRESHOLD = "the >1,000× claim's threshold, not a measured value"
 _GRID = "grid size by design"
 _FORMULA = "constant in a formula"
+_SIGN = "the sign case's factor (tokens are sign-blind; #176)"
 _RETIRED_QUOTE = (
-    "quoted retired claim, asserted absent by tests/test_force_surrogate_evidence_figure.py "
-    "(the '2.4' checks)"
+    "quoted retired claim, asserted absent from the caption and README by "
+    "tests/test_force_surrogate_evidence_figure.py::test_build_caption_discloses_everything "
+    "and ::test_readme_carries_full_disclosures"
 )
+_CR_KNOWN = _KNOWN_OUT + "test_config_resolved_known_answer"
 
 REGISTRY: dict[str, list[sc.Entry]] = {
     "Config-resolved (phase-honest) evaluation metrics": [
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "1", "declared", _KNOWN),
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "3", "declared", _KNOWN),
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "2", "declared", _KNOWN),
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "5", "declared", _KNOWN),
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "7", "declared", _KNOWN),
-        E("`[1, 3]` (mean 2) and `[5, 7]` (mean 6)", "6", "declared", _KNOWN),
-        E("cycle-means of `2` and `5`", "2", "declared", _KNOWN),
-        E("cycle-means of `2` and `5`", "5", "declared", _KNOWN),
-        E(
-            "`within_config_variance_fraction == 0.2`",
-            "0.2",
-            "declared",
-            _KNOWN_OUT + ":306",
+        *P(
+            "`[1, 3]` (mean 2) and `[5, 7]` (mean 6)",
+            ("1", "declared", _KNOWN),
+            ("3", "declared", _KNOWN),
+            ("2", "declared", _KNOWN),
+            ("5", "declared", _KNOWN),
+            ("7", "declared", _KNOWN),
+            ("6", "declared", _KNOWN),
         ),
-        E("(within-config SS 4 / total SS 20)", "4", "declared", _KNOWN_OUT + ":306"),
-        E("(within-config SS 4 / total SS 20)", "20", "declared", _KNOWN_OUT + ":306"),
-        E("`config_mean_r2 == 0.875`", "0.875", "declared", _KNOWN_OUT + ":308"),
-        E("(`1 - 1/8`)", "1", "declared", _KNOWN_OUT + ":307", count=2),
-        E("(`1 - 1/8`)", "8", "declared", _KNOWN_OUT + ":307"),
-        E("an unhandled `0/0`", "0", "declared", _FORMULA, count=2),
-        E(
+        *P(
+            "cycle-means of `2` and `5`",
+            ("2", "declared", _KNOWN),
+            ("5", "declared", _KNOWN),
+        ),
+        *P("`within_config_variance_fraction == 0.2`", ("0.2", "declared", _CR_KNOWN)),
+        *P(
+            "(within-config SS 4 / total SS 20)",
+            ("4", "declared", _CR_KNOWN),
+            ("20", "declared", _CR_KNOWN),
+        ),
+        *P("`config_mean_r2 == 0.875`", ("0.875", "declared", _CR_KNOWN)),
+        *P(
+            "(`1 - 1/8`)", ("1", "declared", _CR_KNOWN, 2), ("8", "declared", _CR_KNOWN)
+        ),
+        *P("an unhandled `0/0`", ("0", "declared", _FORMULA, 2)),
+        *P(
             "`within_config_variance_fraction == 1.0`",
-            "1.0",
-            "declared",
-            _KNOWN_OUT + ":329",
+            ("1.0", "declared", _KNOWN_OUT + "test_config_resolved_single_config"),
         ),
     ],
     "Sane–Dickinson quasi-steady reference (computed, not overlaid)": [
-        E("`U(t)/u_ref = cos(2π·phase)`", "2", "declared", _FORMULA),
-        E("Dickinson–Lehmann–Sane (1999)", "1999", "declared", "citation year"),
-        E("the Dickinson-1999 fit", "1999", "declared", "citation year"),
-        E(
+        *P("`U(t)/u_ref = cos(2π·phase)`", ("2", "declared", _FORMULA)),
+        *P("Dickinson–Lehmann–Sane (1999)", ("1999", "declared", "citation year")),
+        *P("the Dickinson-1999 fit", ("1999", "declared", "citation year")),
+        *P(
             "first established on the coarse 64×32×64 grid",
-            "64",
-            "declared",
-            _GRID,
-            count=2,
+            ("64", "declared", _GRID, 2),
+            ("32", "declared", _GRID),
         ),
-        E("first established on the coarse 64×32×64 grid", "32", "declared", _GRID),
-        E(
-            '"~2.4× diffused-IB underestimate"',
-            "2.4",
-            "declared",
-            _RETIRED_QUOTE,
-            count=2,
-        ),
-        E(
+        *P('"~2.4× diffused-IB underestimate"', ("2.4", "declared", _RETIRED_QUOTE, 2)),
+        *P(
             "`(cos(2π·phase))² · C_L(α_amp·|cos(2π·phase)|)`",
-            "2",
-            "declared",
-            _FORMULA,
-            count=2,
+            ("2", "declared", _FORMULA, 2),
         ),
-        E("`phi_amp_deg == 45`", "45", "declared", _KNOWN + " (s45_f115_p60)"),
-        E("`f_star == 1.15`", "1.15", "declared", _KNOWN + " (s45_f115_p60)"),
-        E("`pitch_amp_deg == 60`", "60", "declared", _KNOWN + " (s45_f115_p60)"),
+        *P("`phi_amp_deg == 45`", ("45", "declared", _KNOWN + " (s45_f115_p60)")),
+        *P("`f_star == 1.15`", ("1.15", "declared", _KNOWN + " (s45_f115_p60)")),
+        *P("`pitch_amp_deg == 60`", ("60", "declared", _KNOWN + " (s45_f115_p60)")),
     ],
     "Honest evidence-figure caption and speedup annotation": [
-        E("the >1,000× batched speedup", "1,000", "declared", _THRESHOLD, count=2),
-        E("which is the >1,000× claim", "1,000", "declared", _THRESHOLD),
-        E("whether or not it exceeds 1,000×", "1,000", "declared", _THRESHOLD),
-        E(
+        *P("the >1,000× batched speedup", ("1,000", "declared", _THRESHOLD, 2)),
+        *P("which is the >1,000× claim", ("1,000", "declared", _THRESHOLD)),
+        *P("whether or not it exceeds 1,000×", ("1,000", "declared", _THRESHOLD)),
+        *P(
             "The >1,000× headline is the batched-throughput speedup",
-            "1,000",
-            "declared",
-            _THRESHOLD,
+            ("1,000", "declared", _THRESHOLD),
         ),
-        E("the realized factor exceeds 1,000×", "1,000", "declared", _THRESHOLD),
-        E("asserted to exceed 1,000×", "1,000", "declared", _THRESHOLD),
-        E("coarse-grid forces** (64×32×64)", "64", "declared", _GRID, count=2),
-        E("coarse-grid forces** (64×32×64)", "32", "declared", _GRID),
-        E("for the fine grid (256×128×256)", "256", "declared", _GRID, count=2),
-        E("for the fine grid (256×128×256)", "128", "declared", _GRID),
-        E("144 s on the coarse grid", "144", "recomputed", _cfd_seconds_per_wingbeat),
-        E(
+        *P("the realized factor exceeds 1,000×", ("1,000", "declared", _THRESHOLD)),
+        *P("asserted to exceed 1,000×", ("1,000", "declared", _THRESHOLD)),
+        *P(
+            "coarse-grid forces** (64×32×64)",
+            ("64", "declared", _GRID, 2),
+            ("32", "declared", _GRID),
+        ),
+        *P(
+            "for the fine grid (256×128×256)",
+            ("256", "declared", _GRID, 2),
+            ("128", "declared", _GRID),
+        ),
+        *P(
+            "144 s on the coarse grid",
+            ("144", "recomputed", lambda: _cfd_seconds_per_wingbeat()),
+        ),
+        *P(
             "The fixture's 2000 rows per wingbeat and 12,535-row",
-            "2000",
-            "fixture",
-            _toy_rows,
+            ("2000", "fixture", lambda: _toy_rows()),
+            ("12,535", "fixture", _speedup("batch_size")),
         ),
-        E(
-            "The fixture's 2000 rows per wingbeat and 12,535-row",
-            "12,535",
-            "fixture",
-            _speedup("batch_size"),
-        ),
-        E("(and another's is exactly 0)", "0", "declared", _KNOWN),
-        E(
+        *P("(and another's is exactly 0)", ("0", "declared", _KNOWN)),
+        *P(
             "`throughput_rows_per_s = 5.17e7`, 2000 rows per wingbeat, a 12,535-row batch",
-            "5.17e7",
-            "fixture",
-            _toy_inference("throughput_rows_per_s"),
+            ("5.17e7", "fixture", _toy_inference("throughput_rows_per_s")),
+            ("2000", "fixture", lambda: _toy_rows()),
+            ("12,535", "fixture", _speedup("batch_size")),
         ),
-        E(
-            "`throughput_rows_per_s = 5.17e7`, 2000 rows per wingbeat, a 12,535-row batch",
-            "2000",
-            "fixture",
-            _toy_rows,
-        ),
-        E(
-            "`throughput_rows_per_s = 5.17e7`, 2000 rows per wingbeat, a 12,535-row batch",
-            "12,535",
-            "fixture",
-            _speedup("batch_size"),
-        ),
-        E(
+        *P(
             "5.17e7 ÷ (2000/144) ≈ 3.72e6",
-            "5.17e7",
-            "fixture",
-            _toy_inference("throughput_rows_per_s"),
+            ("5.17e7", "fixture", _toy_inference("throughput_rows_per_s")),
+            ("2000", "fixture", lambda: _toy_rows()),
+            ("144", "recomputed", lambda: _cfd_seconds_per_wingbeat()),
+            ("3.72e6", "fixture", _speedup("throughput_speedup")),
         ),
-        E("5.17e7 ÷ (2000/144) ≈ 3.72e6", "2000", "fixture", _toy_rows),
-        E(
-            "5.17e7 ÷ (2000/144) ≈ 3.72e6",
-            "144",
-            "recomputed",
-            _cfd_seconds_per_wingbeat,
-        ),
-        E(
-            "5.17e7 ÷ (2000/144) ≈ 3.72e6",
-            "3.72e6",
-            "fixture",
-            _speedup("throughput_speedup"),
-        ),
-        E("`rows_per_wingbeat = 1/(f*·dt)`", "1", "declared", _FORMULA),
-        E(
+        *P("`rows_per_wingbeat = 1/(f*·dt)`", ("1", "declared", _FORMULA)),
+        *P(
             "`t_cfd_per_row / (latency_ms/1000)`",
-            "1000",
-            "declared",
-            "ms-to-s conversion",
+            ("1000", "declared", "ms-to-s conversion"),
         ),
-        E(
+        *P(
             "`latency_ms = 0.232` at 2000 rows per wingbeat pins the known answer ≈310×",
-            "0.232",
-            "fixture",
-            _toy_inference("latency_ms"),
+            ("0.232", "fixture", _toy_inference("latency_ms")),
+            ("2000", "fixture", lambda: _toy_rows()),
+            ("310", "fixture", _speedup("latency_speedup")),
         ),
-        E(
-            "`latency_ms = 0.232` at 2000 rows per wingbeat pins the known answer ≈310×",
-            "2000",
-            "fixture",
-            _toy_rows,
+        *P("with `k == 1` it states", ("1", "declared", _KNOWN)),
+        *P(
+            'states "Fine 256x128x256 grid',
+            ("256", "declared", _GRID, 2),
+            ("128", "declared", _GRID),
         ),
-        E(
-            "`latency_ms = 0.232` at 2000 rows per wingbeat pins the known answer ≈310×",
-            "310",
-            "fixture",
-            _speedup("latency_speedup"),
+        *P(
+            'contains no "coarse", "64x32x64"',
+            ("64", "declared", _GRID, 2),
+            ("32", "declared", _GRID),
         ),
-        E("with `k == 1` it states", "1", "declared", _KNOWN),
-        E('states "Fine 256x128x256 grid', "256", "declared", _GRID, count=2),
-        E('states "Fine 256x128x256 grid', "128", "declared", _GRID),
-        E('contains no "coarse", "64x32x64"', "64", "declared", _GRID, count=2),
-        E('contains no "coarse", "64x32x64"', "32", "declared", _GRID),
     ],
     "Re-normalization preserves surrogate skill (scale-invariance)": [
-        E("≈ 3.120), so re-expressing it", "3.120", "recomputed", _k),
-        E("`k = f_ref_old / f_ref_new` (≈ 3.120)", "3.120", "recomputed", _k),
-        E("with `k = −1`: the raw columns", "1", "declared", "the sign case's factor"),
-        E("(`k = −1` is its own inverse", "1", "declared", "the sign case's factor"),
-        E("the k = −1 scale case", "1", "declared", "the sign case's factor"),
-        E("(`k = −1`), as verified", "1", "declared", "the sign case's factor"),
-        E("within `1e-9`, confirming", "1e-9", "declared", "tolerance"),
-        E("within `1e-9` relative", "1e-9", "declared", "tolerance"),
-        E("(within `1e-9`)", "1e-9", "declared", "tolerance"),
-        E("`f_ref_new = 0`", "0", "declared", _KNOWN),
+        *P("≈ 3.120), so re-expressing it", ("3.120", "recomputed", lambda: _k())),
+        *P(
+            "`k = f_ref_old / f_ref_new` (≈ 3.120)",
+            ("3.120", "recomputed", lambda: _k()),
+        ),
+        *P("with `k = −1`: the raw columns", ("1", "declared", _SIGN)),
+        *P("(`k = −1` is its own inverse", ("1", "declared", _SIGN)),
+        *P("the k = −1 scale case", ("1", "declared", _SIGN)),
+        *P("(`k = −1`), as verified", ("1", "declared", _SIGN)),
+        *P("within `1e-9`, confirming", ("1e-9", "declared", "tolerance")),
+        *P("within `1e-9` relative", ("1e-9", "declared", "tolerance")),
+        *P("(within `1e-9`)", ("1e-9", "declared", "tolerance")),
+        *P("`f_ref_new = 0`", ("0", "declared", _KNOWN)),
     ],
     "Post-run acceptance gate blocks dataset construction on an unverified corpus": [],
     "Committed corpora are guarded by cluster-free reconciliation tests": [],
     "Guards on specification text read the effective specification": [],
     "Data-dependent claims in the live specs are guarded against committed data": [],
     "Stroke motion reproduces van Veen's translational sweep": [
-        E(
+        *P(
             "stroke reversal is `t = T/4` or `3T/4`",
-            "4",
-            "declared",
-            "kinematic instant",
-            count=2,
+            ("4", "declared", "kinematic instant", 2),
+            ("3", "declared", "kinematic instant"),
         ),
-        E(
-            "stroke reversal is `t = T/4` or `3T/4`",
-            "3",
-            "declared",
-            "kinematic instant",
-        ),
-        E("`φ̇ = 0`", "0", "declared", "kinematic value"),
-        E(
+        *P("`φ̇ = 0`", ("0", "declared", "kinematic value")),
+        *P(
             "Mid-stroke is `t = 0` or `T/2`, where `φ = 0`",
-            "0",
-            "declared",
-            "kinematic value",
-            count=2,
+            ("0", "declared", "kinematic value", 2),
+            ("2", "declared", "kinematic instant"),
         ),
-        E(
-            "Mid-stroke is `t = 0` or `T/2`, where `φ = 0`",
-            "2",
-            "declared",
-            "kinematic instant",
-        ),
-        E("`θ ∝ sin 2ωt`", "2", "declared", _FORMULA),
-        E("is `≈0`", "0", "declared", "kinematic value", count=2),
-        E("`(0, r, 0)`", "0", "declared", "kinematic vector", count=6),
-        E("(`t = T/4`: `φ = φ_amp`", "4", "declared", "kinematic instant"),
-        E("(`φ = 0`, `α = α_amp`)", "0", "declared", "kinematic value"),
-        E("`(0, 0, r)`", "0", "declared", "kinematic vector", count=2),
-        E("`(0, −r·sin α_amp, r·cos α_amp)`", "0", "declared", "kinematic vector"),
-        E("position at `t = T/4`", "4", "declared", "kinematic instant"),
+        *P("`θ ∝ sin 2ωt`", ("2", "declared", _FORMULA)),
+        *P("is `≈0`", ("0", "declared", "kinematic value", 2)),
+        *P("`(0, r, 0)`", ("0", "declared", "kinematic vector", 6)),
+        *P("(`t = T/4`: `φ = φ_amp`", ("4", "declared", "kinematic instant")),
+        *P("(`φ = 0`, `α = α_amp`)", ("0", "declared", "kinematic value")),
+        *P("`(0, 0, r)`", ("0", "declared", "kinematic vector", 2)),
+        *P("`(0, −r·sin α_amp, r·cos α_amp)`", ("0", "declared", "kinematic vector")),
+        *P("position at `t = T/4`", ("4", "declared", "kinematic instant")),
     ],
     "Retired kinematics and T4 claims stay out of this specification": [],
 }
@@ -1052,6 +1037,14 @@ GUARDED: dict[str, list[str]] = {
 }
 
 
+_HOW_TO_FIX = (
+    "To fix: edit REGISTRY in tests/test_live_spec_claims.py. Register each number with the "
+    "phrase that contains it as 'recomputed' (from a committed artifact or code constant), "
+    "'fixture' (from tests/_evidence_fixture.py) or 'declared' (not a measured result, with the "
+    "reason); or delete a corpus result whose value is not the point (#115)."
+)
+
+
 def test_registry_covers_exactly_the_guarded_requirements():
     assert set(REGISTRY) == {n for names in GUARDED.values() for n in names}
 
@@ -1064,7 +1057,7 @@ def test_guarded_requirement_numbers_are_registered(capability, name):
     failures = sc.check_block(
         name, sc.effective_block(capability, name), REGISTRY[name]
     )
-    assert not failures, "\n".join(failures)
+    assert not failures, "\n".join([*failures, _HOW_TO_FIX])
 
 
 # --- Synthetic must-fail tests (each also kills a mutant of the checker) --------------------
@@ -1118,6 +1111,32 @@ def test_synthetic_registry_passes_including_a_wrapped_phrase():
             [_SYN[0], E("the batch has 12,535 rows", "12,535", "declared", "")],
             "no reason",
         ),
+        (  # each literal bound to the other's phrase: the multiset balances, the binding fails
+            _SYN_TEXT,
+            [
+                E("the batch has 12,535 rows", "3.120", "recomputed", lambda: 3.1197),
+                E("factor is ≈ 3.120", "12,535", "declared", "x"),
+            ],
+            "does not contain '3.120'",
+        ),
+        (
+            _SYN_TEXT,
+            [E("factor is ≈ 3.120", "3.120", "measured", lambda: 3.1197), _SYN[1]],
+            "unknown kind 'measured'",
+        ),
+        (
+            _SYN_TEXT,
+            [E("factor is ≈ 3.120", "3.120", "recomputed", lambda: -3.1197), _SYN[1]],
+            "is negative",
+        ),
+        (  # a count larger than the phrase's own occurrences cannot bind the extra copies
+            _SYN_TEXT + " Also 12,535 more.",
+            [
+                _SYN[0],
+                E("the batch has 12,535 rows", "12,535", "declared", "x", count=2),
+            ],
+            "occurs 1 time(s) in the phrase's sites",
+        ),
     ],
 )
 def test_check_block_reports(text, entries, needle):
@@ -1160,6 +1179,84 @@ def test_drifted_recomputed_source_fails(monkeypatch):
         _RENORM, sc.effective_block(FS, _RENORM), REGISTRY[_RENORM]
     )
     assert any("now prints as '3.121'" in f for f in failures), failures
+
+
+def _patch_toy(monkeypatch, **inference):
+    real = _evidence_fixture._toy_metrics
+
+    def drifted(**kw):
+        m = real(**kw)
+        m["inference"].update(inference)
+        return m
+
+    monkeypatch.setattr(_evidence_fixture, "_toy_metrics", drifted)
+
+
+def _patch_cfd_seconds(monkeypatch):
+    from mosquito_cfd.force_surrogate import evidence_figure
+
+    monkeypatch.setattr(evidence_figure, "CFD_SECONDS_PER_WINGBEAT", 145.0)
+
+
+def _patch_rows(monkeypatch):
+    monkeypatch.setattr(_evidence_fixture, "TOY_ROWS_PER_WINGBEAT", 2001)
+
+
+def _patch_latency(monkeypatch):
+    _patch_toy(monkeypatch, latency_ms=0.240)
+
+
+def _patch_batch(monkeypatch):
+    basis = _evidence_fixture._toy_metrics()["inference"]["basis"]
+    assert basis.count("12535 rows") == 1
+    _patch_toy(monkeypatch, basis=basis.replace("12535 rows", "12536 rows"))
+
+
+def _patch_throughput(monkeypatch):
+    _patch_toy(monkeypatch, throughput_rows_per_s=5.18e7)
+
+
+def _patch_gyration(monkeypatch):
+    from mosquito_cfd.force_surrogate import constants
+
+    monkeypatch.setattr(constants, "R_GYRATION", constants.R_TIP / math.sqrt(3.1212))
+
+
+# (patch, requirement, the literals it must make drift)
+_SOURCE_DRIFTS = {
+    "CFD_SECONDS_PER_WINGBEAT": (_patch_cfd_seconds, _CAPTION, {"144"}),
+    "TOY_ROWS_PER_WINGBEAT": (_patch_rows, _CAPTION, {"2000"}),
+    "toy latency": (_patch_latency, _CAPTION, {"0.232", "310"}),
+    "toy batch in basis": (_patch_batch, _CAPTION, {"12,535"}),
+    "toy throughput": (_patch_throughput, _CAPTION, {"5.17e7", "3.72e6"}),
+    "R_GYRATION": (_patch_gyration, _RENORM, {"3.120"}),
+}
+
+
+def test_every_non_declared_literal_has_a_source_drift_test():
+    non_declared = {
+        e.literal
+        for entries in REGISTRY.values()
+        for e in entries
+        if e.kind != "declared"
+    }
+    covered = set().union(*(lits for _, _, lits in _SOURCE_DRIFTS.values()))
+    assert non_declared == covered
+
+
+@pytest.mark.parametrize("source", list(_SOURCE_DRIFTS))
+def test_every_non_declared_source_is_load_bearing(source, monkeypatch):
+    """Scenario: Each source of a recomputed number is load-bearing (one drift per source)."""
+    patch, name, literals = _SOURCE_DRIFTS[source]
+    block = sc.effective_block(FS, name)
+    assert sc.check_block(name, block, REGISTRY[name]) == []
+    patch(monkeypatch)
+    failures = "\n".join(sc.check_block(name, block, REGISTRY[name]))
+    for lit in literals:
+        assert f"number {lit!r}" in failures and "now prints as" in failures, (
+            lit,
+            failures,
+        )
 
 
 def test_drifted_fixture_source_fails(monkeypatch):
