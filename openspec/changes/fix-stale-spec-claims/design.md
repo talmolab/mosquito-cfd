@@ -468,3 +468,17 @@ archived:
 - 1 raises: the archived `add-arbitrary-geometry` delta. It has a
   `## FUTURE Requirements (Post-Award)` section, which OpenSpec ignores. The guard never reads
   archived changes; an active change in that form would fail loudly.
+
+Re-review of `da372ed` (sound; no BLOCKING). It found one more divergence, pre-existing in `_REQ`.
+OpenSpec ends a block at any `^###\s+Requirement:` line and drops a block that has no name. The
+guard required a name, so a bare `### Requirement:` line was folded into the previous block's
+text, which fails open. It is fixed: such a line ends the block and its own block is dropped.
+
+Remaining known differences from OpenSpec:
+
+- Unicode only: a name containing U+2028, or a trailing U+FEFF, which JavaScript's `.` and `trim`
+  treat differently from Python.
+- A duplicate REMOVED entry, which `openspec validate` itself rejects.
+- A spaces-only name. OpenSpec yields `''`, which its own archive rejects.
+
+Every other synthetic and real case matches OpenSpec or raises (fail-closed).

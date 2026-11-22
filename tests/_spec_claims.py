@@ -34,7 +34,7 @@ CHANGES_DIR = _REPO / "openspec" / "changes"
 # ^###\s+Requirement:; a section title is trimmed and compared, lower-cased, with
 # "<kind> requirements" (one inner space); a REMOVED entry is a header line (^###\s*Requirement:)
 # or a dash bullet. Anything OpenSpec would not apply must not be applied here either.
-_REQ = re.compile(r"^###\s+Requirement:\s*(.+?)\s*$")
+_REQ = re.compile(r"^###\s+Requirement:(.*)$")
 _SECTION = re.compile(r"^##\s+(.*?)\s*$")
 _REMOVED_HEADER = re.compile(r"^###\s*Requirement:\s*(.+?)\s*$")
 _REMOVED_BULLET = re.compile(r"^\s*-\s*`?###\s*Requirement:\s*(.+?)`?\s*$")
@@ -69,7 +69,10 @@ def _split(text: str) -> list[tuple[str | None, str, str]]:
         m_sec = _SECTION.match(line)
         if m_req:
             flush()
-            name, buf = m_req.group(1), [line]
+            # Any ^###\s+Requirement: line ends a block, as in OpenSpec; one with no name
+            # starts a block that is dropped (OpenSpec skips it), not folded into the last one.
+            name = m_req.group(1).strip() or None
+            buf = [line]
         elif m_sec:
             flush()
             name, buf = None, []

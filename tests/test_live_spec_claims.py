@@ -187,6 +187,25 @@ def test_bullet_form_removed_is_applied(tmp_path):
     assert list(eff) == ["Alpha"]
 
 
+def test_a_nameless_requirement_header_ends_the_block():
+    """OpenSpec ends a block at any ^###\\s+Requirement: line, even one with no name, and drops
+    the nameless block; the guard must not fold its text into the previous block."""
+    text = (
+        "## MODIFIED Requirements\n\n### Requirement: A\n\nA body.\n\n"
+        "### Requirement:\n\nORPHAN SHALL\n\n### Requirement: B\n\nB body.\n"
+    )
+    blocks = sc.delta_sections(text)["MODIFIED"]
+    assert list(blocks) == ["A", "B"]
+    assert "ORPHAN" not in blocks["A"] and "ORPHAN" not in blocks["B"]
+
+
+def test_a_whitespace_only_name_is_empty():
+    blocks = sc.requirement_blocks(
+        "### Requirement:   \n\nX\n\n### Requirement: B\n\nB.\n"
+    )
+    assert list(blocks) == ["B"]
+
+
 @pytest.mark.parametrize(
     ("line", "removed"),
     [
@@ -637,7 +656,9 @@ def test_code_quoted_corrective_text_is_in_the_code(sentence):
 
 
 def test_every_must_pass_sentence_is_located():
-    assert len(MUST_PASS) == len(MUST_PASS_IN_SPEC) + len(MUST_PASS_IN_CODE)
+    assert set(MUST_PASS) == set(MUST_PASS_IN_SPEC) | set(MUST_PASS_IN_CODE)
+    assert not set(MUST_PASS_IN_SPEC) & set(MUST_PASS_IN_CODE)
+    assert len(set(MUST_PASS)) == len(MUST_PASS)
 
 
 def _scan_spec(capability: str, text: str) -> list[str]:
