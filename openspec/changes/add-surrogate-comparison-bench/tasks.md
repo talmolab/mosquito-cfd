@@ -81,7 +81,7 @@
 
 ### 1c. Per-seed seams
 
-- [ ] 1c.1 **Tests first, CPU.** Setup: `build_model`, `train_model` and `predict` replaced by
+- [x] 1c.1 **Tests first, CPU.** Setup: `build_model`, `train_model` and `predict` replaced by
   recorders (`predict` returns zeros of the right shape); the committed fine dataset after
   `filter_converged_beat`. One test per clause of the spec's seam scenario. Each compares the full
   recorded call: positional arrays by dtype and `.tobytes()`, plus every keyword argument.
@@ -89,12 +89,12 @@
     `torch` import.
   - The face split is built by hand in the test (`surrogate_bench.splits` arrives in 3b).
   - Add a one-line test that the new names are exported from `mosquito_cfd.force_surrogate`.
-- [ ] 1c.2 **Tests first, CPU**: the `predict_frame` CPU scenario.
-- [ ] 1c.3 **Tests first, GPU tier** (`tests/test_force_surrogate_train_gpu.py`): the `n_in = 9`
+- [x] 1c.2 **Tests first, CPU**: the `predict_frame` CPU scenario.
+- [x] 1c.3 **Tests first, GPU tier** (`tests/test_force_surrogate_train_gpu.py`): the `n_in = 9`
   forward pass, the `predict_frame` GPU scenario, and "The bench path trains like run_training".
-- [ ] 1c.4 Implement `fit_seed` and `predict_frame`; update the `build_model` docstring; add the
+- [x] 1c.4 Implement `fit_seed` and `predict_frame`; update the `build_model` docstring; add the
   exports. Mutation-test each clause of the split validation, and the zero-call path.
-- [ ] 1c.5 Run 1c.3 under WSL2, then confirm `git status --porcelain` is empty. Shipped-artifact check. Commit:
+- [x] 1c.5 Run 1c.3 under WSL2, then confirm `git status --porcelain` is empty. Shipped-artifact check. Commit:
   `feat(force-surrogate): fit_seed and predict_frame seams`.
 
 ### 2. Explicit baseline reference

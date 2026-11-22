@@ -472,7 +472,8 @@ def build_model(
     documented ``physicsnemo.models.mlp.FullyConnected``.
 
     Args:
-        n_in: Number of input features (5: :data:`FEATURE_COLUMNS`).
+        n_in: Number of input features: ``3 + 2H`` for ``H`` phase harmonics (5, i.e.
+            :data:`FEATURE_COLUMNS`, for the shipped ``H = 1``).
         n_out: Number of targets (6: :data:`TARGET_COLUMNS`).
         seed: Seed applied before weight initialization.
         hidden: Hidden layer width.
@@ -1192,13 +1193,17 @@ def _fit_one_seed(
     lr: float,
     device: str,
     phase_harmonics: int = 1,
+    split: SplitAssignment | None = None,
 ) -> _SeedFit:
     """Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
 
     ``run_training`` calls this once per seed; it is module-level so the torch-free tests can
-    replace it with a recorder (order and atomicity, design D4).
+    replace it with a recorder (order and atomicity, design D4). With ``split=None`` the
+    validation carve is :func:`make_config_splits`, exactly as before the bench existed; an
+    explicit ``split`` (from :func:`fit_seed`) is used verbatim and nothing is re-carved.
     """
-    split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
+    if split is None:
+        split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
 
     cfg = df["config_name"].to_numpy()
     train_mask = np.isin(cfg, split.train_configs)
@@ -1254,6 +1259,118 @@ def _fit_one_seed(
         y_pred=y_pred,
         val_aggregate=val_aggregate,
     )
+
+
+def _validate_split(df: pd.DataFrame, split: SplitAssignment) -> None:
+    """Raise ``ValueError`` unless ``split`` is non-empty, disjoint and present in ``df``."""
+    lists = {
+        "train": list(split.train_configs),
+        "validation": list(split.val_configs),
+        "test": list(split.test_configs),
+    }
+    for label, names in lists.items():
+        if not names:
+            # An empty validation list would silently skip the best-validation restore.
+            raise ValueError(f"split has an empty {label} list: {split}")
+    seen: dict[str, str] = {}
+    for label, names in lists.items():
+        for name in names:
+            if name in seen:
+                raise ValueError(
+                    f"split lists overlap: {name!r} is in both {seen[name]} and {label}"
+                )
+            seen[name] = label
+    present = set(df["config_name"].unique())
+    absent = sorted(set(seen) - present)
+    if absent:
+        raise ValueError(
+            f"split names configuration(s) absent from the frame: {absent}"
+        )
+
+
+def fit_seed(
+    df: pd.DataFrame,
+    split: SplitAssignment,
+    *,
+    seed: int,
+    phase_harmonics: int = 1,
+    epochs: int = 2000,
+    hidden: int = DEFAULT_HIDDEN,
+    num_layers: int = DEFAULT_NUM_LAYERS,
+    lr: float = 1e-3,
+    device: str = "cpu",
+) -> _SeedFit:
+    """Fit one seed of the shipped recipe on a caller-supplied split (the bench's seam).
+
+    The split is validated (non-empty, disjoint, present in ``df``) before anything else, so an
+    invalid split raises without importing torch. It is then used verbatim:
+    :func:`make_config_splits` is not called. With the split ``make_config_splits`` would carve
+    for ``seed``, the model sees exactly what ``run_training`` gives it.
+
+    Args:
+        df: The converged-beat frame, in dataset order.
+        split: The train / validation / test configuration lists.
+        seed: Model and training seed.
+        phase_harmonics: Number of phase harmonics in the inputs.
+        epochs: Training epochs (full-batch).
+        hidden: MLP hidden width.
+        num_layers: MLP hidden layers.
+        lr: Adam learning rate.
+        device: ``"cpu"`` or ``"cuda"``.
+
+    Returns:
+        The fitted seed (model, standardisers, feature names, test predictions).
+
+    Raises:
+        ValueError: If the split is invalid.
+        TypeError: If ``phase_harmonics`` is not an integer.
+    """
+    _validate_split(df, split)
+    phase_harmonics = _validate_phase_harmonics(phase_harmonics)
+    return _fit_one_seed(
+        df,
+        seed=seed,
+        n_val_configs=len(split.val_configs),
+        epochs=epochs,
+        hidden=hidden,
+        num_layers=num_layers,
+        lr=lr,
+        device=device,
+        phase_harmonics=phase_harmonics,
+        split=split,
+    )
+
+
+def predict_frame(
+    fit: _SeedFit, frame: pd.DataFrame, *, device: str = "cpu"
+) -> NDArray[np.floating]:
+    """Predict the six coefficients for arbitrary rows with a fitted seed.
+
+    Builds the features with the fit's own harmonic count (recovered from its
+    ``feature_names``), standardises them with the fit's feature standardiser, runs the model
+    and returns predictions in coefficient units.
+
+    Args:
+        fit: A fitted seed from :func:`fit_seed` (or the trainer's per-seed fit).
+        frame: Rows carrying ``stroke_amp_deg``, ``frequency_fstar``, ``pitch_amp_deg`` and
+            ``phase``.
+        device: ``"cpu"`` or ``"cuda"``.
+
+    Returns:
+        ``(len(frame), 6)`` predictions in the order of :data:`TARGET_COLUMNS`.
+
+    Raises:
+        ValueError: If ``frame`` lacks a required column or the fit's feature names are
+            malformed.
+    """
+    needed = ["stroke_amp_deg", "frequency_fstar", "pitch_amp_deg", "phase"]
+    missing = [c for c in needed if c not in frame.columns]
+    if missing:
+        raise ValueError(f"frame is missing required column(s) {missing}")
+    n_harmonics = phase_harmonics_from_features(fit.feature_names)
+    x, _ = build_features(frame, phase_harmonics=n_harmonics)
+    yz = predict(fit.model, fit.feature_std.transform(x), device=device)
+    return fit.target_std.inverse_transform(yz)
 
 
 def run_training(
