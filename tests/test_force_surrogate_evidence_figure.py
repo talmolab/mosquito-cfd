@@ -332,6 +332,9 @@ def test_compute_speedup_throughput_headline():
         sp["throughput_speedup"] / sp["latency_speedup"],
         rtol=1e-9,
     )
+    # ...and it is measured, not the batch size (fixture: ~11,994 vs N = 12,535; spec
+    # "Honest evidence-figure caption and speedup annotation").
+    assert sp["parallelism_factor"] != pytest.approx(sp["batch_size"], rel=1e-3)
 
 
 def test_compute_speedup_latency_floor_not_over_1000():
