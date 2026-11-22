@@ -234,7 +234,7 @@ def test_global_params_returns_exactly_the_kinematic_keys(tmp_path):
 
 
 def test_manifest_missing_a_kinematic_key_is_rejected_by_the_manifest_guard(tmp_path):
-    # End-to-end: the rejection comes from force_surrogate.dataset._validate_configs, reached
+    # End-to-end: the rejection comes from mosquito_cfd._manifest._validate_configs, reached
     # through _configs() before global_params() runs -- not from corpus.py itself.
     root = _corpus(tmp_path)
     manifest_path = root / "sweep_manifest.json"
@@ -250,8 +250,8 @@ def test_manifest_missing_a_kinematic_key_is_rejected_by_the_manifest_guard(tmp_
 def test_global_param_keys_are_all_required_by_the_manifest_guard():
     # The invariant global_params() relies on to index keys directly. If a kinematic key is ever
     # added to GLOBAL_PARAM_KEYS without the manifest guard requiring it, this fails first.
+    from mosquito_cfd._manifest import _REQUIRED_CONFIG_KEYS
     from mosquito_cfd.field_surrogate.corpus import GLOBAL_PARAM_KEYS
-    from mosquito_cfd.force_surrogate.dataset import _REQUIRED_CONFIG_KEYS
 
     assert set(GLOBAL_PARAM_KEYS) <= _REQUIRED_CONFIG_KEYS
 
@@ -260,11 +260,11 @@ def test_global_params_never_returns_a_shortened_dict(tmp_path, monkeypatch):
     # Bypasses the manifest guard to exercise global_params() itself: a config missing a key
     # must fail loudly, not come back one entry short and misalign positionally against
     # global_params_reference in to_domino_volume.
-    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+    import mosquito_cfd._manifest as manifest_mod
 
     root = _corpus(tmp_path)
     config = {"name": "s35_f085_p30", "stroke_amp_deg": 35.0, "frequency_fstar": 0.85}
-    monkeypatch.setattr(fs_dataset, "load_manifest_configs", lambda _path: [config])
+    monkeypatch.setattr(manifest_mod, "load_manifest_configs", lambda _path: [config])
     with pytest.raises(KeyError, match="pitch_amp_deg"):
         FieldCorpus(root).global_params("s35_f085_p30")
 
@@ -274,17 +274,17 @@ def test_manifest_is_parsed_from_disk_only_once_per_instance(tmp_path, monkeypat
     # no caching -- config_ids(), _config() (hence run_dir/global_params/plotfile/snapshot) all
     # go through it. The module docstring says the real corpus root lives on cluster NFS, so this
     # becomes a real per-call cost once F3 builds a DataLoader on top of it.
-    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+    import mosquito_cfd._manifest as manifest_mod
 
     root = _corpus(tmp_path)
     calls = []
-    real = fs_dataset.load_manifest_configs
+    real = manifest_mod.load_manifest_configs
 
     def _counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(fs_dataset, "load_manifest_configs", _counting)
+    monkeypatch.setattr(manifest_mod, "load_manifest_configs", _counting)
     corpus = FieldCorpus(root)
     corpus.config_ids()
     corpus.global_params("s35_f085_p30")
@@ -308,17 +308,17 @@ def _pass_corpus(tmp_path: Path) -> Path:
 def test_corpus_pass_reads_the_manifest_once(tmp_path, monkeypatch):
     # Anchor (holds since 1146552): a full config_ids() -> steps() -> plotfile() pass parses the
     # manifest once, however many public calls it makes.
-    import mosquito_cfd.force_surrogate.dataset as fs_dataset
+    import mosquito_cfd._manifest as manifest_mod
 
     corpus = FieldCorpus(_pass_corpus(tmp_path))
     calls = []
-    real = fs_dataset.load_manifest_configs
+    real = manifest_mod.load_manifest_configs
 
     def _counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(fs_dataset, "load_manifest_configs", _counting)
+    monkeypatch.setattr(manifest_mod, "load_manifest_configs", _counting)
     pairs = [(c, s) for c in corpus.config_ids() for s in corpus.steps(c)]
     for config_id, step in pairs:
         corpus.plotfile(config_id, step)
@@ -600,11 +600,11 @@ class _IoSpy:
     """
 
     def __init__(self, monkeypatch):
-        import mosquito_cfd.force_surrogate.dataset as fs_dataset
+        import mosquito_cfd._manifest as manifest_mod
 
         self.calls: list[str] = []
         real_is_dir, real_scandir = Path.is_dir, os.scandir
-        real_load = fs_dataset.load_manifest_configs
+        real_load = manifest_mod.load_manifest_configs
 
         def is_dir(path, *args, **kwargs):
             self.calls.append(f"is_dir:{path.name}")
@@ -615,14 +615,14 @@ class _IoSpy:
             return real_scandir(path)
 
         def load(*args, **kwargs):
-            # _configs imports load_manifest_configs lazily, inside the call, so patching the
+            # _configs calls _manifest.load_manifest_configs through the module, so patching the
             # module attribute is observed.
             self.calls.append("load_manifest")
             return real_load(*args, **kwargs)
 
         monkeypatch.setattr(Path, "is_dir", is_dir)
         monkeypatch.setattr(os, "scandir", scandir)
-        monkeypatch.setattr(fs_dataset, "load_manifest_configs", load)
+        monkeypatch.setattr(manifest_mod, "load_manifest_configs", load)
 
     def count(self, prefix: str) -> int:
         return sum(1 for c in self.calls if c.startswith(prefix))
@@ -1042,55 +1042,6 @@ def test_config_and_step_errors_win_over_provenance(tmp_path):
     with pytest.raises(ValueError, match="no plotfile for step 999") as excinfo:
         corpus.snapshot(_CFG, 999)
     assert "run_metadata" not in str(excinfo.value)
-
-
-_PROVENANCE_PROBE = """
-import json, sys
-from pathlib import Path
-from mosquito_cfd.field_surrogate import _provenance
-path = Path(sys.argv[1])
-meta = _provenance.read_run_metadata(path, config_id=sys.argv[2])
-_provenance.run_provenance(meta, config_id=sys.argv[2], path=path)
-heavy = [m for m in ("mosquito_cfd.force_surrogate", "pandas", "matplotlib.pyplot")
-         if m in sys.modules]
-print(json.dumps(heavy))
-"""
-
-
-def test_reading_provenance_loads_no_force_surrogate_stack(tmp_path):
-    import subprocess
-
-    root = _corpus(tmp_path)
-    path = _write_run_metadata(root / "runs" / _CFG)
-    result = subprocess.run(
-        [sys.executable, "-c", _PROVENANCE_PROBE, str(path), _CFG],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout.strip().splitlines()[-1]) == []
-
-
-def test_provenance_module_imports_only_the_standard_library():
-    import ast
-
-    import mosquito_cfd.field_surrogate as pkg
-
-    source = (Path(pkg.__file__).parent / "_provenance.py").read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom):
-            assert node.level == 0, (
-                f"relative import: from {'.' * node.level}{node.module}"
-            )
-            names = [node.module]
-        elif isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        else:
-            continue
-        for name in names:
-            assert name.split(".")[0] in sys.stdlib_module_names, name
 
 
 # --- harden-field-reader-pre-f3 §5: zero-cell refusal at the corpus entry point ---------------

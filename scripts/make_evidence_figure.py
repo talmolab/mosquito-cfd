@@ -48,7 +48,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--docker-digest",
         required=True,
-        help="Pinned sha256: image digest (mutable tags rejected).",
+        help=(
+            "Digest-pinned image reference, <repo>@sha256:<64hex> (a bare sha256 "
+            "digest or a mutable tag is rejected)."
+        ),
     )
     parser.add_argument(
         "--timestamp",

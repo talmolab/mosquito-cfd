@@ -152,7 +152,8 @@ def build_coarse_vs_fine_comparison(
         coarse_predictions_path: Coarse-grid ``holdout_predictions.parquet``.
         fine_predictions_path: Fine-grid ``holdout_predictions.parquet``.
         out_dir: Output directory.
-        docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (CC-1).
         coefficient: Force-coefficient column prefix to plot (default ``"CF_x"``).
 
@@ -299,7 +300,8 @@ def build_config_mean_collapse_diagnostic(
         coarse_metrics_path: Coarse-grid ``metrics.json``.
         fine_metrics_path: Fine-grid ``metrics.json``.
         out_dir: Output directory.
-        docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (CC-1).
         coefficient: Force-coefficient column prefix (default ``"CF_x"``).
 

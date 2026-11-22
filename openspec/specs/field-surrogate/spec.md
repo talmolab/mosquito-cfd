@@ -615,10 +615,14 @@ the fast path, so an unknown config raises the same error on both paths.
 leak `reynolds`, `split`, `input_file` and `index` into what a caller passes as
 `global_params_values`.
 
-Sweep-manifest parsing SHALL reuse `mosquito_cfd.force_surrogate.dataset.load_manifest_configs` rather
-than re-reading the JSON, so a malformed manifest raises the same guarded error on both paths. A
-missing config, a missing step, and a missing corpus root SHALL each raise a self-describing error
-naming what was looked for and where.
+Sweep-manifest parsing SHALL call `mosquito_cfd._manifest.load_manifest_configs` (the shared,
+standard-library-only reader that `mosquito_cfd.force_surrogate.dataset` re-exports as the same
+object) rather than re-reading the JSON, so a malformed manifest raises the same guarded error on the
+field and force paths. Reading the manifest SHALL NOT import `mosquito_cfd.force_surrogate`, `pandas`,
+`pyarrow` or `matplotlib.pyplot`: the first manifest read happens inside every training data-loader worker, and
+importing the force-surrogate stack there costs seconds per spawned worker and switches the process's
+matplotlib backend. A missing config, a missing step, and a missing corpus root SHALL each raise a
+self-describing error naming what was looked for and where.
 
 #### Scenario: Resolving a snapshot by config and step
 
@@ -757,6 +761,30 @@ naming what was looked for and where.
 - **Then** with `plt١٠٠` alone, `steps()` returns `[]` and `plotfile(config_id, 100)` raises the
   missing-step error; in every other case `steps()` returns `[100]` without the ambiguity error and
   `plotfile(config_id, 100)` resolves `plt00100`
+
+#### Scenario: Reading the manifest does not load the force-surrogate stack
+
+- **Given** a fresh interpreter (a subprocess, so no earlier test has imported anything) and a corpus
+  root holding a valid sweep manifest
+- **When** it imports `mosquito_cfd.field_surrogate.corpus` and calls `FieldCorpus(root).config_ids()`
+- **Then**:
+  - the call returns the manifest's config names;
+  - none of `mosquito_cfd.force_surrogate`, `pandas`, `pyarrow` or `matplotlib.pyplot` is in
+    `sys.modules`;
+  - the interpreter's `mosquito_cfd.__file__` lies in the source tree under test.
+
+  Separately, `field_surrogate/corpus.py` contains no import of `mosquito_cfd.force_surrogate` or
+  `mosquito_cfd.benchmarks` anywhere in its AST, nested imports included.
+
+#### Scenario: A malformed manifest raises the same error on the field and force paths
+
+- **Given** a sweep manifest whose top level is the JSON number `5`, and separately one whose config
+  is missing `reynolds`
+- **When** `FieldCorpus(root).config_ids()` and `mosquito_cfd.force_surrogate.dataset.load_manifest_configs`
+  each read it
+- **Then** both raise exactly `ValueError` (`type(e) is ValueError` on each path) with the identical
+  message, and
+  `mosquito_cfd.force_surrogate.dataset.load_manifest_configs is mosquito_cfd._manifest.load_manifest_configs`
 
 ### Requirement: DoMINO volume-half adapter with the geometry gap stated, not filled
 
@@ -957,9 +985,11 @@ shape. The reader SHALL then perform the same teardown as a non-empty read.
 
 ### Requirement: Corpus snapshots carry run identity and digest-pinned provenance
 
-The package SHALL provide a private, dependency-free module
-`mosquito_cfd.field_surrogate._provenance`, importing nothing beyond the standard library, with two
-functions.
+The repository SHALL provide a private, dependency-free module `mosquito_cfd._provenance` (at the
+top level of `mosquito_cfd`, so `force_surrogate` and `benchmarks` can share its checks without
+importing `field_surrogate`), importing nothing beyond the standard library, with two functions.
+`mosquito_cfd.field_surrogate._provenance` SHALL no longer exist; it was private, and its only
+importers were `field_surrogate.corpus` and the tests.
 
 **`read_run_metadata(path, *, config_id) -> dict`** returns the parsed JSON object unchanged. It
 SHALL raise `ValueError`, with the message prefix below and the field tag `run_metadata.json`, when
@@ -1030,9 +1060,15 @@ to `None`, to the running checkout's git, or to an image tag. Its arrays, coordi
 
 `_provenance.py` SHALL import only the standard library, and reading or validating provenance SHALL
 NOT import `mosquito_cfd.force_surrogate`. Importing that package loads pandas and pyarrow and
-switches the process's matplotlib backend. `FieldCorpus`'s manifest parsing already imports it through
-`force_surrogate.dataset.load_manifest_configs`, as required above. That existing cost is unchanged by
-this requirement and is tracked separately.
+switches the process's matplotlib backend. `FieldCorpus`'s manifest parsing does not import it either
+(see "Corpus addressing by config and step").
+
+The commit and image rules above SHALL each be defined once, in `mosquito_cfd._provenance`, as the
+predicates `is_full_commit_sha(value) -> bool` and `is_pinned_image_ref(value) -> bool`. Each returns
+`True` only for a `str` that fully matches its pattern, and `False` for any other value or type,
+without raising. `run_provenance` SHALL use them, and so SHALL the force-surrogate and benchmarks
+validators (see the `run-metadata` and `force-surrogate` capabilities), so the three sites cannot
+drift apart again.
 
 #### Scenario: A corpus snapshot carries its run's identity and digest
 
@@ -1103,10 +1139,38 @@ this requirement and is tracked separately.
 #### Scenario: Reading provenance does not load the force-surrogate stack
 
 - **Given** a fresh interpreter and a valid `run_metadata.json`
-- **When** it imports `mosquito_cfd.field_surrogate._provenance` and calls `read_run_metadata` and
+- **When** it imports `mosquito_cfd._provenance` and calls `read_run_metadata` and
   `run_provenance` on that file
-- **Then** neither `mosquito_cfd.force_surrogate`, `pandas` nor `matplotlib.pyplot` appears in
-  `sys.modules`; and the module's import statements name only standard-library modules
+- **Then**:
+  - none of `mosquito_cfd.force_surrogate`, `mosquito_cfd.field_surrogate`, `mosquito_cfd.benchmarks`,
+    `pandas`, `pyarrow` or `matplotlib.pyplot` appears in `sys.modules`;
+  - the interpreter's `mosquito_cfd.__file__` lies in the source tree under test;
+  - the same holds for a fresh interpreter that imports only `mosquito_cfd._manifest` and calls
+    `load_manifest_configs`;
+  - the import statements of both `mosquito_cfd/_provenance.py` and `mosquito_cfd/_manifest.py`,
+    found by walking each file's AST (nested imports included), name only standard-library modules,
+    with no relative import and no call to `importlib.import_module` or `__import__`.
+
+#### Scenario: The shared predicates accept exactly the strict forms and never raise
+
+- **Given** these values for the commit predicate:
+  - `"a" * 40`, `"a" * 40 + "\n"`, `"A" * 40`, `"g" * 40`, `"a" * 39`, `"a" * 41`;
+  - `123`, `None`, `b"a" * 40`;
+
+  and these values for the image predicate:
+  - `"ghcr.io/x@sha256:" + "a" * 64` and `"ghcr.io/x:fp64@sha256:" + "a" * 64`;
+  - a bare `"sha256:" + "a" * 64`;
+  - `"@sha256:" + "a" * 64`, which has an empty repository;
+  - `"ghcr.io/X@sha256:" + "a" * 64` (uppercase repository) and `"ghcr.io/x y@sha256:" + "a" * 64`;
+  - `"ghcr.io/x:latest #sha256:" + "a" * 64` and `"ghcr.io/x:latest #@sha256:" + "a" * 64`;
+  - `"garbage sha256:" + "a" * 64 + " junk"`;
+  - the valid reference with a leading space and with a trailing newline;
+  - `"ghcr.io/x@sha256:" + "A" * 64` (uppercase digest), `"repo@sha256:" + "a" * 65` and
+    `"repo@sha256:" + "a" * 63`;
+  - `5`, `None` and `b"ghcr.io/x@sha256:" + b"a" * 64`
+- **When** `is_full_commit_sha` and `is_pinned_image_ref` are called on them
+- **Then** only `"a" * 40` and the two `ghcr.io/x…@sha256:<64 hex>` references return `True`; every
+  other value returns `False` and none raises
 
 ### Requirement: Training-facing entry points refuse zero-cell snapshots
 

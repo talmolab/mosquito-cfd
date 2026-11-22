@@ -15,8 +15,11 @@ written back to that directory.
 - `pod_run_metadata.json` — a hand-reconstructed pod-side `run_metadata.json` matching the real
   shape `capture_surrogate_run_metadata`/`capture_run_metadata` produce (see
   `src/mosquito_cfd/benchmarks/metadata.py`, `src/mosquito_cfd/force_surrogate/sidecar.py`,
-  `run_one_config.py`'s `_write_run_metadata`). Uses the real git commit SHA and image digest from
-  the committed `run_metadata_s35_f085_p45.json`. `rows=4706` matches the CSV's row count.
+  `run_one_config.py`'s `_write_run_metadata`). Uses the git commit from the committed
+  `run_metadata_s35_f085_p45.json`'s `git.commit`, and the image as a single full reference:
+  that file's `image_digest`, prefixed with the repository named in
+  `docs/force_surrogate/fine-grid-pilot-report.md:48`
+  (`ghcr.io/talmolab/mosquito-cfd@sha256:f546ead9…`). `rows=4706` matches the CSV's row count.
 - `run.log` — synthetic excerpt with a realistic AMReX "The Arena" max-used line (`7998 MiB`,
   matching the figure in `docs/force_surrogate/fine-grid-pilot-report.md`). The exact AMReX log
   line format is not verified against a real captured `run.log` (none is committed — it's

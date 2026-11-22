@@ -71,7 +71,8 @@ def build_wing_phase_figure(
         frequency_fstar: Dimensionless flap frequency (unused in the phase fractions themselves,
             recorded for provenance/titling only -- the 4 phases are fractions of one wingbeat).
         config_name: Sweep configuration name; used to namespace all three output files.
-        docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (CC-1).
         out_dir: Output directory (e.g. ``examples/prelim_sweep/figures/``).
         span_axis: Which axis is the wing's span (default "y", the current van Veen convention).
