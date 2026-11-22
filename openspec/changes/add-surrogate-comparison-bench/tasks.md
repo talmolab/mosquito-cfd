@@ -127,7 +127,7 @@
 
 ### 4a. Ridge fit
 
-- [ ] 4a.1 **Tests first** (`tests/test_surrogate_bench_ridge.py`):
+- [x] 4a.1 **Tests first** (`tests/test_surrogate_bench_ridge.py`):
   - the fit scenarios:
     - cap;
     - both known answers (the realistic one predicts at the corpus's non-uniform phases, so it also
@@ -146,7 +146,7 @@
     `control:e4_seed0`;
   - Fourier projection exact for a band-limited signal;
   - `n_params = 6·(2H+1)·P`.
-- [ ] 4a.2 Implement `solve_ridge`, the fit, the rank record and `ridge_fixed` in
+- [x] 4a.2 Implement `solve_ridge`, the fit, the rank record and `ridge_fixed` in
   `surrogate_bench/ridge.py`. Mutation-test; each must be killed:
   - penalised intercept;
   - uncapped basis;
@@ -156,7 +156,7 @@
   - `λ = α` instead of `α · n`;
   - interpolated instead of own-phase test evaluation;
   - `ridge_fixed` routed through selection.
-- [ ] 4a.3 Shipped-artifact check. Commit: `feat(surrogate-bench): Fourier x polynomial ridge fit`.
+- [x] 4a.3 Shipped-artifact check. Commit: `feat(surrogate-bench): Fourier x polynomial ridge fit`.
 
 ### 4b. Ridge selection and diagnostics
 
