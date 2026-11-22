@@ -193,7 +193,7 @@
 - [x] 9.4 Re-read the proposal, design, deltas and tasks against the implementation (new-feature
       step 9). Record any deviation as `### Why N instead of M?` in `design.md`, in its own commit
       (`docs(openspec): record implementation deviations`).
-- [ ] 9.5 `/review-pr`; adversarial re-review of every fix commit; `/pre-merge-check`.
+- [x] 9.5 `/review-pr`; adversarial re-review of every fix commit; `/pre-merge-check`.
 - [ ] 9.6 Before pushing:
       - re-run the 0.3 overlap check;
       - `git log origin/main..HEAD --format=%B | grep -iE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):? +#[0-9]'`
