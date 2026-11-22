@@ -1132,6 +1132,244 @@ def build_skill_ranges(
     return metrics
 
 
+from mosquito_cfd.force_surrogate.evidence_figure import format_metric  # noqa: E402
+from mosquito_cfd.force_surrogate.train import (  # noqa: E402
+    build_phase_only_baseline,
+    compute_baseline_skill,
+)
+
+# Fixed edges in units of a grid's baseline RMSE (width 0.01). On the committed data the closest
+# normalised error to an edge is 7.5e-9, so the counts are exact across platforms.
+EDGES = np.linspace(-3.0, 3.0, 601)
+_BASELINE_TOLERANCE = 1e-9
+
+
+def _bin_counts(z: np.ndarray, edges: np.ndarray) -> tuple[np.ndarray, int, int]:
+    """Histogram counts on ``edges`` plus the out-of-range counts.
+
+    Returns ``(counts, below, above)``: ``numpy.histogram`` counts (a value at either end edge
+    falls in the end bin) and the numbers strictly below the first and above the last edge.
+    """
+    z = np.asarray(z, dtype=float)
+    below = int((z < edges[0]).sum())
+    above = int((z > edges[-1]).sum())
+    inside = z[(z >= edges[0]) & (z <= edges[-1])]
+    counts, _ = np.histogram(inside, bins=edges)
+    return counts, below, above
+
+
+def _density(counts: np.ndarray, n_rows: int, edges: np.ndarray) -> np.ndarray:
+    """Density over every row, out-of-range rows included (never renormalised away)."""
+    return np.asarray(counts, dtype=float) / (n_rows * np.diff(edges))
+
+
+def build_error_histograms_caption(
+    *, primary_seed: int, n_seeds: int, n_configs: int, n_beats: int
+) -> str:
+    """The ``error_histograms`` caption (pure)."""
+    return (
+        f"Error of seed {primary_seed} of the {SHIPPED_PHRASE} (colour) and of the phase-only "
+        "baseline (grey) on the same holdout rows, divided by that grid's baseline RMSE "
+        "(RMSE₀), as a density on a log axis; skill = 1 − (RMSE / RMSE₀)². Note that "
+        f"{OWN_BASELINE_PHRASE}; widths are not compared across the two rows (one seed; each "
+        f"panel gives its {n_seeds}-seed skill range). Rows are consecutive timesteps of "
+        f"{n_configs} configurations, not independent samples. Targets are {LAB_FRAME_PHRASE}. "
+        f"{beat_sentence(n_beats)}"
+    )
+
+
+def _histogram_grid(corpus: Corpus) -> tuple[dict[str, Any], dict[str, str]]:
+    label = f"{corpus.name}_metrics"
+    pred = corpus.predictions
+    baseline, definition = build_phase_only_baseline(
+        corpus.dataset, pred["phase"].to_numpy(dtype=float), list(TARGET_COLUMNS)
+    )
+    recorded_def = _get(corpus.metrics, label, "phase_baseline_skill", "phase_baseline")
+    if dict(definition) != recorded_def:
+        differing = sorted(
+            k
+            for k in set(definition) | set(recorded_def)
+            if definition.get(k) != recorded_def.get(k)
+        )
+        raise ValueError(
+            f"{label} phase-only baseline definition differs from the rebuilt one in "
+            f"{differing}"
+        )
+    y_true = pred[[f"{c}_true" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    y_pred = pred[[f"{c}_pred" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    rebuilt = compute_baseline_skill(y_true, y_pred, baseline, list(TARGET_COLUMNS))
+    sweep = corpus.metrics["seed_sweep"]
+    n_rows = len(pred)
+    grid: dict[str, Any] = {}
+    annotations: dict[str, str] = {}
+    for j, c in enumerate(TARGET_COLUMNS):
+        recorded = _get(corpus.metrics, label, "phase_baseline_skill", "per_target", c)
+        if _is_null(recorded.get("skill")):
+            raise ValueError(
+                f"{label} {c} skill is null (the phase-only baseline already matches the "
+                "truth); an error histogram in units of its RMSE has no meaning"
+            )
+        rmse0 = rebuilt[c]["phase_baseline_rmse"]
+        if not math.isclose(
+            rmse0,
+            recorded["phase_baseline_rmse"],
+            rel_tol=_BASELINE_TOLERANCE,
+            abs_tol=0,
+        ):
+            raise ValueError(
+                f"{label} {c} phase-only baseline RMSE {rmse0!r} (rebuilt) != recorded "
+                f"{recorded['phase_baseline_rmse']!r}"
+            )
+        skill = rebuilt[c]["skill"]
+        if not math.isclose(
+            1 - skill, 1 - recorded["skill"], rel_tol=_BASELINE_TOLERANCE, abs_tol=0
+        ):
+            raise ValueError(
+                f"{label} {c} skill {skill!r} (rebuilt) != recorded {recorded['skill']!r}"
+            )
+        t = y_true[:, j]
+        err_s = y_pred[:, j] - t
+        rmse_s = math.sqrt(float(np.sum(err_s**2)) / n_rows)
+        entry: dict[str, Any] = {
+            "rmse0": rmse0,
+            "rmse_surrogate": rmse_s,
+            "skill": skill,
+            "skill_recorded": sweep["runs"][0]["per_target"][c]["skill"],
+            "skill_range": sweep["range"][c]["skill"],
+            "n_rows": n_rows,
+        }
+        for kind, err in (("surrogate", err_s), ("baseline", baseline[:, j] - t)):
+            counts, below, above = _bin_counts(err / rmse0, EDGES)
+            entry[f"counts_{kind}"] = counts.tolist()
+            entry[f"below_{kind}"] = below
+            entry[f"above_{kind}"] = above
+        grid[c] = entry
+        rng = entry["skill_range"] or {}
+        annotations[c] = (
+            f"seed {sweep['primary_seed']} skill {format_metric(entry['skill_recorded'])} "
+            f"({len(sweep['runs'])} seeds: {format_metric(rng.get('min'))} to "
+            f"{format_metric(rng.get('max'))})"
+        )
+    return grid, annotations
+
+
+def _error_histograms_metrics(
+    coarse: Corpus, fine: Corpus, n_beats: int
+) -> dict[str, Any]:
+    grids, annotations = {}, {}
+    for corpus in (coarse, fine):
+        grids[corpus.name], annotations[corpus.name] = _histogram_grid(corpus)
+    sweep = coarse.metrics["seed_sweep"]
+    return {
+        "figure": "error_histograms",
+        "primary_seed": sweep["primary_seed"],
+        "n_seeds": len(sweep["runs"]),
+        "n_beats": n_beats,
+        "labels": [TARGET_LABELS[c] for c in TARGET_COLUMNS],
+        "edges": EDGES.tolist(),
+        "grids": grids,
+        "annotations": annotations,
+        "caption": build_error_histograms_caption(
+            primary_seed=sweep["primary_seed"],
+            n_seeds=len(sweep["runs"]),
+            n_configs=int(coarse.predictions["config_name"].nunique()),
+            n_beats=n_beats,
+        ),
+    }
+
+
+def compute_error_histograms_metrics(
+    *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
+) -> dict[str, Any]:
+    """The ``error_histograms`` sidecar recomputed from the inputs (pure; no rendering)."""
+    coarse = _load_corpus(root, coarse_dir, "coarse")
+    fine = _load_corpus(root, fine_dir, "fine")
+    return _error_histograms_metrics(coarse, fine, _check_pair(coarse, fine))
+
+
+def _draw_error_histograms(m: dict[str, Any]) -> Any:
+    edges = np.asarray(m["edges"])
+    fig, axes = plt.subplots(2, len(TARGET_COLUMNS), figsize=(17.0, 6.8), sharex=True)
+    try:
+        for row, corpus in enumerate(("coarse", "fine")):
+            for col, c in enumerate(TARGET_COLUMNS):
+                ax = axes[row, col]
+                e = m["grids"][corpus][c]
+                dens_b = _density(np.asarray(e["counts_baseline"]), e["n_rows"], edges)
+                dens_s = _density(np.asarray(e["counts_surrogate"]), e["n_rows"], edges)
+                ax.stairs(dens_b, edges, fill=True, color="0.6", alpha=0.6, lw=0)
+                ax.stairs(dens_s, edges, color=_COLORS[corpus], lw=1.2)
+                ax.set_yscale("log")
+                positive = np.concatenate([dens_b[dens_b > 0], dens_s[dens_s > 0]])
+                ax.set_ylim(positive.min() * 0.5, positive.max() * 3.0)
+                ax.set_xlim(edges[0], edges[-1])
+                ax.text(
+                    0.02,
+                    0.97,
+                    m["annotations"][corpus][c].replace(" (", "\n(", 1),
+                    transform=ax.transAxes,
+                    va="top",
+                    fontsize=6.5,
+                )
+                for kind, y in (("surrogate", 0.80), ("baseline", 0.72)):
+                    below, above = e[f"below_{kind}"], e[f"above_{kind}"]
+                    if below or above:
+                        ax.text(
+                            0.02,
+                            y,
+                            f"{kind} outside ±3: {below} / {above}",
+                            transform=ax.transAxes,
+                            fontsize=6,
+                        )
+                ax.tick_params(labelsize=7)
+                if row == 0:
+                    ax.set_title(m["labels"][col], fontsize=8)
+                else:
+                    ax.set_xlabel("error / baseline RMSE (RMSE₀)", fontsize=8)
+                if col == 0:
+                    ax.set_ylabel(f"{corpus} grid\ndensity", fontsize=8)
+        handles = [
+            Line2D(
+                [],
+                [],
+                color=_COLORS["coarse"],
+                lw=1.5,
+                label=f"surrogate, seed {m['primary_seed']} (coarse)",
+            ),
+            Line2D(
+                [],
+                [],
+                color=_COLORS["fine"],
+                lw=1.5,
+                label=f"surrogate, seed {m['primary_seed']} (fine)",
+            ),
+            Line2D([], [], color="0.6", lw=6, alpha=0.6, label="phase-only baseline"),
+        ]
+        fig.legend(
+            handles=handles,
+            loc="upper center",
+            ncol=3,
+            fontsize=8,
+            frameon=False,
+            bbox_to_anchor=(0.5, 1.0),
+        )
+        fig.text(
+            0.01,
+            0.01,
+            textwrap.fill(m["caption"], 270),
+            fontsize=7,
+            va="bottom",
+            ha="left",
+        )
+        fig.subplots_adjust(
+            left=0.05, right=0.99, bottom=0.2, top=0.88, wspace=0.28, hspace=0.12
+        )
+    except BaseException:
+        plt.close(fig)
+        raise
+    return fig
+
+
 def build_error_histograms(
     *,
     root: str | Path,
@@ -1141,9 +1379,35 @@ def build_error_histograms(
     docker_image_digest: str,
     timestamp: str,
 ) -> dict[str, Any]:
-    """Stub until section 5 (validates inputs only)."""
-    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
-    raise NotImplementedError("error_histograms")
+    """Render ``error_histograms``: within each grid, surrogate vs phase-only baseline error.
+
+    The baseline is rebuilt with ``train.build_phase_only_baseline`` and must reproduce the
+    recorded baseline RMSE and skill (``rel=1e-9``) before anything is drawn. Errors are divided
+    by the grid's own rebuilt baseline RMSE and binned on :data:`EDGES`.
+
+    Returns:
+        The ``error_histograms_metrics.json`` payload.
+
+    Raises:
+        ValueError: If the digest is mutable, a shared input guard fails, the rebuilt baseline
+            does not reproduce ``metrics.json``, or a recorded skill is null (nothing written).
+    """
+    root, coarse, fine, n_beats = _prepare(
+        root, coarse_dir, fine_dir, docker_image_digest
+    )
+    metrics = _error_histograms_metrics(coarse, fine, n_beats)
+    metadata = _provenance(
+        root=root,
+        coarse=coarse,
+        fine=fine,
+        docker_image_digest=docker_image_digest,
+        timestamp=timestamp,
+        figure="error_histograms",
+    )
+    _write_outputs(
+        out_dir, "error_histograms", _draw_error_histograms(metrics), metrics, metadata
+    )
+    return metrics
 
 
 def build_cycle_mean_r2_diagnostic(

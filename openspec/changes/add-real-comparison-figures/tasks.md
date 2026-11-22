@@ -188,7 +188,7 @@ This section is additive; the old builders stay until 7.
 
 ## 5. `error_histograms`
 
-- [ ] 5.1 **Tests first.**
+- [x] 5.1 **Tests first.**
   - **Bin convention.** `_bin_counts` on `[-3.5, -3.0, 0.0, 3.0, 3.5]`.
   - **Counts and density.**
     - Counts equal `np.histogram` on the 601 edges.
@@ -220,8 +220,8 @@ This section is additive; the old builders stay until 7.
       `consecutive timesteps of 6 configurations`.
     - The beat label for `{0, 1}`/`{1}` and for `{0..3}`/`{1..3}`.
     - Nothing matches the forbidden pattern, `_COMPARATIVE` or `_FINE_COMPARATIVE`.
-- [ ] 5.2 Implement `compute_error_histograms_metrics`, the caption and `build_error_histograms`.
-- [ ] 5.3 Commit: `feat(force-surrogate): error_histograms figure (advances #114)`.
+- [x] 5.2 Implement `compute_error_histograms_metrics`, the caption and `build_error_histograms`.
+- [x] 5.3 Commit: `feat(force-surrogate): error_histograms figure (advances #114)`.
 
 ## 6. `cycle_mean_r2_diagnostic`
 

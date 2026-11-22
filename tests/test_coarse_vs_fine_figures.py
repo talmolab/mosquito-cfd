@@ -317,3 +317,293 @@ def test_skill_ranges_end_to_end(tmp_path):
     }
     assert meta["git"] == GIT
     assert math.isclose(len(written["targets"]), 6)
+
+
+# --- error_histograms -------------------------------------------------------------------------
+
+from mosquito_cfd.force_surrogate.evidence_figure import format_metric  # noqa: E402
+from mosquito_cfd.force_surrogate.train import build_phase_only_baseline  # noqa: E402
+
+
+def test_bin_counts_follow_the_numpy_edge_convention():
+    counts, below, above = cf._bin_counts(
+        np.array([-3.5, -3.0, 0.0, 3.0, 3.5]), cf.EDGES
+    )
+    assert len(cf.EDGES) == 601 and cf.EDGES[0] == -3.0 and cf.EDGES[-1] == 3.0
+    assert (below, above) == (1, 1)
+    assert counts[0] == 1 and counts[-1] == 1
+    assert counts.sum() + below + above == 5
+
+
+def _spike(seed_index, holdout_index, phase):
+    err = default_error((1.0, 1.4, 0.7, 1.2, 0.9))(seed_index, holdout_index, phase)
+    if holdout_index == 0:
+        err[0, 0] += 50.0  # far outside +3 baseline RMSEs
+        err[1, 0] -= 50.0
+    return err
+
+
+def test_histogram_counts_are_the_normalised_errors(tmp_path):
+    written = write_repo(tmp_path, coarse=CorpusSpec(error=_spike))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    edges = np.asarray(result["edges"])
+    for corpus in ("coarse", "fine"):
+        pred = written[corpus]["predictions"]
+        base, _ = build_phase_only_baseline(
+            written[corpus]["dataset"], pred["phase"].to_numpy(dtype=float)
+        )
+        for j, c in enumerate(TARGET_COLUMNS):
+            entry = result["grids"][corpus][c]
+            t = pred[f"{c}_true"].to_numpy()
+            rmse0 = entry["rmse0"]
+            for kind, values in (
+                ("surrogate", pred[f"{c}_pred"].to_numpy()),
+                ("baseline", base[:, j]),
+            ):
+                z = (values - t) / rmse0
+                inside = z[(z >= -3) & (z <= 3)]
+                expected, _ = np.histogram(inside, bins=edges)
+                assert entry[f"counts_{kind}"] == expected.tolist()
+                assert entry[f"below_{kind}"] == int((z < -3).sum())
+                assert entry[f"above_{kind}"] == int((z > 3).sum())
+                total = (
+                    sum(entry[f"counts_{kind}"])
+                    + entry[f"below_{kind}"]
+                    + entry[f"above_{kind}"]
+                )
+                assert total == entry["n_rows"] == len(pred)
+    spiked = result["grids"]["coarse"]["CF_x"]
+    assert spiked["above_surrogate"] >= 1 and spiked["below_surrogate"] >= 1
+
+
+def test_density_counts_every_row_including_out_of_range(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(error=_spike))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    widths = np.diff(np.asarray(result["edges"]))
+    density = cf._density(
+        np.asarray(entry["counts_surrogate"]),
+        entry["n_rows"],
+        np.asarray(result["edges"]),
+    )
+    assert np.array_equal(
+        density, np.asarray(entry["counts_surrogate"]) / (entry["n_rows"] * widths)
+    )
+    assert (
+        density * widths
+    ).sum() < 1.0  # the out-of-range rows are not renormalised away
+
+
+def test_recomputed_skill_is_consistent_with_its_rmses(tmp_path):
+    written = write_repo(tmp_path)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    for corpus in ("coarse", "fine"):
+        runs0 = written[corpus]["metrics"]["seed_sweep"]["runs"][0]
+        for c in TARGET_COLUMNS:
+            e = result["grids"][corpus][c]
+            assert math.isclose(
+                (e["rmse_surrogate"] / e["rmse0"]) ** 2,
+                1 - e["skill"],
+                rel_tol=1e-12,
+                abs_tol=0,
+            )
+            assert e["skill_recorded"] == runs0["per_target"][c]["skill"]
+            assert (
+                e["skill_range"]
+                == written[corpus]["metrics"]["seed_sweep"]["range"][c]["skill"]
+            )
+
+
+def _scale_rmse(factor):
+    def edit(metrics):
+        metrics["phase_baseline_skill"]["per_target"]["CF_x"][
+            "phase_baseline_rmse"
+        ] *= factor
+
+    return edit
+
+
+def test_a_baseline_rmse_off_by_1e8_is_refused_and_1e11_accepted(tmp_path):
+    write_repo(tmp_path / "a", coarse=CorpusSpec(edit_metrics=_scale_rmse(1 + 1e-8)))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "phase-only baseline"):
+        assert needle in str(excinfo.value)
+    assert not (tmp_path / "a" / "out").exists()
+
+    write_repo(tmp_path / "b", coarse=CorpusSpec(edit_metrics=_scale_rmse(1 + 1e-11)))
+    _build(cf.build_error_histograms, tmp_path / "b")
+
+
+def _perturbed_skill(factor):
+    holder = {}
+
+    def edit_runs(runs):
+        old = runs[0]["per_target"]["CF_x"]["skill"]
+        holder["new"] = 1 - (1 - old) * factor
+        runs[0]["per_target"]["CF_x"]["skill"] = holder["new"]
+
+    def edit_metrics(metrics):
+        metrics["phase_baseline_skill"]["per_target"]["CF_x"]["skill"] = holder["new"]
+
+    return CorpusSpec(edit_runs=edit_runs, edit_metrics=edit_metrics)
+
+
+def test_a_recorded_skill_off_by_1e8_is_refused_and_1e11_accepted(tmp_path):
+    write_repo(tmp_path / "a", coarse=_perturbed_skill(1 + 1e-8))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "skill"):
+        assert needle in str(excinfo.value)
+    write_repo(tmp_path / "b", coarse=_perturbed_skill(1 + 1e-11))
+    _build(cf.build_error_histograms, tmp_path / "b")
+
+
+def test_a_reordered_baseline_definition_is_refused(tmp_path):
+    def edit(metrics):
+        definition = metrics["phase_baseline_skill"]["phase_baseline"]
+        definition["reference_configs"] = list(
+            reversed(definition["reference_configs"])
+        )
+
+    write_repo(tmp_path, coarse=CorpusSpec(edit_metrics=edit))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path)
+    assert "coarse" in str(excinfo.value) and "reference_configs" in str(excinfo.value)
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_null_recorded_skill_is_refused(tmp_path):
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=_constant_target("CF_z")),
+        fine=_fine(truth=_constant_target("CF_z", salt=0.013)),
+    )
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path)
+    assert "CF_z" in str(excinfo.value) and "null" in str(excinfo.value)
+
+
+def test_histogram_annotation_and_caption(tmp_path):
+    seeds = (42, 43, 44)
+    scales = (1.0, 1.3, 0.8)
+    written = write_repo(
+        tmp_path,
+        coarse=CorpusSpec(seeds=seeds, error_scales=scales),
+        fine=_fine(seeds=seeds, error_scales=scales),
+    )
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    metrics = written["coarse"]["metrics"]
+    x = metrics["seed_sweep"]["runs"][0]["per_target"]["CF_x"]["skill"]
+    rng = metrics["seed_sweep"]["range"]["CF_x"]["skill"]
+    assert result["annotations"]["coarse"]["CF_x"] == (
+        f"seed 42 skill {format_metric(x)} "
+        f"(3 seeds: {format_metric(rng['min'])} to {format_metric(rng['max'])})"
+    )
+    caption = result["caption"]
+    for phrase in (
+        cf.SHIPPED_PHRASE,
+        cf.LAB_FRAME_PHRASE,
+        cf.OWN_BASELINE_PHRASE,
+        "seed 42",
+        "skill = 1 − (RMSE / RMSE₀)²",
+        "not compared across the two rows",
+        "consecutive timesteps of 6 configurations, not independent samples",
+        "second wingbeat of 2-beat runs",
+        cf.REGENERATION_PHRASE,
+    ):
+        assert phrase in caption, phrase
+    assert "1234" not in caption
+    texts = [caption, *result["labels"]]
+    texts += [a for grid in result["annotations"].values() for a in grid.values()]
+    _assert_clean_wording(*texts)
+
+
+def test_histogram_caption_for_a_four_beat_corpus(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(n_beats=4), fine=_fine(n_beats=4))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    assert "wingbeats 2–4 of 4-beat runs" in result["caption"]
+    assert cf.REGENERATION_PHRASE not in result["caption"]
+
+
+def _k2_truth(split, index, phase, beat):
+    cols = default_truth(0.0)(split, index, phase, beat)
+    cols[:, 0] = [-1.0, 0.0, 1.0][index] if split == "train" else 10.0
+    return cols
+
+
+def _k2_drop_rows(df):
+    keep = np.ones(len(df), dtype=bool)
+    for name, step in (("t00", 4), ("t01", 2)):
+        rows = np.flatnonzero(df["config_name"].to_numpy() == name)
+        keep[rows] = False
+        keep[rows[::step]] = True
+    return df[keep].reset_index(drop=True)
+
+
+def test_k2_baseline_excludes_the_holdout_and_weights_configurations_equally(tmp_path):
+    """Training CF_x constants -1, 0, +1 with 4, 8, 16 rows per beat; holdout CF_x = 10.
+    Equal weighting gives baseline 0 and rmse0 = 10 exactly; row weighting or holdout leakage
+    would not."""
+    spec_c = CorpusSpec(
+        n_train=3, rows_per_beat=16, truth=_k2_truth, edit_dataset=_k2_drop_rows
+    )
+    spec_f = CorpusSpec(n_train=3, rows_per_beat=16, salt=0.013, digest=FINE_DIGEST)
+    write_repo(tmp_path, coarse=spec_c, fine=spec_f)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    assert result["grids"]["coarse"]["CF_x"]["rmse0"] == 10.0
+
+
+def _k3_truth(split, index, phase, beat):
+    cols = default_truth(0.0)(split, index, phase, beat)
+    cols[:, 0] = 0.0 if split == "train" else (1.0 if index == 0 else math.sqrt(2.0))
+    return cols
+
+
+def _k3_error(seed_index, holdout_index, phase):
+    err = default_error((1.0, 1.4, 0.7, 1.2, 0.9))(seed_index, holdout_index, phase)
+    alt = np.where(np.arange(phase.shape[0]) % 2 == 0, 1.0, -1.0)
+    err[:, 0] = alt * (1 / math.sqrt(2.0) if holdout_index == 0 else 0.5)
+    return err
+
+
+def _k3_drop_rows(df):
+    is_a = (df["config_name"] == "h00").to_numpy()
+    keep = ~is_a | np.isin(df["phase"].to_numpy(), [0.0, 0.5])
+    return df[keep].reset_index(drop=True)
+
+
+def test_k3_skill_is_pooled_over_rows(tmp_path):
+    """Holdout A: 2 rows, SSE_s 1, SSE0 2; B: 4 rows, SSE_s 1, SSE0 8. Pooled skill is 0.8, not
+    the per-configuration mean 0.6875 nor the row-weighted mean 0.75."""
+    spec_c = CorpusSpec(
+        n_holdout=2,
+        rows_per_beat=4,
+        truth=_k3_truth,
+        error=_k3_error,
+        edit_dataset=_k3_drop_rows,
+    )
+    spec_f = CorpusSpec(n_holdout=2, rows_per_beat=4, salt=0.013, digest=FINE_DIGEST)
+    write_repo(tmp_path, coarse=spec_c, fine=spec_f)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    skill = result["grids"]["coarse"]["CF_x"]["skill"]
+    assert math.isclose(skill, 0.8, rel_tol=1e-12, abs_tol=0)
+
+
+def test_error_histograms_end_to_end(tmp_path):
+    write_repo(tmp_path)
+    before = plt.get_fignums()
+    result, out = _build(cf.build_error_histograms, tmp_path)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "error_histograms.png",
+        "error_histograms_metrics.json",
+        "error_histograms_run_metadata.json",
+    ]
+    assert plt.get_fignums() == before
+    written = json.loads(
+        (out / "error_histograms_metrics.json").read_text(encoding="utf-8")
+    )
+    recomputed = cf.compute_error_histograms_metrics(
+        root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
+    )
+    assert written == json.loads(cf._dumps(recomputed)) == json.loads(cf._dumps(result))
