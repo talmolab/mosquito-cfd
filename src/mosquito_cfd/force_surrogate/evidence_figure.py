@@ -468,10 +468,11 @@ def compute_speedup(
 ) -> dict[str, Any]:
     """Decompose the inference-vs-CFD speedup into throughput (headline) and latency (floor).
 
-    The headline >1,000x is **batched GPU throughput** vs the grid's A40 CFD rate;
-    because it equals ``latency_speedup * batch_size`` (the surrogate batches; the CFD is a
-    sequential time integration), the batch size and parallelism factor are returned for
-    honest disclosure (design D4).
+    The headline >1,000x is **batched GPU throughput** vs the grid's A40 CFD rate (the
+    surrogate batches; the CFD is a sequential time integration). It is the latency speedup
+    times the parallelism factor ``throughput_speedup / latency_speedup`` = N·t_single/t_batch,
+    a measured ratio that can be larger or smaller than the batch size N and is not N. The
+    batch size and parallelism factor are returned for honest disclosure (design D4).
 
     Args:
         inference: The ``metrics.json`` ``inference`` block (``latency_ms``,

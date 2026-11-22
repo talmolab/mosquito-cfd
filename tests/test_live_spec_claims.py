@@ -465,6 +465,12 @@ MUST_PASS = (
     "the CFD side reproduces the T2a coarse peaks (`CF_chord ≈ 0.92`, `CF_normal ≈ 2.61`)",
     'number (`2.48`, `0.43`, `0.42` not preceded by a minus sign, `0.055`, `0.058`, and "near '
     '0.18")',
+    # The corrected docstrings (compute_speedup, compute_config_resolved).
+    "It is the latency speedup times the parallelism factor ``throughput_speedup / "
+    "latency_speedup`` = N·t_single/t_batch, a measured ratio that can be larger or smaller "
+    "than the batch size N and is not N.",
+    "A diagnostic, not the headline skill: it divides by the spread of a few held-out cycle "
+    "means and is strongly seed-dependent",
 )
 
 # Fixed strings in requirements this change does not touch: the scan cannot pass vacuously.
@@ -519,6 +525,39 @@ def test_reintroduced_retired_sentence_fails(capability):
 def test_tripwire_anchor_rejects_an_empty_or_unrelated_spec():
     for text in ("", "# Some other spec\n\n### Requirement: Unrelated\n\nBody.\n"):
         assert not any(anchor in text for anchor in SPEC_ANCHORS.values())
+
+
+# --- Code that repeated a retired claim (design D5 "Targets") -------------------------------
+
+# path -> a fixed string in that file, so the scan cannot pass on an empty or wrong file.
+CODE_TARGETS = {
+    "src/mosquito_cfd/force_surrogate/evidence_figure.py": "def compute_speedup",
+    "src/mosquito_cfd/force_surrogate/train.py": "def compute_config_resolved",
+}
+
+
+def _code_prose_hits(path: str, source: str) -> list[str]:
+    return sc.retired_hits(python_prose(source), RETIRED, path)
+
+
+@pytest.mark.parametrize("path", list(CODE_TARGETS))
+def test_no_retired_claim_in_code_prose(path):
+    """Scenario: A retired claim fails the guard (in a guarded code docstring)."""
+    source = (_REPO / path).read_text(encoding="utf-8")
+    assert CODE_TARGETS[path] in source, "anchor missing; the scan would be vacuous"
+    hits = _code_prose_hits(path, source)
+    assert not hits, "\n".join(hits)
+
+
+@pytest.mark.parametrize("path", list(CODE_TARGETS))
+def test_reintroduced_code_claim_fails(path):
+    """Every stale code example, appended to the real source, is reported by name."""
+    source = (_REPO / path).read_text(encoding="utf-8")
+    for pname, examples in RETIRED_EXAMPLES.items():
+        for kind, example in examples:
+            if kind == "code":
+                hits = _code_prose_hits(path, source + "\n\n" + example)
+                assert any(f"[{pname}]" in h for h in hits), pname
 
 
 # --- Stale fixtures: the permanent red ------------------------------------------------------

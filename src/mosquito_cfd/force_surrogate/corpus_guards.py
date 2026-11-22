@@ -26,10 +26,13 @@ from mosquito_cfd.force_surrogate.sidecar import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Settled-beat (wingbeat >= 1) |mean CF_x| / max|CF_x|: non-truncated configs across both
-# committed corpora measure [-0.0091, +0.0001]; the fine corpus's 9 materially-truncated configs
-# measure [+0.0150, +0.1648]. 0.012 sits with ~1.3x margin on the healthy side and ~1.25x margin
-# on the truncated side (see add-fine-corpus-run-verification design.md D6).
+# Settled-beat (wingbeat >= 1) |mean CF_x| / max|CF_x|, as magnitudes (the #147 sign flip
+# changed the signs, not the sizes): non-truncated configs across both committed corpora measure
+# at most 0.0092 (maximum 0.00914). Of the 15 configs the #92 truncation affected in the fine
+# corpus (e1ca8b5), the 9 materially-truncated ones measured 0.0150 to 0.1648; the other 6
+# measured 0.0001 to 0.0071, inside the healthy band, and are caught by the timestep check, not
+# by this one. 0.012 sits with ~1.3x margin on the healthy side and ~1.25x margin on the
+# materially-truncated side (see add-fine-corpus-run-verification design.md D6).
 SYMMETRY_RATIO_TOLERANCE = 0.012
 
 # Confirmed against the regenerated (real, non-CFL-truncated) fine corpus (task 8.7): the measured
