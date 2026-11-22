@@ -74,6 +74,7 @@ def test_requirement_blocks_is_crlf_safe():
     blocks = sc.requirement_blocks(_LIVE.replace("\n", "\r\n"))
     assert list(blocks) == ["Alpha", "Beta", "Gamma"]
     assert "\r" not in "".join(blocks)
+    assert "\r" not in "".join(blocks.values())
 
 
 def test_an_unknown_section_ends_a_block_and_is_not_applied():
@@ -501,12 +502,17 @@ def test_retired_patterns_accept_the_corrective_text(sentence):
     assert sc.retired_hits(sentence, RETIRED, "MUST_PASS") == []
 
 
+def _scan_spec(capability: str, text: str) -> list[str]:
+    """Retired-claim hits in a spec's text, after checking its anchor (no vacuous scan)."""
+    if SPEC_ANCHORS[capability] not in text:
+        raise AssertionError(f"{capability}: anchor missing; the scan would be vacuous")
+    return sc.retired_hits(text, RETIRED, capability)
+
+
 @pytest.mark.parametrize("capability", [FS, FWV])
 def test_no_retired_claim_in_live_specs(capability):
     """Scenario: the effective text of each spec carries no retired claim."""
-    text = sc.effective_text(capability)
-    assert SPEC_ANCHORS[capability] in text, "anchor missing; the scan would be vacuous"
-    hits = sc.retired_hits(text, RETIRED, capability)
+    hits = _scan_spec(capability, sc.effective_text(capability))
     assert not hits, "\n".join(hits)
 
 
@@ -524,9 +530,11 @@ def test_reintroduced_retired_sentence_fails(capability):
             )
 
 
-def test_tripwire_anchor_rejects_an_empty_or_unrelated_spec():
+@pytest.mark.parametrize("capability", [FS, FWV])
+def test_tripwire_anchor_rejects_an_empty_or_unrelated_spec(capability):
     for text in ("", "# Some other spec\n\n### Requirement: Unrelated\n\nBody.\n"):
-        assert not any(anchor in text for anchor in SPEC_ANCHORS.values())
+        with pytest.raises(AssertionError, match="anchor missing"):
+            _scan_spec(capability, text)
 
 
 # --- Code that repeated a retired claim (design D5 "Targets") -------------------------------
@@ -544,27 +552,36 @@ _REVERSAL_TEST = "test_euler_angles_at_stroke_reversal_have_zero_pitch"
 
 
 def _code_prose_hits(path: str, source: str) -> list[str]:
+    """Retired-claim hits in a code file's prose, after checking its anchor."""
+    if CODE_TARGETS[path] not in source:
+        raise AssertionError(f"{path}: anchor missing; the scan would be vacuous")
     return sc.retired_hits(python_prose(source), RETIRED, path)
+
+
+def _retired_test_names(source: str) -> list[str]:
+    return _RETIRED_TEST_NAMES.findall(source)
 
 
 @pytest.mark.parametrize("path", list(CODE_TARGETS))
 def test_no_retired_claim_in_code_prose(path):
     """Scenario: A retired claim fails the guard (in a guarded code docstring)."""
-    source = (_REPO / path).read_text(encoding="utf-8")
-    assert CODE_TARGETS[path] in source, "anchor missing; the scan would be vacuous"
-    hits = _code_prose_hits(path, source)
+    hits = _code_prose_hits(path, (_REPO / path).read_text(encoding="utf-8"))
     assert not hits, "\n".join(hits)
+
+
+@pytest.mark.parametrize("path", list(CODE_TARGETS))
+def test_code_scan_rejects_a_file_without_its_anchor(path):
+    with pytest.raises(AssertionError, match="anchor missing"):
+        _code_prose_hits(path, "def unrelated():\n    pass\n")
 
 
 def test_kinematics_test_names_do_not_call_reversal_midstroke():
     """Scenario: The kinematics tests name the instant they measure (names, read raw)."""
     source = _KINEMATICS.read_text(encoding="utf-8")
     assert "def test_" in source
-    assert _RETIRED_TEST_NAMES.findall(source) == []
+    assert _retired_test_names(source) == []
     # The check is not vacuous: the pre-change name is caught.
-    assert _RETIRED_TEST_NAMES.findall(
-        "def test_euler_angles_midstroke_has_zero_pitch():"
-    )
+    assert _retired_test_names("def test_euler_angles_midstroke_has_zero_pitch():")
 
 
 def test_renamed_reversal_test_exists():
