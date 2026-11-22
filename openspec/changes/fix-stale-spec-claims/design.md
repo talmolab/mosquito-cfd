@@ -438,3 +438,33 @@ The rest of the PR-review response is code and tests:
 - the docstring wording.
 
 See `review-reconciliation.md`, "PR review".
+
+### Why does the guard raise on some deltas that OpenSpec silently ignores?
+
+The adversarial re-review of the PR-review fixes found that `93516cc` had over-generalized. The
+guard applied three delta forms that OpenSpec 0.13 ignores:
+
+- `## MODIFIED  Requirements` (two inner spaces);
+- a second section of the same kind;
+- a `*` bullet under REMOVED.
+
+The reviewer confirmed this with a scratch project: `openspec validate --strict` passes on all
+three, and `openspec archive` leaves the live text unchanged. That is fail-open again.
+
+The parser is now matched to OpenSpec's source (`core/parsers/requirement-blocks.js`):
+
+- a section title is trimmed and compared, lower-cased, with `<kind> requirements`;
+- a block starts at `^###\s+Requirement:`;
+- a REMOVED entry is a `^###\s*Requirement:` header line or a dash bullet.
+
+Where OpenSpec would silently ignore a section that holds requirement blocks, or keep only the
+last of two same-kind sections, the guard raises. That fails closed: an author sees an error
+instead of a check against text that will never be live.
+
+Parity check against OpenSpec on all 76 delta files under `openspec/changes/`, active and
+archived:
+
+- 75 match exactly (names and block text);
+- 1 raises: the archived `add-arbitrary-geometry` delta. It has a
+  `## FUTURE Requirements (Post-Award)` section, which OpenSpec ignores. The guard never reads
+  archived changes; an active change in that form would fail loudly.

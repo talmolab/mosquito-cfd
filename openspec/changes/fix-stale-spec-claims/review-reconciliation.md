@@ -776,3 +776,47 @@ with the committed sidecars' values' … delete the 'coincide' sentence."
 - 61 mutants, 59 killed. The two survivors are the equivalent ones.
 - Separately, 4 new-test mutants (the comment's maximum and margin, the kinematics sin/cos swap,
   the rotation swap): all killed.
+
+## Adversarial re-review of the PR-review fix commits (93516cc, 5d440d9, 311eb21)
+
+Verdict: no BLOCKING findings. 5d440d9 and 311eb21 were judged sound by reproduction:
+
+- the REGISTRY regroup changed no entries;
+- no late-binding bug;
+- the `MUST_PASS_IN_SPEC` indexes are correct;
+- the kinematics mutants are killed;
+- the merge left every guarded live block unchanged.
+
+**RR-1 (IMPORTANT, 93516cc).** "the guard still differs from OpenSpec 0.13.0, and some
+differences fail open … `## MODIFIED  Requirements` (two spaces) … two `## MODIFIED
+Requirements` sections … `* `### Requirement: A`` under REMOVED … openspec archive then leaves
+live `Requirement: A` unchanged … `test_delta_formatting_openspec_accepts_is_applied` has the
+case `"##   MODIFIED   Requirements"` … pins fail-open behaviour. Fix: match OpenSpec exactly."
+
+- The finding was reproduced: the guard reads `## MODIFIED  Requirements` as MODIFIED, while
+  OpenSpec ignores it.
+- Fixed by matching OpenSpec's source exactly (design.md, "Why does the guard raise…").
+- The wrong test case is flipped to `test_delta_sections_openspec_would_not_apply_raise`.
+- New REMOVED-form cases are added.
+- Parity on all 76 real deltas: 75 identical, 1 fail-closed raise, in an archived file the guard
+  never reads.
+
+**Suggestions:**
+
+- **RR-S4, adopted.** Presence check for the docstring `MUST_PASS` sentences
+  (`MUST_PASS_IN_CODE`), plus `test_every_must_pass_sentence_is_located`.
+- **RR-S5, adopted.** The comment test checks `0.012` against the constant. The
+  `SYMMETRY_RATIO_TOLERANCE = 0.0121` mutant is now killed.
+- **RR-S3, not adopted.** Site assignment across overlapping phrases is latent. On the live
+  REGISTRY every number occurrence is covered once, so it is recorded here, not fixed.
+- **RR-S1, recorded in design.md.** The archived FUTURE-section raise.
+- **RR-S6, information.** Retired-pattern hits in docs outside this guard's scope; #176 already
+  tracks the wider sweep.
+
+**Mutation re-run:** 67 mutants, 63 killed. The survivors:
+
+- the two equivalent layout mutants;
+- "section title not trimmed", equivalent because the `_SECTION` regex already drops
+  surrounding whitespace;
+- "tolerance not checked in comment", which deletes an assertion that holds on clean data. The
+  meaningful mutant, a changed constant, is killed.

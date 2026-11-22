@@ -30,19 +30,22 @@ _REPO = Path(__file__).resolve().parents[1]
 SPECS_DIR = _REPO / "openspec" / "specs"
 CHANGES_DIR = _REPO / "openspec" / "changes"
 
-# Matched as OpenSpec's own parser does: any whitespace after the hashes, section titles
-# case-insensitive (``## Modified Requirements``), bullet-form REMOVED entries.
+# Matched to OpenSpec 0.13 (core/parsers/requirement-blocks.js): a block starts at
+# ^###\s+Requirement:; a section title is trimmed and compared, lower-cased, with
+# "<kind> requirements" (one inner space); a REMOVED entry is a header line (^###\s*Requirement:)
+# or a dash bullet. Anything OpenSpec would not apply must not be applied here either.
 _REQ = re.compile(r"^###\s+Requirement:\s*(.+?)\s*$")
 _SECTION = re.compile(r"^##\s+(.*?)\s*$")
-_BULLET_REQ = re.compile(r"^\s*[-*]\s+`?###\s+Requirement:\s*(.+?)\s*`?\s*$")
+_REMOVED_HEADER = re.compile(r"^###\s*Requirement:\s*(.+?)\s*$")
+_REMOVED_BULLET = re.compile(r"^\s*-\s*`?###\s*Requirement:\s*(.+?)`?\s*$")
 _DELTA_KINDS = ("ADDED", "MODIFIED", "REMOVED", "RENAMED")
 
 
 def _delta_kind(title: str) -> str | None:
-    """``ADDED`` etc. for a ``<KIND> Requirements`` section title, any case; else None."""
-    words = title.upper().split()
-    if len(words) == 2 and words[0] in _DELTA_KINDS and words[1] == "REQUIREMENTS":
-        return words[0]
+    """``ADDED`` etc. when ``title`` is exactly ``<kind> requirements`` (any case); else None."""
+    for kind in _DELTA_KINDS:
+        if title.strip().lower() == f"{kind.lower()} requirements":
+            return kind
     return None
 
 
@@ -86,13 +89,23 @@ def delta_sections(text: str) -> dict[str, dict[str, str]]:
     """Delta section (``ADDED`` …) → requirement name → block.
 
     A RENAMED section is reported as ``{"RENAMED": {"<section>": ""}}`` whatever it holds.
-    Bullet-form REMOVED entries (``- `### Requirement: X` ``) count as removals. A section
-    without requirement blocks (e.g. ``## Cross-References``) is ignored.
+    REMOVED entries are header lines or dash bullets, as OpenSpec reads them. A section without
+    requirement blocks (e.g. ``## Cross-References``) is ignored.
 
     Raises:
-        ValueError: a requirement block sits under a section that is not a delta kind.
+        ValueError: a requirement block sits under a section that is not exactly a delta kind
+            (OpenSpec would ignore it), or a delta kind has more than one section (OpenSpec
+            would keep only the last).
     """
     out: dict[str, dict[str, str]] = {kind: {} for kind in _DELTA_KINDS}
+    seen: list[str] = []
+    for line in _lines(text):
+        m_sec = _SECTION.match(line)
+        kind = _delta_kind(m_sec.group(1)) if m_sec else None
+        if kind in seen:
+            raise ValueError(f"more than one {kind} Requirements section")
+        if kind:
+            seen.append(kind)
     for section, name, block in _split(text):
         kind = _delta_kind(section or "")
         if kind is None:
@@ -109,9 +122,9 @@ def delta_sections(text: str) -> dict[str, dict[str, str]]:
             if kind == "RENAMED":
                 out["RENAMED"]["<section>"] = ""
             continue
-        m_bullet = _BULLET_REQ.match(line)
-        if kind == "REMOVED" and m_bullet:
-            out["REMOVED"].setdefault(m_bullet.group(1), "")
+        m_removed = _REMOVED_HEADER.match(line) or _REMOVED_BULLET.match(line)
+        if kind == "REMOVED" and m_removed:
+            out["REMOVED"].setdefault(m_removed.group(1).strip(), "")
     return out
 
 

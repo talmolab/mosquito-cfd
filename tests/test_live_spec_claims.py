@@ -166,12 +166,12 @@ def test_inconsistent_deltas_raise_naming_change_and_requirement(
 @pytest.mark.parametrize(
     "delta",
     [
-        # OpenSpec's own parser matches section titles case-insensitively, allows any
-        # whitespace in "###  Requirement:" and accepts bullet-form REMOVED entries. A delta it
-        # applies must not be silently skipped here (the guard would check stale live text).
+        # OpenSpec 0.13 (core/parsers/requirement-blocks.js) compares a section title,
+        # lower-cased, with "modified requirements" (one inner space) and starts a block at
+        # ^###\s+Requirement:. A delta it applies must not be silently skipped here.
         "## Modified Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
+        "##   MODIFIED Requirements  \n\n" + _block("Alpha", "ALPHA NEW"),
         "## MODIFIED Requirements\n\n###  Requirement:  Alpha  \n\nALPHA NEW\n",
-        "##   MODIFIED   Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
     ],
 )
 def test_delta_formatting_openspec_accepts_is_applied(tmp_path, delta):
@@ -185,6 +185,43 @@ def test_bullet_form_removed_is_applied(tmp_path):
     specs, changes = _tree(tmp_path, {"chg": delta})
     eff = sc.effective_spec("cap", specs_dir=specs, changes_dir=changes)
     assert list(eff) == ["Alpha"]
+
+
+@pytest.mark.parametrize(
+    ("line", "removed"),
+    [
+        # OpenSpec's REMOVED forms: a dash bullet with optional spaces and backticks, or a
+        # header line with optional space after ###. A star bullet is not one.
+        ("-`### Requirement: Beta`", True),
+        ("- `###Requirement: Beta`", True),
+        ("###Requirement: Beta", True),
+        ("* `### Requirement: Beta`", False),
+    ],
+)
+def test_removed_entry_forms_match_openspec(tmp_path, line, removed):
+    specs, changes = _tree(tmp_path, {"chg": f"## REMOVED Requirements\n\n{line}\n"})
+    eff = sc.effective_spec("cap", specs_dir=specs, changes_dir=changes)
+    assert ("Beta" not in eff) is removed
+
+
+@pytest.mark.parametrize(
+    "delta",
+    [
+        # OpenSpec ignores these sections (the live text survives archive), so the guard must
+        # not apply them either: it raises instead of checking text that will never be live.
+        "## MODIFIED  Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
+        "##   MODIFIED   Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
+        # Two sections of one kind: OpenSpec keeps only the last; refuse rather than guess.
+        "## MODIFIED Requirements\n\n"
+        + _block("Alpha", "ALPHA NEW")
+        + "\n## MODIFIED Requirements\n\n"
+        + _block("Gamma", "GAMMA NEW"),
+    ],
+)
+def test_delta_sections_openspec_would_not_apply_raise(tmp_path, delta):
+    specs, changes = _tree(tmp_path, {"chg": delta})
+    with pytest.raises(ValueError, match="chg"):
+        sc.effective_spec("cap", specs_dir=specs, changes_dir=changes)
 
 
 def test_an_unclassified_delta_section_raises(tmp_path):
@@ -583,6 +620,26 @@ def test_spec_quoted_corrective_text_is_in_the_spec(sentence):
     assert normalize(sentence) in normalize(sc.effective_text(capability)), capability
 
 
+# The MUST_PASS sentences quoted from a docstring, with the file they must occur in.
+MUST_PASS_IN_CODE = {
+    MUST_PASS[10]: "src/mosquito_cfd/force_surrogate/evidence_figure.py",
+    MUST_PASS[11]: "src/mosquito_cfd/force_surrogate/train.py",
+    MUST_PASS[12]: "tests/test_wing_kinematics.py",
+}
+
+
+@pytest.mark.parametrize("sentence", list(MUST_PASS_IN_CODE))
+def test_code_quoted_corrective_text_is_in_the_code(sentence):
+    """The quoted corrective docstring sentence is really in its file's prose."""
+    path = MUST_PASS_IN_CODE[sentence]
+    prose = python_prose((_REPO / path).read_text(encoding="utf-8"))
+    assert normalize(sentence) in normalize(prose), path
+
+
+def test_every_must_pass_sentence_is_located():
+    assert len(MUST_PASS) == len(MUST_PASS_IN_SPEC) + len(MUST_PASS_IN_CODE)
+
+
 def _scan_spec(capability: str, text: str) -> list[str]:
     """Retired-claim hits in a spec's text, after checking its anchor (no vacuous scan)."""
     if SPEC_ANCHORS[capability] not in text:
@@ -681,6 +738,7 @@ def test_symmetry_tolerance_comment_numbers_match_the_committed_corpora():
     assert f"(maximum {healthy_max:.5f})" in flat, healthy_max
     assert f"at most {math.ceil(healthy_max * 1e4) / 1e4:.4f}" in flat, healthy_max
     assert f"~{margin:.1f}x margin on the healthy side" in flat, margin
+    assert f"{corpus_guards.SYMMETRY_RATIO_TOLERANCE} sits with" in flat
 
 
 def test_kinematics_test_names_do_not_call_reversal_midstroke():
