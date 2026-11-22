@@ -116,14 +116,14 @@
 
 ### 3b. Bench package and splits
 
-- [ ] 3b.1 **Tests first**: the import scenario (meta-path blocker) and "The scope names all three
+- [x] 3b.1 **Tests first**: the import scenario (meta-path blocker) and "The scope names all three
   limits". Mutation: a top-level `import torch` is killed.
-- [ ] 3b.2 **Tests first** (`tests/test_surrogate_bench_splits.py`): the split scenarios, without
+- [x] 3b.2 **Tests first** (`tests/test_surrogate_bench_splits.py`): the split scenarios, without
   the E4 rank clause (that is in 4a.1).
-- [ ] 3b.3 Implement `surrogate_bench/__init__.py` (with `BENCH_SEEDS` and `BENCH_SCOPE`) and
+- [x] 3b.3 Implement `surrogate_bench/__init__.py` (with `BENCH_SEEDS` and `BENCH_SCOPE`) and
   `surrogate_bench/splits.py`. Mutation-test: the disjointness, face-membership, 3-level and pool
   guards.
-- [ ] 3b.4 Shipped-artifact check. Commit: `feat(surrogate-bench): package skeleton and splits`.
+- [x] 3b.4 Shipped-artifact check. Commit: `feat(surrogate-bench): package skeleton and splits`.
 
 ### 4a. Ridge fit
 
