@@ -186,7 +186,7 @@
 
 ### 5. Metrics
 
-- [ ] 5.1 **Tests first** (`tests/test_surrogate_bench_metrics.py`): the metric scenarios, plus:
+- [x] 5.1 **Tests first** (`tests/test_surrogate_bench_metrics.py`): the metric scenarios, plus:
   - `per_seed_skill` uses all of a seed's test rows in dataset order;
   - the target beat, and the baseline built from the target-beat frame;
   - the target-beat guards from "Late-beat boundary": missing beat 0, a partial last beat, and a
@@ -197,13 +197,13 @@
   - the like-for-like view: RMS metrics only, no skill key, and `null` with its reason for pitch 30;
   - the NaN-aware seed range;
   - timing and memory columns excluded from the equality helper.
-- [ ] 5.2 Implement `surrogate_bench/metrics.py`. Mutation-test; each must be killed:
+- [x] 5.2 Implement `surrogate_bench/metrics.py`. Mutation-test; each must be killed:
   - baseline from `pool` instead of the split;
   - the seed-count check off by one;
   - a NaN-unaware range;
   - the two normalisers swapped;
   - grid evaluation by interpolation instead of directly.
-- [ ] 5.3 Shipped-artifact check. Commit: `feat(surrogate-bench): metrics`.
+- [x] 5.3 Shipped-artifact check. Commit: `feat(surrogate-bench): metrics`.
 
 ### 6a. Gate errors and yardsticks
 
