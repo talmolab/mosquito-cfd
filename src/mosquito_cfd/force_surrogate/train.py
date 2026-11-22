@@ -1191,6 +1191,7 @@ def _fit_one_seed(
     num_layers: int,
     lr: float,
     device: str,
+    phase_harmonics: int = 1,
 ) -> _SeedFit:
     """Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
 
@@ -1204,7 +1205,7 @@ def _fit_one_seed(
     val_mask = np.isin(cfg, split.val_configs)
     test_mask = np.isin(cfg, split.test_configs)
 
-    x_all, feature_names = build_features(df)
+    x_all, feature_names = build_features(df, phase_harmonics=phase_harmonics)
     feature_std = Standardizer().fit(x_all[train_mask])
     xz = feature_std.transform(x_all)
     y_all = df[TARGET_COLUMNS].to_numpy(dtype=float)
@@ -1272,6 +1273,7 @@ def run_training(
     wandb_mode: str = "disabled",
     wandb_project: str = "force-surrogate",
     checkpoint_name: str = "surrogate.pt",
+    phase_harmonics: int = 1,
 ) -> dict[str, Any]:
     """Train the PhysicsNeMo surrogate end-to-end and emit the four committed artifacts.
 
@@ -1306,20 +1308,24 @@ def run_training(
         wandb_mode: ``"disabled"`` (default) or ``"online"``.
         wandb_project: wandb project name.
         checkpoint_name: Filename for the saved checkpoint under ``out_dir``.
+        phase_harmonics: Number of phase harmonics in the inputs (default 1, the shipped
+            recipe); passed explicitly to every seed's fit.
 
     Returns:
         A dict of the written artifact paths plus the in-memory ``metrics`` and ``split``.
 
     Raises:
-        ValueError: If a sweep seed equals the primary seed or repeats (before anything is
-            read or written).
+        ValueError: If a sweep seed equals the primary seed or repeats, or
+            ``phase_harmonics`` is below 1 (before anything is read or written).
+        TypeError: If ``phase_harmonics`` is not an integer (before anything is read).
     """
     # NOTE: torch is imported lazily (by the per-seed fit and the checkpoint write) so all the
     # pure-pandas validation here — seeds, digest, schema, converged-beat/holdout checks — is
     # reachable and testable without the optional `train` group (design D2).
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
-    # Seeds first: nothing is read or created for an invalid sweep (design D4).
+    # The harmonic count and the seeds first: nothing is read or created for invalid input.
+    phase_harmonics = _validate_phase_harmonics(phase_harmonics)
     sweep = [int(s) for s in sweep_seeds]
     all_seeds = [int(seed), *sweep]
     if any(s < 0 for s in all_seeds):
@@ -1367,6 +1373,7 @@ def run_training(
         "num_layers": num_layers,
         "lr": lr,
         "device": device,
+        "phase_harmonics": phase_harmonics,
     }
     # The holdout rows and the phase-only baseline depend on the dataset, not the seed (D2),
     # so a malformed baseline reference fails here, before any seed trains.

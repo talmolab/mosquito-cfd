@@ -58,7 +58,7 @@
 
 ### 1b. Trainer and CLI plumbing
 
-- [ ] 1b.1 **Tests first** (extend `tests/test_force_surrogate_seed_sweep.py` and
+- [x] 1b.1 **Tests first** (extend `tests/test_force_surrogate_seed_sweep.py` and
   `tests/test_force_surrogate_train_driver.py`):
   - Update the existing `fake_fit` recorders to accept `phase_harmonics`.
   - `run_training(..., phase_harmonics=3)` passes 3 to every seed.
@@ -74,9 +74,9 @@
     `ValueError`/`TypeError` with a `match=` on the message (not `FileNotFoundError`), and leaves the
     output directory absent.
   - `scripts/train_surrogate.py` parses `--phase-harmonics 3` and defaults to 1.
-- [ ] 1b.2 Implement the plumbing in `run_training`, `_fit_one_seed` and the CLI. Mutation-test:
+- [x] 1b.2 Implement the plumbing in `run_training`, `_fit_one_seed` and the CLI. Mutation-test:
   validation moved after the dataset read; the default not passed explicitly.
-- [ ] 1b.3 Shipped-artifact check. Commit:
+- [x] 1b.3 Shipped-artifact check. Commit:
   `feat(force-surrogate): thread phase_harmonics through run_training and the CLI`.
 
 ### 1c. Per-seed seams
