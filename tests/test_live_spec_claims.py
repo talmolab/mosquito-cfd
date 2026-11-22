@@ -471,6 +471,8 @@ MUST_PASS = (
     "than the batch size N and is not N.",
     "A diagnostic, not the headline skill: it divides by the spread of a few held-out cycle "
     "means and is strongly seed-dependent",
+    # The renamed kinematics test's docstring.
+    "At stroke reversal (t = T/4), φ is at amplitude and α (∝ cos) is 0.",
 )
 
 # Fixed strings in requirements this change does not touch: the scan cannot pass vacuously.
@@ -533,7 +535,12 @@ def test_tripwire_anchor_rejects_an_empty_or_unrelated_spec():
 CODE_TARGETS = {
     "src/mosquito_cfd/force_surrogate/evidence_figure.py": "def compute_speedup",
     "src/mosquito_cfd/force_surrogate/train.py": "def compute_config_resolved",
+    "tests/test_wing_kinematics.py": "def test_rotation_is_orthonormal",
 }
+# Raw test names (normalize() would strip their underscores) that call t = T/4 mid-stroke.
+_RETIRED_TEST_NAMES = re.compile(r"def (test_\w*midstroke_has_zero_pitch\w*)")
+_KINEMATICS = _REPO / "tests" / "test_wing_kinematics.py"
+_REVERSAL_TEST = "test_euler_angles_at_stroke_reversal_have_zero_pitch"
 
 
 def _code_prose_hits(path: str, source: str) -> list[str]:
@@ -547,6 +554,31 @@ def test_no_retired_claim_in_code_prose(path):
     assert CODE_TARGETS[path] in source, "anchor missing; the scan would be vacuous"
     hits = _code_prose_hits(path, source)
     assert not hits, "\n".join(hits)
+
+
+def test_kinematics_test_names_do_not_call_reversal_midstroke():
+    """Scenario: The kinematics tests name the instant they measure (names, read raw)."""
+    source = _KINEMATICS.read_text(encoding="utf-8")
+    assert "def test_" in source
+    assert _RETIRED_TEST_NAMES.findall(source) == []
+    # The check is not vacuous: the pre-change name is caught.
+    assert _RETIRED_TEST_NAMES.findall(
+        "def test_euler_angles_midstroke_has_zero_pitch():"
+    )
+
+
+def test_renamed_reversal_test_exists():
+    """Scenario: The kinematics tests name the instant they measure (the renamed test exists)."""
+    import ast
+
+    tree = ast.parse(_KINEMATICS.read_text(encoding="utf-8"))
+    funcs = {
+        n.name: ast.get_docstring(n) or ""
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef)
+    }
+    assert _REVERSAL_TEST in funcs
+    assert "stroke reversal" in funcs[_REVERSAL_TEST]
 
 
 @pytest.mark.parametrize("path", list(CODE_TARGETS))

@@ -106,12 +106,12 @@ def test_rotation_is_orthonormal():
     assert np.linalg.det(r) == pytest.approx(1.0, abs=1e-14)
 
 
-def test_euler_angles_midstroke_has_zero_pitch():
-    """At the quarter-period midstroke, φ is at amplitude and α (∝cos) is 0."""
+def test_euler_angles_at_stroke_reversal_have_zero_pitch():
+    """At stroke reversal (t = T/4), φ is at amplitude and α (∝ cos) is 0."""
     f_star = 1.0
-    t_mid = 1.0 / (4.0 * f_star)  # ωt = π/2
+    t_rev = 1.0 / (4.0 * f_star)  # ωt = π/2: stroke reversal
     phi, alpha, theta = euler_angles(
-        t_mid,
+        t_rev,
         frequency=f_star,
         stroke_amp_rad=np.radians(70.0),
         pitch_amp_rad=np.radians(45.0),
@@ -169,6 +169,27 @@ def test_new_stroke_sweeps_span_tip_old_does_not():
     # At the stroke extreme the old span-tip has NO horizontal (x,y) excursion — it sits on the axis.
     horizontal_old = np.hypot(tip_old[0], tip_old[1])
     assert horizontal_old == pytest.approx(0.0, abs=1e-9)
+
+
+def test_old_span_tip_is_off_axis_at_mid_stroke():
+    """At mid-stroke (φ = 0, α = α_amp) pitch tilts the OLD span-tip off its stroke axis.
+
+    Why the stroke comparison above is made at reversal, where the pitch is zero
+    (flapping-wing-validation, scenario "At mid-stroke the old span-tip is tilted off its axis").
+    The full vectors are asserted: at this instant the new and old rotation compositions give the
+    same distance from the axis and the same ``|x|``, so only the vectors tell them apart.
+    """
+    r, alpha = 1.5, np.radians(45.0)
+    tip_old = rotation_matrix_legacy(0.0, alpha, 0.0) @ np.array([0.0, 0.0, r])
+    np.testing.assert_allclose(
+        tip_old, [0.0, -r * np.sin(alpha), r * np.cos(alpha)], rtol=0, atol=1e-12
+    )
+    assert np.hypot(tip_old[0], tip_old[1]) == pytest.approx(
+        r * np.sin(alpha), rel=0, abs=1e-12
+    )
+    # The new span-tip is pitched about its own span, so it stays at (0, r, 0).
+    tip_new = rotation_matrix(0.0, alpha, 0.0) @ np.array([0.0, r, 0.0])
+    np.testing.assert_allclose(tip_new, [0.0, r, 0.0], rtol=0, atol=1e-12)
 
 
 def test_new_stroke_span_tip_has_horizontal_velocity_old_does_not():
