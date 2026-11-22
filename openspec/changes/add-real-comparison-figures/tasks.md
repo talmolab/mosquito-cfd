@@ -320,7 +320,7 @@ This section is additive; the old builders stay until 7.
 
 ## 9. Committed-artifact checker, render, commit
 
-- [ ] 9.1 **Test first.** Write `tests/_comparison_guards.py::check_committed_figure(root, figure)`,
+- [x] 9.1 **Test first.** Write `tests/_comparison_guards.py::check_committed_figure(root, figure)`,
   tested in `tests/test_comparison_guards.py` on synthetic layouts from `write_repo`, rendered by
   the real builder with injected git metadata.
   - The unmodified layout passes.
