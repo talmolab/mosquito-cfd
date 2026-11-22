@@ -33,7 +33,7 @@ One PR, ordered as the commits below.
 
 ## 0. Baseline, follow-ups, proposal commit
 
-- [ ] 0.1 At `c87e39c`: run the full CPU suite and ruff. Record the counts.
+- [x] 0.1 At `c87e39c`: run the full CPU suite and ruff. Record the counts.
 - [x] 0.2 `rg` for every importer or executable reference to the old builders, scripts and
   `tests/fixtures/comparison_figure`.
   - Scope: `src/`, `scripts/`, `tests/`, `examples/`, `docs/`, `.claude/`, `README.md`,
@@ -51,7 +51,7 @@ One PR, ordered as the commits below.
 
 ## 1. Training provenance records the Python data stack (#130 item 4)
 
-- [ ] 1.1 **Test first** (`tests/test_force_surrogate_train.py`, CI tier).
+- [x] 1.1 **Test first** (`tests/test_force_surrogate_train.py`, CI tier).
   - `library_versions.python == platform.python_version()`.
   - `numpy`, `pandas` and `pyarrow` equal `importlib.metadata.version(...)` and are non-null
     strings.
@@ -59,14 +59,14 @@ One PR, ordered as the commits below.
   - With `importlib.metadata.version` patched to raise `PackageNotFoundError` for `pyarrow`,
     `pyarrow` is `None` and the other keys are unaffected.
   - The existing `torch`/`physicsnemo` asserts are unchanged.
-- [ ] 1.2 Implement in `build_training_metadata`, reusing `_library_version`, and update the
+- [x] 1.2 Implement in `build_training_metadata`, reusing `_library_version`, and update the
   docstring.
-- [ ] 1.3 Mutation-test 1.1:
+- [x] 1.3 Mutation-test 1.1:
   - drop each key;
   - swap the `pyarrow`/`pandas` distributions;
   - `sys.version` instead of `platform.python_version()`;
   - `None` for python.
-- [ ] 1.4 Commit: `feat(force-surrogate): record the Python data stack in training provenance (advances #130)`.
+- [x] 1.4 Commit: `feat(force-surrogate): record the Python data stack in training provenance (advances #130)`.
 
 ## 2. Synthetic corpus helper
 
