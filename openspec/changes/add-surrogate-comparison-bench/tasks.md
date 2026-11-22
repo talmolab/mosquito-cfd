@@ -108,10 +108,10 @@
 
 ### 3a. Shared validation carve
 
-- [ ] 3a.1 **Test first**: a carve helper over an arbitrary training list returns
+- [x] 3a.1 **Test first**: a carve helper over an arbitrary training list returns
   `make_config_splits`'s validation lists for `pool` (seeds 1234–1238), and a literal list
   for one face split. The helper sorts its input. The existing `make_config_splits` tests still pass.
-- [ ] 3a.2 Extract the helper in `train.py`. Shipped-artifact check. Commit:
+- [x] 3a.2 Extract the helper in `train.py`. Shipped-artifact check. Commit:
   `refactor(force-surrogate): share the validation carve`.
 
 ### 3b. Bench package and splits

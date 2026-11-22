@@ -288,6 +288,40 @@ class SplitAssignment:
     test_configs: list[str]
 
 
+def carve_validation(
+    train_pool: Sequence[str], *, seed: int, n_val_configs: int
+) -> tuple[list[str], list[str]]:
+    """Carve ``n_val_configs`` whole configurations from a training pool for validation.
+
+    The algorithm :func:`make_config_splits` uses, shared so the comparison bench can carve any
+    split's training list the same way: a seeded ``numpy.random.default_rng(seed).choice``
+    without replacement over the **sorted** pool.
+
+    Args:
+        train_pool: Training configuration names (any order; sorted here).
+        seed: Seed for the carve.
+        n_val_configs: Number of configurations to hold for validation.
+
+    Returns:
+        ``(train_configs, val_configs)``, each sorted.
+
+    Raises:
+        ValueError: If ``n_val_configs`` would leave an empty validation or training set.
+    """
+    pool = sorted(str(c) for c in train_pool)
+    if not (1 <= n_val_configs < len(pool)):
+        raise ValueError(
+            f"n_val_configs must be a valid carve in 1..{len(pool) - 1} (got "
+            f"{n_val_configs}); it must leave both a non-empty validation and a non-empty "
+            "training set"
+        )
+    rng = np.random.default_rng(seed)
+    val_idx = rng.choice(len(pool), size=n_val_configs, replace=False)
+    val_configs = sorted(pool[i] for i in val_idx)
+    train_configs = sorted(set(pool) - set(val_configs))
+    return train_configs, val_configs
+
+
 def make_config_splits(
     df: pd.DataFrame, *, seed: int, n_val_configs: int = 3
 ) -> SplitAssignment:
@@ -322,17 +356,10 @@ def make_config_splits(
             "no configurations are labelled split == 'holdout'; cannot form the held-out "
             "test set (CC-4)"
         )
-    train_pool = sorted(df.loc[df["split"] == "train", "config_name"].unique())
-    if not (1 <= n_val_configs < len(train_pool)):
-        raise ValueError(
-            f"n_val_configs must be a valid carve in 1..{len(train_pool) - 1} (got "
-            f"{n_val_configs}); it must leave both a non-empty validation and a non-empty "
-            "training set"
-        )
-    rng = np.random.default_rng(seed)
-    val_idx = rng.choice(len(train_pool), size=n_val_configs, replace=False)
-    val_configs = sorted(train_pool[i] for i in val_idx)
-    train_configs = sorted(set(train_pool) - set(val_configs))
+    train_pool = df.loc[df["split"] == "train", "config_name"].unique()
+    train_configs, val_configs = carve_validation(
+        train_pool, seed=seed, n_val_configs=n_val_configs
+    )
     return SplitAssignment(
         train_configs=train_configs,
         val_configs=val_configs,
