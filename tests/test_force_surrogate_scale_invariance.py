@@ -1,12 +1,18 @@
 """Scale-invariance guard for the van Veen re-normalization (CPU-only, cluster-free).
 
-Re-deriving the corpus coefficients under a different per-config convention multiplies
-BOTH the CFD target and the surrogate prediction by the same constant
-``k = f_ref_old / f_ref_new``. R^2 is invariant under that common rescale (RMSE/MAE
-scale by ``k``), so the held-out skill is unchanged and no retrain is needed. This pins
-that property on the committed ``holdout_predictions.parquet`` (proves Track-B re-deriva-
-tion is safe). See openspec/changes/standardize-force-normalization (Task B / scenario
-"R^2 is invariant under re-normalization").
+Re-deriving the corpus coefficients under a different per-config convention rescales
+BOTH the CFD target and the surrogate prediction by the same constant. With
+``k = f_ref_old / f_ref_new`` and ``CF = F / f_ref``, old -> new multiplies every coefficient
+by ``k`` and new -> old divides by it. R^2 is invariant under that common rescale, so the
+held-out skill is unchanged and no retrain is needed.
+
+The committed ``holdout_predictions.parquet`` has held the new (van Veen, gyration-radius)
+convention since #36, so these tests divide it by ``k`` to re-express it on the old peak-tip
+reference ``F_ref(R_TIP)``, as the V3 validation figure does (#170). That changes the
+normalization only: the raw columns were since regenerated (fix-force-surrogate-sweep-hinge)
+and the moment reference and sign changed (#108, #109), so it is not the pre-#36 corpus. See
+the force-surrogate requirement "Re-normalization preserves surrogate skill
+(scale-invariance)".
 """
 
 from pathlib import Path
@@ -31,7 +37,7 @@ from mosquito_cfd.force_surrogate.train import _r2
 
 _PRED = Path("examples/prelim_sweep/surrogate/holdout_predictions.parquet")
 
-# Convention factor k = f_ref_old / f_ref_new = (R_TIP / R_GYRATION)^2 ~= 3.119.
+# Convention factor k = f_ref_old / f_ref_new = (R_TIP / R_GYRATION)^2 ~= 3.120.
 # Both references come from the single-source helper (old = tip arm, new = gyration arm).
 _F_REF_OLD = compute_force_reference(1.0, 70.0, R_TIP, SPAN, CHORD, RHO).f_ref
 _F_REF_NEW = compute_force_reference(1.0, 70.0, R_GYRATION, SPAN, CHORD, RHO).f_ref
@@ -39,25 +45,61 @@ _K = _F_REF_OLD / _F_REF_NEW
 
 
 def test_convention_factor_is_geometry_ratio():
-    """k = f_ref_old/f_ref_new equals (R_TIP/R_GYRATION)^2 ~= 3.119."""
+    """k = f_ref_old/f_ref_new equals (R_TIP/R_GYRATION)^2 and prints as 3.120."""
     assert _K == pytest.approx((R_TIP / R_GYRATION) ** 2, rel=1e-12)
-    assert _K == pytest.approx(3.119, rel=1e-3)
+    assert f"{_K:.3f}" == "3.120"  # 3.11972...; the old "3.119" truncated it
 
 
 @pytest.mark.parametrize("coef", ["CF_x", "CF_z"])
 def test_r2_invariant_under_renormalization(coef):
-    """Scaling true and pred by the same k leaves R^2 unchanged; RMSE scales by k."""
+    """Re-expressing the committed (new-convention) holdout on the old reference (``/ k``)
+    leaves R^2 unchanged and divides RMSE and MAE by k."""
     df = pd.read_parquet(_PRED)
     y = df[f"{coef}_true"].to_numpy(dtype=float)
     yhat = df[f"{coef}_pred"].to_numpy(dtype=float)
+    y_old, yhat_old = y / _K, yhat / _K
 
-    r2_before = _r2(y, yhat)
-    r2_after = _r2(y * _K, yhat * _K)
-    assert r2_after == pytest.approx(r2_before, abs=1e-9)
+    r2_committed = _r2(y, yhat)
+    r2_old_convention = _r2(y_old, yhat_old)
+    assert r2_old_convention == pytest.approx(r2_committed, abs=1e-9)
 
-    rmse_before = float(np.sqrt(np.mean((y - yhat) ** 2)))
-    rmse_after = float(np.sqrt(np.mean((y * _K - yhat * _K) ** 2)))
-    assert rmse_after == pytest.approx(_K * rmse_before, rel=1e-9)
+    rmse_committed = float(np.sqrt(np.mean((y - yhat) ** 2)))
+    rmse_old = float(np.sqrt(np.mean((y_old - yhat_old) ** 2)))
+    assert rmse_old == pytest.approx(rmse_committed / _K, rel=1e-9, abs=0)
+
+    mae_committed = float(np.mean(np.abs(y - yhat)))
+    mae_old = float(np.mean(np.abs(y_old - yhat_old)))
+    assert mae_old == pytest.approx(mae_committed / _K, rel=1e-9, abs=0)
+
+
+@pytest.mark.parametrize(("coef", "raw"), [("CF_x", "Fx"), ("CF_z", "Fz")])
+def test_committed_holdout_over_k_is_on_the_peak_tip_reference(coef, raw):
+    """Dividing the committed holdout by k lands on the peak-tip reference (#170 direction).
+
+    Per configuration, ``CF_true / k == -F / f_ref(R_TIP)``: the committed coefficients are on
+    the van Veen (gyration) reference with the on-wing sign, so ``/ k``, not ``× k``, is the
+    new -> old conversion. The V3 figure asserts the same identity for its peak-tip panel
+    (``test_flapping_wing_validation_figures.py::
+    test_v3_peak_tip_panel_matches_raw_forces_on_tip_reference``).
+    """
+    holdout = pd.read_parquet(_PRED)
+    dataset = pd.read_parquet("examples/prelim_sweep/dataset.parquet")
+    joined = holdout.merge(
+        dataset[["config_name", "time", "stroke_amp_deg", "frequency_fstar", raw]],
+        on=["config_name", "time"],
+        validate="one_to_one",
+    )
+    assert len(joined) == len(holdout)
+    for _, sub in joined.groupby("config_name"):
+        (stroke,) = sub["stroke_amp_deg"].unique()
+        (freq,) = sub["frequency_fstar"].unique()
+        f_ref_tip = compute_force_reference(freq, stroke, R_TIP, SPAN, CHORD, RHO).f_ref
+        np.testing.assert_allclose(
+            sub[f"{coef}_true"].to_numpy(float) / _K,
+            -sub[raw].to_numpy(float) / f_ref_tip,
+            rtol=1e-12,
+            atol=0,
+        )
 
 
 @pytest.mark.parametrize("coef", ["CF_x", "CF_z"])
