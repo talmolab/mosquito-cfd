@@ -163,6 +163,50 @@ def test_inconsistent_deltas_raise_naming_change_and_requirement(
     assert "bad-change" in str(err.value)
 
 
+@pytest.mark.parametrize(
+    "delta",
+    [
+        # OpenSpec's own parser matches section titles case-insensitively, allows any
+        # whitespace in "###  Requirement:" and accepts bullet-form REMOVED entries. A delta it
+        # applies must not be silently skipped here (the guard would check stale live text).
+        "## Modified Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
+        "## MODIFIED Requirements\n\n###  Requirement:  Alpha  \n\nALPHA NEW\n",
+        "##   MODIFIED   Requirements\n\n" + _block("Alpha", "ALPHA NEW"),
+    ],
+)
+def test_delta_formatting_openspec_accepts_is_applied(tmp_path, delta):
+    specs, changes = _tree(tmp_path, {"chg": delta})
+    block = sc.effective_block("cap", "Alpha", specs_dir=specs, changes_dir=changes)
+    assert "ALPHA NEW" in block and "Alpha body with 1.5." not in block
+
+
+def test_bullet_form_removed_is_applied(tmp_path):
+    delta = "## REMOVED Requirements\n\n- `### Requirement: Beta`\n- `### Requirement: Gamma`\n"
+    specs, changes = _tree(tmp_path, {"chg": delta})
+    eff = sc.effective_spec("cap", specs_dir=specs, changes_dir=changes)
+    assert list(eff) == ["Alpha"]
+
+
+def test_an_unclassified_delta_section_raises(tmp_path):
+    """A `## ` section that is neither a delta kind nor plainly non-requirement text, holding a
+    requirement block, is an error, not a silent skip."""
+    delta = "## Changed Requirements\n\n" + _block("Alpha", "ALPHA NEW")
+    specs, changes = _tree(tmp_path, {"chg": delta})
+    with pytest.raises(ValueError, match="Changed Requirements"):
+        sc.effective_spec("cap", specs_dir=specs, changes_dir=changes)
+
+
+def test_a_requirement_removed_by_two_changes_names_both(tmp_path):
+    removed = "## REMOVED Requirements\n\n" + _block("Beta", "gone")
+    specs, changes = _tree(tmp_path, {"one": removed, "two": removed})
+    assert "Beta body." not in sc.effective_text(
+        "cap", specs_dir=specs, changes_dir=changes
+    )
+    with pytest.raises(ValueError, match="modified or removed") as err:
+        sc.effective_block("cap", "Beta", specs_dir=specs, changes_dir=changes)
+    assert "one" in str(err.value) and "two" in str(err.value)
+
+
 def test_renamed_section_raises(tmp_path):
     delta = "## RENAMED Requirements\n\n- FROM: `### Requirement: Alpha`\n- TO: `### Requirement: A2`\n"
     specs, changes = _tree(tmp_path, {"chg": delta})

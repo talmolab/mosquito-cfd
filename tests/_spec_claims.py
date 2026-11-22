@@ -30,9 +30,20 @@ _REPO = Path(__file__).resolve().parents[1]
 SPECS_DIR = _REPO / "openspec" / "specs"
 CHANGES_DIR = _REPO / "openspec" / "changes"
 
-_REQ = re.compile(r"^### Requirement: (.+?)\s*$")
-_SECTION = re.compile(r"^## (\S+)")
+# Matched as OpenSpec's own parser does: any whitespace after the hashes, section titles
+# case-insensitive (``## Modified Requirements``), bullet-form REMOVED entries.
+_REQ = re.compile(r"^###\s+Requirement:\s*(.+?)\s*$")
+_SECTION = re.compile(r"^##\s+(.*?)\s*$")
+_BULLET_REQ = re.compile(r"^\s*[-*]\s+`?###\s+Requirement:\s*(.+?)\s*`?\s*$")
 _DELTA_KINDS = ("ADDED", "MODIFIED", "REMOVED", "RENAMED")
+
+
+def _delta_kind(title: str) -> str | None:
+    """``ADDED`` etc. for a ``<KIND> Requirements`` section title, any case; else None."""
+    words = title.upper().split()
+    if len(words) == 2 and words[0] in _DELTA_KINDS and words[1] == "REQUIREMENTS":
+        return words[0]
+    return None
 
 
 def _lines(text: str) -> list[str]:
@@ -52,7 +63,7 @@ def _split(text: str) -> list[tuple[str | None, str, str]]:
 
     for line in _lines(text):
         m_req = _REQ.match(line)
-        m_sec = None if line.startswith("###") else _SECTION.match(line)
+        m_sec = _SECTION.match(line)
         if m_req:
             flush()
             name, buf = m_req.group(1), [line]
@@ -72,13 +83,35 @@ def requirement_blocks(text: str) -> dict[str, str]:
 
 
 def delta_sections(text: str) -> dict[str, dict[str, str]]:
-    """Delta section (``ADDED`` …) → requirement name → block; other sections are dropped."""
+    """Delta section (``ADDED`` …) → requirement name → block.
+
+    A RENAMED section is reported as ``{"RENAMED": {"<section>": ""}}`` whatever it holds.
+    Bullet-form REMOVED entries (``- `### Requirement: X` ``) count as removals. A section
+    without requirement blocks (e.g. ``## Cross-References``) is ignored.
+
+    Raises:
+        ValueError: a requirement block sits under a section that is not a delta kind.
+    """
     out: dict[str, dict[str, str]] = {kind: {} for kind in _DELTA_KINDS}
     for section, name, block in _split(text):
-        if section in out:
-            out[section][name] = block
-    if any(_SECTION.match(ln) and ln.split()[1] == "RENAMED" for ln in _lines(text)):
-        out["RENAMED"]["<section>"] = ""
+        kind = _delta_kind(section or "")
+        if kind is None:
+            raise ValueError(
+                f"requirement {name!r} is under section {section!r}, which is not an "
+                "ADDED/MODIFIED/REMOVED/RENAMED Requirements section"
+            )
+        out[kind][name] = block
+    kind = None
+    for line in _lines(text):
+        m_sec = _SECTION.match(line)
+        if m_sec:
+            kind = _delta_kind(m_sec.group(1))
+            if kind == "RENAMED":
+                out["RENAMED"]["<section>"] = ""
+            continue
+        m_bullet = _BULLET_REQ.match(line)
+        if kind == "REMOVED" and m_bullet:
+            out["REMOVED"].setdefault(m_bullet.group(1), "")
     return out
 
 
@@ -117,7 +150,10 @@ def effective_spec(
     touched: dict[str, Variants] = {}
     added: dict[str, Variants] = {}
     for change, path in _active_changes(changes_dir, capability):
-        sections = delta_sections(path.read_text(encoding="utf-8"))
+        try:
+            sections = delta_sections(path.read_text(encoding="utf-8"))
+        except ValueError as err:
+            raise ValueError(f"{change}: {err}") from None
         if sections["RENAMED"]:
             raise NotImplementedError(
                 f"{change}: RENAMED requirements are not supported by the spec guard"
@@ -169,13 +205,15 @@ def effective_block(capability: str, name: str, **paths: Path | None) -> str:
     if len(variants) > 1:
         sources = ", ".join(src for src, _ in variants)
         raise ValueError(
-            f"{capability}: requirement {name!r} is modified by more than one active change "
+            f"{capability}: requirement {name!r} is modified or removed by more than one "
+            "active change "
             f"({sources}); the second to merge must reconcile it before its numbers can be "
             "checked"
         )
-    ((_, block),) = variants
-    if block is None:
-        raise KeyError(f"{capability}: requirement {name!r} is removed by its change")
+    ((_, block),) = (
+        variants  # one variant: a single removal is dropped by effective_spec
+    )
+    assert block is not None
     return block
 
 
