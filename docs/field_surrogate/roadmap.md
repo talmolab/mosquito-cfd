@@ -326,7 +326,7 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 | F1 | `add-field-surrogate-capture-pilot` | ~~Small (2–3 config) field-capture pilot~~ **Superseded 2026-08-10** — subsumed by the full-corpus field-capture run in `add-fine-corpus-field-capture` (see the Sequencing note above). Original scope: `ns.init_iter=2`, `amr.plot_int` on; assert non-zero velocity field (CC-F1); measure per-config storage at a few candidate `plot_int` intervals; go/no-go + subsampling recommendation for the full corpus (CC-F3). | cluster | ⬜ superseded |
 | F2 | `add-field-surrogate-reader` | Adapt `stress_integral.extract_eulerian_box` into a general plotfile→array/point-cloud reader for encoder training input; tested against the existing synthetic plotfile fixture (CC-F2, CC-F4). | local | ✅ |
 | F3a | `add-surrogate-comparison-bench` | **Revision 2026-11-18.** Shared bench (splits incl. grid-face extrapolation with random-18-config controls, metrics, yardsticks, results table, ≥ 5 seeds) + force entries: current MLP, MLP with optional phase harmonics (default off), ridge reference. Records the hover-gate verdict per component. | A5000 | ⬜ |
-| F3b | `add-wing-frame-field-baseline` | Wing-frame resampling, matched-region POD and the kinematics → field ridge model as field entries on F3a's bench; block-by-block reads from the share. Starts after F3a's proposal is approved and after `harden-field-reader-pre-f3` merges. | A5000 | ⬜ |
+| F3b | `add-wing-frame-field-baseline` | Wing-frame resampling, matched-region POD and the kinematics → field ridge model as field entries on F3a's bench; block-by-block reads from the share. Starts after F3a's proposal is approved (`harden-field-reader-pre-f3` merged as #169). | A5000 | ⬜ |
 | F3c | `add-domino-field-arm` | Arm C (DoMINO, geometry → fields) on hover, judged against F3b. Throwaway spike first; this change only if the spike earns it. Owns the #112 adapter gaps. | A5000 | ⬜ |
 | F3 | `add-field-surrogate-bakeoff` (was `add-field-surrogate-encoder`) | **Split 2026-11-18:** the hover part is F3a–F3c above; this row keeps the commanded-change configs and arms A/B on them. Original scope: Three-arm bake-off (see "F3 framing decision"): arm A (windowed-kinematics MLP) first, then a hover-only gate against the measured CFD uncertainty that decides whether arm B (`Mesh_Reduced` + `Sequence_Model`) and arm C (DoMINO, geometry → fields) are also tried on hover data. Also designs and runs the ~3–5 commanded-change configs (with `avg_pressure`) after arm A — always, regardless of the gate. | A5000 (+ cluster for the new configs) | ⬜ |
 | F4 | `add-field-surrogate-corpus-full` | Full-corpus field regeneration at F1's recommended subsampling/level policy, budgeted by F1's measured storage/time. **Re-scope after F3:** whether a larger field corpus is needed depends on F3's results on the commanded-change configs; F3's hover gate alone cannot decide it. | cluster | ⬜ |
@@ -336,7 +336,11 @@ Status: ⬜ not started/superseded | 🟡 in flight | ✅ merged.
 **Dependency order:** F1 → F2 (can start in parallel once the fixture exists, cluster-free) → F3
 (needs F2's reader + the fine corpus; arm A needs only Track B's labels. F2 snapshots are
 DataLoader-safe (picklable) and carry `(config_id, step, run_id)` + the run digest
-(`harden-field-reader-pre-f3`, #169)) → F4 (only after F3's
+(`harden-field-reader-pre-f3`, #169). `FieldCorpus` reads the manifest and run metadata through the
+stdlib-only `mosquito_cfd._manifest` / `mosquito_cfd._provenance`, so a spawned DataLoader worker no
+longer imports the force-surrogate stack (pandas, pyarrow, `matplotlib.pyplot`) on its first sample
+(`share-light-corpus-helpers`, #177, #160). A worker's first `snapshot()` still imports yt, about
+3 s; preload it in a forkserver or use persistent workers.) → F4 (only after F3's
 commanded-change results; see its re-scope note) → F5 (needs F3's winning arm + Track B's existing force labels) → F6 (needs
 F5's predictions). **F1 is superseded (see above); F2 onward now depend on
 `add-fine-corpus-field-capture` for corpus data instead.**
