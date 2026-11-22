@@ -15,9 +15,43 @@ from mosquito_cfd.force_surrogate import (
 DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "a" * 64
 
 
-def test_validate_image_digest_accepts_and_strips():
-    """A pinned sha256 digest passes and is returned stripped of surrounding whitespace."""
-    assert validate_image_digest(f"  {DIGEST}  ") == DIGEST
+_TAG_PLUS_DIGEST = "ghcr.io/talmolab/mosquito-cfd:fp64@sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize("value", [DIGEST, _TAG_PLUS_DIGEST], ids=["repo", "repo_tag"])
+def test_validate_image_digest_returns_value_unchanged(value):
+    """A digest-pinned reference is returned exactly as given (share-light-corpus-helpers D5)."""
+    result = validate_image_digest(value)
+    assert result == value
+    assert type(result) is str
+
+
+_LOOSE_OR_MISTYPED = [
+    "sha256:" + "a" * 64,
+    "ghcr.io/x:latest #sha256:" + "a" * 64,
+    "garbage sha256:" + "a" * 64 + " junk",
+    " " + DIGEST,
+    DIGEST + " ",
+    DIGEST + "\n",
+    "repo@sha256:" + "a" * 65,
+    5,
+    None,
+    b"ghcr.io/x@sha256:" + b"a" * 64,
+    ["ghcr.io/x@sha256:" + "a" * 64],
+]
+
+
+@pytest.mark.parametrize("value", _LOOSE_OR_MISTYPED, ids=repr)
+def test_validate_image_digest_rejects_loose_or_mistyped(value):
+    """Exactly ValueError (never TypeError/AttributeError), naming the form and the value (#159)."""
+    with pytest.raises(BaseException) as excinfo:
+        validate_image_digest(value)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)
+    message = str(err)
+    for needle in ("content-addressable", "sha256", "digest", "<repo>@sha256:<64 hex>"):
+        assert needle in message, (needle, message)
+    assert message.endswith(f"Got {value!r}"), message
 
 
 def test_validate_image_digest_rejects_mutable_or_empty():
@@ -126,7 +160,13 @@ def test_capture_surrogate_run_metadata_requires_digest():
         )
 
 
-def test_capture_surrogate_run_metadata_strips_digest_whitespace():
-    """Surrounding whitespace is stripped before the digest is recorded."""
-    meta = capture_surrogate_run_metadata(docker_image_digest=f"  {DIGEST}  ")
-    assert meta["docker_image"] == DIGEST
+def test_capture_surrogate_run_metadata_rejects_digest_whitespace():
+    """Surrounding whitespace is refused, not stripped (share-light-corpus-helpers D5)."""
+    with pytest.raises(ValueError, match="content-addressable"):
+        capture_surrogate_run_metadata(docker_image_digest=f"  {DIGEST}  ")
+
+
+@pytest.mark.parametrize("value", [DIGEST, _TAG_PLUS_DIGEST], ids=["repo", "repo_tag"])
+def test_capture_surrogate_run_metadata_records_the_reference_unchanged(value):
+    meta = capture_surrogate_run_metadata(docker_image_digest=value)
+    assert meta["docker_image"] == value

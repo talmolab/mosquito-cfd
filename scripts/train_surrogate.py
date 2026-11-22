@@ -49,7 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--docker-digest",
         required=True,
-        help="Pinned sha256: image digest (from the dataset's run_metadata.json).",
+        help=(
+            "Digest-pinned image reference, <repo>@sha256:<64hex>, from the dataset's "
+            "run_metadata.json (a bare sha256 digest or a mutable tag is rejected)."
+        ),
     )
     p.add_argument(
         "--timestamp", required=True, help="Caller-supplied ISO-8601 timestamp."

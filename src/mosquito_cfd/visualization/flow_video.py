@@ -474,7 +474,8 @@ def build_flow_video(
         vertex_path: Path to the ``.vertex`` marker file (used by every mode except
             ``wake-slice``, which draws only a hinge marker, matching the vault wake script).
         out_dir: Output directory.
-        docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected, CC-1).
         timestamp: Caller-supplied ISO-8601 timestamp (CC-1).
         label: Output filename label -- writes ``<label>_flow_<field_mode>.mp4`` (`design.md` D5).
         config_name: Optional sweep config name; resolves center/hinge/kinematics from its deck

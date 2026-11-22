@@ -1,12 +1,13 @@
-"""Strict, read-through validation of a corpus run's pod-side ``run_metadata.json``.
+"""Strict provenance rules, and read-through validation of a corpus run's ``run_metadata.json``.
 
 Standard library only, by contract: importing ``mosquito_cfd.force_surrogate`` loads pandas and
 pyarrow and switches the process's matplotlib backend, which no provenance read should do
-(harden-field-reader-pre-f3 D4). The force-surrogate validators are deliberately not reused (#159):
-their commit check's ``$`` anchor accepts a trailing newline, their image check uses ``search`` and
-so accepts junk around a digest (and strips whitespace), and wrong types escape as ``TypeError`` or
-``AttributeError``. A ``<repo>:<tag>@sha256:<hex>`` reference is accepted here, as OCI resolves it
-by the digest.
+(harden-field-reader-pre-f3 D4). The module lives at the top of ``mosquito_cfd`` so that
+``field_surrogate``, ``force_surrogate`` and ``benchmarks`` share one definition of each rule
+(share-light-corpus-helpers D2, #159): :func:`is_full_commit_sha` and :func:`is_pinned_image_ref`.
+Both full-match (so a trailing newline, surrounding text or whitespace never pass) and are total:
+any non-``str`` is simply ``False``. A ``<repo>:<tag>@sha256:<hex>`` reference is accepted, as OCI
+resolves it by the digest.
 
 Every error is a ``ValueError`` of exactly the form
 ``run_metadata for config <repr(config_id)> (<path>): <field>: <detail>``, where ``<field>`` is
@@ -20,14 +21,15 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
-#: A full 40-character lowercase commit SHA. Used with ``fullmatch``: ``^...$`` with ``match``
-#: would accept a trailing newline.
+#: A full 40-character lowercase commit SHA. Use only through :func:`is_full_commit_sha`: with
+#: ``match``, ``^...$`` would accept a trailing newline.
 _COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 
 #: A digest-pinned image reference. Checks the ``@sha256:<64 hex>`` suffix and a non-empty
-#: repository of lowercase reference characters; it does not parse the full OCI grammar.
+#: repository of lowercase reference characters; it does not parse the full OCI grammar. Use only
+#: through :func:`is_pinned_image_ref`.
 _IMAGE_RE = re.compile(r"[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}")
 
 #: The file every corpus pod writes into its run directory.
@@ -35,6 +37,25 @@ RUN_METADATA_FILENAME = "run_metadata.json"
 
 #: The field tag for file-level errors (the file itself failed, not one of its keys).
 _FILE = RUN_METADATA_FILENAME
+
+
+def is_full_commit_sha(value: object) -> TypeGuard[str]:
+    """Whether ``value`` is a ``str`` that fully matches ``[0-9a-f]{40}``.
+
+    Total: never raises. A trailing newline, surrounding whitespace, uppercase hex, a short SHA,
+    and any non-``str`` (``bytes`` included) are all ``False``.
+    """
+    return isinstance(value, str) and _COMMIT_RE.fullmatch(value) is not None
+
+
+def is_pinned_image_ref(value: object) -> TypeGuard[str]:
+    """Whether ``value`` is a ``str`` that fully matches ``<repo>@sha256:<64 lowercase hex>``.
+
+    The repository is one or more lowercase reference characters (``[a-z0-9][a-z0-9._/:-]*``), so
+    ``<repo>:<tag>@sha256:<hex>`` passes. Total: never raises. A bare ``sha256:<hex>``, a tag with
+    a digest appended after other text, surrounding whitespace, and any non-``str`` are ``False``.
+    """
+    return isinstance(value, str) and _IMAGE_RE.fullmatch(value) is not None
 
 
 def _error(config_id: str, path: Path, field: str, detail: str) -> ValueError:
@@ -126,7 +147,7 @@ def run_provenance(
     if not isinstance(git, dict):
         raise _error(config_id, path, "git", f"must be an object, got {git!r}")
     commit = git.get("commit")
-    if not (isinstance(commit, str) and _COMMIT_RE.fullmatch(commit)):
+    if not is_full_commit_sha(commit):
         raise _error(
             config_id,
             path,
@@ -143,7 +164,7 @@ def run_provenance(
         )
 
     image = meta.get("docker_image")
-    if not (isinstance(image, str) and _IMAGE_RE.fullmatch(image)):
+    if not is_pinned_image_ref(image):
         raise _error(
             config_id,
             path,

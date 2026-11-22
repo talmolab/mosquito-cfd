@@ -46,6 +46,18 @@ from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 
+# Re-exported (redundant aliases mark them explicit; dataset.py has no __all__): the reader moved
+# to the stdlib-only mosquito_cfd._manifest so FieldCorpus can use it without this module's
+# pandas/matplotlib imports (share-light-corpus-helpers D4, #160).
+from mosquito_cfd._manifest import (
+    _REQUIRED_CONFIG_KEYS as _REQUIRED_CONFIG_KEYS,
+)
+from mosquito_cfd._manifest import (
+    _validate_configs as _validate_configs,
+)
+from mosquito_cfd._manifest import (
+    load_manifest_configs as load_manifest_configs,
+)
 from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, RHO, SPAN
 from mosquito_cfd.force_surrogate.geometry_guard import read_deck_value
 from mosquito_cfd.force_surrogate.normalization import (
@@ -101,18 +113,7 @@ DATASET_COLUMNS = [
     "CF_mz",
 ]
 
-# Manifest config keys build_dataset reads, and the CSV columns _extract_config reads.
-_REQUIRED_CONFIG_KEYS = frozenset(
-    {
-        "name",
-        "index",
-        "stroke_amp_deg",
-        "frequency_fstar",
-        "pitch_amp_deg",
-        "reynolds",
-        "split",
-    }
-)
+# The CSV columns _extract_config reads (the manifest keys live in mosquito_cfd._manifest).
 # X,Y,Z are the moment origin IAMReX wrote (kernel.location); the shift needs them.
 # fmt: skip keeps the tuple on one line, in the CSV header's own column order.
 _REQUIRED_CSV_COLUMNS = (
@@ -456,60 +457,6 @@ def _extract_config(
     return frame, record
 
 
-def _validate_configs(configs: object) -> None:
-    """Validate the manifest config list before any extraction (clear errors, no KeyError)."""
-    if not isinstance(configs, list):
-        raise ValueError(
-            f"manifest 'configs' must be a list, got {type(configs).__name__}"
-        )
-    seen: set[str] = set()
-    for i, config in enumerate(configs):
-        if not isinstance(config, Mapping):
-            raise ValueError(f"manifest config {i} is not a mapping: {config!r}")
-        missing = sorted(_REQUIRED_CONFIG_KEYS - set(config))
-        if missing:
-            raise ValueError(
-                f"manifest config {i} is missing required key(s) {missing}; "
-                f"expected at least {sorted(_REQUIRED_CONFIG_KEYS)}"
-            )
-        name = str(config["name"])
-        if name in seen:
-            raise ValueError(
-                f"duplicate config name {name!r} in manifest (config {i}); names must be "
-                "unique so each maps to one CSV and one split"
-            )
-        seen.add(name)
-
-
-def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
-    """Read a sweep manifest and return its validated ``configs`` list.
-
-    Validation (clear ``ValueError`` on a missing ``configs`` key, a non-list ``configs``, a
-    non-mapping/missing-key config, or duplicate config names) happens here so **both** the
-    driver (which resolves CSV paths from the config names) and :func:`build_dataset` go
-    through the same guarded reader — a malformed manifest never surfaces as a bare
-    ``KeyError``/``TypeError`` on either path.
-
-    Args:
-        manifest_path: Path to the sweep manifest JSON.
-
-    Returns:
-        The validated ``configs`` list.
-
-    Raises:
-        ValueError: If the manifest has no ``configs`` key, ``configs`` is not a list, or a
-            config is malformed / has a duplicate name.
-    """
-    manifest = load_json_clear_error(Path(manifest_path), label="sweep manifest")
-    if "configs" not in manifest:
-        raise ValueError(
-            f"manifest {Path(manifest_path)} has no 'configs' key; not a sweep manifest"
-        )
-    configs = manifest["configs"]
-    _validate_configs(configs)
-    return configs
-
-
 def build_dataset(
     manifest_path: Path | str,
     csv_paths: Mapping[str, Path | str],
@@ -713,7 +660,7 @@ def build_run_metadata(
 ) -> dict:
     """Capture provenance for a dataset build (CC-1), recording any dropped configs.
 
-    Wraps :func:`capture_surrogate_run_metadata` (which requires a pinned ``sha256:``
+    Wraps :func:`capture_surrogate_run_metadata` (which requires a digest-pinned ``<repo>@sha256:``
     container digest — the dataset is downstream of the PR3 container run — and accepts a
     caller-supplied timestamp). The dropped-config names are passed via ``extra``; because
     the base capture merges ``extra`` with ``dict.update``, they land at the **top level**
@@ -721,7 +668,8 @@ def build_run_metadata(
     truncated corpus is auditable.
 
     Args:
-        docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
+        docker_image_digest: Digest-pinned image reference (``<repo>@sha256:<64 hex>``; a
+            mutable tag or bare digest is rejected).
         timestamp: Caller-supplied ISO-8601 timestamp.
         dropped_configs: Config names skipped under ``allow_missing`` (``[]`` if none).
         inputs_file: Optional inputs file whose SHA256 is recorded.

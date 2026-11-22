@@ -124,7 +124,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--docker-digest",
         required=True,
-        help="Pinned sha256 container digest of the CFD run image.",
+        help=(
+            "Digest-pinned reference of the CFD run image, <repo>@sha256:<64hex> "
+            "(a bare sha256 digest or a mutable tag is rejected)."
+        ),
     )
     parser.add_argument(
         "--timestamp", required=True, help="Caller-supplied ISO-8601 timestamp."

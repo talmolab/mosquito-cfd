@@ -166,3 +166,19 @@ def test_cli_has_no_observation_override_flags():
         "reached_stop_time",
     }
     assert not (dests & forbidden)
+
+
+def test_cli_rejects_a_bare_digest_pod_image_and_writes_nothing(tmp_path):
+    """share-light-corpus-helpers (#159): a bare ``sha256:<hex>`` is not a pinned reference."""
+    module = _load_script()
+    pod = json.loads((_FIXTURES / "pod_run_metadata.json").read_text(encoding="utf-8"))
+    pod["docker_image"] = "sha256:" + "f" * 64
+    pod_path = tmp_path / "pod_run_metadata.json"
+    pod_path.write_text(json.dumps(pod), encoding="utf-8")
+    output = tmp_path / "out" / "run_metadata_s35_f085_p45.json"
+    args = _base_args(output)
+    args[args.index("--pod-metadata") + 1] = str(pod_path)
+
+    with pytest.raises(ValueError, match="content-addressable"):
+        module.main(args)
+    assert not output.exists()

@@ -212,6 +212,12 @@ def test_run_metadata_records_pinned_provenance():
             docker_image_digest="ghcr.io/talmolab/mosquito-cfd:fp64",  # mutable tag, no sha256:
             timestamp="2026-07-04T00:00:00+00:00",
         )
+    # share-light-corpus-helpers (#159): a bare digest, though it contains sha256:, is refused.
+    with pytest.raises(ValueError, match="content-addressable"):
+        capture_surrogate_run_metadata(
+            docker_image_digest="sha256:" + "a" * 64,
+            timestamp="2026-07-04T00:00:00+00:00",
+        )
 
 
 @pytest.mark.skipif(
