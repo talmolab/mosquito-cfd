@@ -85,31 +85,110 @@ _VARIANCE_EPS = 1e-12
 # --- Feature / target construction -------------------------------------------------------
 
 
-def build_features(df: pd.DataFrame) -> tuple[NDArray[np.floating], list[str]]:
+def _validate_phase_harmonics(phase_harmonics: object) -> int:
+    """Return ``phase_harmonics`` as an ``int`` or raise.
+
+    Raises:
+        TypeError: if it is not an integer (``bool`` and ``numpy.timedelta64``, which are
+            integer subclasses, are rejected too).
+        ValueError: if it is below 1.
+    """
+    if isinstance(phase_harmonics, bool | np.bool_ | np.timedelta64) or not isinstance(
+        phase_harmonics, int | np.integer
+    ):
+        raise TypeError(
+            f"phase_harmonics must be an integer, got {phase_harmonics!r} "
+            f"({type(phase_harmonics).__name__})"
+        )
+    if phase_harmonics < 1:
+        raise ValueError(f"phase_harmonics must be at least 1, got {phase_harmonics}")
+    return int(phase_harmonics)
+
+
+def _harmonic_feature_names(phase_harmonics: int) -> list[str]:
+    """Feature names for ``phase_harmonics`` harmonics: the base five, then h = 2..H pairs."""
+    names = list(FEATURE_COLUMNS)
+    for h in range(2, phase_harmonics + 1):
+        names += [f"phase_sin_h{h}", f"phase_cos_h{h}"]
+    return names
+
+
+def build_features(
+    df: pd.DataFrame, phase_harmonics: int = 1
+) -> tuple[NDArray[np.floating], list[str]]:
     """Build the standardizable input feature matrix from a dataset slice.
 
     Inputs are ``[stroke_amp_deg, frequency_fstar, pitch_amp_deg, sin(2*pi*phase),
     cos(2*pi*phase)]`` (cyclic phase respects the 0/1 wrap; Reynolds is excluded, design D3).
+    With ``phase_harmonics = H > 1``, ``sin(2*pi*h*phase)`` and ``cos(2*pi*h*phase)`` for
+    ``h = 2..H`` are appended in that order as ``phase_sin_h{h}`` / ``phase_cos_h{h}``. At the
+    default the matrix is bitwise the pre-option construction.
 
     Args:
         df: A dataset frame carrying at least ``stroke_amp_deg``, ``frequency_fstar``,
             ``pitch_amp_deg``, and ``phase``.
+        phase_harmonics: Number of phase harmonics ``H >= 1`` (default 1).
 
     Returns:
-        ``(X, feature_names)`` where ``X`` is a ``(n_rows, 5)`` float array whose columns are
-        :data:`FEATURE_COLUMNS`.
+        ``(X, feature_names)`` where ``X`` is a ``(n_rows, 3 + 2H)`` float array; at the default
+        its columns are :data:`FEATURE_COLUMNS`.
+
+    Raises:
+        TypeError: if ``phase_harmonics`` is not an integer.
+        ValueError: if ``phase_harmonics`` is below 1.
     """
+    n_harmonics = _validate_phase_harmonics(phase_harmonics)
     phase = df["phase"].to_numpy(dtype=float)
-    x = np.column_stack(
-        [
-            df["stroke_amp_deg"].to_numpy(dtype=float),
-            df["frequency_fstar"].to_numpy(dtype=float),
-            df["pitch_amp_deg"].to_numpy(dtype=float),
-            np.sin(2.0 * np.pi * phase),
-            np.cos(2.0 * np.pi * phase),
-        ]
-    )
-    return x, list(FEATURE_COLUMNS)
+    columns = [
+        df["stroke_amp_deg"].to_numpy(dtype=float),
+        df["frequency_fstar"].to_numpy(dtype=float),
+        df["pitch_amp_deg"].to_numpy(dtype=float),
+        np.sin(2.0 * np.pi * phase),
+        np.cos(2.0 * np.pi * phase),
+    ]
+    for h in range(2, n_harmonics + 1):
+        columns += [np.sin(2.0 * np.pi * h * phase), np.cos(2.0 * np.pi * h * phase)]
+    return np.column_stack(columns), _harmonic_feature_names(n_harmonics)
+
+
+def phase_harmonics_from_features(feature_names: Sequence[str]) -> int:
+    """Recover the harmonic count ``H`` from a feature-name list (e.g. a checkpoint's).
+
+    Args:
+        feature_names: The names :func:`build_features` returned.
+
+    Returns:
+        ``H >= 1``.
+
+    Raises:
+        ValueError: if the list is not exactly :data:`FEATURE_COLUMNS` followed by consecutive
+            ``phase_sin_h{h}`` / ``phase_cos_h{h}`` pairs for ``h = 2..H`` (a gap, a duplicate, a
+            wrong order or an unknown name), naming the first offending entry.
+    """
+    names = list(feature_names)
+    base = list(FEATURE_COLUMNS)
+    for i, expected in enumerate(base):
+        if i >= len(names) or names[i] != expected:
+            found = names[i] if i < len(names) else "<missing>"
+            raise ValueError(
+                f"feature name {i} must be {expected!r}, found {found!r}; "
+                f"names: {names}"
+            )
+    extra = names[len(base) :]
+    n_harmonics = 1 + (len(extra) + 1) // 2
+    expected_all = _harmonic_feature_names(n_harmonics)
+    for i, name in enumerate(names):
+        if i >= len(expected_all) or name != expected_all[i]:
+            raise ValueError(
+                f"unexpected phase feature {name!r} at position {i}; harmonics must be "
+                f"consecutive phase_sin_h{{h}}, phase_cos_h{{h}} pairs from h=2; names: {names}"
+            )
+    if len(names) != len(expected_all):
+        missing = expected_all[len(names)]
+        raise ValueError(
+            f"unpaired phase feature {names[-1]!r}: {missing!r} is missing; names: {names}"
+        )
+    return n_harmonics
 
 
 def filter_converged_beat(

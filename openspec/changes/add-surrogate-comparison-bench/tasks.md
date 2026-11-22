@@ -49,11 +49,11 @@
 
 ### 1a. Phase-harmonic features
 
-- [ ] 1a.1 **Tests first** (`tests/test_force_surrogate_phase_harmonics.py`): one per clause of the
+- [x] 1a.1 **Tests first** (`tests/test_force_surrogate_phase_harmonics.py`): one per clause of the
   input-construction scenarios. That includes the exception type per input and `np.int64(3)`.
-- [ ] 1a.2 Implement `build_features(df, phase_harmonics=1)` and `phase_harmonics_from_features`.
+- [x] 1a.2 Implement `build_features(df, phase_harmonics=1)` and `phase_harmonics_from_features`.
   Mutation-test: `bool` accepted; harmonic column order swapped.
-- [ ] 1a.3 Shipped-artifact check. Commit:
+- [x] 1a.3 Shipped-artifact check. Commit:
   `feat(force-surrogate): optional phase harmonics in build_features`.
 
 ### 1b. Trainer and CLI plumbing
