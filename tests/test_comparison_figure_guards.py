@@ -555,3 +555,15 @@ def test_metrics_payload_numpy_scalars_serialise(tmp_path):
         (out / "skill_ranges_metrics.json").read_text(encoding="utf-8")
     )
     assert metrics == {"n": 3, "x": 0.5, "inf": None, "arr": [1]}
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_a_missing_prediction_row_is_refused_by_the_row_match(builder, tmp_path):
+    write_repo(tmp_path)
+    _rewrite_parquet(
+        _corpus_path(tmp_path, "coarse", "predictions"),
+        lambda df: df.drop(index=7).reset_index(drop=True),
+    )
+    _expect_refusal(
+        builder, tmp_path, "coarse_predictions", "are not exactly", "holdout rows"
+    )

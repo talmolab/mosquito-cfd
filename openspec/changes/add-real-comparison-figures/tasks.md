@@ -258,21 +258,21 @@ This section is additive; the old builders stay until 7.
 
 ## 7. Driver and removal
 
-- [ ] 7.1 **Tests first**, rewriting `tests/test_make_comparison_figure_cli.py` and keeping its
+- [x] 7.1 **Tests first**, rewriting `tests/test_make_comparison_figure_cli.py` and keeping its
   `importlib` loader.
   - Each `--figure` writes exactly its three files.
   - `--figure coarse_vs_fine_comparison`, and omitting each of the six flags in turn, each exit with
     `code == 2` and leave `out_dir` empty.
-- [ ] 7.2 Implement `scripts/make_coarse_vs_fine_figures.py`, passing `root=Path.cwd()`. Its
+- [x] 7.2 Implement `scripts/make_coarse_vs_fine_figures.py`, passing `root=Path.cwd()`. Its
   docstring holds the argument contract.
-- [ ] 7.3 Remove:
+- [x] 7.3 Remove:
   - `build_coarse_vs_fine_comparison` and `build_config_mean_collapse_diagnostic`;
   - their tests;
   - `scripts/make_comparison_figure.py` and `scripts/make_config_mean_collapse_diagnostic.py`;
   - `tests/fixtures/comparison_figure/`.
 
   Rewrite the module docstring.
-- [ ] 7.4 Mutation-test sections 3–7. Each mutant must fail at least one test.
+- [x] 7.4 Mutation-test sections 3–7. Each mutant must fail at least one test.
   - **Section 3.**
     - Drop each shared guard in turn.
     - Swap the order of guards 5 and 9.
@@ -306,7 +306,7 @@ This section is additive; the old builders stay until 7.
     - Hard-code `5` in the caption.
 
   Every survivor gets a test or a written equivalence argument.
-- [ ] 7.5 Commit: `feat(force-surrogate)!: one coarse-vs-fine driver; remove the retired scatter and collapse builders (advances #114)`.
+- [x] 7.5 Commit: `feat(force-surrogate)!: one coarse-vs-fine driver; remove the retired scatter and collapse builders (advances #114)`.
 
 ## 8. Gate before rendering
 
