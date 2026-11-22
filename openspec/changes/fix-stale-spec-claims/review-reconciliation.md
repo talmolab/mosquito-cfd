@@ -681,3 +681,98 @@ requirement names must not change between the overlap check and the commit."
   deltas in three other active changes share no requirement name with the 10 in `GUARDED`. The three
   changes are `add-real-comparison-figures`, `add-surrogate-comparison-bench` and
   `share-light-corpus-helpers`. No other worktree has a flapping-wing-validation delta.
+
+---
+
+# PR review (`/review-pr`, branch mode, 2026-11-22)
+
+Five reviewers: code quality, testing/TDD, scientific rigor, performance/build, behavioural
+correctness. Verdict: **COMMENT**. No BLOCKING findings. Each IMPORTANT finding is listed with
+the commit that resolves it.
+
+## Fixed in commit 93516cc
+
+**PR-1 (behavioural I1).** "Some deltas that OpenSpec applies are silently not applied by the
+guard … `## Modified Requirements` … `###  Requirement: A` (two spaces) … the delta is dropped …
+fail open."
+
+- The finding was reproduced.
+- Section titles are now case-insensitive, headings accept flexible whitespace, and bullet-form
+  REMOVED entries are parsed.
+- An unclassified section that holds requirement blocks raises.
+
+## Fixed in commit 5d440d9
+
+**PR-2 (code I1).** "The 'permanent red' stale-fixture test breaks on unrelated registry edits
+… assert `>=` by parsing the count."
+
+- Adopted.
+
+**PR-3 (code I2).** "`check_block` failure messages are not actionable … add the hint 'register
+it in REGISTRY…'."
+
+- Adopted (`_HOW_TO_FIX`).
+
+**PR-4 (code I3).** "REGISTRY is verbatim-phrase heavy … group entries by phrase, e.g. a
+`P(phrase, [...])` helper."
+
+- Adopted.
+
+**PR-5 (TDD I1).** "The 'Each source of a recomputed number is load-bearing' scenario is only
+tested for 2 of the 7 non-declared entries."
+
+- Adopted: one drift per distinct source, plus a coverage test over every non-declared literal.
+
+**PR-6 (TDD I2).** "`check_block`'s phrase-binding check has no test … unknown kind … negative
+source."
+
+- All three cases were added.
+
+## Fixed in this commit
+
+**PR-7 (science I1).** "A new corpus-dependent claim that the guard does not check … 'coincide
+with the committed sidecars' values' … delete the 'coincide' sentence."
+
+- The sentence is deleted and its pattern retired.
+
+**PR-8 (TDD I3).** "The mid-stroke kinematics test uses α = 45°, where sin α = cos α … use
+α = 30° … get the angles from `euler_angles(0.0, …)`."
+
+- Adopted.
+
+**PR-9 (TDD I4).** "The numbers the gate requirement now delegates to are unguarded … add
+`test_symmetry_tolerance_comment_healthy_max_matches_committed_corpora`."
+
+- Adopted, covering the recomputable numbers: the healthy maximum and its rounding, and the
+  healthy-side margin.
+- The truncated range comes from git `e1ca8b5` and cannot be recomputed in CI. This is stated in
+  the test's docstring.
+
+## Suggestions adopted
+
+- Uppercase E-notation is accepted.
+- Retired patterns tolerate common variants.
+- Count binding is enforced.
+- Spec-quoted `MUST_PASS` sentences must actually occur in the spec.
+- The dead `block is None` branch is removed.
+- "Modified or removed" in the two-change message.
+- Test names replace line numbers in the declared reasons.
+- "Not N by construction" in the docstring.
+- The D6 note in the comment.
+- The swap sense in the mid-stroke wording.
+- Row count and the timestep check are named separately.
+
+## Suggestions not adopted
+
+- **Exempting `256³` from the superscript ban.** No guarded requirement uses `³`. A future author
+  gets the actionable hint.
+- **Leading-dot decimals and `_310_` italics.** These are known tokenizer blind spots, recorded
+  in #176.
+- **Making the `_evidence_fixture` names public.** Kept private: they are test-only helpers.
+- **Signs.** The registry stays sign-blind (#176).
+
+## Mutation re-run
+
+- 61 mutants, 59 killed. The two survivors are the equivalent ones.
+- Separately, 4 new-test mutants (the comment's maximum and margin, the kinematics sin/cos swap,
+  the rotation swap): all killed.

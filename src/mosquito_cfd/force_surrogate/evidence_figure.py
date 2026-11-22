@@ -471,7 +471,8 @@ def compute_speedup(
     The headline >1,000x is **batched GPU throughput** vs the grid's A40 CFD rate (the
     surrogate batches; the CFD is a sequential time integration). It is the latency speedup
     times the parallelism factor ``throughput_speedup / latency_speedup`` = N·t_single/t_batch,
-    a measured ratio that can be larger or smaller than the batch size N and is not N. The
+    a measured ratio that can be larger or smaller than the batch size N, and is not N by
+    construction. The
     batch size and parallelism factor are returned for honest disclosure (design D4).
 
     Args:

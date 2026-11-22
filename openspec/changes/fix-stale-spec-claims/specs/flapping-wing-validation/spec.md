@@ -34,7 +34,7 @@ correction** reproducing van Veen's translational sweep, not merely an axis rela
 - **Given** the old composition at mid-stroke (`φ = 0`, `α = α_amp`) applied to the old span-tip `(0, 0, r)`, and the new composition applied to the new span-tip `(0, r, 0)`
 - **When** both span-tip positions are computed
 - **Then** the old one is exactly `(0, −r·sin α_amp, r·cos α_amp)`, at distance `r·sin α_amp` from its axis, and the new one is `(0, r, 0)`
-- **And** the test asserts the full vectors: at this instant the old and new rotation compositions give the same distance and the same `|x|`, so only the vectors distinguish them
+- **And** the test asserts the full vectors, with the mid-stroke angles taken from the kinematics and a pitch amplitude at which `sin α_amp ≠ cos α_amp`: swapping the old and new rotation compositions leaves both scalar measures unchanged (new-tip `|x| = 0`, old-tip axis distance `r·sin α_amp`), so only the vectors detect the swap
 
 #### Scenario: The kinematics tests name the instant they measure
 

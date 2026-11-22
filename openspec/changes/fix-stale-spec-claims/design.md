@@ -411,3 +411,30 @@ They are equivalent under the real layout, and the checks are kept as defensive 
 The 16 "pattern dropped" mutants were run as "pattern made unmatchable" (the key kept, so the
 set-equality bookkeeping cannot kill them). Each is killed by
 `test_retired_patterns_match_their_examples`, which checks behaviour.
+
+### Why did the delta text change after approval?
+
+The PR review (5 reviewers, report-only, 2026-11-22) found three spec-text problems. Each was
+fixed in the delta:
+
+- **A corpus claim this change introduced.** The caption Note said the fixture's 2000 rows and
+  12,535-row batch "coincide with the committed sidecars' values". The guard checked only the
+  fixture half, so a rebuilt corpus would falsify it unnoticed: the #115 failure mode. The sentence
+  is deleted and added to `RETIRED` (with `_RETIRED_WITHIN_THIS_CHANGE`, since no pre-change
+  fixture holds it).
+- **The FWV mid-stroke scenario.** It said the two compositions "give the same distance and the
+  same `|x|`". That is true only of a swap, and false read literally. It now states the swap
+  sense, and says the angles come from the kinematics with `sin α_amp ≠ cos α_amp`. The test
+  moved from α = 45° to 30° for the same reason.
+- **The corpora truncation scenario's And.** It now names which check catches which truncation:
+  row count for an early stop, the timestep check for a CFL-limited run.
+
+The rest of the PR-review response is code and tests:
+
+- the parser accepts every delta form OpenSpec applies;
+- the registry is hardened;
+- every source has a drift test;
+- the comment-number guard;
+- the docstring wording.
+
+See `review-reconciliation.md`, "PR review".

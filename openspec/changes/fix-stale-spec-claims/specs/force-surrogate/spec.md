@@ -169,9 +169,7 @@ draw as the corpus's skill, it SHALL state "single seed, no range" when the swee
 
 > Note: this requirement states no corpus result. The example numbers in its scenarios are the
 > synthetic test fixture's known answers, labelled as such; the corpus's own speedups and batch size
-> are read from `evidence_figure_metrics.json`. The fixture's 2000 rows per wingbeat and 12,535-row
-> batch coincide with the committed sidecars' values, but the fixture's speedups are still not the
-> corpus's.
+> are read from `evidence_figure_metrics.json`.
 
 #### Scenario: Caption defines skill and shows why pointwise R² overstates it
 
@@ -431,7 +429,7 @@ it.
 - **Given** a corpus containing a configuration whose settled wingbeat is covered only in part, enough that its settled-beat mean `CF_x` is no longer near zero relative to its peak
 - **When** the symmetry guard runs
 - **Then** it fails, because that configuration's normalized cycle-symmetry ratio exceeds tolerance
-- **And** a milder truncation that stays within the tolerance is not claimed to be caught by this guard; the row-count reconciliation against the manifest and the acceptance gate's timestep check are the defences against it
+- **And** a milder truncation that stays within the tolerance is not claimed to be caught by this guard; the row-count reconciliation against the manifest catches a run that stopped early, and the acceptance gate's timestep check catches a CFL-limited run (whose step count is complete)
 
 #### Scenario: Units sidecar cannot silently drift from the parquet
 

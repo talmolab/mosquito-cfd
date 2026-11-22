@@ -176,11 +176,24 @@ def test_old_span_tip_is_off_axis_at_mid_stroke():
 
     Why the stroke comparison above is made at reversal, where the pitch is zero
     (flapping-wing-validation, scenario "At mid-stroke the old span-tip is tilted off its axis").
-    The full vectors are asserted: at this instant the new and old rotation compositions give the
-    same distance from the axis and the same ``|x|``, so only the vectors tell them apart.
+    The full vectors are asserted: swapping the two rotation compositions leaves both scalar
+    measures unchanged (new-tip ``|x|`` = 0, old-tip axis distance = r·sin α), so only the vectors
+    detect the swap. The angles come from ``euler_angles`` at t = 0, not assumed, and α = 30° so
+    that sin α ≠ cos α (at 45° a sin/cos mix-up in the expected vector would pass).
     """
-    r, alpha = 1.5, np.radians(45.0)
-    tip_old = rotation_matrix_legacy(0.0, alpha, 0.0) @ np.array([0.0, 0.0, r])
+    r = 1.5
+    phi, alpha, theta = euler_angles(
+        0.0,
+        frequency=1.0,
+        stroke_amp_rad=np.radians(70.0),
+        pitch_amp_rad=np.radians(30.0),
+    )
+    assert phi == pytest.approx(0.0, abs=1e-12)  # mid-stroke: φ = 0 ...
+    assert alpha == pytest.approx(
+        np.radians(30.0), rel=0, abs=1e-12
+    )  # ... and α = α_amp
+    assert theta == pytest.approx(0.0, abs=1e-12)
+    tip_old = rotation_matrix_legacy(phi, alpha, theta) @ np.array([0.0, 0.0, r])
     np.testing.assert_allclose(
         tip_old, [0.0, -r * np.sin(alpha), r * np.cos(alpha)], rtol=0, atol=1e-12
     )
@@ -188,7 +201,7 @@ def test_old_span_tip_is_off_axis_at_mid_stroke():
         r * np.sin(alpha), rel=0, abs=1e-12
     )
     # The new span-tip is pitched about its own span, so it stays at (0, r, 0).
-    tip_new = rotation_matrix(0.0, alpha, 0.0) @ np.array([0.0, r, 0.0])
+    tip_new = rotation_matrix(phi, alpha, theta) @ np.array([0.0, r, 0.0])
     np.testing.assert_allclose(tip_new, [0.0, r, 0.0], rtol=0, atol=1e-12)
 
 

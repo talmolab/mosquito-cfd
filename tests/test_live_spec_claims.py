@@ -358,6 +358,10 @@ RETIRED: dict[str, re.Pattern[str]] = {
     # Forward-only: PR #168 already removed these; they guard against a regression.
     "T4 compared with coarse CFD 2.61": re.compile(r"vs\.?\s+cfd\s*[≈~]\s*2\.61"),
     "T4 phase gap ~0.058": re.compile(r"~\s*0\.058"),
+    # PR review: a corpus claim this change itself wrote, guarded only on its fixture half.
+    "fixture values coincide with the corpus": re.compile(
+        r"coincide\s+with\s+the\s+committed\s+sidecars"
+    ),
 }
 
 
@@ -495,6 +499,12 @@ RETIRED_EXAMPLES: dict[str, list[tuple[str, str]]] = {
             "translational-chord peak"
         )
     ],
+    "fixture values coincide with the corpus": [
+        _spec(
+            "> The fixture's 2000 rows per wingbeat and 12,535-row\n> batch coincide with the "
+            "committed sidecars' values, but the fixture's speedups are still not the\n> corpus's."
+        )
+    ],
 }
 
 # Corrective sentences this change wrote, and true quotes that look like retired claims.
@@ -517,7 +527,7 @@ MUST_PASS = (
     # The corrected docstrings (compute_speedup, compute_config_resolved).
     "It is the latency speedup times the parallelism factor ``throughput_speedup / "
     "latency_speedup`` = N·t_single/t_batch, a measured ratio that can be larger or smaller "
-    "than the batch size N and is not N.",
+    "than the batch size N, and is not N by construction.",
     "A diagnostic, not the headline skill: it divides by the spread of a few held-out cycle "
     "means and is strongly seed-dependent",
     # The renamed kinematics test's docstring.
@@ -646,6 +656,33 @@ def test_code_scan_rejects_a_file_without_its_anchor(path):
         _code_prose_hits(path, "def unrelated():\n    pass\n")
 
 
+def test_symmetry_tolerance_comment_numbers_match_the_committed_corpora():
+    """The gate requirement now points at the comment beside SYMMETRY_RATIO_TOLERANCE for the
+    measured magnitudes, so the numbers there that CI can recompute are recomputed: the healthy
+    maximum over both committed corpora and the healthy-side margin. (The truncated range comes
+    from a corpus that is no longer committed, git e1ca8b5, and is not recomputable here.)
+    """
+    import pandas as pd
+
+    from mosquito_cfd.force_surrogate import corpus_guards
+
+    healthy_max = max(
+        max(corpus_guards.settled_beat_symmetry_ratios(pd.read_parquet(p)).values())
+        for p in (
+            _REPO / "examples/prelim_sweep/dataset.parquet",
+            _REPO / "examples/prelim_sweep_fine/dataset.parquet",
+        )
+    )
+    margin = corpus_guards.SYMMETRY_RATIO_TOLERANCE / healthy_max
+    comment = (_REPO / "src/mosquito_cfd/force_surrogate/corpus_guards.py").read_text(
+        encoding="utf-8"
+    )
+    flat = " ".join(comment.replace("#", " ").split())
+    assert f"(maximum {healthy_max:.5f})" in flat, healthy_max
+    assert f"at most {math.ceil(healthy_max * 1e4) / 1e4:.4f}" in flat, healthy_max
+    assert f"~{margin:.1f}x margin on the healthy side" in flat, margin
+
+
 def test_kinematics_test_names_do_not_call_reversal_midstroke():
     """Scenario: The kinematics tests name the instant they measure (names, read raw)."""
     source = _KINEMATICS.read_text(encoding="utf-8")
@@ -687,6 +724,11 @@ def _fixture(name: str) -> str:
     return (_FIXTURES / name).read_text(encoding="utf-8")
 
 
+# Retired claims that never reached a live spec (written and withdrawn on this change's branch),
+# so no pre-change fixture holds them; their examples are exercised by the match test above.
+_RETIRED_WITHIN_THIS_CHANGE = {"fixture values coincide with the corpus"}
+
+
 def test_every_retired_pattern_hits_a_stale_fixture():
     """Scenario: The pre-change text fails the guard (no pattern is unexercised)."""
     texts = [
@@ -698,7 +740,8 @@ def test_every_retired_pattern_hits_a_stale_fixture():
     missed = [
         p
         for p, pat in RETIRED.items()
-        if not any(pat.search(normalize(t)) for t in texts)
+        if p not in _RETIRED_WITHIN_THIS_CHANGE
+        and not any(pat.search(normalize(t)) for t in texts)
     ]
     assert not missed, missed
 
@@ -934,11 +977,6 @@ REGISTRY: dict[str, list[sc.Entry]] = {
             "144 s on the coarse grid",
             ("144", "recomputed", lambda: _cfd_seconds_per_wingbeat()),
         ),
-        *P(
-            "The fixture's 2000 rows per wingbeat and 12,535-row",
-            ("2000", "fixture", lambda: _toy_rows()),
-            ("12,535", "fixture", _speedup("batch_size")),
-        ),
         *P("(and another's is exactly 0)", ("0", "declared", _KNOWN)),
         *P(
             "`throughput_rows_per_s = 5.17e7`, 2000 rows per wingbeat, a 12,535-row batch",
@@ -1015,6 +1053,7 @@ REGISTRY: dict[str, list[sc.Entry]] = {
         *P("`(0, 0, r)`", ("0", "declared", "kinematic vector", 2)),
         *P("`(0, −r·sin α_amp, r·cos α_amp)`", ("0", "declared", "kinematic vector")),
         *P("position at `t = T/4`", ("4", "declared", "kinematic instant")),
+        *P("(new-tip `|x| = 0`", ("0", "declared", "kinematic value")),
     ],
     "Retired kinematics and T4 claims stay out of this specification": [],
 }
