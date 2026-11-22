@@ -360,9 +360,11 @@ test, amended into its section's commit **before** the PR, not as a new commit.
   `is_full_commit_sha` and `is_pinned_image_ref`. Confirm that design E2's table still holds.
   Result: only the four already-failing files fail (T3c commit and image; the three pilot files
   image); the fixture now passes. Matches E2.
-- [ ] 6.3 Run `tests/test_light_corpus_helpers.py` and the changed test files on Linux: `gh-04`, at
+- [x] 6.3 Run `tests/test_light_corpus_helpers.py` and the changed test files on Linux: `gh-04`, at
   the pushed SHA after the user allows a push, or CI. The subprocess, environment and
   path-in-message tests are OS-sensitive.
+  Result: PR #177 CI (ubuntu-latest, run 45077275203): 2538 passed, 24 skipped; all 57
+  `test_light_corpus_helpers.py` tests passed, none skipped.
 - [x] 6.4 Check that this prints nothing:
 
   ```
@@ -380,7 +382,7 @@ test, amended into its section's commit **before** the PR, not as a new commit.
 - [x] 6.6.1 Run `openspec validate share-light-corpus-helpers --strict` once more after 6.6.
 - [x] 6.7 Reconcile the implementation against `proposal.md`, `design.md` and every spec delta. Record
   any deviation in a `### Why N instead of M?` section before `/pre-merge-check`.
-- [ ] 6.8 In the PR body:
+- [x] 6.8 In the PR body:
   - note the image-rule rollout: after merge, `--docker-digest` takes the full reference;
   - list the caller grep;
   - mention F3a's worktree owner, because `validate_image_digest` tightens under their callers too.
