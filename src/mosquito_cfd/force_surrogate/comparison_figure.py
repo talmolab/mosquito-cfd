@@ -1410,6 +1410,286 @@ def build_error_histograms(
     return metrics
 
 
+from mosquito_cfd.force_surrogate.train import compute_config_resolved  # noqa: E402
+
+
+def _form_t(recomputed: float, recorded: float) -> bool:
+    """Tolerance form T: ``|a − b| ≤ 1e-12·max(1, |b|)`` (absolute below 1, relative above)."""
+    return abs(recomputed - recorded) <= 1e-12 * max(1.0, abs(recorded))
+
+
+def _cycle_means(values: np.ndarray, names: np.ndarray) -> np.ndarray:
+    """Per-configuration means exactly as ``train.compute_config_resolved`` takes them."""
+    return np.array([values[names == u].mean() for u in np.unique(names)])
+
+
+def build_cycle_mean_r2_diagnostic_caption(
+    *, n_seeds: int, n_configs: int, n_beats: int
+) -> str:
+    """The ``cycle_mean_r2_diagnostic`` caption (pure)."""
+    return (
+        "This figure is a diagnostic of the metric, not a comparison of the grids: cycle-mean "
+        f"R² is computed on each grid's own {n_configs} holdout configurations as 1 − ε²/σ², "
+        "where σ is the population standard deviation of the true cycle means and ε the RMS "
+        "error of the predicted ones. Left: the waveform RMS (the scale pointwise R² sees), σ, "
+        f"and ε for each of the {n_seeds} seeds, ε = σ·√(1 − R²); where ε ≥ σ, R² ≤ 0. Right: "
+        f"the {n_seeds} per-seed R² values; {n_seeds} seeds give the observed spread, not a "
+        f"confidence interval. {_shared_caption(n_beats)}"
+    )
+
+
+def _diagnostic_grid(corpus: Corpus) -> dict[str, Any]:
+    label = f"{corpus.name}_metrics"
+    pred = corpus.predictions
+    names = pred["config_name"].to_numpy()
+    y_true = pred[[f"{c}_true" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    y_pred = pred[[f"{c}_pred" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+    recomputed = compute_config_resolved(y_true, y_pred, names, list(TARGET_COLUMNS))
+    runs = corpus.metrics["seed_sweep"]["runs"]
+    seeds = [r["seed"] for r in runs]
+    grid: dict[str, Any] = {}
+    for j, c in enumerate(TARGET_COLUMNS):
+        t, p = y_true[:, j], y_pred[:, j]
+        cm_t, cm_p = _cycle_means(t, names), _cycle_means(p, names)
+        sigma = float(np.std(cm_t))
+        eps_measured = float(np.sqrt(np.mean((cm_p - cm_t) ** 2)))
+        per_seed = [r["per_target"][c]["config_mean_r2"] for r in runs]
+        per_seed = [None if _is_null(v) else v for v in per_seed]
+        recorded_cr = _get(
+            corpus.metrics, label, "config_resolved", c, "config_mean_r2"
+        )
+        r2 = recomputed[c]["config_mean_r2"]
+        if _is_null(r2):
+            if not _is_null(recorded_cr) or any(v is not None for v in per_seed):
+                raise ValueError(
+                    f"{label} {c} config_mean_r2 is recorded but the recomputation gives the "
+                    "null sentinel (the true cycle means do not vary)"
+                )
+            eps: list[float | None] = [None] * len(runs)
+        else:
+            for where, recorded in (
+                ("config_resolved", recorded_cr),
+                ("runs[0]", per_seed[0]),
+            ):
+                if _is_null(recorded) or not _form_t(1 - r2, 1 - recorded):
+                    raise ValueError(
+                        f"{label} {c} config_mean_r2 {recorded!r} ({where}) does not match the "
+                        f"recomputed {r2!r}"
+                    )
+            if not _form_t(eps_measured**2 / sigma**2, 1 - per_seed[0]):
+                raise ValueError(
+                    f"{label} {c} measured cycle-mean error does not reproduce config_mean_r2: "
+                    f"eps²/sigma² = {eps_measured**2 / sigma**2!r} vs 1 − R² = "
+                    f"{1 - per_seed[0]!r}"
+                )
+            eps = [sigma * math.sqrt(1.0 - v) for v in per_seed]
+        grid[c] = {
+            "waveform_rms": float(np.sqrt(np.mean((t - t.mean()) ** 2))),
+            "sigma": sigma,
+            "eps_primary_measured": eps_measured,
+            "seeds": seeds,
+            "config_mean_r2": per_seed,
+            "eps": eps,
+            "floor_seeds": [s for s, e in zip(seeds, eps, strict=True) if e == 0.0],
+            "na": all(v is None for v in per_seed),
+        }
+    return grid
+
+
+def _cycle_mean_r2_diagnostic_metrics(
+    coarse: Corpus, fine: Corpus, n_beats: int
+) -> dict[str, Any]:
+    sweep = coarse.metrics["seed_sweep"]
+    return {
+        "figure": "cycle_mean_r2_diagnostic",
+        "seeds": [r["seed"] for r in sweep["runs"]],
+        "primary_seed": sweep["primary_seed"],
+        "n_beats": n_beats,
+        "labels": [TARGET_LABELS[c] for c in TARGET_COLUMNS],
+        "grids": {corpus.name: _diagnostic_grid(corpus) for corpus in (coarse, fine)},
+        "caption": build_cycle_mean_r2_diagnostic_caption(
+            n_seeds=len(sweep["runs"]),
+            n_configs=int(coarse.predictions["config_name"].nunique()),
+            n_beats=n_beats,
+        ),
+    }
+
+
+def compute_cycle_mean_r2_diagnostic_metrics(
+    *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
+) -> dict[str, Any]:
+    """The ``cycle_mean_r2_diagnostic`` sidecar recomputed from the inputs (pure; no rendering)."""
+    coarse = _load_corpus(root, coarse_dir, "coarse")
+    fine = _load_corpus(root, fine_dir, "fine")
+    return _cycle_mean_r2_diagnostic_metrics(coarse, fine, _check_pair(coarse, fine))
+
+
+def _draw_cycle_mean_r2_diagnostic(m: dict[str, Any]) -> Any:
+    fig, axes = plt.subplots(
+        2, 2, figsize=(15.0, 8.6), gridspec_kw={"width_ratios": [1.15, 1]}
+    )
+    try:
+        n_t = len(TARGET_COLUMNS)
+        x = np.arange(n_t)
+        n_s = len(m["seeds"])
+        offsets = np.linspace(-0.22, 0.22, n_s) if n_s > 1 else np.zeros(1)
+        for row, corpus in enumerate(("coarse", "fine")):
+            grid = m["grids"][corpus]
+            color = _COLORS[corpus]
+            positive = [
+                v
+                for c in TARGET_COLUMNS
+                for v in (grid[c]["waveform_rms"], grid[c]["sigma"], *grid[c]["eps"])
+                if v is not None and v > 0
+            ]
+            floor = min(positive) / 4.0
+            ax = axes[row, 0]
+            ax.set_yscale("log")
+            for i, c in enumerate(TARGET_COLUMNS):
+                e = grid[c]
+                ax.plot(
+                    [i - 0.32],
+                    [e["waveform_rms"]] if e["waveform_rms"] > 0 else [floor],
+                    ls="none",
+                    marker="s",
+                    color="black",
+                    ms=6,
+                )
+                if e["sigma"] > 0:
+                    ax.plot(
+                        [i - 0.32],
+                        [e["sigma"]],
+                        ls="none",
+                        marker="o",
+                        mfc="none",
+                        mec="0.3",
+                        ms=11,
+                        mew=1.4,
+                    )
+                else:
+                    ax.plot(
+                        [i - 0.32], [floor], ls="none", marker="v", color="0.3", ms=7
+                    )
+                    ax.text(i - 0.32, floor * 1.4, "σ=0", ha="center", fontsize=6.5)
+                if e["na"]:
+                    ax.text(i, floor * 3, "R²: n/a", ha="center", fontsize=7)
+                    continue
+                for k, eps in enumerate(e["eps"]):
+                    xi = i + offsets[k]
+                    if eps is None:
+                        continue
+                    if eps == 0.0:
+                        ax.plot([xi], [floor], ls="none", marker="v", color=color, ms=6)
+                        ax.text(xi, floor * 1.4, "0", ha="center", fontsize=6.5)
+                    else:
+                        ax.plot(
+                            [xi],
+                            [eps],
+                            ls="none",
+                            color=color,
+                            marker="D" if k == 0 else "o",
+                            ms=6 if k == 0 else 4,
+                            mec="black" if k == 0 else color,
+                            mew=0.7,
+                        )
+            ax.set_ylim(floor / 1.5, max(positive) * 3.0)
+            ax.set_xticks(
+                x, [] if row == 0 else m["labels"], rotation=25, ha="right", fontsize=8
+            )
+            ax.set_ylabel(f"{corpus} grid\nscale (coefficient units, log)", fontsize=8)
+            ax.tick_params(axis="y", labelsize=7)
+            ax.grid(axis="y", color="0.92", which="major")
+            if row == 0:
+                ax.set_title(
+                    "Scales: waveform RMS, σ (spread of true cycle means), ε per seed",
+                    fontsize=9,
+                )
+
+            ax = axes[row, 1]
+            ax.set_yscale("symlog", linthresh=1.0)
+            ax.axhline(0.0, color="0.5", lw=0.8)
+            ax.axhline(1.0, color="0.5", lw=0.8, ls="--")
+            for i, c in enumerate(TARGET_COLUMNS):
+                e = grid[c]
+                if e["na"]:
+                    ax.text(i, 0.5, "n/a", ha="center", fontsize=7)
+                    continue
+                for k, value in enumerate(e["config_mean_r2"]):
+                    ax.plot(
+                        [i + offsets[k]],
+                        [value],
+                        ls="none",
+                        color=color,
+                        marker="D" if k == 0 else "o",
+                        ms=6 if k == 0 else 4,
+                        mec="black" if k == 0 else color,
+                        mew=0.7,
+                    )
+            values = [
+                v
+                for c in TARGET_COLUMNS
+                for v in grid[c]["config_mean_r2"]
+                if v is not None
+            ]
+            low = min([*values, 0.0])
+            bottom = low - 0.5 * abs(low) - 0.5
+            ax.set_ylim(bottom, 1.6)
+            # Plain tick labels: symlog's default "−10⁰" for −1 is easy to misread.
+            ticks = [-1e6, -1e4, -1e2, -10, -5, -2, -1, -0.5, 0, 0.5, 1]
+            ax.set_yticks(
+                [t for t in ticks if t >= bottom],
+                [f"{t:g}".replace("-", "−") for t in ticks if t >= bottom],
+            )
+            ax.set_xticks(
+                x, [] if row == 0 else m["labels"], rotation=25, ha="right", fontsize=8
+            )
+            ax.set_ylabel("cycle-mean R² (symlog; linear in ±1)", fontsize=8)
+            ax.tick_params(axis="y", labelsize=7)
+            if row == 0:
+                ax.set_title("Per-seed cycle-mean R² (dashed: 1; solid: 0)", fontsize=9)
+        handles = [
+            Line2D([], [], ls="none", marker="s", color="black", label="waveform RMS"),
+            Line2D(
+                [], [], ls="none", marker="o", mfc="none", mec="0.3", ms=10, label="σ"
+            ),
+            Line2D(
+                [],
+                [],
+                ls="none",
+                marker="D",
+                color="0.4",
+                mec="black",
+                label=f"seed {m['primary_seed']}",
+            ),
+            Line2D([], [], ls="none", marker="o", color="0.4", label="other seeds"),
+            Line2D([], [], color=_COLORS["coarse"], lw=4, label="coarse grid"),
+            Line2D([], [], color=_COLORS["fine"], lw=4, label="fine grid"),
+        ]
+        fig.legend(
+            handles=handles,
+            loc="upper center",
+            ncol=6,
+            fontsize=8,
+            frameon=False,
+            bbox_to_anchor=(0.5, 1.0),
+        )
+        fig.text(
+            0.01,
+            0.01,
+            textwrap.fill(m["caption"], 230),
+            fontsize=7,
+            va="bottom",
+            ha="left",
+        )
+        fig.subplots_adjust(
+            left=0.07, right=0.99, bottom=0.2, top=0.91, wspace=0.18, hspace=0.08
+        )
+    except BaseException:
+        plt.close(fig)
+        raise
+    return fig
+
+
 def build_cycle_mean_r2_diagnostic(
     *,
     root: str | Path,
@@ -1419,6 +1699,32 @@ def build_cycle_mean_r2_diagnostic(
     docker_image_digest: str,
     timestamp: str,
 ) -> dict[str, Any]:
-    """Stub until section 6 (validates inputs only)."""
-    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
-    raise NotImplementedError("cycle_mean_r2_diagnostic")
+    """Render ``cycle_mean_r2_diagnostic``: why cycle-mean R² is ill-conditioned, all seeds.
+
+    Per corpus and target: the waveform RMS, the spread σ of the true cycle means, and each
+    seed's cycle-mean error ``ε_s = σ·sqrt(1 − R²_s)`` (exact, since σ does not depend on the
+    seed), beside the per-seed R². The primary seed's R² is recomputed and must match
+    ``config_resolved`` and ``seed_sweep.runs[0]`` in tolerance form T.
+
+    Returns:
+        The ``cycle_mean_r2_diagnostic_metrics.json`` payload.
+
+    Raises:
+        ValueError: If the digest is mutable, a shared input guard fails, or a recorded R² does
+            not reproduce (nothing written).
+    """
+    root, coarse, fine, n_beats = _prepare(
+        root, coarse_dir, fine_dir, docker_image_digest
+    )
+    metrics = _cycle_mean_r2_diagnostic_metrics(coarse, fine, n_beats)
+    metadata = _provenance(
+        root=root,
+        coarse=coarse,
+        fine=fine,
+        docker_image_digest=docker_image_digest,
+        timestamp=timestamp,
+        figure="cycle_mean_r2_diagnostic",
+    )
+    fig = _draw_cycle_mean_r2_diagnostic(metrics)
+    _write_outputs(out_dir, "cycle_mean_r2_diagnostic", fig, metrics, metadata)
+    return metrics

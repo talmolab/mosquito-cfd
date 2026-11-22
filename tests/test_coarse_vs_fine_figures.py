@@ -607,3 +607,214 @@ def test_error_histograms_end_to_end(tmp_path):
         root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
     )
     assert written == json.loads(cf._dumps(recomputed)) == json.loads(cf._dumps(result))
+
+
+# --- cycle_mean_r2_diagnostic ----------------------------------------------------------------
+
+_K1_OFFSETS = (1.0, 3.0, 2.0, 0.5, 1.5)  # per seed; the second gives R^2 = -73/35
+
+
+def _k1_truth(salt=0.0):
+    base = default_truth(salt)
+
+    def truth(split, index, phase, beat):
+        cols = base(split, index, phase, beat)
+        if split == "holdout":
+            cols[:, 0] = float(index + 1)  # true cycle means 1..6
+        return cols
+
+    return truth
+
+
+def _k1_error(offsets=_K1_OFFSETS):
+    base = default_error((1.0, 1.4, 0.7, 1.2, 0.9))
+
+    def error(seed_index, holdout_index, phase):
+        err = base(seed_index, holdout_index, phase)
+        sign = 1.0 if holdout_index % 2 == 0 else -1.0
+        alt = np.where(np.arange(phase.shape[0]) % 2 == 0, 0.5, -0.5)
+        err[:, 0] = offsets[seed_index] * sign + alt
+        return err
+
+    return error
+
+
+def _k1_repo(root, coarse_extra=None, offsets=_K1_OFFSETS):
+    spec = CorpusSpec(
+        truth=_k1_truth(), error=_k1_error(offsets), **(coarse_extra or {})
+    )
+    return write_repo(root, coarse=spec)
+
+
+def _form_t(a, b):
+    return abs(a - b) <= 1e-12 * max(1.0, abs(b))
+
+
+def test_k1_identity_and_derived_errors(tmp_path):
+    written = _k1_repo(tmp_path)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    metrics = written["coarse"]["metrics"]
+    sigma = math.sqrt(35 / 12)
+    assert math.isclose(entry["sigma"], sigma, rel_tol=1e-12, abs_tol=0)
+    assert math.isclose(entry["eps_primary_measured"], 1.0, rel_tol=1e-12, abs_tol=0)
+    r2 = entry["config_mean_r2"]
+    assert r2 == [
+        r["per_target"]["CF_x"]["config_mean_r2"] for r in metrics["seed_sweep"]["runs"]
+    ]
+    assert r2[0] == metrics["config_resolved"]["CF_x"]["config_mean_r2"]
+    assert _form_t(1 - r2[0], 1 - 23 / 35)
+    assert _form_t(1 - r2[1], 1 + 73 / 35)
+    for value, eps in zip(r2, entry["eps"], strict=True):
+        assert math.isclose(
+            eps, entry["sigma"] * math.sqrt(1 - value), rel_tol=1e-12, abs_tol=0
+        )
+    assert math.isclose(entry["eps"][1], 3.0, rel_tol=1e-12, abs_tol=0)
+    assert entry["eps"][1] > entry["sigma"]
+    assert _form_t(entry["eps_primary_measured"] ** 2 / entry["sigma"] ** 2, 1 - r2[0])
+
+
+def test_k1_recorded_r2_is_not_another_block(tmp_path):
+    written = _k1_repo(tmp_path)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    metrics = written["coarse"]["metrics"]
+    others = set()
+    for c in TARGET_COLUMNS:
+        others |= set(metrics["per_target"][c].values())
+        others |= {
+            v
+            for k, v in metrics["phase_baseline_skill"]["per_target"][c].items()
+            if isinstance(v, float)
+        }
+    assert result["grids"]["coarse"]["CF_x"]["config_mean_r2"][0] not in others
+
+
+def _scale_config_resolved(factor):
+    def edit(metrics):
+        metrics["config_resolved"]["CF_x"]["config_mean_r2"] *= factor
+
+    return edit
+
+
+def test_a_recorded_r2_off_by_1e10_is_refused_and_1e14_accepted(tmp_path):
+    _k1_repo(tmp_path / "a", {"edit_metrics": _scale_config_resolved(1 + 1e-10)})
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_cycle_mean_r2_diagnostic, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "config_mean_r2"):
+        assert needle in str(excinfo.value)
+    assert not (tmp_path / "a" / "out").exists()
+    _k1_repo(tmp_path / "b", {"edit_metrics": _scale_config_resolved(1 + 1e-14)})
+    _build(cf.build_cycle_mean_r2_diagnostic, tmp_path / "b")
+
+
+def test_a_primary_r2_near_one_is_accepted(tmp_path):
+    sigma = math.sqrt(35 / 12)
+    offsets = (1e-3 * sigma, 3.0, 2.0, 0.5, 1.5)
+    _k1_repo(tmp_path, offsets=offsets)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    r2 = result["grids"]["coarse"]["CF_x"]["config_mean_r2"][0]
+    assert math.isclose(1 - r2, 1e-6, rel_tol=1e-6, abs_tol=0)
+
+
+def test_boundary_r2_values(tmp_path):
+    def edit(runs):
+        runs[1]["per_target"]["CF_x"]["config_mean_r2"] = 0.0
+        runs[2]["per_target"]["CF_x"]["config_mean_r2"] = 1.0
+        runs[3]["per_target"]["CF_x"]["config_mean_r2"] = -1e6
+
+    _k1_repo(tmp_path, {"edit_runs": edit})
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    assert entry["eps"][1] == entry["sigma"]
+    assert entry["eps"][2] == 0.0
+    assert entry["floor_seeds"] == [1236]
+    assert math.isclose(
+        entry["eps"][3], entry["sigma"] * math.sqrt(1 + 1e6), rel_tol=1e-12
+    )
+
+
+def _null_truth(salt=0.0):
+    base = default_truth(salt)
+
+    def truth(split, index, phase, beat):
+        cols = base(split, index, phase, beat)
+        if split == "holdout":
+            cols[:, 0] = 0.5 + np.where(np.arange(phase.shape[0]) % 2 == 0, 1.0, -1.0)
+        return cols
+
+    return truth
+
+
+def test_a_null_cycle_mean_r2_passes_through_as_null(tmp_path):
+    written = write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=_null_truth()),
+        fine=_fine(truth=_null_truth(0.013)),
+    )
+    # in memory the sentinel is NaN; the written metrics.json carries it as null
+    assert cf._is_null(
+        written["coarse"]["metrics"]["config_resolved"]["CF_x"]["config_mean_r2"]
+    )
+    assert written["coarse"]["metrics"]["phase_baseline_skill"]["per_target"]["CF_x"][
+        "skill"
+    ]
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    assert entry["config_mean_r2"] == [None] * 5
+    assert entry["eps"] == [None] * 5
+    assert entry["sigma"] == 0.0
+    assert entry["na"] is True
+    assert entry["waveform_rms"] == 1.0
+    assert result["grids"]["coarse"]["CF_y"]["na"] is False
+
+
+def test_diagnostic_caption(tmp_path):
+    seeds = (42, 43, 44)
+    scales = (1.0, 1.3, 0.8)
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(seeds=seeds, error_scales=scales),
+        fine=_fine(seeds=seeds, error_scales=scales),
+    )
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    caption = result["caption"]
+    for phrase in (
+        cf.SHIPPED_PHRASE,
+        cf.LAB_FRAME_PHRASE,
+        "3 seeds",
+        "observed spread, not a confidence interval",
+        "a diagnostic of the metric, not a comparison of the grids",
+        "cycle-mean R² is computed on each grid's own 6 holdout configurations",
+        "second wingbeat of 2-beat runs",
+        cf.REGENERATION_PHRASE,
+    ):
+        assert phrase in caption, phrase
+    assert cf.OWN_BASELINE_PHRASE not in caption
+    assert "1234" not in caption and "5 seeds" not in caption
+    _assert_clean_wording(caption, *result["labels"])
+
+
+def test_diagnostic_caption_for_a_four_beat_corpus(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(n_beats=4), fine=_fine(n_beats=4))
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    assert "wingbeats 2–4 of 4-beat runs" in result["caption"]
+    assert cf.REGENERATION_PHRASE not in result["caption"]
+
+
+def test_cycle_mean_r2_diagnostic_end_to_end(tmp_path):
+    write_repo(tmp_path)
+    before = plt.get_fignums()
+    result, out = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "cycle_mean_r2_diagnostic.png",
+        "cycle_mean_r2_diagnostic_metrics.json",
+        "cycle_mean_r2_diagnostic_run_metadata.json",
+    ]
+    assert plt.get_fignums() == before
+    written = json.loads(
+        (out / "cycle_mean_r2_diagnostic_metrics.json").read_text(encoding="utf-8")
+    )
+    recomputed = cf.compute_cycle_mean_r2_diagnostic_metrics(
+        root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
+    )
+    assert written == json.loads(cf._dumps(recomputed)) == json.loads(cf._dumps(result))

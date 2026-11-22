@@ -225,7 +225,7 @@ This section is additive; the old builders stay until 7.
 
 ## 6. `cycle_mean_r2_diagnostic`
 
-- [ ] 6.1 **Tests first.**
+- [x] 6.1 **Tests first.**
   - **K1 (the 23/35 fixture).**
     - σ = `sqrt(35/12)`, which fails if `ddof=1`.
     - ε = `1`.
@@ -252,9 +252,9 @@ This section is additive; the old builders stay until 7.
     - The beat label for `{0, 1}`/`{1}` and for `{0..3}`/`{1..3}`.
     - Nothing matches the forbidden pattern, `_COMPARATIVE` or `_FINE_COMPARATIVE`.
   - **Block not swapped.** The recorded R² equals no `per_target` or `phase_baseline_skill` value.
-- [ ] 6.2 Implement `compute_cycle_mean_r2_diagnostic_metrics`, the caption and
+- [x] 6.2 Implement `compute_cycle_mean_r2_diagnostic_metrics`, the caption and
   `build_cycle_mean_r2_diagnostic`.
-- [ ] 6.3 Commit: `feat(force-surrogate): cycle_mean_r2_diagnostic figure (advances #114)`.
+- [x] 6.3 Commit: `feat(force-surrogate): cycle_mean_r2_diagnostic figure (advances #114)`.
 
 ## 7. Driver and removal
 
