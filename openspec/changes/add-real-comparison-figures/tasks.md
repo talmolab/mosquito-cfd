@@ -70,7 +70,7 @@ One PR, ordered as the commits below.
 
 ## 2. Synthetic corpus helper
 
-- [ ] 2.1 `tests/_comparison_corpus.py::write_repo(root, coarse=..., fine=...)` writes
+- [x] 2.1 `tests/_comparison_corpus.py::write_repo(root, coarse=..., fine=...)` writes
   `root/examples/prelim_sweep{,_fine}/` and `root/examples/prelim_sweep_fine/run_metadata.json`.
   Each corpus is built the way `run_training` does:
   - **Dataset.** `dataset.parquet` with `config_name`, `split`, `time`, `phase`, `wingbeat` and the
@@ -106,7 +106,7 @@ One PR, ordered as the commits below.
     - Neither is in the default corpus.
     - A non-zero waveform is kept wherever a log axis must have positive data.
   - **Byte differences.** The coarse and fine corpora differ in every file.
-- [ ] 2.2 Test the helper independently:
+- [x] 2.2 Test the helper independently:
   - **(a) Key tree.** The fixture `metrics.json` key tree equals the committed
     `examples/prelim_sweep/surrogate/metrics.json` key tree, with `per_config`'s configuration keys
     replaced by one wildcard and `inference`/`reproducibility` compared by key set.
@@ -116,7 +116,7 @@ One PR, ordered as the commits below.
     - `CF_y`, with holdout truth constant per configuration at `[0, 0, 0, 0, 0, 6]`, gives σ
       `sqrt(5)`.
   - **(c) Byte differences.** The coarse and fine fixtures differ in every file.
-- [ ] 2.3 Commit: `test(force-surrogate): synthetic corpus helper for comparison-figure tests (advances #114)`.
+- [x] 2.3 Commit: `test(force-surrogate): synthetic corpus helper for comparison-figure tests (advances #114)`.
 
 ## 3. Shared loader, guards and provenance
 
