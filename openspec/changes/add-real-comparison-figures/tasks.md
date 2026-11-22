@@ -122,7 +122,7 @@ One PR, ordered as the commits below.
 
 This section is additive; the old builders stay until 7.
 
-- [ ] 3.1 **Tests first.** Parametrize over the three builders. Until sections 4–6 they are stubs
+- [x] 3.1 **Tests first.** Parametrize over the three builders. Until sections 4–6 they are stubs
   that call `validate_image_digest`, `_load_corpus` and `_check_pair`, then raise
   `NotImplementedError`.
   - **Every defect listed in the spec scenario "each defect is refused before any output":**
@@ -133,7 +133,7 @@ This section is additive; the old builders stay until 7.
   - **The digest is checked first:** a mutable digest with non-existent corpus directories raises
     the digest error.
   - **A valid pair** reaches `NotImplementedError`.
-- [ ] 3.2 **Tests first**, directly on the helpers:
+- [x] 3.2 **Tests first**, directly on the helpers:
   - `_portable_path` on `PureWindowsPath`, on `PurePosixPath`, on a relative path with an absolute
     root, and on an outside-root or `..` path (refused).
   - `_provenance(...)` records:
@@ -149,9 +149,9 @@ This section is additive; the old builders stay until 7.
     - with `savefig` patched to raise, leaves no file and no open figure;
     - with the second `os.replace` patched to raise, leaves exactly the first file (the PNG; the write
       order is PNG, metrics, run_metadata), no temporary file, and no open figure.
-- [ ] 3.3 Implement `_load_corpus`, `_check_pair`, `_beat_structure`, `_portable_path`,
+- [x] 3.3 Implement `_load_corpus`, `_check_pair`, `_beat_structure`, `_portable_path`,
   `_provenance` and `_write_outputs`, and the three builder stubs that raise `NotImplementedError`. Builder tests use `filterwarnings("error")`.
-- [ ] 3.4 Commit: `feat(force-surrogate): comparison-figure input loading, guards and provenance (advances #114)`.
+- [x] 3.4 Commit: `feat(force-surrogate): comparison-figure input loading, guards and provenance (advances #114)`.
 
 ## 4. `skill_ranges` and the shared constants
 

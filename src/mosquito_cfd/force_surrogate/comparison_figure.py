@@ -397,3 +397,523 @@ def build_config_mean_collapse_diagnostic(
     write_json(out_dir / "diagnostic_config_mean_collapse_metrics.json", result)
     write_json(out_dir / "diagnostic_config_mean_collapse_run_metadata.json", metadata)
     return result
+
+
+# =============================================================================================
+# Real-data coarse-vs-fine figures (OpenSpec change add-real-comparison-figures).
+#
+# Three figures, one job each: ``skill_ranges`` (the only cross-grid comparison, under the
+# pre-registered overlap rule), ``error_histograms`` (what skill means within each grid) and
+# ``cycle_mean_r2_diagnostic`` (why cycle-mean R^2 is ill-conditioned). Every builder reads the
+# same eight inputs through one shared loader whose guards run, in a fixed order, before any
+# output is written.
+# =============================================================================================
+
+import importlib.metadata  # noqa: E402
+import io  # noqa: E402
+import math  # noqa: E402
+import os  # noqa: E402
+import platform  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+from pathlib import PurePath, PurePosixPath  # noqa: E402
+
+from mosquito_cfd.force_surrogate.train import (  # noqa: E402
+    CONVERGED_MIN_WINGBEAT,
+    SEED_SWEEP_STATISTICS,
+    TARGET_COLUMNS,
+    _json_safe,
+)
+
+FIGURES: tuple[str, ...] = (
+    "skill_ranges",
+    "error_histograms",
+    "cycle_mean_r2_diagnostic",
+)
+
+ROLE_FILES: dict[str, str] = {
+    "dataset": "dataset.parquet",
+    "predictions": "surrogate/holdout_predictions.parquet",
+    "metrics": "surrogate/metrics.json",
+    "surrogate_run_metadata": "surrogate/run_metadata.json",
+}
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# The renderer whose bytes each committed figure records (``renderer_sources``), keyed by fixed
+# names and read from the files' own locations, never from the caller's ``root``.
+RENDERER_FILES: dict[str, Path] = {
+    "comparison_figure.py": Path(__file__).resolve(),
+    "scripts/make_coarse_vs_fine_figures.py": _REPO_ROOT
+    / "scripts"
+    / "make_coarse_vs_fine_figures.py",
+}
+
+_LIBRARIES: tuple[str, ...] = ("numpy", "pandas", "pyarrow", "matplotlib")
+_PREDICTION_ID_COLUMNS: tuple[str, ...] = ("config_name", "time", "phase", "wingbeat")
+_DATASET_COLUMNS: tuple[str, ...] = (
+    "config_name",
+    "time",
+    "phase",
+    "wingbeat",
+    "split",
+)
+_KEY = ["config_name", "time"]
+
+
+@dataclass(frozen=True)
+class Corpus:
+    """One corpus's validated inputs (the shared loader's output)."""
+
+    name: str
+    paths: dict[str, Path]
+    sha: dict[str, str]
+    dataset: pd.DataFrame
+    predictions: pd.DataFrame
+    metrics: dict[str, Any]
+    surrogate_run_metadata: dict[str, Any]
+    n_beats: int
+
+
+def _reject_constant(token: str) -> float:
+    raise ValueError(f"non-finite JSON literal {token!r}")
+
+
+def _get(node: Any, label: str, *keys: Any) -> Any:
+    """``node[k0][k1]...`` or a ``ValueError`` naming ``label`` and the missing path."""
+    for depth, key in enumerate(keys):
+        ok = (isinstance(node, dict) and key in node) or (
+            isinstance(node, list)
+            and isinstance(key, int)
+            and -len(node) <= key < len(node)
+        )
+        if not ok:
+            path = ".".join(str(k) for k in keys[: depth + 1])
+            raise ValueError(f"{label} lacks {path}")
+        node = node[key]
+    return node
+
+
+def _is_null(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
+def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
+    """Load and validate one corpus: shared guards 2-10, in order (guard 1 is the digest).
+
+    Raises:
+        ValueError: On the first guard that fails, naming the corpus, the role and the defect.
+    """
+    base = Path(root) / corpus_dir
+    paths = {role: base / rel for role, rel in ROLE_FILES.items()}
+    # Guard 2: each file exists.
+    for role, path in paths.items():
+        if not path.is_file():
+            raise ValueError(f"{name}_{role} input is missing: {path}")
+    raw = {role: path.read_bytes() for role, path in paths.items()}
+    sha = {role: hashlib.sha256(data).hexdigest() for role, data in raw.items()}
+
+    # Guard 3: each JSON input is an object without a NaN/Infinity literal.
+    def load_json(role: str) -> dict[str, Any]:
+        try:
+            data = json.loads(
+                raw[role].decode("utf-8"), parse_constant=_reject_constant
+            )
+        except ValueError as exc:
+            raise ValueError(f"{name}_{role} is not valid JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"{name}_{role} must be a JSON object, got {type(data).__name__}"
+            )
+        return data
+
+    metrics = load_json("metrics")
+    run_metadata = load_json("surrogate_run_metadata")
+    dataset = pd.read_parquet(io.BytesIO(raw["dataset"]))
+    predictions = pd.read_parquet(io.BytesIO(raw["predictions"]))
+
+    # Guard 4: required columns.
+    required = {
+        "predictions": [
+            *_PREDICTION_ID_COLUMNS,
+            *(f"{c}_{kind}" for c in TARGET_COLUMNS for kind in ("true", "pred")),
+        ],
+        "dataset": [*_DATASET_COLUMNS, *TARGET_COLUMNS],
+    }
+    for role, frame in (("predictions", predictions), ("dataset", dataset)):
+        missing = [c for c in required[role] if c not in frame.columns]
+        if missing:
+            raise ValueError(f"{name}_{role} is missing required column(s) {missing}")
+
+    # Guard 5: the dataset is the surrogate's training data.
+    inputs = run_metadata.get("inputs")
+    recorded = inputs.get("hash") if isinstance(inputs, dict) else None
+    if recorded != sha["dataset"]:
+        raise ValueError(
+            f"{name}_dataset sha256 {sha['dataset']} differs from the {name} surrogate's "
+            f"recorded inputs.hash {recorded}; the surrogate was not trained on this dataset"
+        )
+
+    # Guard 6: non-empty, at least two configurations, no repeated (config_name, time) key.
+    if len(predictions) == 0:
+        raise ValueError(f"{name}_predictions is empty")
+    if predictions["config_name"].nunique() < 2:
+        raise ValueError(f"{name}_predictions has fewer than two configurations")
+    for role, frame in (("predictions", predictions), ("dataset", dataset)):
+        dup = frame.duplicated(_KEY)
+        if dup.any():
+            first = frame.loc[dup, _KEY].iloc[0].tolist()
+            raise ValueError(
+                f"{name}_{role} has duplicate (config_name, time) keys, first {first}"
+            )
+
+    # Guard 7: every coefficient is finite.
+    finite_cols = {
+        "predictions": [c for c in required["predictions"] if c.startswith("CF_")],
+        "dataset": list(TARGET_COLUMNS),
+    }
+    for role, frame in (("predictions", predictions), ("dataset", dataset)):
+        for col in finite_cols[role]:
+            if not np.isfinite(frame[col].to_numpy(dtype=float)).all():
+                raise ValueError(f"{name}_{role} has non-finite values in column {col}")
+
+    # Guard 8: beat structure.
+    beats = dataset.groupby("config_name")["wingbeat"].agg(
+        lambda s: frozenset(s.tolist())
+    )
+    n_beats = int(dataset["wingbeat"].max()) + 1
+    expected = frozenset(range(n_beats))
+    bad = [str(cfg) for cfg, got in beats.items() if got != expected]
+    if bad:
+        raise ValueError(
+            f"{name}_dataset: configuration(s) {bad} do not have wingbeats exactly "
+            f"0..{n_beats - 1}; every configuration must have the same contiguous wingbeats"
+        )
+    recorded_min = _get(
+        metrics,
+        f"{name}_metrics",
+        "phase_baseline_skill",
+        "phase_baseline",
+        "converged_min_wingbeat",
+    )
+    if recorded_min != CONVERGED_MIN_WINGBEAT:
+        raise ValueError(
+            f"{name}_metrics phase_baseline.converged_min_wingbeat {recorded_min} != "
+            f"train.CONVERGED_MIN_WINGBEAT {CONVERGED_MIN_WINGBEAT}"
+        )
+    got = set(predictions["wingbeat"].tolist())
+    want = set(range(CONVERGED_MIN_WINGBEAT, n_beats))
+    if got != want:
+        raise ValueError(
+            f"{name}_predictions has wingbeats {sorted(got)}; expected exactly {sorted(want)}"
+        )
+
+    # Guard 9: the predictions are the dataset's scored holdout rows.
+    holdout = dataset[
+        (dataset["split"] == "holdout")
+        & (dataset["wingbeat"] >= CONVERGED_MIN_WINGBEAT)
+    ]
+    merged = predictions[[*_KEY, *(f"{c}_true" for c in TARGET_COLUMNS)]].merge(
+        holdout[[*_KEY, *TARGET_COLUMNS]], on=_KEY, how="outer", indicator=True
+    )
+    if not (merged["_merge"] == "both").all():
+        raise ValueError(
+            f"{name}_predictions rows are not exactly the {name} dataset's holdout rows "
+            f"with wingbeat >= {CONVERGED_MIN_WINGBEAT}"
+        )
+    for c in TARGET_COLUMNS:
+        if not np.array_equal(merged[f"{c}_true"].to_numpy(), merged[c].to_numpy()):
+            raise ValueError(
+                f"{name}_predictions column {c}_true differs from the {name} dataset's "
+                "holdout rows"
+            )
+
+    # Guard 10: the seed sweep is self-consistent.
+    label = f"{name}_metrics"
+    sweep = _get(metrics, label, "seed_sweep")
+    runs = _get(sweep, label, "runs")
+    if not isinstance(runs, list) or not runs:
+        raise ValueError(f"{label} seed_sweep.runs is empty")
+    for c in TARGET_COLUMNS:
+        for stat in SEED_SWEEP_STATISTICS:
+            values = [_get(r, label, "per_target", c, stat) for r in runs]
+            finite = [float(v) for v in values if not _is_null(v) and math.isfinite(v)]
+            want_range = {"min": min(finite), "max": max(finite)} if finite else None
+            have_range = _get(sweep, label, "range", c, stat)
+            if have_range != want_range:
+                raise ValueError(
+                    f"{label} seed_sweep.range.{c}.{stat} {have_range} != the NaN-aware "
+                    f"min/max of its runs {want_range}"
+                )
+    primary = _get(sweep, label, "primary_seed")
+    if _get(runs[0], label, "seed") != primary:
+        raise ValueError(
+            f"{label} seed_sweep.runs[0].seed {runs[0]['seed']} is not primary_seed {primary}"
+        )
+    for c in TARGET_COLUMNS:
+        first = _get(runs[0], label, "per_target", c, "skill")
+        block = _get(metrics, label, "phase_baseline_skill", "per_target", c, "skill")
+        same = (_is_null(first) and _is_null(block)) or (
+            not _is_null(first) and not _is_null(block) and first == block
+        )
+        if not same:
+            raise ValueError(
+                f"{label} seed_sweep.runs[0] {c} skill {first} != "
+                f"phase_baseline_skill.per_target.{c}.skill {block}"
+            )
+    for c in TARGET_COLUMNS:
+        for stat in ("skill", "config_mean_r2"):
+            nulls = [r["seed"] for r in runs if _is_null(r["per_target"][c][stat])]
+            if nulls and len(nulls) != len(runs):
+                raise ValueError(
+                    f"{label} {c} {stat} is null for seed(s) {nulls} but not for the others; "
+                    "a null is all-or-none per corpus and target"
+                )
+        for r in runs:
+            value = r["per_target"][c]["config_mean_r2"]
+            if not _is_null(value) and value > 1:
+                raise ValueError(
+                    f"{label} {c} config_mean_r2 {value} at seed {r['seed']} exceeds 1"
+                )
+
+    return Corpus(
+        name=name,
+        paths=paths,
+        sha=sha,
+        dataset=dataset,
+        predictions=predictions,
+        metrics=metrics,
+        surrogate_run_metadata=run_metadata,
+        n_beats=n_beats,
+    )
+
+
+def _check_pair(coarse: Corpus, fine: Corpus) -> int:
+    """Guard 11: the two corpora are paired. Returns the shared beat count N."""
+    sets = [set(c.predictions["config_name"].unique()) for c in (coarse, fine)]
+    if sets[0] != sets[1]:
+        raise ValueError(
+            "coarse and fine holdout configuration sets differ: "
+            f"{sorted(sets[0] ^ sets[1])} are in only one"
+        )
+    seeds = [
+        [r["seed"] for r in c.metrics["seed_sweep"]["runs"]] for c in (coarse, fine)
+    ]
+    if seeds[0] != seeds[1]:
+        raise ValueError(f"coarse and fine seed lists differ: {seeds[0]} vs {seeds[1]}")
+    for rc, rf in zip(
+        coarse.metrics["seed_sweep"]["runs"],
+        fine.metrics["seed_sweep"]["runs"],
+        strict=True,
+    ):
+        if rc.get("val_configs") != rf.get("val_configs"):
+            raise ValueError(
+                f"coarse and fine val_configs differ at seed {rc['seed']}: "
+                f"{rc.get('val_configs')} vs {rf.get('val_configs')}"
+            )
+    if coarse.n_beats != fine.n_beats:
+        raise ValueError(
+            f"coarse and fine beat counts differ: {coarse.n_beats} vs {fine.n_beats}"
+        )
+    return coarse.n_beats
+
+
+def _portable_path(path: str | PurePath, root: str | PurePath) -> str:
+    """``path`` relative to ``root``, with forward slashes; refuses anything outside ``root``.
+
+    A relative ``path`` is taken relative to ``root``. Pure path flavours are preserved, so a
+    ``PureWindowsPath`` is handled the same on every OS.
+    """
+    root_p = root if isinstance(root, PurePath) else Path(root)
+    path_p = path if isinstance(path, PurePath) else Path(path)
+    if not path_p.is_absolute():
+        path_p = root_p / path_p
+    if ".." in path_p.parts:
+        raise ValueError(f"path {path} is outside the root {root} (it contains '..')")
+    try:
+        rel = path_p.relative_to(root_p)
+    except ValueError as exc:
+        raise ValueError(f"path {path} is outside the root {root}") from exc
+    return PurePosixPath(*rel.parts).as_posix()
+
+
+def _renderer_sources(files: dict[str, Path] | None = None) -> dict[str, str | None]:
+    """sha256 of each renderer file's LF-normalised bytes (``None`` if the file is absent)."""
+    files = RENDERER_FILES if files is None else files
+    out: dict[str, str | None] = {}
+    for key, path in files.items():
+        path = Path(path)
+        out[key] = (
+            hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            if path.is_file()
+            else None
+        )
+    return out
+
+
+def _library_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for dist in _LIBRARIES:
+        try:
+            versions[dist] = importlib.metadata.version(dist)
+        except importlib.metadata.PackageNotFoundError:
+            versions[dist] = None
+    return versions
+
+
+def _provenance(
+    *,
+    root: str | Path,
+    coarse: Corpus,
+    fine: Corpus,
+    docker_image_digest: str,
+    timestamp: str,
+    figure: str,
+    renderer_files: dict[str, Path] | None = None,
+) -> dict[str, Any]:
+    """The figure's ``run_metadata.json`` payload (CC-1 triple plus every input's hash)."""
+    input_files = {
+        f"{corpus.name}_{role}": {
+            "path": _portable_path(corpus.paths[role], root),
+            "sha256": corpus.sha[role],
+        }
+        for corpus in (coarse, fine)
+        for role in ROLE_FILES
+    }
+    images = {}
+    for corpus in (coarse, fine):
+        image = corpus.surrogate_run_metadata.get("docker_image")
+        if not isinstance(image, str):
+            raise ValueError(f"{corpus.name}_surrogate_run_metadata lacks docker_image")
+        images[corpus.name] = image
+    metadata = capture_surrogate_run_metadata(
+        docker_image_digest=docker_image_digest,
+        timestamp=timestamp,
+        extra={
+            "input_files": input_files,
+            "corpus_docker_images": images,
+            "library_versions": _library_versions(),
+            "renderer_sources": _renderer_sources(renderer_files),
+            "figure": figure,
+        },
+    )
+    metadata["inputs"] = {
+        "file": input_files["coarse_metrics"]["path"],
+        "hash": input_files["coarse_metrics"]["sha256"],
+    }
+    return metadata
+
+
+def _plain(obj: Any) -> Any:
+    """Recursively convert numpy scalars/arrays to built-ins (NaN/inf become None later)."""
+    if isinstance(obj, dict):
+        return {str(k): _plain(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_plain(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return [_plain(v) for v in obj.tolist()]
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    return obj
+
+
+def _dumps(payload: dict[str, Any]) -> bytes:
+    return json.dumps(_json_safe(_plain(payload)), indent=2, ensure_ascii=False).encode(
+        "utf-8"
+    )
+
+
+def _write_outputs(
+    out_dir: str | Path,
+    figure: str,
+    fig: Any,
+    metrics: dict[str, Any],
+    metadata: dict[str, Any],
+) -> None:
+    """Write ``<figure>.png``, ``_metrics.json``, ``_run_metadata.json`` (in that order).
+
+    The PNG is rendered into memory and the figure closed before anything touches the disk; each
+    file is written to a temporary name and moved into place with ``os.replace``. A failure
+    between two moves leaves exactly the files already moved and no temporary file.
+    """
+    out_dir = Path(out_dir)
+    try:
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight")
+    finally:
+        plt.close(fig)
+    payloads = [
+        (f"{figure}.png", buffer.getvalue()),
+        (f"{figure}_metrics.json", _dumps(metrics)),
+        (f"{figure}_run_metadata.json", _dumps(metadata)),
+    ]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for name, data in payloads:
+            tmp = out_dir / f".{name}.tmp"
+            tmp.write_bytes(data)
+            staged.append((tmp, out_dir / name))
+        for tmp, dst in staged:
+            os.replace(tmp, dst)
+    finally:
+        for tmp, _ in staged:
+            if tmp.exists():
+                tmp.unlink()
+
+
+def _prepare(
+    root: str | Path,
+    coarse_dir: str | Path,
+    fine_dir: str | Path,
+    docker_image_digest: str,
+) -> tuple[Path, Corpus, Corpus, int]:
+    """Guard 1 (the digest, before any file), then the shared loader and the pairing guard."""
+    validate_image_digest(docker_image_digest)
+    root = Path(root)
+    coarse = _load_corpus(root, coarse_dir, "coarse")
+    fine = _load_corpus(root, fine_dir, "fine")
+    return root, coarse, fine, _check_pair(coarse, fine)
+
+
+def build_skill_ranges(
+    *,
+    root: str | Path,
+    coarse_dir: str | Path,
+    fine_dir: str | Path,
+    out_dir: str | Path,
+    docker_image_digest: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    """Stub until section 4 (validates inputs only)."""
+    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
+    raise NotImplementedError("skill_ranges")
+
+
+def build_error_histograms(
+    *,
+    root: str | Path,
+    coarse_dir: str | Path,
+    fine_dir: str | Path,
+    out_dir: str | Path,
+    docker_image_digest: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    """Stub until section 5 (validates inputs only)."""
+    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
+    raise NotImplementedError("error_histograms")
+
+
+def build_cycle_mean_r2_diagnostic(
+    *,
+    root: str | Path,
+    coarse_dir: str | Path,
+    fine_dir: str | Path,
+    out_dir: str | Path,
+    docker_image_digest: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    """Stub until section 6 (validates inputs only)."""
+    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
+    raise NotImplementedError("cycle_mean_r2_diagnostic")
