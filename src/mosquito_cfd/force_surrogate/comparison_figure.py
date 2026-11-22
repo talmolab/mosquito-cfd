@@ -877,6 +877,222 @@ def _prepare(
     return root, coarse, fine, _check_pair(coarse, fine)
 
 
+import re  # noqa: E402
+import textwrap  # noqa: E402
+
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
+
+# Shared wording (spec: "Comparison-figure captions and labels state the scope and never compare
+# the grids"). RULE_SENTENCE and OWN_BASELINE_PHRASE also appear in the fine README's "Coarse vs
+# fine" section; a test keeps the two in step.
+TARGET_LABELS: dict[str, str] = {
+    "CF_x": "CF_x (lab x force)",
+    "CF_y": "CF_y (lab y force)",
+    "CF_z": "CF_z (lab vertical force)",
+    "CF_mx": "CF_mx (lab M_x about the hinge)",
+    "CF_my": "CF_my (lab M_y about the hinge)",
+    "CF_mz": "CF_mz (lab M_z about the hinge)",
+}
+SHIPPED_PHRASE = "shipped surrogate (surrogate/)"
+LAB_FRAME_PHRASE = "lab-frame components of the IB force and moment on the wing; moments about the hinge"
+OWN_BASELINE_PHRASE = "each grid is scored against its own corpus's phase-only baseline"
+RULE_SENTENCE = (
+    "a target counts as moved only if its two {n}-seed ranges are disjoint (computed on the "
+    "unrounded values; touching ranges count as overlapping)"
+)
+REGENERATION_PHRASE = "the corpus is to be regenerated with longer runs"
+DISJOINT_NOTE = (
+    "ranges disjoint at {n} seeds each; see README before reading this as a grid effect"
+)
+# Wing-frame or biomechanical framings these lab-frame figures must never use.
+FORBIDDEN_WORDS = re.compile(r"(?i)\b(?:(?:chord|span|drag|pitch|roll)\w*|normal)\b")
+_COLORS = {"coarse": "#0072B2", "fine": "#D55E00"}
+_CAPTION_WIDTH = 150
+
+
+def beat_sentence(n_beats: int) -> str:
+    """The caption's beat label, read from the data (plus the regeneration note at N = 2)."""
+    first = CONVERGED_MIN_WINGBEAT + 1  # 1-based number of the first scored beat
+    if n_beats == 2 and first == 2:
+        label = "second wingbeat of 2-beat runs"
+    else:
+        label = f"wingbeats {first}–{n_beats} of {n_beats}-beat runs"
+    text = f"Holdout rows are the {label}"
+    if n_beats == 2:
+        text += f"; {REGENERATION_PHRASE}"
+    return text + "."
+
+
+def _shared_caption(n_beats: int) -> str:
+    return f"Shows the {SHIPPED_PHRASE}. Targets are {LAB_FRAME_PHRASE}. {beat_sentence(n_beats)}"
+
+
+def ranges_overlap(coarse: dict[str, Any] | None, fine: dict[str, Any] | None) -> str:
+    """``yes`` when the two ranges overlap (touching counts), ``no`` if disjoint, ``n/a`` if null.
+
+    The fine README's pre-registered rule, computed on the raw values; it agrees with
+    ``tests/_readme_guards.overlap_cell`` by test.
+    """
+    ends = [r.get(k) if r else None for r in (coarse, fine) for k in ("min", "max")]
+    if any(e is None for e in ends):
+        return "n/a"
+    lo_c, hi_c, lo_f, hi_f = ends
+    return "yes" if max(lo_c, lo_f) <= min(hi_c, hi_f) else "no"
+
+
+def build_skill_ranges_caption(*, n_seeds: int, primary_seed: int, n_beats: int) -> str:
+    """The ``skill_ranges`` caption (pure)."""
+    return (
+        f"Skill (1 − MSE/MSE₀) over the phase-only baseline, {n_seeds} seeds per grid "
+        f"(markers; the diamond is seed {primary_seed}); bars show the observed spread, not a "
+        f"confidence interval. Rule: {RULE_SENTENCE.format(n=n_seeds)}. Note that "
+        f"{OWN_BASELINE_PHRASE}, so this is not a measurement of the effect of grid resolution "
+        f"on its own. {_shared_caption(n_beats)}"
+    )
+
+
+def _skill_ranges_metrics(coarse: Corpus, fine: Corpus, n_beats: int) -> dict[str, Any]:
+    runs = {c.name: c.metrics["seed_sweep"]["runs"] for c in (coarse, fine)}
+    seeds = [r["seed"] for r in runs["coarse"]]
+    primary = coarse.metrics["seed_sweep"]["primary_seed"]
+    targets: dict[str, Any] = {}
+    notes: dict[str, str] = {}
+    for c in TARGET_COLUMNS:
+        entry: dict[str, Any] = {}
+        for corpus in (coarse, fine):
+            values = [r["per_target"][c]["skill"] for r in runs[corpus.name]]
+            values = [None if _is_null(v) else v for v in values]
+            rng = corpus.metrics["seed_sweep"]["range"][c]["skill"]
+            entry[corpus.name] = {
+                "seeds": seeds,
+                "values": values,
+                "range": rng,
+                "markers": sum(v is not None for v in values),
+                "bar": [rng["min"], rng["max"]] if rng else None,
+                "na": rng is None,
+            }
+        entry["overlap"] = ranges_overlap(
+            entry["coarse"]["range"], entry["fine"]["range"]
+        )
+        if entry["overlap"] == "no":
+            notes[c] = DISJOINT_NOTE.format(n=len(seeds))
+        targets[c] = entry
+    return {
+        "figure": "skill_ranges",
+        "seeds": seeds,
+        "primary_seed": primary,
+        "n_beats": n_beats,
+        "labels": [TARGET_LABELS[c] for c in TARGET_COLUMNS],
+        "targets": targets,
+        "notes": notes,
+        "caption": build_skill_ranges_caption(
+            n_seeds=len(seeds), primary_seed=primary, n_beats=n_beats
+        ),
+    }
+
+
+def compute_skill_ranges_metrics(
+    *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
+) -> dict[str, Any]:
+    """The ``skill_ranges`` sidecar recomputed from the inputs (pure; no rendering)."""
+    coarse = _load_corpus(root, coarse_dir, "coarse")
+    fine = _load_corpus(root, fine_dir, "fine")
+    return _skill_ranges_metrics(coarse, fine, _check_pair(coarse, fine))
+
+
+def _draw_skill_ranges(m: dict[str, Any]) -> Any:
+    fig, ax = plt.subplots(figsize=(10.0, 6.6))
+    try:
+        n_t = len(TARGET_COLUMNS)
+        side = blended_transform_factory(ax.transAxes, ax.transData)
+        for i, c in enumerate(TARGET_COLUMNS):
+            y0 = n_t - 1 - i
+            for corpus, dy in (("coarse", 0.17), ("fine", -0.17)):
+                e = m["targets"][c][corpus]
+                y = y0 + dy
+                color = _COLORS[corpus]
+                if e["bar"] is None:
+                    ax.text(0.01, y, "n/a", transform=side, va="center", fontsize=8)
+                else:
+                    ax.plot(
+                        e["bar"],
+                        [y, y],
+                        color=color,
+                        lw=7,
+                        alpha=0.3,
+                        solid_capstyle="butt",
+                    )
+                for k, v in enumerate(e["values"]):
+                    if v is None:
+                        continue
+                    ax.plot(
+                        [v],
+                        [y],
+                        ls="none",
+                        color=color,
+                        marker="D" if k == 0 else "o",
+                        ms=7 if k == 0 else 4.5,
+                        mec="black" if k == 0 else color,
+                        mew=0.8,
+                    )
+            if c in m["notes"]:
+                ax.text(
+                    1.02,
+                    y0,
+                    textwrap.fill(m["notes"][c], 30),
+                    transform=side,
+                    va="center",
+                    fontsize=7,
+                    color="0.25",
+                )
+        ax.set_yticks([n_t - 1 - i for i in range(n_t)], m["labels"], fontsize=9)
+        ax.set_ylim(-0.6, n_t - 0.4)
+        ax.grid(axis="x", color="0.9")
+        ax.set_xlabel("skill over the phase-only baseline (1 − MSE/MSE₀)", fontsize=9)
+        n = len(m["seeds"])
+        ax.set_title(
+            f"Coarse vs fine: skill over each corpus's own baseline, {n} seeds per grid",
+            fontsize=10,
+        )
+        handles = [
+            Line2D(
+                [], [], color=_COLORS["coarse"], lw=6, alpha=0.4, label="coarse grid"
+            ),
+            Line2D([], [], color=_COLORS["fine"], lw=6, alpha=0.4, label="fine grid"),
+            Line2D(
+                [],
+                [],
+                ls="none",
+                marker="D",
+                color="0.4",
+                mec="black",
+                label=f"seed {m['primary_seed']}",
+            ),
+            Line2D([], [], ls="none", marker="o", color="0.4", label="other seeds"),
+        ]
+        ax.legend(
+            handles=handles,
+            loc="lower left",
+            fontsize=8,
+            frameon=False,
+            bbox_to_anchor=(0.0, 1.06),
+            ncol=4,
+        )
+        fig.text(
+            0.01,
+            0.01,
+            textwrap.fill(m["caption"], _CAPTION_WIDTH),
+            fontsize=7,
+            va="bottom",
+            ha="left",
+        )
+        fig.subplots_adjust(left=0.26, right=0.76, bottom=0.21, top=0.86)
+    except BaseException:
+        plt.close(fig)
+        raise
+    return fig
+
+
 def build_skill_ranges(
     *,
     root: str | Path,
@@ -886,9 +1102,34 @@ def build_skill_ranges(
     docker_image_digest: str,
     timestamp: str,
 ) -> dict[str, Any]:
-    """Stub until section 4 (validates inputs only)."""
-    _prepare(root, coarse_dir, fine_dir, docker_image_digest)
-    raise NotImplementedError("skill_ranges")
+    """Render ``skill_ranges``: per target, both grids' per-seed skill and their min–max.
+
+    The only coarse-vs-fine comparison figure. Values are read verbatim from each corpus's
+    ``seed_sweep``; a disjoint pair (the pre-registered rule) gets a generic in-axes note and no
+    direction is stated anywhere.
+
+    Returns:
+        The ``skill_ranges_metrics.json`` payload.
+
+    Raises:
+        ValueError: If the digest is mutable or any shared input guard fails (nothing written).
+    """
+    root, coarse, fine, n_beats = _prepare(
+        root, coarse_dir, fine_dir, docker_image_digest
+    )
+    metrics = _skill_ranges_metrics(coarse, fine, n_beats)
+    metadata = _provenance(
+        root=root,
+        coarse=coarse,
+        fine=fine,
+        docker_image_digest=docker_image_digest,
+        timestamp=timestamp,
+        figure="skill_ranges",
+    )
+    _write_outputs(
+        out_dir, "skill_ranges", _draw_skill_ranges(metrics), metrics, metadata
+    )
+    return metrics
 
 
 def build_error_histograms(

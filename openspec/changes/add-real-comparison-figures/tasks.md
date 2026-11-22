@@ -155,7 +155,7 @@ This section is additive; the old builders stay until 7.
 
 ## 4. `skill_ranges` and the shared constants
 
-- [ ] 4.1 **Tests first.**
+- [x] 4.1 **Tests first.**
   - **Values.**
     - Per-seed values come from `runs[i].per_target.<c>.skill`, in seed order.
     - None equals an `r2`, `rmse`, `config_mean_r2`, `phase_baseline_r2` or `phase_baseline_rmse`.
@@ -180,11 +180,11 @@ This section is additive; the old builders stay until 7.
     here so the constants are final before any render.
   - **End-to-end.** The real builder writes three files with full provenance, and
     `compute_skill_ranges_metrics` equals the builder's sidecar.
-- [ ] 4.2 Implement:
+- [x] 4.2 Implement:
   - `compute_skill_ranges_metrics`, `build_skill_ranges_caption` and `build_skill_ranges`;
   - the shared caption pieces;
   - `TARGET_LABELS`, `RULE_SENTENCE`, `OWN_BASELINE_PHRASE` and `FORBIDDEN_WORDS`.
-- [ ] 4.3 Commit: `feat(force-surrogate): skill_ranges figure (advances #114)`.
+- [x] 4.3 Commit: `feat(force-surrogate): skill_ranges figure (advances #114)`.
 
 ## 5. `error_histograms`
 
