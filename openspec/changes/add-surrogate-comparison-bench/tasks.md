@@ -160,7 +160,7 @@
 
 ### 4b. Ridge selection and diagnostics
 
-- [ ] 4b.1 **Tests first**:
+- [x] 4b.1 **Tests first**:
   - the selection scenarios: fold errors (including the relative fragile and non-fragile cases and
     `threshold = 0`); the one-SE rule with its tie-breaks; CV blind to test rows; ranks and fold
     ranks;
@@ -171,7 +171,7 @@
     - a synthetic summary with `selection_fragile: true` refits at the committed point under
       `pytest.warns`;
     - on a non-fragile summary the discrete outputs must match exactly, and a mismatch raises.
-- [ ] 4b.2 Implement selection and `recheck_split`. Mutation-test; each must be killed:
+- [x] 4b.2 Implement selection and `recheck_split`. Mutation-test; each must be killed:
   - CV including test configurations;
   - SST about the global mean instead of the configuration mean;
   - a mean of per-configuration ratios instead of `ΣSSE/ΣSST`;
@@ -182,7 +182,7 @@
   - a NaN fold error skipped instead of raised;
   - a reordered tie-break;
   - the warning dropped.
-- [ ] 4b.3 Shipped-artifact check. Commit: `feat(surrogate-bench): ridge selection and diagnostics`.
+- [x] 4b.3 Shipped-artifact check. Commit: `feat(surrogate-bench): ridge selection and diagnostics`.
 
 ### 5. Metrics
 
