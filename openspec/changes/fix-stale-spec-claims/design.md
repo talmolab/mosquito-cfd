@@ -369,3 +369,45 @@ The last two cannot go red on today's text. They guard against a regression, and
   Rejected. It couples two independent sessions for one parenthetical (D2).
 - **Raise on any two-change overlap.** Rejected. It would turn main red for sessions unrelated to
   this guard (D3).
+
+## Implementation deviations (task 9.4)
+
+The implementation was checked against D1–D7. Everything named there is implemented as written,
+with the exceptions below.
+
+### Why compute the gate test's ratio from the override, not via `settled_beat_symmetry_ratios`?
+
+D6 said the new gate test would assert `0 < settled_beat_symmetry_ratios(...) < tolerance`. That
+function takes a built dataset frame, but `_make_corpus` writes raw CSVs and runs the gate's own
+extraction internally. Building the frame separately would duplicate the gate's extraction path in
+the test. The test instead computes `|mean|/max|·|` directly on the settled-beat `Fx` override.
+`_write_csv`'s docstring documents that the ratio is scale-invariant in `Fx`, because `f_ref` is
+fixed for the corpus. The gate's own result then confirms the precondition: exactly one failure,
+the CFL one, and no symmetry failure.
+
+### Why a pytest plugin object rather than a scratch `conftest.py` for the red record?
+
+D7 and task 3.3 said to use a scratch `conftest.py`. A conftest is picked up from the rootdir or
+test path, so using one would mean writing it inside the worktree. A plugin object passed to
+`pytest.main(plugins=[...])` from a scratchpad script does the same monkeypatch
+(`_spec_claims.CHANGES_DIR` → an empty temp dir) and touches no repository file. Commit
+`aa2732f` records the command and its result (11 failed, 1 passed).
+
+### Why move the anchor checks into helpers (an addition)?
+
+Mutation testing (9.1) showed that the spec and code anchor asserts, the raw-name check and the
+CRLF check could not fail on clean data. They now live in `_scan_spec`, `_code_prose_hits` and
+`_retired_test_names`, and unit tests feed those helpers empty or unrelated text. The CRLF test
+checks block bodies as well as names (`988ea70`).
+
+### Why are two mutants left alive?
+
+They are equivalent under the real layout, and the checks are kept as defensive intent:
+
+- `archive/` not skipped: archived changes live at `changes/archive/<dated>/specs/…`, so
+  `changes/archive/specs/<cap>/spec.md` never exists.
+- non-directory entries not skipped: `<file>/specs/<cap>/spec.md` is never a file.
+
+The 16 "pattern dropped" mutants were run as "pattern made unmatchable" (the key kept, so the
+set-equality bookkeeping cannot kill them). Each is killed by
+`test_retired_patterns_match_their_examples`, which checks behaviour.

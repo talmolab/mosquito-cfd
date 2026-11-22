@@ -33,14 +33,14 @@
 
 ## 1. Fixture module — commit B: `test(evidence-figure): move the toy fixture to a shared module` (green)
 
-- [ ] 1.1 Create `tests/_evidence_fixture.py` (D6) and import it in
+- [x] 1.1 Create `tests/_evidence_fixture.py` (D6) and import it in
       `test_force_surrogate_evidence_figure.py`. Replace every `rows_per_wingbeat=2000` there that
       means the fixture's rows (lines 387-388, 403-404, 443, 1343, 1378, 1380, 1402-1406).
       Behaviour-preserving: record that file's test count and results before and after.
 
 ## 2. Effective-spec helper — commit C: `test(specs): effective-spec builder, tokenizer and formatter` (green)
 
-- [ ] 2.1 Unit tests first in `tests/test_live_spec_claims.py`, all synthetic (`tmp_path` or
+- [x] 2.1 Unit tests first in `tests/test_live_spec_claims.py`, all synthetic (`tmp_path` or
       strings), covering every case listed in `design.md` D3 and D4:
       - `requirement_blocks` (CRLF, unknown `## ` section);
       - `effective_spec` / `effective_text` / `effective_block` (replace/drop/append, `archive/`,
@@ -50,14 +50,14 @@
       - `format_like` (D4 cases plus `(3.0607e-4, "3.06e-4")` and `(2.5, "2")`).
 
       **Red:** import error (module absent). Record it.
-- [ ] 2.2 Implement `tests/_spec_claims.py` (D3, D4: `requirement_blocks`, `effective_spec`,
+- [x] 2.2 Implement `tests/_spec_claims.py` (D3, D4: `requirement_blocks`, `effective_spec`,
       `effective_text`, `effective_block`, `number_tokens`, `format_like`, `check_block`,
       `retired_hits`), with UTF-8 reads throughout. 2.1 goes green.
 
 ## 3. Spec guard — commit D: `test(specs): guard live-spec claims against committed data (advances #115)` (green)
 
-- [ ] 3.1 Add the four stale fixtures (D7), then `git ls-files` them.
-- [ ] 3.2 Write `RETIRED`, `RETIRED_EXAMPLES` (one list per pattern, as string literals), `MUST_PASS`,
+- [x] 3.1 Add the four stale fixtures (D7), then `git ls-files` them.
+- [x] 3.2 Write `RETIRED`, `RETIRED_EXAMPLES` (one list per pattern, as string literals), `MUST_PASS`,
       `GUARDED` and `REGISTRY`, then the tests:
       - `test_retired_patterns_match_their_examples`: `set(RETIRED_EXAMPLES) == set(RETIRED)`. Every
         example matches its pattern; code examples are checked through `normalize(python_prose())`.
@@ -71,7 +71,7 @@
         with "update GUARDED/REGISTRY".
       - The synthetic must-fail tests in D7 (including the superscript case), plus one where a
         registered number is duplicated in the text.
-- [ ] 3.3 **Red record.** Run a scratch `conftest.py` (quoted in the commit message) that
+- [x] 3.3 **Red record.** Run a scratch `conftest.py` (quoted in the commit message) that
       monkeypatches `_spec_claims.CHANGES_DIR` to an empty `tmp_path`, so the effective text is the
       `c87e39c` live spec. Expected:
       - `test_no_retired_claim_in_live_specs` fails for both capabilities;
@@ -83,33 +83,33 @@
 
 ## 4. Code prose — commit E1: `docs(force-surrogate): docstrings no longer equate parallelism with batch size or call config_mean_r2 central (advances #115)` (green)
 
-- [ ] 4.1 Test first: `test_no_retired_claim_in_code_prose` for `evidence_figure.py` and
+- [x] 4.1 Test first: `test_no_retired_claim_in_code_prose` for `evidence_figure.py` and
       `train.py` (anchors, `retired_hits` on `python_prose`). **Red:** both files. Record.
-- [ ] 4.2 Fix the `compute_speedup` and `compute_config_resolved` docstrings, and the
+- [x] 4.2 Fix the `compute_speedup` and `compute_config_resolved` docstrings, and the
       `SYMMETRY_RATIO_TOLERANCE` comment (D2 magnitudes, "materially-truncated", the 6 other
       affected configs).
       Green.
 
 ## 5. Kinematics — commit E2: `test(kinematics): call t = T/4 stroke reversal and pin the mid-stroke span-tip (advances #115)` (green)
 
-- [ ] 5.1 Test first: extend `test_no_retired_claim_in_code_prose` to `tests/test_wing_kinematics.py`
+- [x] 5.1 Test first: extend `test_no_retired_claim_in_code_prose` to `tests/test_wing_kinematics.py`
       (prose and raw names), and add `test_renamed_reversal_test_exists` (ast). **Red:** both.
       Record.
-- [ ] 5.2 Rename the Euler-angle test and fix its docstring (D6). Green.
-- [ ] 5.3 Add `test_old_span_tip_is_off_axis_at_mid_stroke` (full vectors, D6). It is green on first
+- [x] 5.2 Rename the Euler-angle test and fix its docstring (D6). Green.
+- [x] 5.3 Add `test_old_span_tip_is_off_axis_at_mid_stroke` (full vectors, D6). It is green on first
       run. Record that it fails under the mutant that swaps `rotation_matrix` and
       `rotation_matrix_legacy` in that test, and that the distance-only assertion survives that
       mutant.
 
 ## 6. #170 test — commit F: `test(force-surrogate): rescale the committed holdout new→old (advances #170)` (green)
 
-- [ ] 6.1 Change only the RMSE assertion to `rmse_old == pytest.approx(rmse_committed / _K,
+- [x] 6.1 Change only the RMSE assertion to `rmse_old == pytest.approx(rmse_committed / _K,
       rel=1e-9, abs=0)` while the scaling is still `* _K`. **Red:** both parametrizations, off by
       `k²`. Record.
-- [ ] 6.2 Test first: `test_committed_holdout_over_k_is_on_the_peak_tip_reference` (D1). Record that
+- [x] 6.2 Test first: `test_committed_holdout_over_k_is_on_the_peak_tip_reference` (D1). Record that
       it is green, and that it fails under the mutant that divides `f_ref(R_GYRATION)` instead of
       `f_ref(R_TIP)`.
-- [ ] 6.3 Make the D1 edits:
+- [x] 6.3 Make the D1 edits:
       - rescale by `/ _K`;
       - add the MAE assertion;
       - rename the locals;
@@ -122,17 +122,17 @@
 
 ## 7. Speedup and gate tests — commit G: `test(force-surrogate): parallelism is measured, not N; an in-tolerance CFL-limited config fails the gate (advances #115)` (green)
 
-- [ ] 7.1 Probe first: build the 7.3 corpus and confirm its precondition holds, before opening the
+- [x] 7.1 Probe first: build the 7.3 corpus and confirm its precondition holds, before opening the
       commit.
-- [ ] 7.2 Add the `parallelism_factor != batch_size` assertion. Green on first run; it kills no new
+- [x] 7.2 Add the `parallelism_factor != batch_size` assertion. Green on first run; it kills no new
       mutant (D6). Record that.
-- [ ] 7.3 Add `test_cfl_limited_config_with_nonzero_in_tolerance_ratio_fails` (D6). Green on first
+- [x] 7.3 Add `test_cfl_limited_config_with_nonzero_in_tolerance_ratio_fails` (D6). Green on first
       run. Record that it fails under the mutant that drops `realized.get('min')`. If the
       precondition cannot be met, that is a finding: stop and report rather than change `src/`.
 
 ## 8. Docs — commit H: `docs(changelog): stale spec claims and the live-spec guard (advances #170, advances #115)` (green)
 
-- [ ] 8.1 `docs/CHANGELOG.md` [Unreleased], nested bullets in the existing style:
+- [x] 8.1 `docs/CHANGELOG.md` [Unreleased], nested bullets in the existing style:
       - Changed: the force-surrogate and flapping-wing-validation specs no longer state corpus
         results (speedups, ratios, run figures); the numbers that remain in the modified
         requirements are guarded.
@@ -146,7 +146,7 @@
 
 ## 9. Verification
 
-- [ ] 9.1 Mutation testing (D7 runner). Each mutant must turn at least one named test red:
+- [x] 9.1 Mutation testing (D7 runner). Each mutant must turn at least one named test red:
       - **effective-spec:**
         - deltas ignored;
         - MODIFIED appends instead of replacing;
@@ -188,9 +188,9 @@
       - **Gate:** `realized.get('min')` dropped.
 
       Record mutant → killing test in the PR body; kill or justify survivors.
-- [ ] 9.2 `uv run ruff check . && uv run ruff format --check .`; `uv run pytest -v -m "not gpu"`.
-- [ ] 9.3 Archive dry-run in a throwaway worktree at the branch head (D7), then remove the worktree.
-- [ ] 9.4 Re-read the proposal, design, deltas and tasks against the implementation (new-feature
+- [x] 9.2 `uv run ruff check . && uv run ruff format --check .`; `uv run pytest -v -m "not gpu"`.
+- [x] 9.3 Archive dry-run in a throwaway worktree at the branch head (D7), then remove the worktree.
+- [x] 9.4 Re-read the proposal, design, deltas and tasks against the implementation (new-feature
       step 9). Record any deviation as `### Why N instead of M?` in `design.md`, in its own commit
       (`docs(openspec): record implementation deviations`).
 - [ ] 9.5 `/review-pr`; adversarial re-review of every fix commit; `/pre-merge-check`.
