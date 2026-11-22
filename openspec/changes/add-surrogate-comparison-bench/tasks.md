@@ -99,11 +99,11 @@
 
 ### 2. Explicit baseline reference
 
-- [ ] 2.1 **Tests first** (`tests/test_force_surrogate_phase_baseline.py`): the explicit-list and
+- [x] 2.1 **Tests first** (`tests/test_force_surrogate_phase_baseline.py`): the explicit-list and
   explicit-interpolation scenarios, including unsorted, duplicated, empty and unknown lists.
-- [ ] 2.2 Implement. Mutation-test: each guard; an explicit list still ANDed with
+- [x] 2.2 Implement. Mutation-test: each guard; an explicit list still ANDed with
   `split == "train"`; the list not sorted.
-- [ ] 2.3 Shipped-artifact check. Commit:
+- [x] 2.3 Shipped-artifact check. Commit:
   `feat(force-surrogate): explicit phase-baseline reference configs`.
 
 ### 3a. Shared validation carve

@@ -291,3 +291,105 @@ def test_build_metrics_without_a_phase_baseline_omits_the_block():
         "inference",
         "reproducibility",
     }
+
+
+# --- add-surrogate-comparison-bench (2): an explicit reference list ---------------------
+# Scenarios "An explicit reference list overrides the split column" (force-surrogate spec) and
+# "The explicit interpolation baseline is the shipped baseline" (surrogate-comparison-bench).
+
+FINE_DATASET = (
+    __import__("pathlib").Path(__file__).resolve().parents[1]
+    / "examples"
+    / "prelim_sweep_fine"
+    / "dataset.parquet"
+)
+
+
+def _toy_mixed_frame():
+    """The frame whose no-list output was frozen at e600581 (values below)."""
+    p, p2 = np.arange(5) / 5, np.arange(7) / 7
+    return _frame(
+        _beat("t0", p, np.sin(2 * np.pi * p)),
+        _beat("t1", p2, 1 + np.cos(2 * np.pi * p2)),
+        _beat("t1", p, 0.3 * p, wingbeat=2),
+        _beat("h0", p, 5 + p, split="holdout"),
+        _beat("t2", p, 0.7, wingbeat=0),
+    )
+
+
+_TOY_QUERY = np.array([0.0, 0.13, 0.5, 0.91, 0.999])
+_FROZEN_NO_LIST = [
+    float.fromhex(h)
+    for h in (
+        "0x1.0000000000000p-1",
+        "0x1.7764535316f0ap-1",
+        "0x1.fe0408c05c179p-5",
+        "0x1.03cd0f3f0a7fep-2",
+        "0x1.fd32a24d801ddp-2",
+    )
+]
+
+
+def test_the_no_list_call_is_bitwise_the_pre_change_output():
+    pred, definition = build_phase_only_baseline(
+        _toy_mixed_frame(), _TOY_QUERY, ["CF_x"]
+    )
+    assert pred[:, 0].tolist() == _FROZEN_NO_LIST
+    assert definition["reference_split"] == "train"
+    assert definition["reference_configs"] == ["t0", "t1"]
+
+
+def test_an_explicit_list_overrides_the_split_column():
+    """A list with a holdout and without two train configs is used exactly, equal-weighted."""
+    p = np.arange(4) / 4
+    df = _frame(
+        _beat("t0", p, 1.0),
+        _beat("t1", p, 2.0),
+        _beat("t2", p, 4.0),
+        _beat("h0", p, 10.0, split="holdout"),
+    )
+    q = np.array([0.1, 0.6])
+    pred, definition = build_phase_only_baseline(
+        df, q, ["CF_x"], reference_configs=["h0", "t2"]
+    )
+    np.testing.assert_allclose(pred[:, 0], 7.0, rtol=0, atol=1e-12)
+    assert definition["reference_split"] == "explicit"
+    assert definition["reference_configs"] == ["h0", "t2"]
+
+
+def test_an_unsorted_explicit_list_gives_the_same_output():
+    df = _toy_mixed_frame()
+    a, da = build_phase_only_baseline(
+        df, _TOY_QUERY, ["CF_x"], reference_configs=["t1", "t0"]
+    )
+    b, db = build_phase_only_baseline(
+        df, _TOY_QUERY, ["CF_x"], reference_configs=["t0", "t1"]
+    )
+    assert a.tobytes() == b.tobytes() and da == db
+
+
+@pytest.mark.parametrize(
+    ("configs", "match"),
+    [
+        ([], "empty"),
+        (["t0", "zz_missing"], "zz_missing"),
+        (["t0", "t0"], "t0"),
+    ],
+)
+def test_a_malformed_explicit_list_is_rejected(configs, match):
+    with pytest.raises(ValueError, match=match):
+        build_phase_only_baseline(
+            _toy_mixed_frame(), _TOY_QUERY, ["CF_x"], reference_configs=configs
+        )
+
+
+def test_the_explicit_pool_on_the_fine_corpus_is_the_shipped_baseline():
+    df = pd.read_parquet(FINE_DATASET)
+    pool = sorted(df.loc[df["split"] == "train", "config_name"].unique())
+    q = np.sort(df.loc[df["split"] == "holdout", "phase"].to_numpy())
+    shipped, d0 = build_phase_only_baseline(df, q)
+    for listed in (pool, list(reversed(pool))):
+        explicit, d1 = build_phase_only_baseline(df, q, reference_configs=listed)
+        assert explicit.tobytes() == shipped.tobytes()
+        assert d1["reference_configs"] == d0["reference_configs"]
+        assert d1["reference_split"] == "explicit"

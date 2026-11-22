@@ -665,6 +665,7 @@ def build_phase_only_baseline(
     df: pd.DataFrame,
     query_phase: NDArray[np.floating],
     target_names: list[str] | None = None,
+    reference_configs: Sequence[str] | None = None,
 ) -> tuple[NDArray[np.floating], dict[str, Any]]:
     """Phase-only baseline: the mean training waveform, ignoring the kinematics (design D2).
 
@@ -680,20 +681,42 @@ def build_phase_only_baseline(
             target columns.
         query_phase: ``(n,)`` phases in ``[0, 1)`` to evaluate the baseline at.
         target_names: Target columns (defaults to :data:`TARGET_COLUMNS`).
+        reference_configs: An explicit list of reference configurations, used instead of the
+            ``split == "train"`` set (the definition then records ``reference_split:
+            "explicit"``). Every name must be in ``df`` and appear once. Without it the result
+            is bitwise the pre-option baseline.
 
     Returns:
         ``(predictions, definition)``: an ``(n, n_targets)`` array, and the ``phase_baseline``
         definition block recorded in ``metrics.json``.
 
     Raises:
-        ValueError: If there is no reference configuration, a beat has fewer than 2 rows or a
+        ValueError: If an explicit list is empty, repeats a name or names a configuration
+            absent from ``df``; if there is no reference configuration, a beat has fewer than 2 rows or a
             duplicate phase, a reference value is non-finite, or a reference or query phase is
             non-finite or outside ``[0, 1)``.
     """
     names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
     query = np.asarray(query_phase, dtype=float)
     _check_phase(query, "query")
-    ref = df[(df["split"] == "train") & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
+    if reference_configs is None:
+        reference_split = "train"
+        chosen = df["split"] == "train"
+    else:
+        listed = [str(c) for c in reference_configs]
+        if not listed:
+            raise ValueError("reference_configs is empty")
+        repeated = sorted({c for c in listed if listed.count(c) > 1})
+        if repeated:
+            raise ValueError(f"reference_configs repeats {repeated}")
+        absent = sorted(set(listed) - set(df["config_name"].astype(str).unique()))
+        if absent:
+            raise ValueError(
+                f"reference_configs names configuration(s) absent: {absent}"
+            )
+        reference_split = "explicit"
+        chosen = df["config_name"].astype(str).isin(listed)
+    ref = df[chosen & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
     configs = sorted(ref["config_name"].unique())
     if not configs:
         raise ValueError(
@@ -725,7 +748,7 @@ def build_phase_only_baseline(
         total += config_sum / len(beats)
     definition = {
         "kind": "phase_only_periodic_interpolation",
-        "reference_split": "train",
+        "reference_split": reference_split,
         "reference_configs": [str(c) for c in configs],
         "weighting": "equal_per_config_then_beat",
         "converged_min_wingbeat": CONVERGED_MIN_WINGBEAT,
