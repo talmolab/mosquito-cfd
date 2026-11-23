@@ -12,6 +12,7 @@ magnitudes, not code to copy**. This table is the one place in this change the e
 |---|---|---|
 | MLP, shipped inputs, holdout skill (median of 5 seeds) | 0.9870 (0.9861–0.9914) | `mlp_h1` / `interpolation` must reproduce the shipped `metrics.json` exactly (D7) |
 | MLP, 3 harmonics | 0.9950 (0.9929–0.9958) | Expected magnitude for `mlp_h3`; holdout-informed, so optimistic where holdouts are tested (D6) |
+| MLP, width 256, depth 5, one harmonic (E4 arm `width256_depth5`) | 0.9968 (0.9951–0.9972) | Expected magnitude for `mlp_w256d5` on `interpolation`, which repeats E4's data, seeds and carve; holdout-informed (D8). About 29 s a fit |
 | Ridge, H 16, d 3, α 1e-6 | 0.99914 | Re-run as `ridge_fixed` on every split (D3) |
 | Ridge, E4 18-config subset seed 0 | 0.4059 | Re-tested by `control:e4_seed0` (D2) |
 | E1 worst-seed body-frame normal peak error | 3.18 % at `s45_f100_p60` vs GCI 3.7 % | Expected magnitude for the gate |
@@ -29,7 +30,7 @@ The exploration code had defects this design removes (from a read-only audit of 
 
 ## Decisions
 
-### D0 — Two PRs, one OpenSpec change
+### D0 — Three PRs, one OpenSpec change
 
 - **PR 1 (code)**, branch `add-surrogate-comparison-bench`, contains:
   - the proposal;
@@ -42,12 +43,17 @@ The exploration code had defects this design removes (from a read-only audit of 
   - The branch is rebased on `origin/main` before any code is written, while only the proposal
     exists. It is rebased again once PR #171 has merged, which must happen before PR 1 opens; the
     full suite and the shipped-artifact check are then re-run.
-  - `proposal.md` and `tasks.md` carry a banner: "PR 1 of 2 — archive only after PR 2 merges".
+  - `proposal.md` and `tasks.md` carry a banner saying the change is archived only after PR 2
+    merges.
   After it merges, `/cleanup-merged` deletes the branch
   but **does not archive the change**. The PR 1 description and the session handoff memory both say
   so.
+- **PR 1b (larger-MLP entries, #195)**, branch `add-bench-larger-mlp-entries`, merges before
+  PR 2's runs (D8). It is separate because PR 2 runs the bench from `main` before any commit on its
+  own branch, so the runner change must already be on `main`. After it merges, `/cleanup-merged`
+  deletes the branch but **does not archive the change**.
 - **PR 2 (results)**, branch `add-surrogate-comparison-bench-results`:
-  - `git fetch`, then create the branch from `origin/main` after PR 1 merges. Record that commit,
+  - `git fetch`, then create the branch from `origin/main` after PR 1b merges. Record that commit,
     `M`, in the PR body.
   - Run the bench and the two h3 trainings **before any commit on that branch**, from the clean tree
     at `M`, into scratch directories outside the repository. The recorded commit is therefore on
@@ -291,8 +297,8 @@ produced by the existing scripts with `--phase-harmonics 3` and new `--out-dir` 
 twice-run gate. The figure generator needs no change: it already takes `--out-dir` and does not depend
 on the feature count.
 
-The holdout status of every entry (`holdout_informed` and its reason) is defined in the spec: `mlp_h3`,
-`ridge_fixed` and, weakly, `ridge` are holdout-informed; `mlp_h1` is unverified. Holdout-informed
+The holdout status of every entry (`holdout_informed` and its reason) is defined in the spec: every
+entry but `mlp_h1` is holdout-informed, and `mlp_h1` is unverified. Holdout-informed
 entries are optimistic wherever a split's test set contains labelled holdouts, which is
 `interpolation`, the controls and 5 of the 6 faces. The summary therefore reports face metrics
 without those configurations, and a like-for-like view of the face models and the controls on them.
@@ -358,6 +364,54 @@ The test compares the two committed `run_metadata.json` files, so a bench record
 before the run. The shipped
 record has no numpy version or `CUBLAS_WORKSPACE_CONFIG`, so those cannot be asserted; the bench
 records both for next time. MLP rows are not otherwise recomputed in CI.
+
+### D8 — Larger-MLP entries separate model size from the phase input (#195)
+
+Added by PR 1b, between PR 1 and PR 2. The entries are defined in the spec; this section records why
+and what the result can and cannot show.
+
+- **A 2 × 2, not one extra entry.** `mlp_w256d5` alone shows whether size matches the gain of
+  three harmonics. `mlp_w256d5_h3` shows whether harmonics still help once the network is large.
+- **Only two arguments differ.** The larger entries pass `hidden = 256` and `num_layers = 5` to
+  `fit_seed`; the learning rate, epochs, optimiser, validation carve and best-validation restore are
+  the shipped ones. The network is therefore not tuned. E4 trained this configuration at these
+  settings and it was the best of its size arms, so untuned does not mean handicapped on
+  interpolation. A tuned learning rate would be a new entry, not a change to this one.
+- **One table.** The runner keeps each MLP entry's `hidden`, `num_layers`, `lr` and
+  `phase_harmonics` in one mapping, `MLP_ENTRIES`. `fit_seed` receives its values and
+  `run_metadata.json` records them, so what was run and what is recorded cannot differ.
+- **Order.** Entries run one after another, each over all its splits, and every fit reseeds. The
+  larger entries start after every `mlp_h1` and `mlp_h3` fit has finished, so they cannot change
+  those rows. The CPU tier pins the order, the arguments and the row labels with the recorder.
+  D7's exact `mlp_h1` regression is unaffected by construction; it is not a test of this, and
+  nothing on the GPU checks `mlp_h3`'s rows.
+- **What E4 showed** (per-seed mean skill over the 6 targets, seeds 1234–1238):
+
+  | Arm | Per seed | Range |
+  |---|---|---|
+  | shipped (64 × 3, one harmonic) | 0.9861, 0.9914, 0.9896, 0.9870, 0.9864 | 0.9861–0.9914 |
+  | three harmonics | 0.9929, 0.9942, 0.9950, 0.9955, 0.9958 | 0.9929–0.9958 |
+  | width 256, depth 5 | 0.9951, 0.9972, 0.9968, 0.9968, 0.9969 | 0.9951–0.9972 |
+
+  The shipped MLP's range lies below both others. Three harmonics and the larger network overlap as
+  ranges, although the larger network scored higher on each of the 5 seeds.
+- **Paired reading.** The four MLP entries share each seed's validation carve, so per-seed
+  differences are paired in the carve (not in the initial weights, which differ with shape). Any
+  statement that one cell of the 2 × 2 beats another cites the 5 per-seed differences from
+  `per_seed_skill`, not only overlapping ranges.
+- **Where the comparison is unselected.** Width 256 at depth 5 was the best of E4's size arms and
+  three harmonics the best of its harmonic arms, both chosen on the 6 labelled holdouts.
+  `mlp_w256d5` on `interpolation` repeats E4 (same data, seeds, carve and trainer), so it is not new
+  evidence, and the controls test the same holdouts. The size-versus-phase-input question is
+  answered from the face metrics without holdouts, including `face:pitch_amp_deg=30`.
+- **What the 2 × 2 cannot show.** It does not separate width from depth (about 29 times the
+  parameters, at one point). The interaction (the gain from harmonics at the large size minus that
+  at the shipped size) is reported descriptively, not tested: 5 seeds cannot resolve a contrast
+  smaller than the seed range, about 0.003 in skill.
+- **Extrapolation.** A larger network may interpolate better and extrapolate worse. The face splits
+  score every entry on the same test configurations, so no new metric is needed. A drop from
+  `interpolation` to a face is compared across entries on `rmse_frac_component_peak`, never on
+  skill, which is not compared across splits.
 
 ## Risks
 

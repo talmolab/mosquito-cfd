@@ -1,6 +1,7 @@
 # Add a surrogate comparison bench (F3a)
 
-> **PR 1 of 2 — archive this change only after PR 2 merges.**
+> **Delivered as PR 1 (#188, merged `e1e6105`), PR 1b (larger-MLP entries, #195) and PR 2
+> (results). Archive this change only after PR 2 merges.**
 
 ## Why
 
@@ -20,7 +21,8 @@ yardstick for this corpus.
     data (test difficulty still differs; design D2); and the exploration's E4 subset, on which
     its ridge collapsed.
   - Entries: `mlp_h1` (the shipped recipe) and `mlp_h3` (3 phase harmonics), each over seeds
-    1234–1238, and a `ridge` reference rebuilt from first principles (design D3). The ridge uses
+    1234–1238; `mlp_w256d5` and `mlp_w256d5_h3`, the same two at width 256 and depth 5 (#195, the
+    amendment below); and a `ridge` reference rebuilt from first principles (design D3). The ridge uses
     per-configuration Fourier coefficients, a polynomial basis capped at what each setting's distinct
     values can identify, an unpenalised intercept and a least-squares solve. `(H, d, α)` is chosen by
     leave-one-configuration-out CV inside each split, on the grid fixed in design D3, by the
@@ -57,7 +59,8 @@ yardstick for this corpus.
   shipped artifact stays byte-unchanged.**
 - **BREAKING:** none.
 
-Delivered in two PRs (design D0): code first, then the results produced from `main`.
+Delivered in three PRs (design D0): code, then the larger-MLP entries (#195), then the results
+produced from `main`.
 
 Not in this change: field models (F3b), DoMINO (F3c), commanded-change configurations, a change of the
 shipped default, the coarse corpus as a bench target, the regenerated corpus.
@@ -90,8 +93,11 @@ shipped default, the coarse corpus as a bench target, the regenerated corpus.
 - New committed artifacts (PR 2): `examples/prelim_sweep_fine/surrogate_h3/`,
   `examples/prelim_sweep_fine/figures_h3/` and `examples/prelim_sweep_fine/bench/`.
 - Compute:
-  - 140 MLP fits (14 splits × 2 entries × 5 seeds, about 9 s each, about 21 min) under WSL2 on the
-    local A5000, plus two full h3 trainings;
+  - 280 MLP fits (14 splits × 4 entries × 5 seeds) under WSL2 on the local A5000, plus two full h3
+    trainings. The shipped-size entries take about 9 s a fit (about 21 min for their 140). In E4,
+    width 256 at depth 5 took about 29 s a fit (28.6–29.5 s, 2000 epochs, CUDA), so the larger
+    entries are estimated at about 70 min for their 140, about 90 min of MLP fitting in all. PR 2's
+    run measures it (`fit_seconds`);
   - the two ridge entries take seconds on CPU;
   - two CPU recomputes of the committed results (native Windows and WSL2);
   - no RunAI, cluster or CFD jobs.
@@ -100,6 +106,40 @@ shipped default, the coarse corpus as a bench target, the regenerated corpus.
   - F3b plugs field entries into this bench.
   - After the corpus is regenerated, the bench is rerun, not rewritten.
 - Claim scope: see `BENCH_SCOPE` in the bench spec.
+
+## Amendment: larger-MLP entries (#195, between PR 1 and PR 2)
+
+> Delivered as PR 1b (branch `add-bench-larger-mlp-entries`), after PR 1 merged and before PR 2's
+> runs. It is a separate PR because PR 2 runs the bench from a clean commit on `main` before any
+> commit on its own branch (design D0), so the runner change must be on `main` first.
+
+**Why.** With only `mlp_h1` and `mlp_h3`, the bench cannot tell whether `mlp_h3` beats `mlp_h1`
+because of the phase input or because any extra expressiveness would. In the exploration's E4
+ablations a width-256, depth-5 MLP with one harmonic closed the gap at least as well as three
+harmonics do at the shipped size: higher on each of the 5 seeds (design Context table and D8).
+
+**What changes.**
+
+- Two bench-only entries, `mlp_w256d5` and `mlp_w256d5_h3`. Their definition, holdout status and
+  run order are in the bench spec ("Bench model entries and metrics"); the reasoning and the limits
+  of what the resulting 2 × 2 can show are in design D8.
+- `run_metadata.json` gains `mlp_hyperparameters`: for each MLP entry that ran, the `hidden`,
+  `num_layers`, `lr` and `phase_harmonics` passed to `fit_seed`. Until now an entry's architecture
+  was recorded only in the code at the run's commit.
+
+**Impact.**
+
+- Code: `src/mosquito_cfd/surrogate_bench/runner.py`.
+- Tests: `tests/test_surrogate_bench_{runner,import,figure,cli,gpu}.py`.
+- This change's proposal, design, tasks, bench spec delta and `review-reconciliation.md` (round 7).
+- Docs: `openspec/project.md` and `docs/CHANGELOG.md` in PR 1b; the fine README bench section and
+  both roadmaps in PR 2, as already planned.
+- Compute: PR 2's bench run gains 140 fits, about 70 min (see Impact above).
+- No shipped artifact changes. No bench result exists yet, so none is invalidated.
+
+**Not in the amendment.** Other widths or depths: the 2 × 2 does not separate width from depth
+(E4's width 256 at depth 3 scored 0.990–0.994 and width 64 at depth 5 0.989–0.995). A learning
+rate tuned for the larger network. Any committed standalone larger model.
 
 ## Reconciliation with the implementation (PR 1)
 
