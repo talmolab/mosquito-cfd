@@ -142,7 +142,8 @@ mosquito-cfd/
 - [x] **Arbitrary geometry support** - external vertex file loading + prescribed kinematics for
   flapping wing validation; archived as `add-arbitrary-geometry` once its foundational scope
   shipped and was extended by the same T2a-T4/T3c lineage
-- [x] Full 27-config fine-256³ force-surrogate corpus (decks + manifest only, no CFD output yet) —
+- [x] Full 27-config fine-256³ force-surrogate corpus (run on the cluster and verified in
+  `add-fine-corpus-run-verification`, #100; its surrogate and figures are committed) —
   `examples/prelim_sweep_fine/generate_full_corpus.py`, committed via `add-fine-grid-corpus-full`,
   the follow-on to the 3-config `add-fine-grid-training-pilot` (GO recommendation) — reuses
   `generate_sweep()`'s default 27-point grid and `n_holdout=6`, unmodified
@@ -151,7 +152,8 @@ mosquito-cfd/
   fixed a stale/incorrect `wing.vertex` on the coarse corpus's cluster NFS share (issue #62) that had
   been running the pre-T2a axis convention entirely; regenerated `examples/prelim_sweep/`'s decks +
   `dataset.parquet`/`surrogate/*`/`figures/*` end-to-end and `examples/prelim_sweep_fine/`'s decks
-  (CFD re-run deferred); automated NFS provisioning going forward —
+  (the fine CFD was later re-run on the corrected decks, #100); automated NFS provisioning going
+  forward —
   `fix-force-surrogate-sweep-hinge`
 
 ### Not Planned
@@ -161,33 +163,6 @@ mosquito-cfd/
 - [ ] Scaling benchmarks for the NVIDIA Academic Grant (H100) - the current grant target;
   scaling-benchmark scope originally written for APEX still applies, just against H100 hardware
 - [ ] Multi-GPU / multi-node validation
-- [ ] Submit the full 27-config fine-grid corpus's live cluster run (~2.55 days serial single-A40)
-  — scaffolding landed in `add-fine-grid-corpus-full`; the actual submission needs a separate,
-  explicit go-ahead (shared lab GPU quota). As of `add-fine-corpus-field-capture`, the fine
-  corpus's decks now include field capture (`amr.plot_int=100`, `ns.init_iter=2`) alongside the
-  corrected wing-hinge geometry, so this pending submission's deliverable is both the
-  corrected-geometry force data AND field-capture plotfiles in one run (Stage 2 / field-surrogate
-  input — see `docs/field_surrogate/roadmap.md`). The two bugs that sank the prior two attempts —
-  `activeDeadlineSeconds` not scaling with an overridden `--parallelism` (issue #63, killed
-  `force-surrogate-sweep-7wrk7` at 24h with 0/27 done) and `retryStrategy.backoff.maxDuration`
-  exhausting after only 3 of 5 configured retries under preemption (issue #64, lost 3 configs
-  from `force-surrogate-sweep-vb8t5`) — are fixed in `fix-argo-sweep-timeouts`:
-  `submit_workflow.sh full` now has an `--active-deadline-seconds` override with an auto-scale
-  fallback, and `maxDuration` is `4h` (covers the full `limit: 5` sequence). A third,
-  metadata-only bug (issue #65: `compute_wall_time_s` picked the globally-latest-finishing pod's
-  duration for every config in a multi-config fan-out workflow) is fixed in
-  `fix-wall-time-pod-selection` — the resubmission is now blocked only on the user's explicit
-  go-ahead, not any known bug. **Superseded run:**
-  `force-surrogate-sweep-vb8t5` + `force-surrogate-retry-failed-trz9k` already completed once,
-  but against the stale wing-hinge geometry (`fix-force-surrogate-sweep-hinge`) — still needs
-  re-submission against the corrected decks; see
-  `examples/prelim_sweep_fine/sweep_provenance.json`'s `superseded_by` field.
-- [ ] Generate the first **real** `docs/visualization/coarse_vs_fine_comparison.png` and
-  `docs/visualization/diagnostic_config_mean_collapse.png`. `examples/prelim_sweep_fine/surrogate/`
-  now exists (#110), but these figures plot config-resolved R², which the evidence figure dropped
-  as ill-conditioned (#127); what they should show is open in #114. The synthetic-fixture-derived
-  renders used to validate the figure-building code live at `tests/fixtures/comparison_figure/`
-  (see its `README.md`), not under `docs/`.
 
 ## Conventions
 
@@ -398,10 +373,10 @@ OpenSpec change `add-field-surrogate-reader` (`design.md` D4, D6, D10).
 `src/mosquito_cfd/visualization/` (`wing_render.py` shared marker/outline transform helpers,
 `flow_video.py` generalized CFD-field video builder, `kinematics_video.py` cluster-free
 kinematics preview) plus `src/mosquito_cfd/force_surrogate/comparison_figure.py`
-(coarse-vs-fine holdout comparison, config-mean-collapse diagnostic). All rendering/figure
+(the real-data coarse-vs-fine force-surrogate figures). All rendering/figure
 functions install via the optional `viz` dependency group (`scipy`, `scikit-image`,
 `imageio-ffmpeg`) — CI installs it (`uv sync --frozen --group viz`); a local dev-host checkout
-needs the same flag to import these modules. Four thin `argparse` CLI drivers live in `scripts/`.
+needs the same flag to import these modules. Thin `argparse` CLI drivers live in `scripts/`.
 
 See OpenSpec change `add-visualization-tooling` (`design.md` D3) for the two documented
 hinge-caveat cases (as-run vs. corrected-for-display) that `make_flow_video.py`/
@@ -428,23 +403,11 @@ uv run python scripts/make_kinematics_video.py \
     --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
     --timestamp 2026-08-12T00:00:00+00:00
 
-# Coarse-vs-fine holdout force-comparison figure
-uv run python scripts/make_comparison_figure.py \
-    --coarse-predictions examples/prelim_sweep/surrogate/holdout_predictions.parquet \
-    --fine-predictions examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet \
-    --out-dir docs/visualization \
-    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
-    --timestamp 2026-08-12T00:00:00+00:00
-
-# Config-mean-collapse diagnostic (config_resolved R2 vs. per_target RMSE)
-uv run python scripts/make_config_mean_collapse_diagnostic.py \
-    --coarse-predictions examples/prelim_sweep/surrogate/holdout_predictions.parquet \
-    --fine-predictions examples/prelim_sweep_fine/surrogate/holdout_predictions.parquet \
-    --coarse-metrics examples/prelim_sweep/surrogate/metrics.json \
-    --fine-metrics examples/prelim_sweep_fine/surrogate/metrics.json \
-    --out-dir docs/visualization \
-    --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
-    --timestamp 2026-08-12T00:00:00+00:00
+# Coarse-vs-fine force-surrogate figures (skill_ranges | error_histograms |
+# cycle_mean_r2_diagnostic), one per call: the regeneration recipe is in
+# examples/prelim_sweep_fine/README.md, "Comparison figures" (render into a scratch dir,
+# then copy the files in).
+uv run python scripts/make_coarse_vs_fine_figures.py --help
 ```
 
 **Mid-sweep partial-corpus check and the full submission runbook now live in

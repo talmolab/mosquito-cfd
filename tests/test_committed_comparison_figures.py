@@ -118,3 +118,16 @@ def test_cycle_mean_scales_anchor_on_metrics_json():
             assert entry["config_mean_r2"] == r2
             for value, eps in zip(r2, entry["eps"], strict=True):
                 assert math.isclose(eps, sigma * math.sqrt(1 - value), rel_tol=1e-9)
+
+
+def test_the_readmes_link_the_committed_figures():
+    coarse = (REPO / COARSE_DIR / "README.md").read_text(encoding="utf-8")
+    fine = (REPO / FINE_DIR / "README.md").read_text(encoding="utf-8")
+    # one link from the Figure section, one from the Regenerating pointer
+    assert coarse.count("../prelim_sweep_fine/README.md#comparison-figures") == 2
+    headings = [line.strip() for line in fine.splitlines()]
+    assert headings.count("### Comparison figures") == 1
+    for figure in cf.FIGURES:
+        link = f"figures/coarse_vs_fine/{figure}.png"
+        assert link in fine, link
+        assert (REPO / FINE_DIR / link).is_file(), link

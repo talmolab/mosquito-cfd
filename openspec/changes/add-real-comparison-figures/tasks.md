@@ -42,7 +42,7 @@ One PR, ordered as the commits below.
   - Expected historical mentions, which stay: comments in `visualization/flow_video.py` and
     `kinematics_video.py`, and the `docs/CHANGELOG.md` entries for #73–#75.
   - The live `openspec/specs/visualization-tooling/spec.md`: rewritten at archive.
-- [ ] 0.3 File follow-up issues, asking the user first, as these are outward-facing:
+- [x] 0.3 File follow-up issues, asking the user first, as these are outward-facing:
   - the evidence figure adopting `TARGET_LABELS` (its `CF_x (stroke-axis force)` is ambiguous);
   - `docs/coordinate-convention.md`'s "Forces" section reading as if it covered the lab-frame
     corpus `CF_*`.
@@ -386,7 +386,7 @@ This section is additive; the old builders stay until 7.
     other two `Regenerating` headings.
 
   Commit: `docs: coarse README quasi-steady ratios, guarded against both sidecars (advances #130)`.
-- [ ] 10.3 Fine README (design D9).
+- [x] 10.3 Fine README (design D9).
   - The `### Comparison figures` section.
   - The linking sentence in "Coarse vs fine".
   - The `figures/` row.
@@ -395,16 +395,16 @@ This section is additive; the old builders stay until 7.
 
   `check_comparison_table`, `check_fine_disclosures`, `R2_NEAR_TARGET`, the QS and denominator guards
   and the section-4 constants test stay green.
-- [ ] 10.4 `openspec/project.md` (design D9). `rg docs/visualization` is empty outside the archive.
+- [x] 10.4 `openspec/project.md` (design D9). `rg docs/visualization` is empty outside the archive.
   Keep the phrase `(generic sinusoidal kinematics, van Veen axis convention)`, which
   `tests/test_kinematics_attribution.py` pins.
   Commit 10.3 and 10.4 together: `docs: link the coarse-vs-fine figures; fix stale fine-surrogate text in project.md (advances #114, #130)`.
-- [ ] 10.5 Recompute every number in the new prose from the committed JSON, with a scratchpad script
+- [x] 10.5 Recompute every number in the new prose from the committed JSON, with a scratchpad script
   whose output is kept. Check any historical value against
   `git show <commit>:<path>/evidence_figure_metrics.json` at the commit it names. Check that the coarse
   bullet's causal wording agrees with the fine README's quasi-steady section; that section's sentence
   becomes conditional (design D9) in the same commit as 10.3.
-- [ ] 10.6 Mutation-test 10.1 and the section-4 constants test on README copies.
+- [x] 10.6 Mutation-test 10.1 and the section-4 constants test on README copies.
 - [ ] 10.7 `docs/CHANGELOG.md`: one Added bullet and one Changed line. Last commit:
   `docs: changelog for the coarse-vs-fine figures (advances #114, #130)`.
 
