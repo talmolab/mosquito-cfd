@@ -303,13 +303,13 @@
 
 ### 7d. GPU end-to-end
 
-- [ ] 7d.1 **Test first** (GPU tier): a synthetic 27-configuration 3 × 3 × 3 frame labelled 21 + 6,
+- [x] 7d.1 **Test first** (GPU tier): a synthetic 27-configuration 3 × 3 × 3 frame labelled 21 + 6,
   with a coarse twin, run through the driver with `--epochs 5 --device cuda --allow-dirty`, a
   `sha256:` digest and a fixed `--timestamp`. Assert that:
   - the `mlp_*` entries run 5 seeds per split end to end;
   - `peak_gpu_mem > 0` for every MLP row;
   - the MLP `n_params` matches the PhysicsNeMo model's trainable parameter count.
-- [ ] 7d.2 Make it pass under WSL2 (no new production code expected; any fix is recorded), then
+- [x] 7d.2 Make it pass under WSL2 (no new production code expected; any fix is recorded), then
   confirm `git status --porcelain` is empty.
   Shipped-artifact check. Commit: `test(surrogate-bench): GPU end-to-end`.
 
