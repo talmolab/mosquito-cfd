@@ -694,3 +694,144 @@ def deck_key_mismatches(
                 f"undeclared key {key} differs: {source[key]!r} -> {generated[key]!r}"
             )
     return out
+
+
+# --------------------------------------------------------------------------- controls
+
+FORCE_COLUMNS = ("Fx", "Fy", "Fz", "Mx", "My", "Mz")
+# Tolerance terms of the force comparison (pre-registered).
+_RELATIVE_TO_COLUMN = 1e-9
+_PRINT_UNITS = 1.5
+
+
+@dataclass(frozen=True)
+class ForceComparison:
+    """Outcome of :func:`compare_force_csv`."""
+
+    passed: bool
+    n_compared: int
+    failures: list[str]
+
+
+def print_unit(value: float) -> float:
+    """One unit in the 6th significant figure of ``value`` (0 for an exact zero)."""
+    if value == 0.0:
+        return 0.0
+    return 10.0 ** (math.floor(math.log10(abs(value))) - 5)
+
+
+def compare_force_csv(
+    run_csv: Path | str,
+    reference: pd.DataFrame,
+    *,
+    config_name: str,
+    dt: float,
+    run_stop_time: float,
+    reference_stop_time: float,
+    declared_steps: int | None,
+) -> ForceComparison:
+    """Compare a run's raw forces with the committed corpus rows (controls C1 and C3).
+
+    The run's CSV goes through the extractor's de-duplication
+    (:func:`.dataset.deduplicate_init_iter_rows`); rows whose step ends past each side's
+    ``stop_time`` are dropped; steps ``0 .. declared_steps - 1`` must each appear exactly once in
+    both the run and the reference, matched by step index ``round(time / dt)``. Every raw
+    ``Fx..Mz`` value must then agree within ``max(1e-9 * max |column|, 1.5 units in the 6th
+    significant figure of the reference value)``, the column maximum taken over the compared
+    reference rows.
+
+    Args:
+        run_csv: The run's ``IB_Particle_1.csv``.
+        reference: The configuration's rows of the committed ``dataset.parquet`` (``time`` and
+            ``Fx..Mz``).
+        config_name: For messages.
+        dt: Timestep.
+        run_stop_time: The run deck's ``stop_time``.
+        reference_stop_time: The reference run's ``stop_time``.
+        declared_steps: Number of leading steps that must be present and compared (C1: the
+            control deck's ``max_step``). ``None`` compares every reference step left after the
+            reference's clamped final row is dropped (C3).
+
+    Returns:
+        A :class:`ForceComparison`; ``failures`` names the first problem of each kind.
+    """
+    from mosquito_cfd.force_surrogate.dataset import deduplicate_init_iter_rows
+
+    raw = pd.read_csv(run_csv)
+    try:
+        raw = deduplicate_init_iter_rows(raw, name=config_name, csv_path=run_csv)
+    except ValueError as exc:
+        return ForceComparison(False, 0, [f"duplicate or non-monotonic iStep: {exc}"])
+    run = drop_clamped_rows(raw, stop_time=run_stop_time, dt=dt)
+    ref = drop_clamped_rows(
+        reference.sort_values("time", kind="stable"),
+        stop_time=reference_stop_time,
+        dt=dt,
+    )
+    if declared_steps is None:
+        declared_steps = len(ref)
+    failures: list[str] = []
+    sides = {}
+    for label, frame in (("run", run), ("reference", ref)):
+        steps = np.rint(frame["time"].to_numpy(dtype=float) / dt).astype(np.int64)
+        keep = steps < declared_steps
+        steps = steps[keep]
+        if len(np.unique(steps)) != len(steps):
+            failures.append(f"{config_name}: {label} has a duplicate step")
+        missing = sorted(set(range(declared_steps)) - set(steps.tolist()))
+        if missing:
+            failures.append(
+                f"{config_name}: {label} is missing step {missing[0]} "
+                f"({len(missing)} of {declared_steps} missing)"
+            )
+        sides[label] = frame.loc[keep].assign(_step=steps).set_index("_step")
+    if failures:
+        return ForceComparison(False, 0, failures)
+    run_rows = sides["run"].sort_index()
+    ref_rows = sides["reference"].sort_index()
+    for column in FORCE_COLUMNS:
+        ref_values = ref_rows[column].to_numpy(dtype=float)
+        run_values = run_rows[column].to_numpy(dtype=float)
+        column_term = _RELATIVE_TO_COLUMN * float(np.max(np.abs(ref_values)))
+        units = np.array([print_unit(v) for v in ref_values])
+        tolerance = np.maximum(column_term, _PRINT_UNITS * units)
+        bad = np.flatnonzero(np.abs(run_values - ref_values) > tolerance)
+        if len(bad):
+            i = bad[0]
+            failures.append(
+                f"{config_name}: {column} differs at time {ref_rows['time'].iloc[i]:g}: "
+                f"run {run_values[i]!r}, reference {ref_values[i]!r}, "
+                f"tolerance {tolerance[i]:.3g} ({len(bad)} value(s) out of tolerance)"
+            )
+    return ForceComparison(not failures, len(ref_rows), failures)
+
+
+def field_change_stats(
+    field: np.ndarray, reference: np.ndarray, *, u_ref: float
+) -> dict[str, float]:
+    """Median, and fraction above 0.1, of ``|u - u_ref_field| / u_ref`` (vector difference norm).
+
+    Args:
+        field: Velocity at one frame of beat ``b``, shape ``(..., 3)``.
+        reference: Velocity at the matched frame of the last beat, same shape.
+        u_ref: The reference wing speed (``compute_force_reference(...).u_ref``).
+
+    Raises:
+        ValueError: On mismatched shapes, a last axis other than 3, a non-finite value, or a
+            non-positive ``u_ref``.
+    """
+    a = np.asarray(field, dtype=float)
+    b = np.asarray(reference, dtype=float)
+    if a.shape != b.shape or a.ndim < 1 or a.shape[-1] != 3:
+        raise ValueError(
+            f"field shapes {a.shape} and {b.shape} must match and end in 3"
+        )
+    if not (np.all(np.isfinite(a)) and np.all(np.isfinite(b))):
+        raise ValueError("field contains a non-finite value")
+    if not u_ref > 0:
+        raise ValueError(f"u_ref must be positive (got {u_ref})")
+    change = np.linalg.norm(a - b, axis=-1) / u_ref
+    return {
+        "median": float(np.median(change)),
+        "fraction_above": float(np.mean(change > 0.1)),
+    }
