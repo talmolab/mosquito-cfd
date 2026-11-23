@@ -567,3 +567,273 @@ def test_a_missing_prediction_row_is_refused_by_the_row_match(builder, tmp_path)
     _expect_refusal(
         builder, tmp_path, "coarse_predictions", "are not exactly", "holdout rows"
     )
+
+
+# --- task 8.2 review fixes: robustness of the shared guards --------------------------------------
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_an_overflowing_json_number_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+    path = _corpus_path(tmp_path, "coarse", "metrics")
+    text = path.read_text(encoding="utf-8")
+    i = text.index('"latency_ms": ') + len('"latency_ms": ')
+    j = text.index(",", i)
+    path.write_text(text[:i] + "1e999" + text[j:], encoding="utf-8")
+    _expect_refusal(builder, tmp_path, "coarse_metrics", "non-finite number")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize("bad", ["0.98", {"x": 1}, True])
+def test_a_non_numeric_seed_statistic_is_refused(builder, bad, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        metrics["seed_sweep"]["runs"][2]["per_target"]["CF_x"]["skill"] = bad
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_metrics", "CF_x", "skill", "number")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_a_run_without_a_seed_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        del metrics["seed_sweep"]["runs"][3]["seed"]
+
+    _rewrite_json(_corpus_path(tmp_path, "fine", "metrics"), edit)
+    _expect_refusal(builder, tmp_path, "fine_metrics", "seed")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_seed_list_disagreeing_with_the_runs_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        metrics["seed_sweep"]["seeds"] = [1234, 1235, 1236, 1237, 9999]
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_metrics", "seed_sweep.seeds")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize(
+    "path,bad",
+    [
+        (("phase_baseline_skill", "per_target", "CF_x", "phase_baseline_rmse"), "0.3"),
+        (("phase_baseline_skill", "per_target", "CF_x", "phase_baseline_rmse"), None),
+        (("config_resolved", "CF_x", "config_mean_r2"), "0.5"),
+        (("seed_sweep", "primary_seed"), "1234"),
+        (("phase_baseline_skill", "phase_baseline", "converged_min_wingbeat"), True),
+    ],
+)
+def test_a_wrongly_typed_metrics_field_is_refused(builder, path, bad, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        node = metrics
+        for key in path[:-1]:
+            node = node[key]
+        if bad is None:
+            del node[path[-1]]
+        else:
+            node[path[-1]] = bad
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_metrics", path[-1])
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize("role", ["predictions", "dataset"])
+def test_an_unreadable_parquet_is_refused(builder, role, tmp_path):
+    write_repo(tmp_path)
+    _corpus_path(tmp_path, "coarse", role).write_bytes(b"not a parquet file")
+    _expect_refusal(builder, tmp_path, f"coarse_{role}", "parquet")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_an_empty_dataset_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+    path = _corpus_path(tmp_path, "coarse", "dataset")
+    _rewrite_parquet(path, lambda df: df.iloc[:0])
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    _rewrite_json(
+        _corpus_path(tmp_path, "coarse", "surrogate_run_metadata"),
+        lambda meta: meta["inputs"].update(hash=sha),
+    )
+    _expect_refusal(builder, tmp_path, "coarse_dataset", "empty")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize(
+    "role,column,value",
+    [
+        ("predictions", "CF_x_pred", "abc"),
+        ("dataset", "CF_x", "abc"),
+        ("predictions", "wingbeat", 1.0),
+        ("predictions", "config_name", 3),
+    ],
+)
+def test_a_wrongly_typed_column_is_refused(builder, role, column, value, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(df):
+        df[column] = value
+        return df
+
+    _rewrite_parquet(_corpus_path(tmp_path, "coarse", role), edit)
+    _expect_refusal(builder, tmp_path, f"coarse_{role}", column)
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize("column", ["phase", "time"])
+def test_a_non_finite_phase_or_time_is_refused(builder, column, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(df):
+        df.loc[4, column] = np.nan
+        return df
+
+    _rewrite_parquet(_corpus_path(tmp_path, "coarse", "predictions"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_predictions", column)
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_a_dataset_duplicate_key_is_refused(builder, tmp_path):
+    """Only the dataset repeats a key (rehashed so guard 5 passes); the predictions do not."""
+    write_repo(tmp_path)
+    path = _corpus_path(tmp_path, "coarse", "dataset")
+
+    def edit(df):
+        row = df[(df["split"] == "holdout") & (df["wingbeat"] == 1)].iloc[:1]
+        return pd.concat([df, row], ignore_index=True)
+
+    _rewrite_parquet(path, edit)
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    _rewrite_json(
+        _corpus_path(tmp_path, "coarse", "surrogate_run_metadata"),
+        lambda meta: meta["inputs"].update(hash=sha),
+    )
+    _expect_refusal(builder, tmp_path, "coarse_dataset", "duplicate")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_predictions_with_a_shifted_phase_are_refused(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(df):
+        df["phase"] = (df["phase"] + 0.25) % 1.0
+        return df
+
+    _rewrite_parquet(_corpus_path(tmp_path, "coarse", "predictions"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_predictions", "phase")
+
+
+def test_portable_path_accepts_a_path_inside_a_relative_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "examples" / "prelim_sweep" / "dataset.parquet"
+    assert cf._portable_path(target, ".") == "examples/prelim_sweep/dataset.parquet"
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_string_seeds_everywhere_are_refused_at_the_run_seed(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        sweep = metrics["seed_sweep"]
+        sweep["primary_seed"] = str(sweep["primary_seed"])
+        for run in sweep["runs"]:
+            run["seed"] = str(run["seed"])
+        sweep["seeds"] = [str(s) for s in sweep["seeds"]]
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(
+        builder, tmp_path, "coarse_metrics", "runs[0].seed", "not an integer"
+    )
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_a_float_primary_seed_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        metrics["seed_sweep"]["primary_seed"] = 1234.0
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(
+        builder, tmp_path, "coarse_metrics", "primary_seed", "not an integer"
+    )
+
+
+# --- re-review fixes -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_an_integer_too_large_for_a_float_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+    path = _corpus_path(tmp_path, "coarse", "metrics")
+    text = path.read_text(encoding="utf-8")
+    i = text.index('"latency_ms": ') + len('"latency_ms": ')
+    j = text.index(",", i)
+    path.write_text(text[:i] + "1" + "0" * 400 + text[j:], encoding="utf-8")
+    _expect_refusal(builder, tmp_path, "coarse_metrics", "non-finite number")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_a_float_seeds_list_is_refused(builder, tmp_path):
+    write_repo(tmp_path)
+
+    def edit(metrics):
+        metrics["seed_sweep"]["seeds"] = [
+            float(s) for s in metrics["seed_sweep"]["seeds"]
+        ]
+
+    _rewrite_json(_corpus_path(tmp_path, "coarse", "metrics"), edit)
+    _expect_refusal(builder, tmp_path, "coarse_metrics", "seed_sweep.seeds", "integers")
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+@pytest.mark.parametrize("column,value", [("split", 1), ("config_name", None)])
+def test_a_non_string_or_null_label_column_is_refused(builder, column, value, tmp_path):
+    write_repo(tmp_path)
+    role = "dataset" if column == "split" else "predictions"
+
+    def edit(df):
+        if value is None:
+            df[column] = df[column].astype(object)
+            df.loc[2, column] = None
+        else:
+            df[column] = value
+        return df
+
+    _rewrite_parquet(_corpus_path(tmp_path, "coarse", role), edit)
+    _expect_refusal(builder, tmp_path, f"coarse_{role}", column, "non-null strings")
+
+
+def test_a_relative_root_records_each_path_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.metadata.get_git_info",
+        lambda *a, **k: {"commit": "a" * 40, "dirty": False, "branch": "b"},
+    )
+    repo = tmp_path / "repo"
+    write_repo(repo)
+    monkeypatch.chdir(tmp_path)
+    cf.build_skill_ranges(
+        root="repo",
+        coarse_dir=COARSE_DIR,
+        fine_dir=FINE_DIR,
+        out_dir=tmp_path / "out",
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    meta = json.loads(
+        (tmp_path / "out" / "skill_ranges_run_metadata.json").read_text("utf-8")
+    )
+    assert (
+        meta["input_files"]["coarse_dataset"]["path"] == f"{COARSE_DIR}/dataset.parquet"
+    )
+    assert (
+        meta["input_files"]["fine_metrics"]["path"]
+        == f"{FINE_DIR}/surrogate/metrics.json"
+    )

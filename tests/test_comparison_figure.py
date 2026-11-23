@@ -844,3 +844,31 @@ def test_a_zero_eps_is_drawn_as_a_labelled_floor_marker(tmp_path):
         assert markers, "no floor marker drawn for the zero error"
     finally:
         plt.close(fig)
+
+
+def test_zero_scales_are_recorded_and_labelled_at_the_floor(tmp_path):
+    def zero_target(salt=0.0):
+        base = default_truth(salt)
+        j = TARGET_COLUMNS.index("CF_y")
+
+        def truth(split, index, phase, beat):
+            cols = base(split, index, phase, beat)
+            if split == "holdout":
+                cols[:, j] = (
+                    0.25  # same constant in every holdout config: waveform 0, sigma 0
+                )
+            return cols
+
+        return truth
+
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=zero_target()),
+        fine=_fine(truth=zero_target(0.013)),
+    )
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_y"]
+    assert entry["waveform_rms"] == 0.0 and entry["sigma"] == 0.0
+    assert entry["floor_scales"] == ["waveform_rms", "sigma"]
+    assert entry["na"] is True
+    assert result["grids"]["coarse"]["CF_x"]["floor_scales"] == []

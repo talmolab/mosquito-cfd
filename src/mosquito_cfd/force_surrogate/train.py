@@ -27,6 +27,7 @@ import hashlib
 import io
 import json
 import logging
+import platform
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -962,8 +963,6 @@ def build_training_metadata(
         if not dataset_path.is_file():
             kind = "not a regular file" if dataset_path.exists() else "not found"
             raise FileNotFoundError(f"training dataset {kind}: {dataset_path}")
-    import platform
-
     library_versions = {
         "torch": _library_version("torch"),
         "physicsnemo": _library_version("nvidia-physicsnemo"),

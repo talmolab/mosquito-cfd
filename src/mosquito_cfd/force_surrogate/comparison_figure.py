@@ -134,6 +134,37 @@ def _is_null(value: Any) -> bool:
     return value is None or (isinstance(value, float) and math.isnan(value))
 
 
+_FLOAT_MAX = float(np.finfo(np.float64).max)
+
+
+def _is_number(value: Any) -> bool:
+    """A JSON number: ``int`` or ``float``, never ``bool``."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _first_non_finite(node: Any, path: str = "") -> str | None:
+    """The path of the first number a float cannot hold in a parsed JSON tree.
+
+    ``1e999`` loads as ``inf``; an integer literal such as ``10**400`` loads as a Python int
+    that would overflow when converted to a float.
+    """
+    if isinstance(node, float) and not math.isfinite(node):
+        return path or "<root>"
+    if isinstance(node, int) and not isinstance(node, bool) and abs(node) > _FLOAT_MAX:
+        return path or "<root>"
+    if isinstance(node, dict):
+        items = node.items()
+    elif isinstance(node, list):
+        items = enumerate(node)
+    else:
+        return None
+    for key, value in items:
+        found = _first_non_finite(value, f"{path}.{key}" if path else str(key))
+        if found:
+            return found
+    return None
+
+
 def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
     """Load and validate one corpus: shared guards 2-10, in order (guard 1 is the digest).
 
@@ -161,12 +192,21 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
             raise ValueError(
                 f"{name}_{role} must be a JSON object, got {type(data).__name__}"
             )
+        bad = _first_non_finite(data)
+        if bad:
+            raise ValueError(f"{name}_{role} has a non-finite number at {bad}")
         return data
+
+    def load_parquet(role: str) -> pd.DataFrame:
+        try:
+            return pd.read_parquet(io.BytesIO(raw[role]))
+        except Exception as exc:  # pyarrow raises several types for unreadable bytes
+            raise ValueError(f"{name}_{role} is not readable parquet: {exc}") from exc
 
     metrics = load_json("metrics")
     run_metadata = load_json("surrogate_run_metadata")
-    dataset = pd.read_parquet(io.BytesIO(raw["dataset"]))
-    predictions = pd.read_parquet(io.BytesIO(raw["predictions"]))
+    dataset = load_parquet("dataset")
+    predictions = load_parquet("predictions")
 
     # Guard 4: required columns.
     required = {
@@ -180,6 +220,30 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
         missing = [c for c in required[role] if c not in frame.columns]
         if missing:
             raise ValueError(f"{name}_{role} is missing required column(s) {missing}")
+        string_cols = ["config_name", "split"] if role == "dataset" else ["config_name"]
+        for col in string_cols:
+            if not pd.api.types.is_string_dtype(frame[col]) or frame[col].isna().any():
+                raise ValueError(
+                    f"{name}_{role} column {col} must be non-null strings, got "
+                    f"{frame[col].dtype}"
+                )
+        wingbeat = frame["wingbeat"]
+        if not pd.api.types.is_integer_dtype(wingbeat) or pd.api.types.is_bool_dtype(
+            wingbeat
+        ):
+            raise ValueError(
+                f"{name}_{role} column wingbeat must be integers, got {wingbeat.dtype}"
+            )
+        for col in required[role]:
+            if col in ("config_name", "wingbeat", "split"):
+                continue
+            series = frame[col]
+            if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(
+                series
+            ):
+                raise ValueError(
+                    f"{name}_{role} column {col} must be numeric, got {series.dtype}"
+                )
 
     # Guard 5: the dataset is the surrogate's training data.
     inputs = run_metadata.get("inputs")
@@ -193,6 +257,8 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
     # Guard 6: non-empty, at least two configurations, no repeated (config_name, time) key.
     if len(predictions) == 0:
         raise ValueError(f"{name}_predictions is empty")
+    if len(dataset) == 0:
+        raise ValueError(f"{name}_dataset is empty")
     if predictions["config_name"].nunique() < 2:
         raise ValueError(f"{name}_predictions has fewer than two configurations")
     for role, frame in (("predictions", predictions), ("dataset", dataset)):
@@ -205,8 +271,12 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
 
     # Guard 7: every coefficient is finite.
     finite_cols = {
-        "predictions": [c for c in required["predictions"] if c.startswith("CF_")],
-        "dataset": list(TARGET_COLUMNS),
+        "predictions": [
+            "time",
+            "phase",
+            *(c for c in required["predictions"] if c.startswith("CF_")),
+        ],
+        "dataset": ["time", "phase", *TARGET_COLUMNS],
     }
     for role, frame in (("predictions", predictions), ("dataset", dataset)):
         for col in finite_cols[role]:
@@ -232,7 +302,11 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
         "phase_baseline",
         "converged_min_wingbeat",
     )
-    if recorded_min != CONVERGED_MIN_WINGBEAT:
+    if (
+        not _is_number(recorded_min)
+        or isinstance(recorded_min, float)
+        or recorded_min != CONVERGED_MIN_WINGBEAT
+    ):
         raise ValueError(
             f"{name}_metrics phase_baseline.converged_min_wingbeat {recorded_min} != "
             f"train.CONVERGED_MIN_WINGBEAT {CONVERGED_MIN_WINGBEAT}"
@@ -249,14 +323,28 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
         (dataset["split"] == "holdout")
         & (dataset["wingbeat"] >= CONVERGED_MIN_WINGBEAT)
     ]
-    merged = predictions[[*_KEY, *(f"{c}_true" for c in TARGET_COLUMNS)]].merge(
-        holdout[[*_KEY, *TARGET_COLUMNS]], on=_KEY, how="outer", indicator=True
+    merged = predictions[
+        [*_KEY, "phase", "wingbeat", *(f"{c}_true" for c in TARGET_COLUMNS)]
+    ].merge(
+        holdout[[*_KEY, "phase", "wingbeat", *TARGET_COLUMNS]],
+        on=_KEY,
+        how="outer",
+        indicator=True,
+        suffixes=("_pred_file", "_dataset"),
     )
     if not (merged["_merge"] == "both").all():
         raise ValueError(
             f"{name}_predictions rows are not exactly the {name} dataset's holdout rows "
             f"with wingbeat >= {CONVERGED_MIN_WINGBEAT}"
         )
+    for col in ("phase", "wingbeat"):
+        if not np.array_equal(
+            merged[f"{col}_pred_file"].to_numpy(), merged[f"{col}_dataset"].to_numpy()
+        ):
+            raise ValueError(
+                f"{name}_predictions column {col} differs from the {name} dataset's "
+                "holdout rows"
+            )
     for c in TARGET_COLUMNS:
         if not np.array_equal(merged[f"{c}_true"].to_numpy(), merged[c].to_numpy()):
             raise ValueError(
@@ -270,6 +358,44 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
     runs = _get(sweep, label, "runs")
     if not isinstance(runs, list) or not runs:
         raise ValueError(f"{label} seed_sweep.runs is empty")
+    for i, r in enumerate(runs):
+        seed = _get(r, label, "seed")
+        if not _is_number(seed) or isinstance(seed, float):
+            raise ValueError(
+                f"{label} seed_sweep.runs[{i}].seed {seed!r} is not an integer"
+            )
+        for c in TARGET_COLUMNS:
+            for stat in SEED_SWEEP_STATISTICS:
+                value = _get(r, label, "per_target", c, stat)
+                if value is not None and not _is_number(value):
+                    raise ValueError(
+                        f"{label} seed_sweep.runs[{i}] {c} {stat} {value!r} is not a number"
+                    )
+    primary = _get(sweep, label, "primary_seed")
+    if not _is_number(primary) or isinstance(primary, float):
+        raise ValueError(
+            f"{label} seed_sweep.primary_seed {primary!r} is not an integer"
+        )
+    listed = _get(sweep, label, "seeds")
+    if not isinstance(listed, list) or any(
+        not _is_number(s) or isinstance(s, float) for s in listed
+    ):
+        raise ValueError(
+            f"{label} seed_sweep.seeds {listed!r} is not a list of integers"
+        )
+    if listed != [r["seed"] for r in runs]:
+        raise ValueError(
+            f"{label} seed_sweep.seeds {listed} != the runs' seeds {[r['seed'] for r in runs]}"
+        )
+    for c in TARGET_COLUMNS:
+        for keys in (
+            ("phase_baseline_skill", "per_target", c, "skill"),
+            ("phase_baseline_skill", "per_target", c, "phase_baseline_rmse"),
+            ("config_resolved", c, "config_mean_r2"),
+        ):
+            value = _get(metrics, label, *keys)
+            if value is not None and not _is_number(value):
+                raise ValueError(f"{label} {'.'.join(keys)} {value!r} is not a number")
     for c in TARGET_COLUMNS:
         for stat in SEED_SWEEP_STATISTICS:
             values = [_get(r, label, "per_target", c, stat) for r in runs]
@@ -281,7 +407,6 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
                     f"{label} seed_sweep.range.{c}.{stat} {have_range} != the NaN-aware "
                     f"min/max of its runs {want_range}"
                 )
-    primary = _get(sweep, label, "primary_seed")
     if _get(runs[0], label, "seed") != primary:
         raise ValueError(
             f"{label} seed_sweep.runs[0].seed {runs[0]['seed']} is not primary_seed {primary}"
@@ -360,10 +485,13 @@ def _portable_path(path: str | PurePath, root: str | PurePath) -> str:
     A relative ``path`` is taken relative to ``root``. Pure path flavours are preserved, so a
     ``PureWindowsPath`` is handled the same on every OS.
     """
-    root_p = root if isinstance(root, PurePath) else Path(root)
+    concrete = not isinstance(root, PurePath) or isinstance(root, Path)
+    root_p = Path(root).absolute() if concrete else root
     path_p = path if isinstance(path, PurePath) else Path(path)
     if not path_p.is_absolute():
         path_p = root_p / path_p
+    elif concrete:
+        path_p = Path(path_p).absolute()
     if ".." in path_p.parts:
         raise ValueError(f"path {path} is outside the root {root} (it contains '..')")
     try:
@@ -508,7 +636,18 @@ def _prepare(
 ) -> tuple[Path, Corpus, Corpus, int]:
     """Guard 1 (the digest, before any file), then the shared loader and the pairing guard."""
     validate_image_digest(docker_image_digest)
-    root = Path(root)
+    return _load_pair(root, coarse_dir, fine_dir)
+
+
+def _load_pair(
+    root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
+) -> tuple[Path, Corpus, Corpus, int]:
+    """Load both corpora under an absolute ``root`` and apply the pairing guard.
+
+    ``root`` is made absolute first, so every input path is absolute and recorded relative to
+    it exactly once (a relative root other than ``.`` would otherwise be joined twice).
+    """
+    root = Path(root).absolute()
     coarse = _load_corpus(root, coarse_dir, "coarse")
     fine = _load_corpus(root, fine_dir, "fine")
     return root, coarse, fine, _check_pair(coarse, fine)
@@ -627,9 +766,8 @@ def compute_skill_ranges_metrics(
     *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
 ) -> dict[str, Any]:
     """The ``skill_ranges`` sidecar recomputed from the inputs (pure; no rendering)."""
-    coarse = _load_corpus(root, coarse_dir, "coarse")
-    fine = _load_corpus(root, fine_dir, "fine")
-    return _skill_ranges_metrics(coarse, fine, _check_pair(coarse, fine))
+    _, coarse, fine, n_beats = _load_pair(root, coarse_dir, fine_dir)
+    return _skill_ranges_metrics(coarse, fine, n_beats)
 
 
 def _draw_skill_ranges(m: dict[str, Any]) -> Any:
@@ -908,9 +1046,8 @@ def compute_error_histograms_metrics(
     *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
 ) -> dict[str, Any]:
     """The ``error_histograms`` sidecar recomputed from the inputs (pure; no rendering)."""
-    coarse = _load_corpus(root, coarse_dir, "coarse")
-    fine = _load_corpus(root, fine_dir, "fine")
-    return _error_histograms_metrics(coarse, fine, _check_pair(coarse, fine))
+    _, coarse, fine, n_beats = _load_pair(root, coarse_dir, fine_dir)
+    return _error_histograms_metrics(coarse, fine, n_beats)
 
 
 def _draw_error_histograms(m: dict[str, Any]) -> Any:
@@ -1106,14 +1243,23 @@ def _diagnostic_grid(corpus: Corpus) -> dict[str, Any]:
                     f"{1 - per_seed[0]!r}"
                 )
             eps = [sigma * math.sqrt(1.0 - v) for v in per_seed]
+        waveform_rms = float(np.sqrt(np.mean((t - t.mean()) ** 2)))
         grid[c] = {
-            "waveform_rms": float(np.sqrt(np.mean((t - t.mean()) ** 2))),
+            "waveform_rms": waveform_rms,
             "sigma": sigma,
             "eps_primary_measured": eps_measured,
             "seeds": seeds,
             "config_mean_r2": per_seed,
             "eps": eps,
             "floor_seeds": [s for s, e in zip(seeds, eps, strict=True) if e == 0.0],
+            "floor_scales": [
+                key
+                for key, value in (
+                    ("waveform_rms", waveform_rms),
+                    ("sigma", sigma),
+                )
+                if value == 0.0
+            ],
             "na": all(v is None for v in per_seed),
         }
     return grid
@@ -1142,9 +1288,8 @@ def compute_cycle_mean_r2_diagnostic_metrics(
     *, root: str | Path, coarse_dir: str | Path, fine_dir: str | Path
 ) -> dict[str, Any]:
     """The ``cycle_mean_r2_diagnostic`` sidecar recomputed from the inputs (pure; no rendering)."""
-    coarse = _load_corpus(root, coarse_dir, "coarse")
-    fine = _load_corpus(root, fine_dir, "fine")
-    return _cycle_mean_r2_diagnostic_metrics(coarse, fine, _check_pair(coarse, fine))
+    _, coarse, fine, n_beats = _load_pair(root, coarse_dir, fine_dir)
+    return _cycle_mean_r2_diagnostic_metrics(coarse, fine, n_beats)
 
 
 def _draw_cycle_mean_r2_diagnostic(m: dict[str, Any]) -> Any:
@@ -1178,6 +1323,8 @@ def _draw_cycle_mean_r2_diagnostic(m: dict[str, Any]) -> Any:
                     color="black",
                     ms=6,
                 )
+                if "waveform_rms" in e["floor_scales"]:
+                    ax.text(i - 0.45, floor * 1.4, "0", ha="center", fontsize=6.5)
                 if e["sigma"] > 0:
                     ax.plot(
                         [i - 0.32],
@@ -1193,7 +1340,7 @@ def _draw_cycle_mean_r2_diagnostic(m: dict[str, Any]) -> Any:
                     ax.plot(
                         [i - 0.32], [floor], ls="none", marker="v", color="0.3", ms=7
                     )
-                    ax.text(i - 0.32, floor * 1.4, "σ=0", ha="center", fontsize=6.5)
+                    ax.text(i - 0.2, floor * 1.4, "0", ha="center", fontsize=6.5)
                 if e["na"]:
                     ax.text(i, floor * 3, "R²: n/a", ha="center", fontsize=7)
                     continue
