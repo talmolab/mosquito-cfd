@@ -439,8 +439,10 @@ This section is additive; the old builders stay until 7.
     `d822a2b` (PNGs and metrics byte-identical, so no slide is affected; the data commit message
     omits that `run_id` also changed). The focused re-review found nothing blocking or important;
     its two test suggestions are applied in the following commit.
-- [ ] 11.4 `/pre-merge-check`.
-- [ ] 11.5 Grep the PR body and every commit message for closing keywords next to an issue number.
+- [x] 11.4 `/pre-merge-check`.
+  - At `6ec1da6`: ruff clean, full suite 3151 passed / 27 skipped, `comparison_figure.py` coverage
+    97%, `openspec validate --strict` valid, CI (Lint, Test, Dockerfile Lint) green. No Copilot review.
+- [x] 11.5 Grep the PR body and every commit message for closing keywords next to an issue number.
   - Only the PR body says "Closes #114" and "Closes #130", and only if the user approves.
   - It says "advances #131".
   - It notes that the figure sidecars name a commit resolvable via `refs/pull/<n>/head`.
