@@ -165,7 +165,17 @@ misses by 25% (CF_my 1.245%). With 8 beats the likely results are N = 7–8, whi
 - Training on the final beat only.
 - The domain question recorded, with mean-lift drift measured, and filed as #204.
 
-## Open for approval
+## Approved by the user (2026-11-23)
+
+- The proposal is approved.
+- The new corpora go in new directories (`examples/settled_sweep`, `examples/settled_sweep_fine`).
+- Field capture runs on both grids, for later surrogates and visualizations.
+- Raw runs are kept as **one copy only**, on the `Z:` cluster share, with no second copy. The corpus
+  READMEs will say so.
+- Per-beat checkpoints are kept by default (explained to the user; question 3 below). They are
+  dropped if the user says so.
+
+## Open questions as approved
 
 1. **New corpus directories** rather than regenerating in place (`design.md` D5).
 2. **Coarse field capture** (≈41 GB at N = 8; `design.md` D7).

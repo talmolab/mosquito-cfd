@@ -344,7 +344,7 @@ ones) in the same commit as its code.
     a test.
 
   If that maximum is above 0.012, stop; do not re-tune.
-- [ ] 15.2 Ask the user about backups of `Z:` and a second copy on `G:`. Then write:
+- [ ] 15.2 Write (backup decided 2026-11-23: one copy only, on `Z:`):
   - the corpus READMEs: what each corpus is, how it differs from the 2-beat corpus, the image per
     grid, where the raw runs live, the backup status, how to regenerate, the domain caveat, and
     the restart limitation (#205);
