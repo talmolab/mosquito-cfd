@@ -433,3 +433,168 @@ names.**
 ## Not adopted
 
 - **M2-4 alternative: patch IAMReX.** Out of scope; tracked as #205.
+
+**Superseded in round 3** (pointers above that no longer match the files):
+- Round 1:
+  - M2 "0.1·tolerance" and the old scenario names;
+  - M3 `STEP_FLOOR`, the 1e-3 floor and "1e-4 to 5e-4";
+  - M6 "byte-identical CSV rows" and "coarse C3 reported only" (C3 is now gated on both grids, with
+    a tolerance);
+  - G-B1 "provable" (now "attested");
+  - S-I4 "four scenarios" (now five);
+  - T-B3 "never from the observed beats" (unchanged in meaning; wording moved);
+  - T-B1 "Each new corpus directory" (now each submittable corpus).
+- Round 2:
+  - ST2-B1 "J at most 2.7e-4" and "`MAX_NOISE = 2e-3`" (both from the clamped-row artifact; see
+    M3-B1);
+  - ST2-I8 `"105h"` (now `"120h"`);
+  - ST2-I4 "committed in PR 4" (now in sizing PRs).
+
+# Round 3 (reviewed `84ff57e`)
+
+Two reviewers ran: math/physics (M3) and consistency/tests (C3R). Both returned NEEDS REVISION.
+
+## BLOCKING
+
+**M3-B1. Clamped final step.** *"At f085 the final step is clamped by `stop_time`, and the metric
+does not exclude it … the last row of every committed f085 final beat is a spike of up to 0.104·P
+… Fix: drop rows whose step end exceeds `stop_time` (`time + dt > stop_time + ε`) before the beat
+split, in `settling.py` and in C3 … restate the J measurements without that row (≤ 6.4e-5) … add a
+scenario with a clamped final sample."*
+- **Resolution:** adopted as written.
+  - Re-measured: `J ≤ 6.4e-5` on every committed final beat.
+  - `MAX_NOISE` is lowered to 4e-4 (raised to 6e-4 in round 4).
+  - The known answers are unchanged, because the E0b runs are f100 and therefore not clamped.
+- **Where:**
+  - `design.md › D2` step 0 ("Clamped steps are dropped") and step 4 ("Measured, with clamped
+    rows dropped: at most 6.4e-5")
+  - `spec.md` "Clamped steps" bullet and scenario "A clamped final step is dropped"
+  - `design.md › D4` C3 row ("excluding the reference's clamped final row")
+  - `tasks.md › 1.1` and `› 5.1`
+
+**M3-B2. The spike scenario cannot be satisfied.** *"Replace the scenario with 'an exactly periodic
+smooth signal built from a committed beat, on the true f085/f115 step grids, gives s_b ≤ ν'."*
+- **Resolution:** replaced as written.
+- **Where:** `spec.md` scenario "Off-integer steps per beat add less than the noise floor";
+  `tasks.md › 1.2`
+
+**C3R-B1. The fine C1/C3 comparison fails on the `init_iter = 2` duplicates, and its reference is
+not in git.**
+- **Resolution:**
+  - The run's rows are compared after the extractor's validated de-duplication.
+  - The reference is the configuration's rows of the committed `dataset.parquet`, matched by
+    `time`, so CI can re-check the comparison.
+  - A test covers the `init_iter` duplicate pair.
+- **Where:**
+  - `spec.md › A settling report…`: "de-duplicate the run's force rows with the extractor's
+    validated rule … match … the committed `dataset.parquet` by `time`", and scenario
+    "Init-iteration duplicates do not fail the comparison"
+  - `design.md › D4` ("Comparison")
+  - `tasks.md › 5.1`
+
+## IMPORTANT
+
+- **M3-I1. The all-skipped branch can hide slow modes.** *"use T = max s·ρ_cap/(1−ρ_cap) with
+  ρ_cap = 0.96 (24·max s), and set MAX_NOISE = 4e-4."*
+  - **Resolution:** adopted.
+  - **Where:** `design.md › D2` step 7; `spec.md` Tail-bound bullet and scenario "A run at the
+    noise floor…" (`T = 9.6e-4`)
+- **M3-I2. Two modes can defeat the three-ratio window.**
+  - **Resolution:** stated as a limitation, cross-checked against the reported mean-CF_z drift.
+  - **Where:** `design.md › D2` "Known limitations"; `PREREGISTRATION.md` (task 3.1)
+- **M3-I3. Two noise-level steps that straddle ν read as growth.** *"call it growth only when
+  s_b > 2ν."*
+  - **Resolution:** adopted.
+  - **Where:** `design.md › D2` step 5; `spec.md` Ratios bullet and scenario "Two noise-level steps
+    straddling the floor are not growth"
+- **M3-I4. A tolerance of 1e-9 of the column maximum is bit-exactness for a 6-significant-figure
+  CSV.**
+  - **Resolution:** the tolerance is now `max(1e-9·max|col|, one print step)`, pre-registered as
+    "bit-identical, allowing a flip of the last printed digit". A C1 failure stops the work and is
+    reported to the user.
+  - **Where:** `spec.md` (force comparison paragraph); `design.md › D4` ("Tolerance")
+- **C3R-I1. 105h has no headroom, and the rate files have no commit point.**
+  - **Resolution:** `"120h"`, with sizing PRs landing before each full sweep. The ADDED 6 scenario
+    was reworded to match.
+  - **Where:** `design.md › D9`; `tasks.md › 14.2` and `› 14.4`; `stage2-spec-draft.md › ADDED 6`;
+    `proposal.md` (sizing PRs)
+- **C3R-I2. "Nine" requirements.**
+  - **Resolution:** now "eleven".
+  - **Where:** `proposal.md › Impact`
+- **C3R-I3. `training_wingbeat` has no task.**
+  - **Where:** `tasks.md › 10.1`
+- **C3R-I4. Commits go red between a test task and its implementation task.**
+  - **Resolution:** each tests-first task is committed together with its implementation task.
+  - **Where:** `tasks.md` Rules
+- **C3R-I5. The report recompute cannot cover the field values in CI.**
+  - **Resolution:** the CI recompute covers force-derived numbers only. Field values carry their
+    plotfile hashes.
+  - **Where:** `design.md › D3` ("Recomputation") and `› D4`; `tasks.md › 5.3` and `› 13.1`
+- **C3R-I6. Missing writers.**
+  - **Resolution:** `scripts/record_settling_run.py` / `settling.write_run_record`. The Stage 1
+    dataset is built by the existing extractor from the settling manifest. C4 uses
+    `metadata_capture`'s realized-timestep summary.
+  - **Where:** `tasks.md › 4.2` and `› 5.3`
+- **C3R-I7. Report-only precedence trigger.**
+  - **Where:** `tasks.md › 3.3`
+- **C3R-I8 / M3. CF_my is the binding target for `s45_f100_p30`.**
+  - **Resolution:** pinned at 0.01245.
+  - **Where:** `design.md › D2`; `tasks.md › 1.2` and `› 2.1`; `proposal.md` ("CF_my 1.245%")
+- **C3R-I9. Stale round-1 pointers.**
+  - **Resolution:** listed under "Superseded in round 3" above.
+- **C3R-I10. CC-F1 keying and the open-question number.**
+  - **Resolution:** CC-F1 runs on `frames_per_beat > 0` or `plot_int > 0`; the open question is 3.
+  - **Where:** `design.md › D6` and `› D7`; `tasks.md › 10.2`
+- **Suggestions adopted:**
+  - stress-table steps aligned with the spec;
+  - tests for the maximum absolute difference, `stop_time` and the `ν = MAX_NOISE` boundary;
+  - schemas moved into 5.3;
+  - "256-point phase grid" wording;
+  - geometric-scenario tolerance;
+  - the `FIRST_RATIO_BEAT` wording;
+  - `pass(5)` stated as harder by design;
+  - one `DiffusedIB.cpp` range;
+  - the 13.1 E0b match now uses the C1 tolerance, with report-and-decide on failure.
+
+# Round 4 (fix re-review of `bab82a7`)
+
+One reviewer re-checked the round-3 fix commit. They implemented the metric independently and
+found nothing in the numbers CONTRADICTED. The verdict was NEEDS REVISION, with no blocking
+findings.
+
+## IMPORTANT
+
+- **R4-1. The tolerance fails about half of legitimate last-digit flips.** *"Of 100k random
+  6-significant-figure flips, 48.9% have |a−b| > unit when computed in floating point … write 'at
+  most 1.5 units in the 6th significant figure' … state that the unit is 0 for a reference value of
+  exactly 0."*
+  - **Resolution:** adopted as written. The column maximum is taken over the matched reference
+    rows.
+  - **Where:** `spec.md` force comparison paragraph ("1.5 units in the 6th significant figure …
+    For a reference value of exactly 0 the second term is 0"); `design.md › D4` ("Tolerance");
+    `tasks.md › 5.1` (the `1.00000` against `0.999999` case)
+- **R4-2. "Missing" is never defined for the comparison.** *"every run row matches exactly one
+  reference row, and every reference row with time ≤ the run's last kept time is matched."*
+  - **Resolution:** adopted. A run that stops cleanly at step 380 would still satisfy that rule,
+    so the run must also reach its declared step count.
+  - **Where:** `spec.md` ("SHALL contain every step up to the control's declared step count") and
+    scenario "A truncated run fails the comparison"; `design.md › D4` ("Coverage"); `tasks.md › 5.1`
+- **R4-3. The stale tolerance in the pre-registration task.**
+  - **Resolution:** fixed.
+  - **Where:** `tasks.md › 3.1`
+- **R4-4. `MAX_NOISE` headroom.** *"the scenario's own 8-beat f115 reconstruction reaches
+  ν = 3.07e-4."*
+  - **Resolution:** `MAX_NOISE` is raised to 6e-4, about 2× over 3.07e-4. The all-skipped bound
+    becomes at most 2.9%. The "too much noise" scenario moves to `ν = 9e-4`.
+  - **Where:** `design.md › D2` constants table and step 7; `spec.md` constants and decision
+    scenario
+
+## SUGGESTION, all adopted
+
+- The interpolation is named (linear; `s_b ≤ 0.57·ν`, or 0.30·ν with a cubic spline).
+- "≈6.4e-5 (< 6.5e-5)".
+- Tasks 1.1 + 1.2 + 1.3 are committed together.
+- Row counts sum to `max_step` minus the clamped row.
+- The `+ 1e-9` slack is written out in task 1.1.
+- The `settled_sweep_fine` source is described before and after its sizing PR.
+- The manifest key is `dt`.

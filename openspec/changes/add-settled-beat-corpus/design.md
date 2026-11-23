@@ -79,10 +79,10 @@ These facts were measured or read from the code; sources are in parentheses.
 | `MIN_BEATS` | 5 | fewest complete beats the metric accepts |
 | `FIRST_RATIO_BEAT` | 4 | ratios start at `r_4 = s_4 / s_3`, so the start-up ratio `s_3 / s_2` (≈0.03) never enters |
 | `NOISE_FACTOR` | 3 | a step is noise when it is at most `NOISE_FACTOR · J` |
-| `MAX_NOISE` | 0.0004 | if `NOISE_FACTOR · J` exceeds this, the measurement is too noisy to judge; the noisiest committed final beat has `3J = 1.9e-4` |
+| `MAX_NOISE` | 0.0006 | if `NOISE_FACTOR · J` exceeds this, the measurement is too noisy to judge. Committed final beats give `3J ≤ 1.9e-4`, but an exactly periodic reconstruction on an 8-beat `f115` step grid reaches `ν = 3.07e-4` (how the step grid falls on the phase matters), so 6e-4 leaves about 2× |
 
 For one run, target `j` (one of `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`), timestep `dt` (the
-manifest's `fixed_dt`) and `stop_time` (the manifest's), both passed in:
+manifest's top-level `dt`) and `stop_time` (the manifest's), both passed in:
 
 0. **Clamped steps are dropped.** Rows whose step would end past `stop_time`
    (`time + dt > stop_time + 1e-9`) are removed first. At `f085`, `max_step = round(stop_time/dt)`
@@ -109,10 +109,11 @@ manifest's `fixed_dt`) and `stop_time` (the manifest's), both passed in:
      (no wrap).
    - `Δ²/8` is the maximum error of linear interpolation at half a sample spacing for a locally
      quadratic signal. So `J` bounds the error that off-integer steps per beat add to `s_b`.
-   - Measured, with clamped rows dropped: at most 6.4e-5 on the final beat of every configuration
-     of both committed corpora, and about 2e-5 on E0b's beat 6.
+   - Measured, with clamped rows dropped: ≈6.4e-5 at most (< 6.5e-5) on the final beat of every
+     configuration of both committed corpora, and about 2e-5 on E0b's beat 6.
    - It is an interpolation bound, not a white-noise floor. Smooth periodic signals built from
-     every committed `f085`/`f115` final beat, on their true step grids, give `s_b ≤ 0.40·ν`.
+     every committed `f085`/`f115` final beat by periodic linear interpolation, on their true step
+     grids, give `s_b ≤ 0.57·ν` (0.30·ν with a cubic spline).
      White-noise samples would exceed it, but the real data's second differences are positively
      correlated (curvature), not white.
 5. **Ratios** for `b = max(FIRST_RATIO_BEAT, B − 2) .. B`, with noise floor `ν = NOISE_FACTOR · J`:
@@ -128,7 +129,7 @@ manifest's `fixed_dt`) and `stop_time` (the manifest's), both passed in:
    - every ratio skipped: `T = 24 · max s_b` over the ratio beats
      `b = max(FIRST_RATIO_BEAT, B − 2) .. B`. This is `ρ/(1 − ρ)` at `ρ = 0.96`, so a slow mode
      hiding under the noise floor is still bounded. With `ν ≤ MAX_NOISE` this branch gives
-     `T ≤ 24 · 2ν ≤ 1.9%`;
+     `T ≤ 24 · 2ν ≤ 2.9%`;
    - otherwise `T = s_B · ρ / (1 − ρ)`.
 
    The geometric bound holds while later steps shrink by at most `ρ`. RMS is a norm, so the
@@ -252,9 +253,14 @@ apply to which run, and the report is `controls_incomplete` while any declared c
   de-duplication: fine decks run `ns.init_iter = 2`, which writes two extra `iStep == 0` rows by
   design. Rows are then matched by `time` to the committed `dataset.parquet`, which is in git, so
   CI can re-check them.
-- **Tolerance**, per value: `max(1e-9 · max |column|, one print step of the reference value)`. The
-  CSV prints 6 significant figures, so a print step is one unit in the 6th significant figure.
-  The tolerance therefore means "bit-identical output, allowing a flip of the last printed digit".
+- **Coverage.** Every run row must match exactly one reference row, and every reference row up to
+  the run's last time must be matched, and the run must reach the control's declared step
+  count, so a gapped or truncated run fails.
+- **Tolerance**, per value: `max(1e-9 · max |column|, 1.5 units in the 6th significant figure of
+  the reference value)`. The CSV prints 6 significant figures. The extra half unit absorbs
+  floating-point error in the subtraction, which otherwise fails about half of legitimate
+  last-digit flips. The tolerance therefore means "bit-identical output, allowing a flip of the
+  last printed digit". For an exact zero the second term is 0.
   - The 2026-09 cluster-to-A5000 fine probe was bit-exact over 400 steps.
   - E0b's coarse rerun differed only by round-off in physically-zero values.
   - A C1 failure stops the work and is reported; the user decides.

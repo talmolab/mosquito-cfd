@@ -61,8 +61,9 @@ the requirement's **full** current text, then changed as listed. Headers are the
    - Scenarios:
      - `prelim_sweep_fine` recomputes to 2.321 (step-weighted) and 3.302 from its 27 run metadata
        files;
-     - `settled_sweep` and `settled_sweep_fine` recompute from the smoke-run metadata their
-       `source` names, with the D9 factors.
+     - `settled_sweep_fine` initially names the same 27 files; after its sizing PR, it and
+       `settled_sweep` recompute from the smoke-run metadata their `source` names, with the D9
+       factors.
 
 ## MODIFIED (full current text plus these changes, in PR 2)
 

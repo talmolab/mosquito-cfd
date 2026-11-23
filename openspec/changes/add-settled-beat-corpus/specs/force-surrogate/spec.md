@@ -12,7 +12,7 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
   formed. Those are steps the solver shortened to land on `stop_time`.
 - **Constants.** These SHALL be module constants: `SETTLED_TOLERANCE = 0.01`,
   `COMPLETE_FRACTION = 0.95`, `MIN_BEATS = 5`, `FIRST_RATIO_BEAT = 4`, `NOISE_FACTOR = 3` and
-  `MAX_NOISE = 0.0004`.
+  `MAX_NOISE = 0.0006`.
 - **Complete beats.** A beat is complete when it has at least
   `COMPLETE_FRACTION / (frequency_fstar · dt)` rows. `B` is the number of the last complete beat.
 - **Errors.** Each of these SHALL raise `ValueError` naming the configuration and the cause:
@@ -94,8 +94,8 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
 
 #### Scenario: Off-integer steps per beat add less than the noise floor
 
-- **Given** an exactly periodic 8-beat signal built from a committed final beat, on the true
-  `step · dt` grid, for each committed configuration at `frequency_fstar` 0.85 and 1.15
+- **Given** an exactly periodic 8-beat signal built by periodic linear interpolation of a committed
+  final beat, on the true `step · dt` grid, for each committed `f085` and `f115` configuration
 - **When** the metric is computed
 - **Then** every `s_b` for `b ≥ 2` is at most `ν` for every target, and `ν ≤ MAX_NOISE`
 
@@ -156,7 +156,7 @@ added to `N*`.
 
 #### Scenario: Too much noise stops the decision
 
-- **Given** a run whose CF_y has `ν = 6e-4`
+- **Given** a run whose CF_y has `ν = 9e-4`
 - **When** `decide_beat_count` is called
 - **Then** the action is `stop`, naming the run and CF_y
 
@@ -241,8 +241,15 @@ The force comparison control SHALL:
 - match the remaining rows to the configuration's rows of the committed `dataset.parquet` by
   `time`.
 
+Every remaining run row SHALL match exactly one reference row, and every reference row whose
+`time` is at most the run's last remaining `time` SHALL be matched, and the run SHALL contain
+every step up to the control's declared step count (after the clamped-row exclusion). An unmatched
+row on either side, or a missing step, fails, so a gapped or truncated run cannot pass.
+
 It SHALL pass only when every raw `Fx..Mz` value is within
-`max(1e-9 · max |column|, one unit in the 6th significant figure of the reference value)`.
+`max(1e-9 · max |column|, 1.5 units in the 6th significant figure of the reference value)`. The
+column maximum is taken over the matched reference rows. For a reference value of exactly 0 the
+second term is 0.
 
 The field change is the median, and the fraction above 0.1, of `|u_b − u_B| / u_ref` (the vector
 difference norm) over the near-wing box, with `u_ref` from `compute_force_reference`. The field
@@ -261,6 +268,12 @@ change and the mean-lift drift SHALL be reported and SHALL NOT enter the decisio
 - **Then** the comparison passes
 - **And** with a perturbation of `1e-4 · max |Fy|` in a row near the peak it fails, naming `Fy` and
   the `time`
+
+#### Scenario: A truncated run fails the comparison
+
+- **Given** a 400-step run whose rows stop at step 380
+- **When** it is compared with the reference rows for a declared step count of 400
+- **Then** the comparison fails, naming the first missing step
 
 #### Scenario: Init-iteration duplicates do not fail the comparison
 

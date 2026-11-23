@@ -7,7 +7,7 @@ Rules:
 - Tests come first: each is written and seen to fail for the right reason before the code.
 - Every new guard is shown to be failable: mutate it, and the test must fail.
 - One commit per numbered task unless noted. A tests-first task is committed **together with**
-  its implementation task (e.g. 1.1 + 1.3, 2.1 + 2.2), so every commit is green.
+  its implementation task (e.g. 1.1 + 1.2 + 1.3, 2.1 + 2.2), so every commit is green.
 - Commit messages say `advances #192` (plus `#101`/`#103` where relevant) and never use a closing
   keyword.
 - Before each commit: `uv run --frozen ruff check`, `ruff format --check` and
@@ -28,13 +28,13 @@ Rules:
     - a step exactly at `ν` counts as noise;
     - `B = 5` uses two ratios and `B = 6` uses three;
   - at `f*` 0.85 and 1.15, per-beat row counts built as `step · dt` alternate (for example
-    2352/2353) and sum to `max_step`;
+    2352/2353) and sum to `max_step` minus the clamped rows (one at `f085`);
   - a tiny but nonzero peak (`1e-6`) is accepted;
   - `wingbeat` and `phase` are used as given; a frame with a deliberately inconsistent `wingbeat`
     is not "corrected";
   - `dt` and `stop_time` are required arguments;
-  - a clamped final row (`time + dt > stop_time`) carrying a `0.1 · P` spike is dropped, and the
-    result equals the run without it;
+  - a clamped final row (`time + dt > stop_time + 1e-9`) carrying a `0.1 · P` spike is dropped, and
+    the result equals the run without it;
   - `ν` exactly at `MAX_NOISE` is accepted, and just above it is reported for `stop`;
   - the maximum absolute difference is reported beside every RMS value;
   - every `ValueError` path names the configuration and the cause.
@@ -53,8 +53,9 @@ Rules:
       settled beat in either;
     - with clamped rows dropped, `J ≤ 6.5e-5` on the final beat of every configuration of both
       committed corpora;
-    - an exactly periodic 8-beat signal built from each committed `f085`/`f115` final beat, on the
-      true step grid, gives `s_b ≤ ν` for every target.
+    - an exactly periodic 8-beat signal built by periodic linear interpolation of each committed
+      `f085`/`f115` final beat, on the true step grid, gives `s_b ≤ ν` and `ν ≤ MAX_NOISE` for
+      every target.
 - [ ] 1.3 Implement `resample_beats` (figures and the E0b reproduction only), `settling_metrics`
   and `jitter`.
 
@@ -73,7 +74,8 @@ Rules:
   - the rule and its rationale (tail bound, rising-ratio term, noise floor from `J`, why sample
     resolution);
   - the three configurations and why they were chosen;
-  - the controls and the `1e-9 · max |column|` tolerance;
+  - the controls, the coverage rule and the tolerance
+    `max(1e-9 · max |column|, 1.5 units in the 6th significant figure)`;
   - the outcome table;
   - the domain caveat (#204);
   - the scope statement that the criterion predates the fine-grid and 8-beat data only;
@@ -122,7 +124,9 @@ Rules:
   reference is the configuration's rows of the committed `dataset.parquet`, matched by `time`
   after the extractor's de-duplication. Tests:
   - identical values pass;
-  - a `5e-13` round-off perturbation passes, and so does a flip of the last printed digit;
+  - a `5e-13` round-off perturbation passes, and so does a flip of the last printed digit
+    (including `1.00000` against `0.999999`);
+  - a run stopping 20 steps short of its declared step count fails, naming the first missing step;
   - a `1e-4 · max` perturbation near the peak fails, naming the column and `time`;
   - the two `init_iter = 2` duplicate `iStep == 0` rows pass, and a duplicate or missing step
     anywhere else fails;
