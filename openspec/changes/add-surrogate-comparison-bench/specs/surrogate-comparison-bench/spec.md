@@ -336,6 +336,7 @@ single run. Skill SHALL NOT be compared across splits; cross-split comparison SH
 - **And** each face's metrics are also reported without those configurations
 - **And** a like-for-like view reports each face's labelled-holdout configurations beside the controls on the same configurations:
   - it uses `rmse_frac_component_peak` and `baseline_rmse_frac_component_peak` only, with no skill key, because skill is not compared across splits;
+  - it is reported per entry and per target, with three ranges of each metric pooled over those configurations: the face model over seeds, the six random controls over controls and seeds, and `control:e4_seed0` over seeds, kept apart because its training subset is rank deficient;
   - for `face:pitch_amp_deg=30`, which has no labelled holdouts, it is `null` with reason `"no labelled holdouts on this face"`
 - **And** `holdout_informed` is `"unverified"` for `mlp_h1` and `true` for `mlp_h3`, `ridge_fixed` and `ridge`, each with a `holdout_reason`; `ridge`'s reason says "weakly"
 

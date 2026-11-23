@@ -333,16 +333,30 @@ def _range(values: Sequence[float]) -> dict[str, float]:
     }
 
 
+E4_CONTROL = "control:e4_seed0"
+_L4L_METRICS = ("rmse_frac_component_peak", "baseline_rmse_frac_component_peak")
+
+
 def like_for_like(
     results: pd.DataFrame, splits: Mapping[str, BenchSplit], holdouts: Sequence[str]
 ) -> dict[str, Any]:
     """Each face model beside the controls on the face's labelled-holdout configurations.
 
-    RMS metrics only (skill is not compared across splits). A face with no labelled holdouts
-    is ``null`` with a reason.
+    Per entry and target, three ranges of each RMS metric (skill is not compared across
+    splits), each pooled over those configurations: the face model over seeds; the random
+    controls over controls and seeds; and ``control:e4_seed0`` over seeds, kept apart because
+    its training subset is rank deficient. A face with no labelled holdouts is ``null`` with a
+    reason.
     """
     held = set(holdouts)
-    controls = [n for n in splits if n.startswith("control:")]
+    random_controls = [
+        n for n in splits if n.startswith("control:") and n != E4_CONTROL
+    ]
+    sides = {
+        "face": None,
+        "controls": random_controls,
+        E4_CONTROL: [E4_CONTROL] if E4_CONTROL in splits else [],
+    }
     view: dict[str, Any] = {}
     for name, split in splits.items():
         if not name.startswith("face:"):
@@ -354,24 +368,16 @@ def like_for_like(
         on = results["config_name"].isin(configs)
         per_entry: dict[str, Any] = {}
         for entry, rows in results[on].groupby("entry", sort=True):
-            face = pooled(rows[rows["split"] == name])
-            ctrl = pooled(rows[rows["split"].isin(controls)])
-            per_entry[str(entry)] = {
-                "configs": configs,
-                "face": {
-                    c: _range(face[c])
-                    for c in (
-                        "rmse_frac_component_peak",
-                        "baseline_rmse_frac_component_peak",
-                    )
-                },
-                "controls": {
-                    c: _range(ctrl[c])
-                    for c in (
-                        "rmse_frac_component_peak",
-                        "baseline_rmse_frac_component_peak",
-                    )
-                },
-            }
+            per_target: dict[str, Any] = {}
+            for target, trows in rows.groupby("target", sort=True):
+                ranges: dict[str, Any] = {}
+                for side, members in sides.items():
+                    chosen = trows["split"].isin([name] if members is None else members)
+                    pool = pooled(trows[chosen]) if chosen.any() else None
+                    ranges[side] = {
+                        m: _range([] if pool is None else pool[m]) for m in _L4L_METRICS
+                    }
+                per_target[str(target)] = ranges
+            per_entry[str(entry)] = {"configs": configs, "targets": per_target}
         view[name] = per_entry
     return view

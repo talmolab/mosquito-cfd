@@ -347,23 +347,94 @@ def test_face_metrics_without_holdouts():
     assert set(out["split"]) == {"face:p=60", "face:p=30"}
 
 
+def _l4l_results():
+    """Two targets, distinct per-control scales, and an E4 control kept apart from the rest."""
+    scale = {
+        "face:p=60": 1.0,
+        "control:0": 0.5,
+        "control:1": 0.7,
+        "control:e4_seed0": 9.0,
+    }
+    target_scale = {"CF_x": 1.0, "CF_z": 100.0}
+    rows = []
+    for split, configs in (
+        ("face:p=60", ["h1", "x1"]),
+        ("face:p=30", ["y1"]),
+        ("control:0", ["h1", "h2"]),
+        ("control:1", ["h1", "h2"]),
+        ("control:e4_seed0", ["h1", "h2"]),
+    ):
+        for seed in (1, 2, 3, 4, 5):
+            for target, ts in target_scale.items():
+                for c in configs:
+                    # h2 (not on the face) is huge, so including it would show.
+                    other = 1e6 if c == "h2" else 1.0
+                    rows.append(
+                        {
+                            "entry": "mlp_h1",
+                            "split": split,
+                            "seed": seed,
+                            "target": target,
+                            "config_name": c,
+                            "n_rows": 4,
+                            "sse": 1.0,
+                            "sse_baseline": 4.0,
+                            "n_grid": N_GRID,
+                            "grid_sse": seed * ts * scale.get(split, 1.0) * other,
+                            "baseline_grid_sse": 9.0 * ts,
+                            "peak_t": 3.0,
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
+L4L_SPLITS = {
+    "face:p=60": BenchSplit("face:p=60", ("a",), ("h1", "x1")),
+    "face:p=30": BenchSplit("face:p=30", ("a",), ("y1",)),
+    "control:0": BenchSplit("control:0", ("a",), ("h1", "h2")),
+    "control:1": BenchSplit("control:1", ("a",), ("h1", "h2")),
+    "control:e4_seed0": BenchSplit("control:e4_seed0", ("a",), ("h1", "h2")),
+}
+
+
+def _rms(grid_sse):
+    return np.sqrt(grid_sse / N_GRID) / 3.0
+
+
 def test_the_like_for_like_view_reports_rms_only_and_nulls_a_face_without_holdouts():
-    view = metrics.like_for_like(_split_results(), SYNTH_SPLITS, ["h1", "h2"])
+    view = metrics.like_for_like(_l4l_results(), L4L_SPLITS, ["h1", "h2"])
     assert view["face:p=30"] == {
         "value": None,
         "reason": "no labelled holdouts on this face",
     }
     entry = view["face:p=60"]["mlp_h1"]
     assert entry["configs"] == ["h1"]
-    assert set(entry) == {"configs", "face", "controls"}
-    for side in ("face", "controls"):
-        assert set(entry[side]) == {
-            "rmse_frac_component_peak",
-            "baseline_rmse_frac_component_peak",
+    assert set(entry["targets"]) == {"CF_x", "CF_z"}
+    seeds = np.arange(1, 6)
+    for t, ts in (("CF_x", 1.0), ("CF_z", 100.0)):
+        sides = entry["targets"][t]
+        assert set(sides) == {"face", "controls", "control:e4_seed0"}
+        for side in sides.values():
+            assert set(side) == {
+                "rmse_frac_component_peak",
+                "baseline_rmse_frac_component_peak",
+            }
+        # Face: the range over seeds of this target only, on h1 only.
+        assert sides["face"]["rmse_frac_component_peak"] == {
+            "min": pytest.approx(_rms(1 * ts)),
+            "max": pytest.approx(_rms(5 * ts)),
         }
-        assert "skill" not in entry[side]
-    expected = [np.sqrt(2.0 * s / N_GRID) / 3.0 for s in (1, 2, 3, 4, 5)]
-    assert entry["face"]["rmse_frac_component_peak"] == {
-        "min": pytest.approx(min(expected)),
-        "max": pytest.approx(max(expected)),
-    }
+        # Controls: the random controls (here 0 and 1) x seeds, on h1 only; E4 apart.
+        ctrl = [_rms(s * ts * k) for s in seeds for k in (0.5, 0.7)]
+        assert sides["controls"]["rmse_frac_component_peak"] == {
+            "min": pytest.approx(min(ctrl)),
+            "max": pytest.approx(max(ctrl)),
+        }
+        assert sides["control:e4_seed0"]["rmse_frac_component_peak"] == {
+            "min": pytest.approx(_rms(1 * ts * 9.0)),
+            "max": pytest.approx(_rms(5 * ts * 9.0)),
+        }
+        assert sides["face"]["baseline_rmse_frac_component_peak"] == {
+            "min": pytest.approx(_rms(9.0 * ts)),
+            "max": pytest.approx(_rms(9.0 * ts)),
+        }
