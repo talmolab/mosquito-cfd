@@ -276,7 +276,7 @@ mutants at the post-merge SHA.
 | M11 | `read_units_sidecar`: revert to its old loader | units tests |
 | M12 | `_json_loader`: wrap `OSError` as `ValueError` | directory tests (loader, pod metadata, units) |
 | M13 | `sidecar`: its own copy instead of the re-export | identity test |
-| M14 | `_json_loader` (and separately `_manifest`): `import mosquito_cfd.force_surrogate` | stdlib-only AST tests; fresh-interpreter tests |
+| M14 | `_json_loader` (and separately `_manifest`): import a heavy module that does not import back, `mosquito_cfd.benchmarks` or `pandas` (see "Why not `force_surrogate` in M14?") | stdlib-only AST tests; fresh-interpreter tests |
 | M15 | `_json_loader`: `from None` on the UTF-8 branch; separately, on the JSON branch | `__cause__` assertions in the loader tests; M15-UTF-8 also `test_undecodable…` and the gate non-UTF-8 test |
 | M16 | `dataset`: `from exc` instead of `from exc.__cause__` | `__cause__` isinstance check in `test_undecodable…` |
 | M17 | `dataset`: `{exc}` instead of `{exc.__cause__}` in the message | exact message in `test_undecodable…` |
@@ -285,3 +285,30 @@ mutants at the post-merge SHA.
 | M20 | gate / `record_check_result` provenance read: `require_object=False` | `[]` and `5` provenance tests |
 | M21a | `_assert_stdlib_only`: `any(name.startswith(a) for a in allowed)` | allow-list self-test (`_json_loaderx`, `_json_loader.sub`) |
 | M21b | `_assert_stdlib_only`: `any(a.startswith(name) for a in allowed)` | allow-list self-test (`from mosquito_cfd import force_surrogate`, `import mosquito_cfd`) |
+
+## Deviations found during implementation
+
+Results are in `mutation-results.md`.
+
+### Why not `force_surrogate` in M14?
+
+The planned M14 imported `mosquito_cfd.force_surrogate` into `_json_loader` or `_manifest`. That
+is a circular import (`force_surrogate` → `dataset` → `_manifest` → `_json_loader`), so the mutant
+died at test collection, before any contract test ran. M14 instead imports `mosquito_cfd.benchmarks`
+and, separately, `pandas`. Both are in `_HEAVY`, and the AST and fresh-interpreter tests kill each.
+
+### Why a faithful M9 instead of the one-line revert?
+
+A one-line revert, `load_json_clear_error(...)["configs"]`, indexes the manifest at once. The
+pre-change gate indexed it only after `build_dataset`. With `require_object=False` the one-liner
+is killed by a `TypeError` from indexing a list, which hides the equivalence D6 predicts. The
+faithful revert reads into a variable and indexes it just before the loops. M9 is killed by the
+`[]`/`5` guards; M9eq survives and is recorded as equivalent.
+
+### Why two task-1 "guards" were red
+
+`tasks.md` 1.1 listed `test_missing_file_is_file_not_found` and
+`test_directory_is_an_os_error_not_a_value_error` as guards. They call `mosquito_cfd._json_loader`
+directly, so before task 1 they failed with `ModuleNotFoundError`. Commit 1's body lists them under
+Red, with that reason. Their contract (opening errors are not wrapped) held before the change and
+holds after it.

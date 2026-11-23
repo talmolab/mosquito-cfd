@@ -24,12 +24,12 @@ file (merge overlap with `fix-stale-spec-claims`).
 
 ## 0. Pre-flight
 
-- [ ] 0.1 Commit the approved proposal, `openspec/changes/harden-json-loader/` only:
+- [x] 0.1 Commit the approved proposal, `openspec/changes/harden-json-loader/` only:
   `docs(openspec): propose harden-json-loader (advances #175)`. Later review-round edits to the
   proposal go in further `docs(openspec):` commits before task 1.
-- [ ] 0.2 Check `git rev-parse HEAD` equals that commit, and `git branch --show-current` is
+- [x] 0.2 Check `git rev-parse HEAD` equals that commit, and `git branch --show-current` is
   `harden-json-loader`. (`uv sync --frozen --group viz` has already run.)
-- [ ] 0.3 Baseline. Run these and record the counts:
+- [x] 0.3 Baseline. Run these and record the counts:
   - `tests/test_light_corpus_helpers.py`
   - `tests/test_force_surrogate_sidecar.py`
   - `tests/test_acceptance_gate.py`
@@ -55,7 +55,7 @@ The default object check fixes the gate's provenance reads, `corpus_guards` and
 
 So all of it is one commit.
 
-- [ ] 1.1 **Tests.**
+- [x] 1.1 **Tests.**
   - **New `tests/test_json_loader.py`:**
     - **Red:** `test_json_module_imports_only_the_standard_library`, which runs
       `_assert_stdlib_only` on `_json_loader.py`. Fails with `FileNotFoundError`.
@@ -135,7 +135,7 @@ So all of it is one commit.
       - assert the exact message, with the `UnicodeDecodeError` text computed by decoding the same
         bytes;
       - assert `isinstance(excinfo.value.__cause__, UnicodeDecodeError)`.
-- [ ] 1.2 **Green.**
+- [x] 1.2 **Green.**
   - Add `src/mosquito_cfd/_json_loader.py` per D1. Its module docstring states:
     - the stdlib-only contract;
     - the D3 rule;
@@ -157,7 +157,7 @@ So all of it is one commit.
 
 ## 2. `_manifest` loads through `_json_loader`; drift test across the three loaders (D2, D5)
 
-- [ ] 2.1 **Tests** in `tests/test_json_loader.py` and `tests/test_light_corpus_helpers.py`:
+- [x] 2.1 **Tests** in `tests/test_json_loader.py` and `tests/test_light_corpus_helpers.py`:
   - **Red:** `test_manifest_uses_the_shared_loader`. It monkeypatches
     `mosquito_cfd._manifest.load_json_clear_error` with a recording stub that returns
     `{"configs": []}`, and asserts one call with `label="sweep manifest", require_object=False`.
@@ -169,7 +169,7 @@ So all of it is one commit.
     `_json_loader`.
   - **Guard:** `test_every_loader_rejects_the_same_inputs_as_value_errors` (D5), over the five
     payloads.
-- [ ] 2.2 **Green.**
+- [x] 2.2 **Green.**
   - `_manifest.load_manifest_configs` calls `load_json_clear_error(path, label="sweep manifest",
     require_object=False)`.
   - It keeps its non-object check and every message.
@@ -183,7 +183,7 @@ So all of it is one commit.
 
 ## 3. `source_config_fields` reads through `load_manifest_configs` (D7)
 
-- [ ] 3.1 **Tests** in `tests/test_metadata_capture.py`:
+- [x] 3.1 **Tests** in `tests/test_metadata_capture.py`:
   - Replace `test_source_config_fields_raises_clear_error_on_missing_manifest_field` with:
     - **Red:** `test_source_config_fields_missing_required_key_is_a_value_error`. A config of only
       `name` and `max_step` raises exactly `ValueError` matching
@@ -206,7 +206,7 @@ So all of it is one commit.
     `_DECK` (E4).
   - `test_manifest_lookup_raises_on_missing_config` and
     `test_manifest_lookup_raises_on_malformed_manifest_json` stay unchanged.
-- [ ] 3.2 **Green.**
+- [x] 3.2 **Green.**
   - `source_config_fields` per D7.
   - Its docstring's `Raises:` says `ValueError` for anything the shared reader rejects, and
     `KeyError` for an absent config or a missing `max_step`.
@@ -216,7 +216,7 @@ So all of it is one commit.
 
 ## 4. `read_units_sidecar` (D8)
 
-- [ ] 4.1 **Tests** in `tests/test_force_surrogate_sidecar.py`:
+- [x] 4.1 **Tests** in `tests/test_force_surrogate_sidecar.py`:
   - **Red:** `test_read_units_sidecar_labels_every_content_failure`. It covers:
     - `{`: exact prefix `units sidecar <path> is not valid JSON: `;
     - `[]`: the exact message;
@@ -226,7 +226,7 @@ So all of it is one commit.
     It fails today with the old prefix, `units must be a mapping`, `RecursionError`, an unlabelled
     `ValueError`, and a bare `UnicodeDecodeError`.
   - **Guard:** `test_read_units_sidecar_directory_is_an_os_error`.
-- [ ] 4.2 **Green.** `read_units_sidecar` loads through `load_json_clear_error(path, label="units
+- [x] 4.2 **Green.** `read_units_sidecar` loads through `load_json_clear_error(path, label="units
   sidecar")`, then calls `_validate_units`. Its `Raises:` says that content failures are labelled
   per `_json_loader` and that units outside the vocabulary are rejected.
 
@@ -235,28 +235,28 @@ So all of it is one commit.
 
 ## 5. Verification
 
-- [ ] 5.1 Run `grep -rnE --include=*.py "#175|Not yet wrapped" src/`. Expect no "Not yet
+- [x] 5.1 Run `grep -rnE --include=*.py "#175|Not yet wrapped" src/`. Expect no "Not yet
   wrapped", and check that each `#175` hit is a deliberate reference to this change, not a
   statement that something is still unfixed.
-- [ ] 5.2 Run `grep -n "except UnicodeDecodeError" src/mosquito_cfd/force_surrogate/dataset.py`,
+- [x] 5.2 Run `grep -n "except UnicodeDecodeError" src/mosquito_cfd/force_surrogate/dataset.py`,
   and expect no match: D4 uses `__cause__`.
-- [ ] 5.3 Run the full suite in the background, exactly as CI does: `uv run pytest -v -m "not
+- [x] 5.3 Run the full suite in the background, exactly as CI does: `uv run pytest -v -m "not
   gpu" -p no:cacheprovider`, with `PYTHONPATH=src`. It takes about 6 minutes.
-- [ ] 5.4 Run `uv run ruff check` and `uv run ruff format --check` on exactly `src/ tests/
+- [x] 5.4 Run `uv run ruff check` and `uv run ruff format --check` on exactly `src/ tests/
   scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/`.
   Check each exit code with `>/dev/null && echo OK`.
-- [ ] 5.5 Run mutations M1–M21b (`design.md`, "Mutation plan"). For each surviving mutant, add a
+- [x] 5.5 Run mutations M1–M21b (`design.md`, "Mutation plan"). For each surviving mutant, add a
   killing test as its own red → green commit, or record why it is equivalent. Record each killer
   in `openspec/changes/harden-json-loader/mutation-results.md`.
-- [ ] 5.6 Re-run the E1 audit through `_json_loader.load_json_clear_error` on all 56 files, and expect 0
+- [x] 5.6 Re-run the E1 audit through `_json_loader.load_json_clear_error` on all 56 files, and expect 0
   failures. Paste the command and its output into `mutation-results.md`.
-- [ ] 5.7 Run `openspec validate harden-json-loader --strict`.
-- [ ] 5.8 Reconcile the implementation against `proposal.md`, `design.md`, both spec deltas and
+- [x] 5.7 Run `openspec validate harden-json-loader --strict`.
+- [x] 5.8 Reconcile the implementation against `proposal.md`, `design.md`, both spec deltas and
   this file. Record any deviation as `### Why N instead of M?` in `design.md`.
 
 ## 6. Change artifacts commit
 
-- [ ] 6.1 Commit `mutation-results.md`, any `design.md`, `proposal.md` or `tasks.md` reconciliation
+- [x] 6.1 Commit `mutation-results.md`, any `design.md`, `proposal.md` or `tasks.md` reconciliation
   edits, and the ticked task boxes: `docs(openspec): mutation results and reconciliation for
   harden-json-loader (advances #175)`.
 
