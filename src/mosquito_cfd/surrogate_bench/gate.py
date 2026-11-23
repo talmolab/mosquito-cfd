@@ -346,12 +346,15 @@ HOLDOUT_STATEMENT = (
 )
 FIXED_REASONS = (
     "grid_gci is from one configuration at 70° stroke, outside the corpus's 35–55°",
-    "grid_gci is from a one-beat run, so the startup beat",
+    "grid_gci is from a one-beat run, so its peaks are those of the startup beat",
     "T3c refined grid and timestep together, and its fine run used dt = 2.5e-4 at "
     "cfl = 0.3 while the corpus uses 5e-4 at 0.6, so the corpus's temporal error is not "
     "covered",
     "the T3c deck's z boundary condition is 2 where the corpus's is 4",
-    "coarse_vs_fine bounds the coarse grid's error, not the fine grid's",
+    "coarse_vs_fine is an upper bound on the fine grid's error, not an estimate of it: "
+    "under the asymptotic Richardson model the coarse-fine difference is (r^p - 1) "
+    "(about 5.8) times the fine grid's error, and it under-estimates the coarse grid's "
+    "error",
     "beat1_vs_beat2 includes the startup beat of a 2-beat run that has not settled",
 )
 _WINDOWED_YARDSTICKS = ("beat1_vs_beat2",)

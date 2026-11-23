@@ -271,9 +271,12 @@ yardstick as passing.
   - The 0.125 values were checked against the code before being written into the spec.
 - **`grid_gci` reasons.** Every reason in the spec was checked against `inputs.3d.convergence_fine`
   and the corpus decks.
-- **`coarse_vs_fine`** bounds the coarse grid's error. The Richardson estimate of the fine grid's
-  error is about $1/(r^p - 1) \approx 1/5.8$ of it, reported as `coarse_vs_fine_scaled` with its
-  limits in its label.
+- **`coarse_vs_fine`** is the coarse-fine difference. Under the asymptotic Richardson model,
+  $E_c = r^p E_f$, so the difference is $E_c - E_f = (r^p - 1) E_f \approx 5.8\,E_f$: a
+  conservative upper bound on the fine grid's error, and about $0.85\,E_c$, an under-estimate of
+  the coarse grid's. (The proposal first said it bounds the coarse grid's error; the pre-PR
+  review corrected the direction.) The Richardson estimate of the fine grid's error, $1/(r^p - 1)$
+  of it, is reported as `coarse_vs_fine_scaled` with its limits in its label.
 - **`late_beat`** is implemented now, tested on synthetic 2-, 3- and 4-beat frames, and switches on
   when the regenerated corpus has at least 4 beats. The quadrature combination
   $\sqrt{Y_{\text{grid}}^2 + Y_{\text{late}}^2}$ assumes the grid and settling errors are

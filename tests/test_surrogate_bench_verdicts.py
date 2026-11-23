@@ -134,6 +134,23 @@ def test_the_two_beat_block_is_provisional_with_seven_reasons_and_no_overall_key
     assert cf_mx["beat1_vs_beat2"]["verdict"] == "inside"
 
 
+def test_the_fixed_reasons_state_their_facts():
+    """Each provisional reason carries the fact it rests on (spec "Provisional hover gate")."""
+    gci_stroke, one_beat, temporal, bc, coarse, startup = gate.FIXED_REASONS
+    assert "70°" in gci_stroke and "35–55°" in gci_stroke
+    assert one_beat == (
+        "grid_gci is from a one-beat run, so its peaks are those of the startup beat"
+    )
+    assert "dt = 2.5e-4" in temporal and "cfl = 0.3" in temporal
+    assert "5e-4 at 0.6" in temporal
+    assert "is 2 where the corpus's is 4" in bc
+    # Under the asymptotic Richardson model the coarse-fine difference is (r^p - 1) E_fine:
+    # an upper bound on the fine grid's error, and below the coarse grid's own error.
+    assert "upper bound on the fine grid's error" in coarse
+    assert "under-estimates the coarse grid's error" in coarse
+    assert "startup beat" in startup and "has not settled" in startup
+
+
 def test_the_block_documents_the_all_zero_reason_as_no_error_and_no_yardstick():
     """Spec "Gate boundaries": the summary documents 0/0 as no error and no yardstick."""
     notes = _block()["reason_notes"]
