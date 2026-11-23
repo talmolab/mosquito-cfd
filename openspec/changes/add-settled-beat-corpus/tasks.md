@@ -20,7 +20,7 @@ Rules:
 ## PR 1 — settling metric, pre-registration, Stage 1 decks (branch `add-settled-beat-corpus`)
 
 ### 1. Metric (`force_surrogate/settling.py`)
-- [ ] 1.1 Tests first (`tests/test_settling.py`):
+- [x] 1.1 Tests first (`tests/test_settling.py`):
   - one test per scenario of "Beat-to-beat settling metric";
   - boundaries:
     - exactly 95% of rows counts as complete;
@@ -38,7 +38,7 @@ Rules:
   - `ν` exactly at `MAX_NOISE` is accepted, and just above it is reported for `stop`;
   - the maximum absolute difference is reported beside every RMS value;
   - every `ValueError` path names the configuration and the cause.
-- [ ] 1.2 Known-answer fixtures:
+- [x] 1.2 Known-answer fixtures:
   - Copy the needed columns of `explore-surrogate-experiments` `b99c7b2`
     `experiments/e0b_long_run/outputs/long_run.parquet` (blob `f232bca`, `s45_f100_p45`) and
     `outputs_s45_f100_p30_fields/long_run.parquet` (blob `ef8f74a`) into
@@ -56,20 +56,20 @@ Rules:
     - an exactly periodic 8-beat signal built by periodic linear interpolation of each committed
       `f085`/`f115` final beat, on the true step grid, gives `s_b ≤ ν` and `ν ≤ MAX_NOISE` for
       every target.
-- [ ] 1.3 Implement `resample_beats` (figures and the E0b reproduction only), `settling_metrics`
+- [x] 1.3 Implement `resample_beats` (figures and the E0b reproduction only), `settling_metrics`
   and `jitter`.
 
 ### 2. Decision rule
-- [ ] 2.1 Tests first:
+- [x] 2.1 Tests first:
   - one test per scenario of "Pre-registered settled-beat decision rule";
   - `pass(N)` needs every `N′ ≥ N`;
   - `B = 7` because the last beat is incomplete;
   - the result names the run, beat and target; on the two E0b fixtures (`B = 6`) the action is
     `stop`, and `s45_f100_p30`'s failure is reported on CF_my.
-- [ ] 2.2 Implement `decide_beat_count`.
+- [x] 2.2 Implement `decide_beat_count`.
 
 ### 3. Pre-registration and precedence
-- [ ] 3.1 Write `examples/settling_check/PREREGISTRATION.md`, the single narrative home of the
+- [x] 3.1 Write `examples/settling_check/PREREGISTRATION.md`, the single narrative home of the
   criterion. It covers:
   - the rule and its rationale (tail bound, rising-ratio term, noise floor from `J`, why sample
     resolution);
@@ -82,14 +82,14 @@ Rules:
   - the near-wing box;
   - the constants block between `<!-- settling-constants:start -->` and
     `<!-- settling-constants:end -->`.
-- [ ] 3.2 Tests first, then the pinning helper:
+- [x] 3.2 Tests first, then the pinning helper:
   - the block parses and equals `settling.py`;
   - a missing anchor raises;
   - a mutated copy of the file fails;
   - a monkeypatched constant fails;
   - the constants sentence in the change's delta, or in the live spec after archive (path
     resolved), carries the same values.
-- [ ] 3.3 Tests first, then the precedence checker (`settling.check_precedence`), on synthetic
+- [x] 3.3 Tests first, then the precedence checker (`settling.check_precedence`), on synthetic
   trees:
   - unchanged files pass;
   - an edit with no `deviations.json` entry fails;
@@ -100,7 +100,7 @@ Rules:
     no records or decision exist yet, and becomes binding in PR 3.
 
 ### 4. Stage 1 decks (`examples/settling_check/`)
-- [ ] 4.1 Tests first (`tests/test_settling_decks.py`):
+- [x] 4.1 Tests first (`tests/test_settling_decks.py`):
   - the differing key set equals the declared set;
   - a deck missing `amrex.the_arena_init_size`, and one with a changed `ns.cfl`, each fail by name;
   - `max_step` is 18824 / 16000 / 13913, and `stop_time` equals `derive_run_duration`'s;
@@ -111,16 +111,16 @@ Rules:
   - the C1 decks are the corpus deck plus `max_step = 400` and the arena key, with their own
     declared set;
   - regeneration is byte-identical.
-- [ ] 4.2 Implement `generate_decks.py` (using `metadata_capture.parse_deck`), and commit the
+- [x] 4.2 Implement `generate_decks.py` (using `metadata_capture.parse_deck`), and commit the
   decks and `settling_manifest.json`. The manifest's per-run entries carry the fields
   `scripts/extract_forces.py` needs (name, input file, kinematics, `max_step`, `stop_time`), so the
   Stage 1 `dataset.parquet` is built by the existing extractor, not new code.
-- [ ] 4.3 `.gitignore`: add `examples/settling_check/**/runs/`. `git check-ignore` tests: a run
+- [x] 4.3 `.gitignore`: add `examples/settling_check/**/runs/`. `git check-ignore` tests: a run
   directory is ignored; `dataset.parquet`, the decks, the manifest, `records/*.json` and the figure
   are not.
 
 ### 5. Controls and report (one commit each)
-- [ ] 5.1 Tests first, then `settling.compare_force_csv(run_csv, reference_rows, stop_time, dt)`. The
+- [x] 5.1 Tests first, then `settling.compare_force_csv(run_csv, reference_rows, stop_time, dt)`. The
   reference is the configuration's rows of the committed `dataset.parquet`, matched by `time`
   after the extractor's de-duplication. Tests:
   - identical values pass;
@@ -131,17 +131,19 @@ Rules:
   - the two `init_iter = 2` duplicate `iStep == 0` rows pass, and a duplicate or missing step
     anywhere else fails;
   - the reference's clamped final row is excluded (C3 at `f085`).
-- [ ] 5.2 Tests first, then `settling.field_change_stats`:
+- [x] 5.2 Tests first, then `settling.field_change_stats`:
   - identical arrays give 0;
   - a `0.12 · u_ref` offset gives median 0.12 and fraction 1;
   - a `0.08 · u_ref` offset gives fraction 0 (strict `>`, vector difference norm);
   - a shape mismatch or non-finite input raises.
-- [ ] 5.3 Tests first, then `scripts/check_settling.py`, on a synthetic run tree:
+- [x] 5.3 Tests first, then `scripts/check_settling.py`, on a synthetic run tree:
   - every report field of "A settling report records its controls and its inputs";
   - `controls_incomplete` and a non-zero exit when a declared control is missing;
+    `control_failed` when a recorded control failed; `data_incomplete` when a run has no rows;
   - run-record completeness: image digest equal to the manifest's pin, IAMReX label, command,
     hardware, seconds per step, start SHA, `git_dirty == false`, and the three file hashes;
-  - the record writer `scripts/record_settling_run.py` (`settling.write_run_record`) produces a
+  - the record writer `scripts/record_settling_run.py` (`settling.build_run_record`, checked by
+    `settling.validate_run_record`) produces a
     complete record from a synthetic run directory; C4 uses `metadata_capture`'s realized-timestep
     summary with clamped steps excluded;
   - field-change values are copied into the report with the SHA-256 of the plotfile headers they
@@ -149,16 +151,18 @@ Rules:
   - The schemas for `settling_manifest.json`, `records/*.json` and `settling_report.json` are
     defined in this task as JSON-schema-like tables in `examples/settling_check/README.md`, and
     the tests check them.
-- [ ] 5.4 Tests first (the sidecar numbers equal the report's), then
+- [x] 5.4 Tests first (the sidecar numbers equal the report's), then
   `scripts/make_settling_figure.py`: step change per beat on a log axis, one panel per target, six
-  runs, with tolerance and noise lines, following the project's figure-sidecar convention.
-- [ ] 5.5 Finish `examples/settling_check/README.md`: commands, file map, controls per run, the
+  runs, with the tolerance line (the per-run, per-coefficient noise floors are in the metrics
+  sidecar, not drawn: 36 lines would hide the data), following the project's figure-sidecar
+  convention.
+- [x] 5.5 Finish `examples/settling_check/README.md`: commands, file map, controls per run, the
   data location on the share. It links to `PREREGISTRATION.md` without restating it.
 
 ### 6. Docs, CI and PR 1
-- [ ] 6.1 Add `examples/settling_check/` to the ruff paths in `.github/workflows/ci.yml` and in
+- [x] 6.1 Add `examples/settling_check/` to the ruff paths in `.github/workflows/ci.yml` and in
   `openspec/project.md:212`.
-- [ ] 6.2 Add a short top-of-file entry in `docs/CHANGELOG.md`. In `openspec/project.md`: add
+- [x] 6.2 Add a short top-of-file entry in `docs/CHANGELOG.md`. In `openspec/project.md`: add
   `settling_check/` to the directory tree, and one Verification Principle ("pre-register a
   criterion before the data that judge it exist, and say which data it predates").
 - [ ] 6.3 `/review-pr`, a focused re-review of each fix commit, then `/pre-merge-check` (no

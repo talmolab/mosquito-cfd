@@ -229,7 +229,9 @@ parsed with `metadata_capture.parse_deck`. The declared differences are:
 - `amr.plot_int = -1`, `amr.check_int = -1`, `amr.plot_per = 1/(20·f*)` and
   `amr.check_per = 1/f*`.
 
-The set of differing keys must equal this set. `ns.cfl`, `ns.init_iter`, `ns.fixed_dt`, geometry
+The set of differing keys must equal this set. The coarse corpus decks already have
+`amr.plot_int = -1`, so the coarse runs' declared set leaves that key out; the settling manifest
+records each deck's exact set. `ns.cfl`, `ns.init_iter`, `ns.fixed_dt`, geometry
 and grid are untouched; coarse keeps `ns.init_iter = 0`. Stage 2 decks are tested against these
 decks (task 13.4), so the settling result transfers.
 
@@ -241,7 +243,8 @@ Both are pulled by digest, and each image's `com.mosquito-cfd.iamrex-commit` lab
 The new corpora use the same images, so each extends its predecessor like for like.
 
 **Controls.** Each result goes into the run record. The settling manifest declares which controls
-apply to which run, and the report is `controls_incomplete` while any declared control is missing.
+apply to which run. The report is `controls_incomplete` while any declared control is missing,
+`control_failed` when a recorded control failed, and `data_incomplete` when a run has no rows.
 
 | id | applies to | check | pass |
 |---|---|---|---|

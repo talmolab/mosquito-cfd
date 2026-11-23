@@ -232,19 +232,27 @@ and grid, parsed with `metadata_capture.parse_deck`.
 - the result of every control the settling manifest declares for that run;
 - the decision.
 
-When any declared control has no recorded result, the report SHALL be marked
-`controls_incomplete` and the script SHALL exit non-zero.
+The report's `status` SHALL be one of:
+- `controls_incomplete`, when any declared control has no recorded result;
+- otherwise `control_failed`, when a recorded control failed;
+- otherwise `data_incomplete`, when a run has no dataset rows;
+- otherwise `complete`.
+
+The script SHALL exit non-zero unless the status is `complete`.
 
 The force comparison control SHALL:
 - de-duplicate the run's force rows with the extractor's validated rule;
 - drop rows whose step ends past the reference's or the run's `stop_time`;
 - match the remaining rows to the configuration's rows of the committed `dataset.parquet` by
-  `time`.
+  step index `round(time / dt)`.
 
-Every remaining run row SHALL match exactly one reference row, and every reference row whose
-`time` is at most the run's last remaining `time` SHALL be matched, and the run SHALL contain
-every step up to the control's declared step count (after the clamped-row exclusion). An unmatched
-row on either side, or a missing step, fails, so a gapped or truncated run cannot pass.
+The comparison covers steps `0 .. n − 1`:
+- for C1, `n` is the control deck's declared `max_step`;
+- for C3, `n` is the number of reference rows left after the reference's clamped row is dropped.
+
+Each of those steps SHALL appear exactly once in both the run and the reference. A missing or
+duplicate step on either side fails, so a gapped or truncated run cannot pass. Run rows after
+step `n − 1` (a long run continuing past its 2-beat reference) are not compared.
 
 It SHALL pass only when every raw `Fx..Mz` value is within
 `max(1e-9 · max |column|, 1.5 units in the 6th significant figure of the reference value)`. The
