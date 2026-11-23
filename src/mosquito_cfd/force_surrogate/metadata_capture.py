@@ -454,6 +454,8 @@ def source_config_fields(
     deck = parse_deck(deck_path)
 
     def _entry_field(key: str) -> Any:
+        # load_manifest_configs guarantees the kinematics keys, so in practice this guards
+        # max_step, which is not one of the reader's required keys.
         if key not in entry:
             raise KeyError(
                 f"manifest entry for config {config_name!r} in {manifest_path} is missing "
@@ -845,9 +847,12 @@ def assemble_run_metadata(
             disagrees with the CSV-derived timestep count, or (in a multi-config fan-out
             workflow) the pod's own ``orchestration.pod`` name has no matching node in the Argo
             workflow status, or the matching node is not itself a valid ``wall_time_s``
-            candidate -- see :func:`compute_wall_time_s`.
-        KeyError: If ``config_name`` is not present in the manifest, or the manifest entry/deck
-            is missing a required field.
+            candidate -- see :func:`compute_wall_time_s`. That includes a manifest the shared
+            reader :func:`mosquito_cfd._manifest.load_manifest_configs` rejects (any config
+            missing a required key, a non-list ``configs``, a duplicate name), via
+            :func:`source_config_fields`.
+        KeyError: If ``config_name`` is not present in the manifest, its entry has no
+            ``max_step``, or the deck is missing a required key.
     """
     pod_metadata = load_pod_run_metadata(pod_metadata_path)
     docker_image = extract_docker_image(pod_metadata)

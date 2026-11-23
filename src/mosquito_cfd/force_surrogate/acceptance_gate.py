@@ -62,10 +62,13 @@ def run_acceptance_gate(
         a single failure, since no other check can run without the frame.
 
     Raises:
-        ValueError: If the manifest, the provenance file or a run_metadata file is not valid
-            UTF-8, not valid JSON or not a JSON object, naming the path (a malformed manifest
-            config list too, through ``load_manifest_configs``). Errors opening a path are not
-            wrapped.
+        ValueError: Naming the path, if the manifest or the provenance file is not valid UTF-8,
+            not valid JSON or not a JSON object (a malformed manifest config list too, through
+            ``load_manifest_configs``), or if a run_metadata file is not valid JSON (malformed,
+            nested beyond the recursion limit, or an integer beyond Python's digit limit;
+            raised by ``build_dataset``). A run_metadata file that is not UTF-8 or not a JSON
+            object is a ``ConfigExtractionError``, returned as a failure, not raised. Errors
+            opening a path are not wrapped.
     """
     manifest_path = Path(manifest_path)
     configs = load_manifest_configs(manifest_path)
@@ -104,6 +107,8 @@ def run_acceptance_gate(
         if metadata_path is None or not Path(metadata_path).exists():
             failures.append(f"{name}: no run_metadata file found")
             continue
+        # build_dataset already parsed this file (deck-hash reconciliation) and rejected any
+        # content failure, so this read's object check is defence in depth only.
         run_metadata = load_json_clear_error(
             Path(metadata_path), label="run_metadata file"
         )

@@ -53,7 +53,8 @@ same gap as `load_json_clear_error`.
   the change:
   - a config missing one of the reader's required keys (`name`, `index`, `stroke_amp_deg`,
     `frequency_fstar`, `pitch_amp_deg`, `reynolds`, `split`) was a `KeyError` naming the key, and
-    only if that key was one this function reads;
+    only if it was the requested config and the key was one this function reads. Now a defect
+    in *any* config of the manifest is rejected;
   - a manifest with no `configs` key was a `KeyError` "config … not found (available: [])";
   - a non-list `configs` was a `TypeError`, and a non-mapping config an `AttributeError`;
   - a duplicate config name was accepted.
@@ -61,10 +62,18 @@ same gap as `load_json_clear_error`.
   These keep `KeyError`: a config absent from the manifest, and a `max_step` absent from the entry
   (`max_step` is not one of the reader's required keys). Every config of every committed manifest
   still passes (design E1, E4).
-- **BREAKING (minor): wrong-shape files raise `ValueError`.** Deep nesting, and a non-object top
-  level read through `load_json_clear_error`'s callers, now raise `ValueError` instead of
-  `RecursionError`, `AttributeError` or `TypeError`. Nothing in the repository catches those
-  (design E3).
+- **BREAKING (minor): wrong-shape files raise `ValueError`.** Through `load_json_clear_error`'s
+  callers (the gate, `record_check_result`, `corpus_guards`, `load_pod_run_metadata`):
+  - deep nesting, and a non-object top level, now raise `ValueError` instead of
+    `RecursionError`, `AttributeError` or `TypeError`;
+  - non-UTF-8 bytes raise exactly `ValueError`, chained from the `UnicodeDecodeError`, instead of
+    the bare `UnicodeDecodeError`. `except ValueError` still catches it; `except
+    UnicodeDecodeError` no longer does.
+
+  `load_json_clear_error` itself now rejects a non-object top level unless called with
+  `require_object=False`; it used to return lists and scalars. Nothing in the repository catches
+  the old types around these loaders (design E3; `dataset`'s own `except UnicodeDecodeError` is
+  replaced, D4).
 - **BREAKING (minor): `read_units_sidecar`'s errors change.**
   - Messages change, with the type `ValueError` before and after:
     - invalid JSON: `{path} is not valid JSON: …` becomes

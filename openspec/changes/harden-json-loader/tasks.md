@@ -130,7 +130,9 @@ So all of it is one commit.
     - **Red:** `test_unparseable_run_metadata_is_a_labelled_value_error`, covering deep nesting and
       the digit limit, through `build_dataset`.
     - **Guard:** `test_non_object_run_metadata_is_an_extraction_error`. A `[]` file raises
-      `ConfigExtractionError` with the exact pre-change message.
+      `ConfigExtractionError` with the exact pre-change message. (After the pre-PR review this
+      was folded into the existing `test_non_object_run_metadata_is_a_named_extraction_error`,
+      now exact-type and exact-message for all four payloads; see `design.md`, Deviations.)
     - **Guard:** tighten `test_undecodable_run_metadata_is_a_named_extraction_error`:
       - assert the exact message, with the `UnicodeDecodeError` text computed by decoding the same
         bytes;

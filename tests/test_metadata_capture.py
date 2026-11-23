@@ -291,7 +291,10 @@ def test_source_config_fields_missing_max_step_is_still_a_key_error(tmp_path):
     manifest = _write_manifest_json(tmp_path, {"configs": [config]})
     err = _source_error(manifest)
     assert type(err) is KeyError, repr(err)
-    assert "max_step" in str(err), str(err)
+    assert err.args[0] == (
+        f"manifest entry for config 's35_f085_p45' in {manifest} is missing required "
+        "field 'max_step'"
+    )
 
 
 @pytest.mark.parametrize("case", [*FIVE, "empty_object"])

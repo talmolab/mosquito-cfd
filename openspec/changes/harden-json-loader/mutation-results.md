@@ -29,7 +29,7 @@ A mutant counts as killed when the listed test files fail. The killers are the f
 | M4 | `_json_loader`: default `require_object=False` | killed (20 tests) | `test_non_object_top_level_is_a_labelled_value_error` (all 8); drift test `[list,int-_json_loader]`; gate provenance, `record_check_result`, `corpus_guards`, units `[list,int]` |
 | M5 | `_json_loader`: drop the object check | killed (20 tests) | as M4 |
 | M6 | `dataset`: drop the `__cause__` branch | killed | `test_undecodable_run_metadata_is_a_named_extraction_error`; `test_gate_reports_extraction_errors_for_bad_run_metadata[non_utf8]` |
-| M7 | `dataset`: `require_object=True` | killed | `test_non_object_run_metadata_is_an_extraction_error`; the existing `test_non_object_run_metadata_is_a_named_extraction_error` (4 cases); `test_gate_reports_extraction_errors_for_bad_run_metadata[list]` |
+| M7 | `dataset`: `require_object=True` | killed | `test_non_object_run_metadata_is_a_named_extraction_error` (4 cases; at `a160969` also the since-merged duplicate `test_non_object_run_metadata_is_an_extraction_error`); `test_gate_reports_extraction_errors_for_bad_run_metadata[list]` |
 | M8 | `_manifest`: `require_object=True` | killed | `test_non_object_manifest_top_level_is_a_value_error` (4 cases); `test_manifest_uses_the_shared_loader` |
 | M9 | gate: revert to its own read with the default object check (faithful, below) | killed | `test_gate_manifest_errors_are_the_shared_readers[list]`, `[int]` |
 | M9eq | gate: the same with `require_object=False` (faithful) | **survived: equivalent**, as D6 predicted | `build_dataset` raises `_manifest`'s message for `[]`/`5`, and the hardened loader labels the other payloads |

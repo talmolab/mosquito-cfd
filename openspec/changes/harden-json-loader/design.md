@@ -269,7 +269,7 @@ mutants at the post-merge SHA.
 | M4 | `_json_loader`: default `require_object=False` | non-object tests at gate provenance, `corpus_guards`, pod metadata, units |
 | M5 | `_json_loader`: drop the object check | as M4, plus the direct loader test |
 | M6 | `dataset`: drop the `__cause__` branch | `test_undecodable_run_metadata_is_a_named_extraction_error`; gate non-UTF-8 test |
-| M7 | `dataset`: `require_object=True` | `test_non_object_run_metadata_is_an_extraction_error`; gate `[]` run_metadata test |
+| M7 | `dataset`: `require_object=True` | `test_non_object_run_metadata_is_a_named_extraction_error` (tightened, see Deviations); gate `[]` run_metadata test |
 | M8 | `_manifest`: `require_object=True` | pinned non-object manifest message tests |
 | M9 | gate: manifest via `load_json_clear_error(…, label="sweep manifest")` (default object check) | `test_gate_manifest_errors_are_the_shared_readers` (`[]`, `5`). The `require_object=False` variant is equivalent (D6) |
 | M10 | `source_config_fields`: revert to `load_json_clear_error` + `.get` | missing-required-key test; `[]` exact message; `{"configs": 5}`; duplicate |
@@ -312,3 +312,25 @@ faithful revert reads into a variable and indexes it just before the loops. M9 i
 directly, so before task 1 they failed with `ModuleNotFoundError`. Commit 1's body lists them under
 Red, with that reason. Their contract (opening errors are not wrapped) held before the change and
 holds after it.
+
+### Why the pre-PR review changed tests and docstrings after the mutation run
+
+The `/review-pr` self-review (five reviewers, at `53dd800`) found no blocking issue. It led to
+these follow-up edits:
+
+- **Gate docstring.** `run_acceptance_gate`'s `Raises:` wrongly said a non-UTF-8 or non-object
+  run_metadata file raises. Those are `ConfigExtractionError`s from `build_dataset`, returned as
+  failures (the spec scenario "Per-config run metadata keeps its extraction errors"). A comment now
+  marks the gate's own run_metadata read as defence in depth.
+- **`assemble_run_metadata` docstring.** Its `KeyError` clause now matches `source_config_fields`.
+- **A duplicate test removed.** The new `test_non_object_run_metadata_is_an_extraction_error`
+  duplicated the `[]` case of the existing `test_non_object_run_metadata_is_a_named_extraction_error`.
+  The existing test is tightened instead, to exact type and exact message for all four payloads.
+  It already killed M7 at `a160969`, so the mutation result stands.
+- **A stricter assertion.** `test_source_config_fields_missing_max_step_is_still_a_key_error`
+  asserts `_entry_field`'s full message, so a deck-side `KeyError` cannot satisfy it.
+- **BREAKING list completed** (proposal and CHANGELOG): non-UTF-8 bytes become a plain
+  `ValueError` at every caller, not only the units sidecar; the loader itself rejects a non-object
+  top level by default; `source_config_fields` rejects a defect in any config of the manifest.
+
+Only docstrings, comments and test assertions changed, so no mutant was re-run.
