@@ -169,3 +169,32 @@ def test_a_config_with_mixed_kinematics_is_rejected(fine):
     mixed.iloc[rows[0], mixed.columns.get_loc("stroke_amp_deg")] = 35.0
     with pytest.raises(ValueError, match="s45_f100_p45"):
         build_splits(mixed)
+
+
+@pytest.mark.parametrize("label", ["val", None])
+def test_a_config_labelled_neither_train_nor_holdout_is_rejected(fine, label):
+    """Faces need all 27 configurations as train or holdout (9 test / 18 train)."""
+    extra = fine[fine["config_name"] == "s45_f100_p45"].copy()
+    extra["config_name"] = "s45_f100_p45_copy"
+    extra["split"] = label
+    with pytest.raises(ValueError, match="s45_f100_p45_copy"):
+        build_splits(pd.concat([fine, extra], ignore_index=True))
+
+
+@pytest.mark.parametrize("column", ["split", "stroke_amp_deg"])
+def test_a_config_with_some_nan_labels_or_settings_is_rejected(fine, column):
+    """nunique drops NaN, so a partly-NaN column must still count as mixed."""
+    mixed = fine.copy()
+    rows = np.flatnonzero(mixed["config_name"].to_numpy() == "s45_f100_p45")
+    mixed[column] = mixed[column].astype(object)
+    mixed.iloc[rows[:5], mixed.columns.get_loc(column)] = None
+    with pytest.raises(ValueError, match="s45_f100_p45"):
+        build_splits(mixed)
+
+
+def test_a_config_whose_setting_is_nan_on_every_row_is_rejected(fine):
+    unset = fine.copy()
+    unset["pitch_amp_deg"] = unset["pitch_amp_deg"].astype(float)
+    unset.loc[unset["config_name"] == "s45_f100_p45", "pitch_amp_deg"] = np.nan
+    with pytest.raises(ValueError, match="s45_f100_p45"):
+        build_splits(unset)

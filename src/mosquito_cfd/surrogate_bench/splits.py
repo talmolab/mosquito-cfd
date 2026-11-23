@@ -27,6 +27,7 @@ N_HOLDOUT = 6
 N_CONTROL_TRAIN = 18
 N_CONTROLS = 6
 N_VAL_CONFIGS = 3
+LABELS = ("train", "holdout")
 
 
 @dataclass(frozen=True)
@@ -41,12 +42,22 @@ class BenchSplit:
 def _config_table(df: pd.DataFrame) -> pd.DataFrame:
     """One row per configuration with its settings and label; raise on inconsistent rows."""
     columns = ["split", *SETTINGS]
-    per_config = df.groupby("config_name")[columns].nunique()
+    # dropna=False: a column that is NaN on some rows only still counts as mixed.
+    per_config = df.groupby("config_name", observed=True)[columns].nunique(dropna=False)
     mixed = sorted(per_config.index[(per_config > 1).any(axis=1)].astype(str))
     if mixed:
         raise ValueError(f"configuration(s) with mixed kinematics or labels: {mixed}")
-    table = df.groupby("config_name")[columns].first()
+    table = df.groupby("config_name", observed=True)[columns].first()
     table.index = table.index.astype(str)
+    unset = sorted(table.index[table[list(SETTINGS)].isna().any(axis=1)])
+    if unset:
+        raise ValueError(f"configuration(s) {unset} have a missing (NaN) setting")
+    unlabelled = sorted(table.index[~table["split"].isin(LABELS)])
+    if unlabelled:
+        raise ValueError(
+            f"configuration(s) {unlabelled} are labelled neither 'train' nor 'holdout'; every "
+            "configuration must be one or the other"
+        )
     return table.sort_index()
 
 

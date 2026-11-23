@@ -194,3 +194,29 @@ def test_cpu_smoke_run_on_the_real_corpora_without_heavy_imports(tmp_path):
     }
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert set(summary["gate"]["entries"]) == {"ridge", "ridge_fixed"}
+
+
+@pytest.mark.parametrize("entries", [",ridge,", "ridge,,ridge_fixed", ""])
+def test_empty_entry_tokens_exit_non_zero(driver, corpora, tmp_path, entries, capsys):
+    out = tmp_path / "out"
+    assert driver.main([*_argv(*corpora, out), "--entries", entries]) != 0
+    assert "empty token" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_missing_dataset_exits_non_zero_with_a_message(
+    driver, corpora, tmp_path, capsys
+):
+    out = tmp_path / "out"
+    argv = _argv(tmp_path / "absent.parquet", corpora[1], out)
+    assert driver.main(argv) == 2
+    assert "absent.parquet" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_an_out_dir_that_is_a_file_exits_non_zero(driver, corpora, tmp_path, capsys):
+    out = tmp_path / "out"
+    out.write_bytes(b"precious")
+    assert driver.main(_argv(*corpora, out)) == 2
+    assert "is not a directory" in capsys.readouterr().err
+    assert out.read_bytes() == b"precious"

@@ -6,7 +6,9 @@ The bench (`mosquito_cfd.surrogate_bench`) SHALL evaluate every model on the sam
 fine force corpus (`examples/prelim_sweep_fine/dataset.parquet`), built by a pure function from the
 dataset's configuration kinematics, never from a hand-typed list. Let `pool` be the sorted list of the
 configurations labelled `split == "train"`; the builder SHALL require 21 of them and 6 labelled
-`split == "holdout"`, else raise `ValueError`.
+`split == "holdout"`, and every configuration to carry one of those two labels and no missing
+setting, else raise `ValueError`. A label or setting that is missing on some rows of a
+configuration counts as mixed.
 
 - `interpolation`: test = the 6 configurations labelled `split == "holdout"`; train = `pool`.
 - `face:<setting>=<value>` for each of the 6 faces of the 3 × 3 × 3 grid (`stroke_amp_deg` 35 and
@@ -87,7 +89,8 @@ All bench entries, and the phase-only baseline, train and score on one **target 
 follows:
 
 - The target beat is the largest `wingbeat` value present for every configuration.
-- The `wingbeat` values common to every configuration SHALL be `0..N−1`, else `ValueError`.
+- The `wingbeat` values common to every configuration SHALL be `0..N−1` with `N ≥ 2` (the
+  startup beat alone is never the target, and `beat1_vs_beat2` needs two), else `ValueError`.
 - Every configuration's target beat SHALL span the cycle (first phase below 0.01, last above 0.99),
   else `ValueError`, so a partial terminal beat is never used.
 
@@ -590,10 +593,14 @@ carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 - a mutable image tag;
 - a missing `--timestamp`;
 - a non-empty `--out-dir`;
-- an unknown or duplicated `--entries` token;
-- `--epochs` below 1.
+- an unknown, duplicated or empty `--entries` token, or no entries;
+- `--epochs` that is not an integer of at least 1;
+- an empty `--timestamp`, or a `--device` other than `cpu`, `cuda` or `cuda:<n>`;
+- an `--out-dir` that exists and is not a directory.
 
-All refusals SHALL happen before any file is written. The committed copy SHALL live in `examples/prelim_sweep_fine/bench/` and
+All refusals SHALL happen before any file is written. Every check that depends only on the data
+(splits, target beat, yardsticks, wrap jumps) SHALL run before the first fit, so a bad corpus is
+refused before any GPU time is spent. The committed copy SHALL live in `examples/prelim_sweep_fine/bench/` and
 SHALL be produced from a clean tree whose commit is on `main`.
 
 #### Scenario: Summary carries scope and provenance

@@ -30,6 +30,8 @@ TIMING_COLUMNS = ("fit_seconds", "inference_seconds_per_row", "peak_gpu_mem")
 SPAN_LOW, SPAN_HIGH = 0.01, 0.99
 NO_HOLDOUT_REASON = "no labelled holdouts on this face"
 _GROUP = ["entry", "split", "seed", "target"]
+# The startup beat plus at least one more: the target beat is never the startup beat.
+MIN_COMMON_BEATS = 2
 
 
 # --- Target beat -----------------------------------------------------------------------------
@@ -39,15 +41,21 @@ def target_beat(df: pd.DataFrame) -> int:
     """The largest ``wingbeat`` present for every configuration.
 
     Raises:
-        ValueError: If the beats common to every configuration are not ``0..N−1``, or a
-            configuration's target beat does not span the cycle (first phase ≥ 0.01 or last
-            ≤ 0.99).
+        ValueError: If the beats common to every configuration are not ``0..N−1`` with
+            ``N ≥ 2`` (the startup beat alone is no target, and ``beat1_vs_beat2`` needs two),
+            or a configuration's target beat does not span the cycle (first phase ≥ 0.01 or
+            last ≤ 0.99).
     """
     per_config = df.groupby("config_name")["wingbeat"].apply(lambda b: set(b.unique()))
     common = set.intersection(*per_config.tolist())
     if common != set(range(len(common))) or not common:
         raise ValueError(
             f"the wingbeats common to every configuration must be 0..N-1, got {sorted(common)}"
+        )
+    if len(common) < MIN_COMMON_BEATS:
+        raise ValueError(
+            f"the bench needs at least {MIN_COMMON_BEATS} wingbeats common to every "
+            f"configuration, got {sorted(common)}"
         )
     beat = max(common)
     rows = df[df["wingbeat"] == beat]

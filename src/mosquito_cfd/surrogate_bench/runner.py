@@ -1,15 +1,17 @@
 """Run the comparison bench and write its artifacts.
 
 Spec requirements "Bench model entries and metrics" and "Bench artifacts, provenance and claim
-scope". Every refusal (dirty tree, non-empty output directory, unknown or duplicated entry, ``epochs`` below
-1, a mutable image reference, a coarse corpus missing a configuration) happens before anything is
-written. ``mlp_h1`` on ``interpolation`` is fitted first in the process (design D7).
+scope". Every refusal happens before anything is written, and every check that depends only on
+the data (splits, target beat, yardsticks, wrap jumps) runs before the first fit, so a bad corpus
+never costs a GPU run. ``mlp_h1`` on ``interpolation`` is fitted first in the process (design
+D7).
 """
 
 from __future__ import annotations
 
 import importlib.metadata
 import os
+import re
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -90,27 +92,52 @@ RESULT_COLUMNS = (
 )
 
 
+_DEVICE = re.compile(r"cpu|cuda(:\d+)?")
+
+
+def _is_dirty(git_state: Mapping[str, Any]) -> bool:
+    """Only an explicit ``dirty: False`` is clean; an unknown state counts as dirty."""
+    return git_state.get("dirty") is not False
+
+
 def _validate(
     *,
     out_dir: Path,
     entries: Sequence[str],
     epochs: int,
     docker_image_digest: str,
+    timestamp: str,
+    device: str,
     git_state: Mapping[str, Any],
     allow_dirty: bool,
 ) -> list[str]:
-    if git_state.get("dirty") and not allow_dirty:
-        raise ValueError("the working tree is dirty; commit first or pass allow_dirty")
+    if _is_dirty(git_state) and not allow_dirty:
+        raise ValueError(
+            "the working tree is dirty or its state is unknown; commit first or pass "
+            "allow_dirty"
+        )
     names = [str(e) for e in entries]
+    if not names:
+        raise ValueError(f"no entries given; known: {list(ENTRIES)}")
     unknown = sorted(set(names) - set(ENTRIES))
     if unknown:
         raise ValueError(f"unknown entries {unknown}; known: {list(ENTRIES)}")
     repeated = sorted({e for e in names if names.count(e) > 1})
     if repeated:
         raise ValueError(f"entries repeat {repeated}")
-    if int(epochs) < 1:
-        raise ValueError(f"epochs must be at least 1, got {epochs}")
+    if (
+        isinstance(epochs, bool)
+        or not isinstance(epochs, int | np.integer)
+        or epochs < 1
+    ):
+        raise ValueError(f"epochs must be an integer of at least 1, got {epochs!r}")
+    if not isinstance(timestamp, str) or not timestamp.strip():
+        raise ValueError(f"timestamp must be a non-empty string, got {timestamp!r}")
+    if not isinstance(device, str) or not _DEVICE.fullmatch(device):
+        raise ValueError(f"device must be 'cpu', 'cuda' or 'cuda:<n>', got {device!r}")
     validate_image_digest(docker_image_digest)
+    if out_dir.exists() and not out_dir.is_dir():
+        raise ValueError(f"output path {out_dir} exists and is not a directory")
     if out_dir.exists() and any(out_dir.iterdir()):
         raise ValueError(f"output directory {out_dir} is not empty")
     # mlp_h1 first, so its interpolation fits run first in the process.
@@ -401,6 +428,8 @@ def run_bench(
         entries=entries,
         epochs=epochs,
         docker_image_digest=docker_image_digest,
+        timestamp=timestamp,
+        device=device,
         git_state=git_state,
         allow_dirty=allow_dirty,
     )
@@ -414,6 +443,30 @@ def run_bench(
     )
     truth = metrics.grid_truth(target_frame, TARGETS)
     peaks = metrics.component_peaks(target_frame, TARGETS)
+    test_configs = sorted(interp.test)
+    settings_of = {
+        c: _settings(target_frame, c)
+        for c in sorted(target_frame["config_name"].astype(str).unique())
+    }
+    # Data-only: computed before the first fit so a bad corpus fails fast.
+    yardsticks = {
+        config: gate.config_yardsticks(
+            beats=_beat_grids(frame, config, n_beats),
+            coarse=None if coarse_by_config is None else coarse_by_config[config],
+            coarse_reason=coarse_reason or "no coarse corpus supplied",
+            settings=settings_of[config],
+            peaks=peaks,
+            targets=TARGETS,
+        )
+        for config in test_configs
+    }
+    wrap_jumps, distance = {}, {}
+    for config, settings in settings_of.items():
+        rows = target_frame[target_frame["config_name"] == config]
+        wrap_jumps[config] = gate.config_wrap_jumps(rows, peaks=peaks, **settings)
+        distance[config] = gate.normal_peak_wrap_distance(
+            truth[config][:, :3], **settings
+        )
     cuda = memory_probe if memory_probe is not None else _default_cuda(device)
     probe = _MemoryProbe(cuda)
 
@@ -457,20 +510,9 @@ def run_bench(
     table["peak_gpu_mem"] = pd.array(table["peak_gpu_mem"], dtype="Int64")
     pooled = metrics.pooled(table)
 
-    test_configs = sorted(interp.test)
     gate_entries: dict[str, Any] = {}
-    yardsticks: dict[str, Any] = {}
     for k, config in enumerate(test_configs):
-        settings = _settings(target_frame, config)
-        coarse = None if coarse_by_config is None else coarse_by_config[config]
-        yardsticks[config] = gate.config_yardsticks(
-            beats=_beat_grids(frame, config, n_beats),
-            coarse=coarse,
-            coarse_reason=coarse_reason or "no coarse corpus supplied",
-            settings=settings,
-            peaks=peaks,
-            targets=TARGETS,
-        )
+        settings = settings_of[config]
         for entry, grids in gate_grids.items():
             per_config = gate_entries.setdefault(entry, {}).setdefault(config, {})
             for seed, grid_pred in grids.items():
@@ -482,15 +524,6 @@ def run_bench(
                     peaks=peaks,
                     targets=TARGETS,
                 )
-    all_configs = sorted(target_frame["config_name"].astype(str).unique())
-    wrap_jumps, distance = {}, {}
-    for config in all_configs:
-        settings = _settings(target_frame, config)
-        rows = target_frame[target_frame["config_name"] == config]
-        wrap_jumps[config] = gate.config_wrap_jumps(rows, peaks=peaks, **settings)
-        distance[config] = gate.normal_peak_wrap_distance(
-            truth[config][:, :3], **settings
-        )
     gate_block = gate.gate_block(
         entries=gate_entries,
         yardsticks=yardsticks,
@@ -534,7 +567,7 @@ def run_bench(
         "docker_image": docker_image_digest,
         "timestamp": timestamp,
         "inputs": {"dataset_sha256": dataset_sha256},
-        "git": dict(git_state),
+        "git": {**git_state, "dirty": _is_dirty(git_state)},
         "hardware": dict(hardware),
         "seeds": list(BENCH_SEEDS),
         "device": device,

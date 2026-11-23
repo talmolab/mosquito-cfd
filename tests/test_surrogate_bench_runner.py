@@ -417,6 +417,13 @@ def test_the_runner_ridge_path_names_no_model_io():
         (dict(entries=("mlp_h1", "nope")), "nope"),
         (dict(entries=("ridge", "ridge")), "ridge"),
         (dict(epochs=0), "epochs"),
+        (dict(epochs=True), "epochs"),
+        (dict(epochs=1.5), "epochs"),
+        (dict(entries=()), "no entries"),
+        (dict(git_state={"commit": "c" * 40}), "dirty"),
+        (dict(git_state=dict(GIT, dirty=None)), "dirty"),
+        (dict(timestamp=""), "timestamp"),
+        (dict(device="bogus"), "device"),
         (
             dict(docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest"),
             "digest|pinned|sha256",
@@ -456,4 +463,31 @@ def test_a_coarse_corpus_missing_a_configuration_is_refused(tmp_path, monkeypatc
     coarse = coarse[coarse["config_name"] != "s45_f100_p45"]
     with pytest.raises(ValueError, match="s45_f100_p45"):
         _run(tmp_path, monkeypatch, coarse=coarse)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_unknown_git_state_with_allow_dirty_is_recorded_dirty(tmp_path, monkeypatch):
+    _, out, _ = _run(
+        tmp_path,
+        monkeypatch,
+        git_state={"error": "git not available or not a repository"},
+        allow_dirty=True,
+        entries=("ridge_fixed",),
+    )
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["git"]["dirty"] is True
+    assert meta["git"]["error"] == "git not available or not a repository"
+
+
+def test_a_data_only_failure_is_raised_before_any_fit(tmp_path, monkeypatch):
+    """A bad startup-beat value of a gated configuration fails before the first fit."""
+    frame = synthetic_corpus()
+    bad = frame.index[
+        (frame["config_name"] == "s35_f085_p45") & (frame["wingbeat"] == 0)
+    ][3]
+    frame.loc[bad, "CF_x"] = np.nan
+    log = []
+    with pytest.raises(ValueError, match="s35_f085_p45"):
+        _run(tmp_path, monkeypatch, frame=frame, recorder=Recorder(log=log))
+    assert log == []
     assert not (tmp_path / "out").exists()

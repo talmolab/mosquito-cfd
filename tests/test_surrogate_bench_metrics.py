@@ -70,6 +70,13 @@ def test_missing_beat_zero_is_rejected():
         metrics.target_beat(frame)
 
 
+def test_a_one_beat_corpus_is_rejected():
+    """beat1_vs_beat2 and the converged-beat target both need at least 2 common beats."""
+    frame = _beats_frame({"a": [0, 1], "b": [0]})
+    with pytest.raises(ValueError, match="at least 2"):
+        metrics.target_beat(frame)
+
+
 def test_a_partial_last_beat_is_rejected():
     frame = _beats_frame({"a": [0, 1], "b": [0, 1]})
     short = (

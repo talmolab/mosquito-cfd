@@ -60,10 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_entries(value: str | None) -> list[str]:
-    """``None`` means every entry; otherwise the comma-separated names, in order."""
+    """``None`` means every entry; otherwise the comma-separated names, in order.
+
+    Raises:
+        ValueError: If any token is empty (``""``, ``",ridge"``, ``"a,,b"``).
+    """
     if value is None:
         return list(ENTRIES)
-    return [e.strip() for e in value.split(",") if e.strip()]
+    names = [e.strip() for e in value.split(",")]
+    if not all(names):
+        raise ValueError(f"--entries has an empty token: {value!r}")
+    return names
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
             epochs=args.epochs,
             allow_dirty=args.allow_dirty,
         )
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
+        # OSError: a missing or unreadable dataset, an output path that is a file.
         print(f"run_surrogate_bench: {exc}", file=sys.stderr)
         return 2
     print(
