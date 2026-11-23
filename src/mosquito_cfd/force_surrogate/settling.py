@@ -835,3 +835,418 @@ def field_change_stats(
         "median": float(np.median(change)),
         "fraction_above": float(np.mean(change > 0.1)),
     }
+
+
+# --------------------------------------------------------------------------- run records
+
+RECORD_SCHEMA_VERSION = 1
+SETTLING_PY = "src/mosquito_cfd/force_surrogate/settling.py"
+NEAR_WING_BOX = ((1.0, 0.0, 2.5), (7.0, 4.0, 5.5))
+_RUN_TIME_RE = re.compile(r"^Run time\s*=\s*([0-9.eE+-]+)", re.MULTILINE)
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_PINNED_IMAGE_RE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
+_NOMINAL_DT = 5e-4
+
+
+def _manifest_entry(settling_dir: Path, name: str) -> dict:
+    manifest = json.loads(
+        (settling_dir / "settling_manifest.json").read_text(encoding="utf-8")
+    )
+    for entry in [*manifest.get("runs", []), *manifest.get("controls", [])]:
+        if entry["name"] == name:
+            return entry
+    raise ValueError(
+        f"settling: {name!r} is not a run or control in the settling manifest"
+    )
+
+
+def _reference_rows(repo_root: Path, entry: Mapping) -> tuple[pd.DataFrame, float]:
+    """The committed corpus rows and stop time of ``entry``'s configuration."""
+    corpus = repo_root / Path(entry["source_deck"]).parent.parent
+    sweep = json.loads((corpus / "sweep_manifest.json").read_text(encoding="utf-8"))
+    config = next(c for c in sweep["configs"] if c["name"] == entry["config"])
+    data = pd.read_parquet(corpus / "dataset.parquet")
+    return data[data["config_name"] == entry["config"]], float(config["stop_time"])
+
+
+def _wall_time(run_log: Path) -> float:
+    found = _RUN_TIME_RE.findall(run_log.read_text(encoding="utf-8", errors="replace"))
+    if not found:
+        raise ValueError(f"settling: no run-time line in {run_log}")
+    return float(found[-1])
+
+
+def _comparison_json(result: ForceComparison) -> dict:
+    return {
+        "passed": result.passed,
+        "n_compared": result.n_compared,
+        "failures": result.failures,
+    }
+
+
+def build_run_record(
+    run_dir: Path | str,
+    *,
+    name: str,
+    settling_dir: Path | str,
+    repo_root: Path | str,
+    start_commit: str,
+    git_dirty: bool,
+    iamrex_commit: str,
+    command: str,
+    hardware: Mapping,
+    field_change: Mapping | None = None,
+) -> dict:
+    """Build one settling run record, running the controls the settling manifest declares.
+
+    Long runs get C3 (their first two beats against the committed corpus rows) and C4 (no
+    interior step below the nominal ``dt``); C1 control runs get C1 (the first ``max_step``
+    steps against the committed rows). The record pins the start commit and the SHA-256 of the
+    gated files and of ``settling.py``.
+    """
+    from mosquito_cfd.force_surrogate.dataset import deduplicate_init_iter_rows
+    from mosquito_cfd.force_surrogate.metadata_capture import (
+        compute_dt_observations,
+        read_dt_series_from_run_log,
+    )
+
+    run_dir = Path(run_dir)
+    settling_dir = Path(settling_dir)
+    repo_root = Path(repo_root)
+    entry = _manifest_entry(settling_dir, name)
+    csv = run_dir / "IB_Particle_1.csv"
+    run_log = run_dir / "run.log"
+    reference, reference_stop = _reference_rows(repo_root, entry)
+    is_c1 = entry["kind"] == "C1"
+    result = compare_force_csv(
+        csv,
+        reference,
+        config_name=entry["config"],
+        dt=_NOMINAL_DT,
+        run_stop_time=float(entry["stop_time"]),
+        reference_stop_time=reference_stop,
+        declared_steps=int(entry["max_step"]) if is_c1 else None,
+    )
+    controls: dict[str, dict] = {}
+    if is_c1:
+        controls["C1"] = _comparison_json(result)
+    else:
+        controls["C3"] = _comparison_json(result)
+        observed = compute_dt_observations(
+            read_dt_series_from_run_log(run_log), fixed_dt=_NOMINAL_DT
+        )
+        controls["C4"] = {
+            "passed": not observed["interior_dt_below_nominal"],
+            **observed,
+        }
+    raw = deduplicate_init_iter_rows(
+        pd.read_csv(csv), name=entry["config"], csv_path=csv
+    )
+    steps = int(len(raw))
+    wall = _wall_time(run_log)
+    record = {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "run": name,
+        "grid": entry["grid"],
+        "config": entry["config"],
+        "kind": entry["kind"],
+        "start_commit": start_commit,
+        "git_dirty": bool(git_dirty),
+        "file_sha256": {
+            rel: _sha256(repo_root / rel) for rel in (*GATED_FILES, SETTLING_PY)
+        },
+        "image": entry["image"],
+        "iamrex_commit": iamrex_commit,
+        "command": command,
+        "hardware": dict(hardware),
+        "wall_time_s": wall,
+        "steps": steps,
+        "seconds_per_step": wall / steps if steps else None,
+        "force_csv_sha256": _sha256(csv),
+        "run_log_sha256": _sha256(run_log),
+        "controls": controls,
+    }
+    if field_change is not None:
+        record["field_change"] = dict(field_change)
+    return record
+
+
+def _positive_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+
+def validate_run_record(record: Mapping, entry: Mapping) -> list[str]:
+    """Completeness problems of a run record against its settling-manifest entry."""
+    problems: list[str] = []
+    if record.get("run") != entry.get("name"):
+        problems.append(f"run is {record.get('run')!r}, expected {entry.get('name')!r}")
+    if not _COMMIT_RE.match(str(record.get("start_commit", ""))):
+        problems.append("start_commit is not a full 40-hex commit")
+    if record.get("git_dirty") is not False:
+        problems.append("git_dirty must be false")
+    image = str(record.get("image", ""))
+    if not _PINNED_IMAGE_RE.match(image) or image != entry.get("image"):
+        problems.append(f"image {image!r} is not the manifest's digest-pinned image")
+    for key in ("iamrex_commit", "command"):
+        if not str(record.get(key, "")).strip():
+            problems.append(f"{key} is empty")
+    if not record.get("hardware"):
+        problems.append("hardware is empty")
+    for key in ("wall_time_s", "seconds_per_step", "steps"):
+        if not _positive_number(record.get(key)):
+            problems.append(f"{key} is missing or not positive")
+    hashes = record.get("file_sha256") or {}
+    for rel in (*GATED_FILES, SETTLING_PY):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(hashes.get(rel, ""))):
+            problems.append(f"file_sha256 lacks {rel}")
+    declared = ["C1"] if entry.get("kind") == "C1" else list(entry.get("controls", []))
+    for control in declared:
+        result = (record.get("controls") or {}).get(control)
+        if not isinstance(result, Mapping) or not isinstance(
+            result.get("passed"), bool
+        ):
+            problems.append(f"control {control} has no recorded result")
+    return problems
+
+
+# --------------------------------------------------------------------------- field change
+
+
+def frame_index(
+    step: int, *, dt: float, frequency_fstar: float, frames_per_beat: int
+) -> tuple[int, int]:
+    """Beat (1-based) and frame (0-based) of a time-triggered plotfile written after ``step``.
+
+    ``amr.plot_per = 1 / (frames_per_beat f*)`` writes at the first step whose end time reaches
+    each multiple, so the plotfile's time ``step * dt`` lies within one step of frame ``m``'s
+    phase: ``m = round(step * dt * f* * frames_per_beat)``.
+    """
+    m = round(step * dt * frequency_fstar * frames_per_beat)
+    return m // frames_per_beat + 1, m % frames_per_beat
+
+
+def field_change_for_run(
+    run_dir: Path | str,
+    *,
+    b_last: int,
+    frequency_fstar: float,
+    dt: float,
+    u_ref: float,
+    frames_per_beat: int,
+    box: tuple[tuple[float, float, float], tuple[float, float, float]] = NEAR_WING_BOX,
+    reader=None,
+) -> dict:
+    """Near-wing field change of beats ``1 .. b_last - 1`` against beat ``b_last``, per frame.
+
+    Returns ``{"beats": {beat: {"median": [...], "fraction_above": [...]}},
+    "plotfile_header_sha256": {step: sha}}`` with string keys (JSON-ready).
+
+    Raises:
+        ValueError: If a frame of beats ``1 .. b_last`` has no plotfile or two plotfiles.
+    """
+    from mosquito_cfd.field_surrogate.corpus import scan_plotfiles
+
+    if reader is None:
+        from mosquito_cfd.benchmarks.stress_integral import (
+            extract_eulerian_box as reader,
+        )
+    run_dir = Path(run_dir)
+    frames: dict[tuple[int, int], tuple[int, Path]] = {}
+    for step, path in sorted(scan_plotfiles(run_dir).items()):
+        beat, k = frame_index(
+            step,
+            dt=dt,
+            frequency_fstar=frequency_fstar,
+            frames_per_beat=frames_per_beat,
+        )
+        if beat > b_last:
+            continue
+        if (beat, k) in frames:
+            raise ValueError(f"settling: two plotfiles map to beat {beat} frame {k}")
+        frames[(beat, k)] = (step, path)
+    for beat in range(1, b_last + 1):
+        for k in range(frames_per_beat):
+            if (beat, k) not in frames:
+                raise ValueError(
+                    f"settling: no plotfile for beat {beat} frame {k} in {run_dir}"
+                )
+
+    def velocity(path: Path) -> np.ndarray:
+        data = reader(path, lo=box[0], hi=box[1])
+        return np.stack([data["u"], data["v"], data["w"]], axis=-1)
+
+    last = {k: velocity(frames[(b_last, k)][1]) for k in range(frames_per_beat)}
+    beats: dict[str, dict[str, list[float]]] = {}
+    for beat in range(1, b_last):
+        stats = [
+            field_change_stats(velocity(frames[(beat, k)][1]), last[k], u_ref=u_ref)
+            for k in range(frames_per_beat)
+        ]
+        beats[str(beat)] = {
+            "median": [s["median"] for s in stats],
+            "fraction_above": [s["fraction_above"] for s in stats],
+        }
+    headers = {
+        str(step): _sha256(path / "Header") for step, path in sorted(frames.values())
+    }
+    return {"beats": beats, "plotfile_header_sha256": headers}
+
+
+# --------------------------------------------------------------------------- report
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _keyed(values: Mapping[int, float]) -> dict[str, float | None]:
+    return {str(k): _finite_or_none(v) for k, v in values.items()}
+
+
+def _target_json(t: TargetSettling) -> dict:
+    return {
+        "peak": t.peak,
+        "steps": _keyed(t.steps),
+        "steps_max_abs": _keyed(t.steps_max_abs),
+        "distances": _keyed(t.distances),
+        "distances_max_abs": _keyed(t.distances_max_abs),
+        "estimate": _keyed(t.estimate),
+        "jitter": t.jitter,
+        "noise_floor": t.noise_floor,
+        "tail": _finite_or_none(t.tail),
+        "rho": _finite_or_none(t.rho),
+        "contracting": t.contracting,
+        "ratios": [_finite_or_none(r) for r in t.ratios],
+        "skipped": t.skipped,
+    }
+
+
+def _control_status(
+    manifest: Mapping, settling_dir: Path
+) -> tuple[dict[str, dict], dict[str, dict], list[str], list[str]]:
+    """Per-entry control results, the records read, and missing / failed messages."""
+    missing: list[str] = []
+    failed: list[str] = []
+    controls: dict[str, dict] = {}
+    records: dict[str, dict] = {}
+    for entry in [*manifest.get("runs", []), *manifest.get("controls", [])]:
+        path = settling_dir / "records" / f"{entry['name']}.json"
+        if not path.exists():
+            missing.append(f"{entry['name']}: no run record")
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        records[entry["name"]] = record
+        declared = ["C1"] if entry["kind"] == "C1" else list(entry.get("controls", []))
+        controls[entry["name"]] = {}
+        for control in declared:
+            result = (record.get("controls") or {}).get(control)
+            if not isinstance(result, Mapping) or "passed" not in result:
+                missing.append(f"{entry['name']}: no {control} result")
+                continue
+            controls[entry["name"]][control] = {"passed": bool(result["passed"])}
+            if not result["passed"]:
+                failed.append(f"{entry['name']}: {control} failed")
+    return controls, records, missing, failed
+
+
+def build_settling_report(
+    settling_dir: Path | str, *, repo_root: Path | str, git_commit: str
+) -> dict:
+    """Recompute every force-derived settling number and apply the decision rule.
+
+    Reads ``settling_manifest.json``, ``records/<name>.json`` and ``<grid>/dataset.parquet``.
+    ``status`` is ``complete``; ``controls_incomplete`` when a declared record or control result
+    is missing; ``control_failed`` when a recorded control failed; or ``data_incomplete`` when a
+    run's dataset rows are missing. Infinite values are written as ``null`` (a non-contracting
+    target also has ``contracting: false``).
+    """
+    settling_dir = Path(settling_dir)
+    repo_root = Path(repo_root)
+    manifest = json.loads(
+        (settling_dir / "settling_manifest.json").read_text(encoding="utf-8")
+    )
+    controls, records, missing, failed = _control_status(manifest, settling_dir)
+    runs: dict[str, dict] = {}
+    verdicts: list[RunVerdict] = []
+    data_missing: list[str] = []
+    for entry in manifest.get("runs", []):
+        dataset = settling_dir / entry["grid"] / "dataset.parquet"
+        frame = pd.read_parquet(dataset) if dataset.exists() else None
+        if frame is not None:
+            frame = frame[frame["config_name"] == entry["config"]]
+        if frame is None or frame.empty:
+            data_missing.append(f"{entry['name']}: no dataset rows")
+            continue
+        f_star = float(frame["frequency_fstar"].iloc[0])
+        stop_time = float(entry["stop_time"])
+        full = settling_metrics(
+            frame,
+            config_name=entry["config"],
+            frequency_fstar=f_star,
+            dt=_NOMINAL_DT,
+            stop_time=stop_time,
+        )
+        verdict = evaluate_run(
+            entry["name"],
+            frame,
+            frequency_fstar=f_star,
+            dt=_NOMINAL_DT,
+            stop_time=stop_time,
+        )
+        verdicts.append(verdict)
+        runs[entry["name"]] = {
+            "grid": entry["grid"],
+            "config": entry["config"],
+            "b_last": full.b_last,
+            "incomplete_beats": full.incomplete_beats,
+            "n_star": verdict.n_star,
+            "passes": {str(n): ok for n, ok in verdict.passes.items()},
+            "contracting": verdict.contracting,
+            "max_noise": verdict.max_noise,
+            "noise_target": verdict.noise_target,
+            "binding_beat": verdict.binding_beat,
+            "binding_target": verdict.binding_target,
+            "targets": {t: _target_json(full.targets[t]) for t in TARGETS},
+            "mean_cf_z": {str(b): v for b, v in full.mean_cf_z.items()},
+            "field_change": records.get(entry["name"], {}).get("field_change"),
+        }
+    decision = None
+    if verdicts and not data_missing:
+        d = decide_beat_count(verdicts)
+        decision = {
+            "action": d.action,
+            "n_star": d.n_star,
+            "run": d.run,
+            "beat": d.beat,
+            "target": d.target,
+            "reason": d.reason,
+        }
+    if missing:
+        status = "controls_incomplete"
+    elif failed:
+        status = "control_failed"
+    elif data_missing:
+        status = "data_incomplete"
+    else:
+        status = "complete"
+    current = repo_root / SETTLING_PY
+    current_sha = _sha256(current) if current.exists() else None
+    recorded = {r.get("file_sha256", {}).get(SETTLING_PY) for r in records.values()}
+    return {
+        "schema_version": RECORD_SCHEMA_VERSION,
+        "status": status,
+        "missing": missing,
+        "failed": failed,
+        "data_missing": data_missing,
+        "constants": {name: globals()[name] for name in PREREGISTERED_NAMES},
+        "preregistration_sha256": _sha256(repo_root / GATED_FILES[0]),
+        "git_commit": git_commit,
+        "settling_py_sha256": current_sha,
+        "settling_py_matches_records": bool(records) and recorded == {current_sha},
+        "controls": controls,
+        "runs": runs,
+        "decision": decision,
+        "field_change_note": "reported only; not part of the decision",
+    }
