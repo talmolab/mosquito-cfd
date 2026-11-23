@@ -19,14 +19,18 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from mosquito_cfd.force_surrogate.train import SplitAssignment, carve_validation
+from mosquito_cfd.force_surrogate.train import (
+    DEFAULT_N_VAL_CONFIGS,
+    SplitAssignment,
+    carve_validation,
+)
 
 SETTINGS: tuple[str, ...] = ("stroke_amp_deg", "frequency_fstar", "pitch_amp_deg")
 N_POOL = 21
 N_HOLDOUT = 6
 N_CONTROL_TRAIN = 18
 N_CONTROLS = 6
-N_VAL_CONFIGS = 3
+N_VAL_CONFIGS = DEFAULT_N_VAL_CONFIGS
 LABELS = ("train", "holdout")
 
 

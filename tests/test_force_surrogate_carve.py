@@ -59,3 +59,20 @@ def test_carve_sorts_its_input(configs):
 def test_carve_rejects_an_impossible_count(n_val):
     with pytest.raises(ValueError, match="n_val_configs"):
         carve_validation(["a", "b", "c"], seed=0, n_val_configs=n_val)
+
+
+def test_the_carve_sorts_raw_names_as_make_config_splits_did_before():
+    """Integer names sort numerically (as on main), not as strings; the names come back raw."""
+    import numpy as np
+
+    pool = [23, 7, 8, 9, 24, 26, 100, 5]
+    train, val = carve_validation(pool, seed=1234, n_val_configs=3)
+    ordered = sorted(pool)
+    idx = np.random.default_rng(1234).choice(len(ordered), size=3, replace=False)
+    assert val == sorted(ordered[i] for i in idx)
+    assert all(isinstance(v, int) for v in val + train)
+
+
+def test_a_pool_with_repeated_names_is_rejected():
+    with pytest.raises(ValueError, match="repeat"):
+        carve_validation(["a", "b", "b", "c", "d"], seed=1, n_val_configs=2)

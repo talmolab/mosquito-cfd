@@ -405,7 +405,7 @@ def test_a_four_beat_corpus_trains_and_scores_on_the_last_beat(tmp_path, monkeyp
 
 
 def test_the_runner_ridge_path_names_no_model_io():
-    source = inspect.getsource(runner.run_ridge_entries)
+    source = inspect.getsource(runner.run_ridge_entry)
     for name in ("torch", "save(", "load(", "pickle", "load_surrogate"):
         assert name not in source
 

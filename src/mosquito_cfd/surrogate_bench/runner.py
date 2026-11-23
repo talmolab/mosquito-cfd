@@ -22,6 +22,10 @@ import pandas as pd
 
 from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 from mosquito_cfd.force_surrogate.train import (
+    DEFAULT_EPOCHS,
+    DEFAULT_HIDDEN,
+    DEFAULT_LR,
+    DEFAULT_NUM_LAYERS,
     TARGET_COLUMNS,
     fit_seed,
     predict_frame,
@@ -44,7 +48,12 @@ from mosquito_cfd.surrogate_bench.splits import (
 
 ENTRIES: tuple[str, ...] = ("mlp_h1", "mlp_h3", "ridge", "ridge_fixed")
 MLP_HARMONICS = {"mlp_h1": 1, "mlp_h3": 3}
-MLP_HYPERPARAMETERS = {"hidden": 64, "num_layers": 3, "lr": 1e-3}
+# The shipped recipe, read from the trainer so mlp_h1 cannot drift from it (D7).
+MLP_HYPERPARAMETERS = {
+    "hidden": DEFAULT_HIDDEN,
+    "num_layers": DEFAULT_NUM_LAYERS,
+    "lr": DEFAULT_LR,
+}
 TARGETS = list(TARGET_COLUMNS)
 HOLDOUT_STATUS = {
     "mlp_h1": {
@@ -161,7 +170,7 @@ def _n_params(model: Any) -> int:
 class _MemoryProbe:
     """Peak GPU memory of one fit, relative to the allocation when the peak is reset."""
 
-    def __init__(self, cuda: Any | None):
+    def __init__(self, cuda: Any | None) -> None:
         self.cuda = cuda
         self.base = 0
 
@@ -184,11 +193,16 @@ def _default_cuda(device: str) -> Any | None:
         return None
     import torch  # lazy: only a CUDA run measures memory
 
+    # Warm-up: the first GEMMs on a stream allocate cuBLAS/cuBLASLt workspaces through the
+    # caching allocator and keep them. Without this, only the first probed fit (mlp_h1 /
+    # interpolation / the first seed) would count them in its peak; afterwards they sit in
+    # every fit's baseline. A biased Linear's forward and backward take the same paths
+    # (addmm through cuBLASLt) as the trainer's layers.
+    layer = torch.nn.Linear(8, 8).to(device)
+    layer(torch.ones((4, 8), device=device)).sum().backward()
+    torch.cuda.synchronize()
+    del layer
     return torch.cuda
-
-
-def _ordered_splits(splits: Mapping[str, BenchSplit]) -> list[BenchSplit]:
-    return [splits[n] for n in splits]
 
 
 def _score(
@@ -283,7 +297,7 @@ def run_mlp_entry(
     return rows, skills, grids
 
 
-def run_ridge_entries(
+def run_ridge_entry(
     entry: str,
     split: BenchSplit,
     *,
@@ -398,7 +412,7 @@ def run_bench(
     hardware: Mapping[str, Any],
     device: str = "cpu",
     entries: Sequence[str] = ENTRIES,
-    epochs: int = 2000,
+    epochs: int = DEFAULT_EPOCHS,
     allow_dirty: bool = False,
     memory_probe: Any | None = None,
     extra_inputs: Mapping[str, Any] | None = None,
@@ -498,7 +512,7 @@ def run_bench(
     for entry in chosen:
         per_seed_skill[entry] = {}
         ridge_records[entry] = {}
-        for split in _ordered_splits(splits):
+        for split in splits.values():
             if entry in MLP_HARMONICS:
                 rows, skills, grids = run_mlp_entry(
                     entry,
@@ -517,7 +531,7 @@ def run_bench(
                     str(s): v for s, v in skills.items()
                 }
             else:
-                rows, record, grid_pred = run_ridge_entries(
+                rows, record, grid_pred = run_ridge_entry(
                     entry,
                     split,
                     target_frame=target_frame,
@@ -533,9 +547,9 @@ def run_bench(
                 gate_grids[entry] = grids
 
     table = pd.concat(results, ignore_index=True)
-    for col in RESULT_COLUMNS:
-        if col not in table.columns:
-            table[col] = None
+    missing = [c for c in RESULT_COLUMNS if c not in table.columns]
+    if missing:  # an internal invariant: every scorer writes every column
+        raise RuntimeError(f"result columns missing from the scored rows: {missing}")
     table["peak_gpu_mem"] = pd.array(table["peak_gpu_mem"], dtype="Int64")
     pooled = metrics.pooled(table)
 

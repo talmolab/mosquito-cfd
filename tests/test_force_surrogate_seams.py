@@ -310,7 +310,7 @@ def _h3_fit():
     ]
     feature_std = Standardizer().fit(rng.normal(3.0, 2.0, (40, len(names))))
     target_std = Standardizer().fit(rng.normal(-1.0, 0.5, (40, len(TARGET_COLUMNS))))
-    return train._SeedFit(
+    return train.SeedFit(
         split=SplitAssignment([], [], []),
         model="model",
         feature_std=feature_std,

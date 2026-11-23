@@ -20,10 +20,11 @@ from mosquito_cfd.force_surrogate.train import (
     build_phase_only_baseline,
     compute_baseline_skill,
 )
+from mosquito_cfd.surrogate_bench import BENCH_SEEDS
 from mosquito_cfd.surrogate_bench.ridge import N_GRID, PHASE_GRID, config_grids
 from mosquito_cfd.surrogate_bench.splits import SETTINGS, BenchSplit
 
-MIN_SEEDS = 5
+MIN_SEEDS = len(BENCH_SEEDS)
 LEARNED_ENTRY_PREFIX = "mlp_"
 # Excluded from every equality test: wall-clock and memory depend on the host and its load.
 TIMING_COLUMNS = ("fit_seconds", "inference_seconds_per_row", "peak_gpu_mem")

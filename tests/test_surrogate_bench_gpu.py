@@ -61,6 +61,12 @@ def test_driver_runs_every_entry_end_to_end_on_cuda(tmp_path):
     assert len(seeds) == len(MLP_HARMONICS) * 14
     assert all(list(v) == list(BENCH_SEEDS) for v in seeds)
     assert (mlp["peak_gpu_mem"].astype("int64") > 0).all()
+    # The warm-up keeps cuBLAS's one-time workspace out of the first fit's peak: the very first
+    # fit (mlp_h1 / interpolation / seed 1234) is no larger than the other interpolation fits.
+    first = mlp[(mlp["entry"] == "mlp_h1") & (mlp["split"] == "interpolation")]
+    peaks = first.groupby("seed")["peak_gpu_mem"].first().astype("int64")
+    print("interpolation mlp_h1 peak_gpu_mem by seed:", dict(peaks))
+    assert peaks.iloc[0] <= peaks.iloc[1:].max()
 
     for entry, harmonics in MLP_HARMONICS.items():
         model = build_model(

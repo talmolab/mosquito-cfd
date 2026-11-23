@@ -78,6 +78,7 @@ from mosquito_cfd.force_surrogate.sweep import (
 from mosquito_cfd.force_surrogate.train import (
     FEATURE_COLUMNS,
     TARGET_COLUMNS,
+    SeedFit,
     SplitAssignment,
     Standardizer,
     build_features,
@@ -168,6 +169,7 @@ __all__ = [
     "compute_metrics",
     "filter_converged_beat",
     "filter_converged_beat_report_holdout",
+    "SeedFit",
     "fit_seed",
     "log_to_wandb",
     "make_config_splits",

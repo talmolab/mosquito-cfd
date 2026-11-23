@@ -8,6 +8,7 @@ rows, because the last row of every f* = 0.85 configuration is anomalous (#173).
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -18,7 +19,7 @@ from numpy.typing import NDArray
 
 from mosquito_cfd.benchmarks.flapping_wing import body_frame_coefficients
 from mosquito_cfd.benchmarks.wing_kinematics import euler_angles, rotation_matrix
-from mosquito_cfd.surrogate_bench.ridge import PHASE_GRID, resample_beat
+from mosquito_cfd.surrogate_bench.ridge import N_GRID, PHASE_GRID, resample_beat
 
 # T3c GCI_fine, the computed values behind RESULTS.md's 3.7 % and 27.6 %.
 GCI_FINE = {"normal_peak": 0.03692, "chord_peak": 0.2758}
@@ -27,8 +28,9 @@ OBSERVED_ORDER = {"normal_peak": 1.3773, "chord_peak": 1.3655}
 REFINEMENT_RATIO = 4
 PEAKS = ("normal_peak", "chord_peak")
 LAB_FORCE = ("CF_x", "CF_y", "CF_z")
-# Grid points k/256 with k >= 13: the [0.05, 1) window of the startup-beat comparison.
-WINDOW_START = 13
+# The startup-beat comparison's window starts at phase 0.05: the first grid point at or after it.
+WINDOW_PHASE = 0.05
+WINDOW_START = math.ceil(WINDOW_PHASE * N_GRID)
 LATE_BEAT_MIN_BEATS = 4
 UNAVAILABLE_LATE = "fewer than 4 beats"
 SCALED_LABEL = (

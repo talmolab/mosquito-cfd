@@ -27,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 
 from mosquito_cfd.benchmarks.metadata import get_git_info, get_hardware_info
+from mosquito_cfd.force_surrogate.train import DEFAULT_EPOCHS
 from mosquito_cfd.surrogate_bench.runner import ENTRIES, run_bench
 
 
@@ -52,7 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"Comma-separated entries (default all: {','.join(ENTRIES)}).",
     )
-    p.add_argument("--epochs", type=int, default=2000, help="MLP epochs (tests only).")
+    p.add_argument(
+        "--epochs", type=int, default=DEFAULT_EPOCHS, help="MLP epochs (tests only)."
+    )
     p.add_argument(
         "--allow-dirty",
         action="store_true",

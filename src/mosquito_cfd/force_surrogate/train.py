@@ -298,7 +298,8 @@ def carve_validation(
     without replacement over the **sorted** pool.
 
     Args:
-        train_pool: Training configuration names (any order; sorted here).
+        train_pool: Training configuration names (any order; sorted here, as given, so the
+            carve over any name type is the one :func:`make_config_splits` always made).
         seed: Seed for the carve.
         n_val_configs: Number of configurations to hold for validation.
 
@@ -306,9 +307,13 @@ def carve_validation(
         ``(train_configs, val_configs)``, each sorted.
 
     Raises:
-        ValueError: If ``n_val_configs`` would leave an empty validation or training set.
+        ValueError: If a name repeats, or ``n_val_configs`` would leave an empty validation or
+            training set.
     """
-    pool = sorted(str(c) for c in train_pool)
+    pool = sorted(train_pool)
+    repeated = sorted({c for c in pool if pool.count(c) > 1})
+    if repeated:
+        raise ValueError(f"the training pool repeats configuration(s) {repeated}")
     if not (1 <= n_val_configs < len(pool)):
         raise ValueError(
             f"n_val_configs must be a valid carve in 1..{len(pool) - 1} (got "
@@ -467,6 +472,9 @@ def compute_metrics(
 # PhysicsNeMo MLP defaults for this small kinematics->coefficients regression.
 DEFAULT_HIDDEN = 64
 DEFAULT_NUM_LAYERS = 3
+DEFAULT_LR = 1e-3
+DEFAULT_EPOCHS = 2000
+DEFAULT_N_VAL_CONFIGS = 3
 
 
 def set_seeds(seed: int) -> None:
@@ -1218,7 +1226,7 @@ DEFAULT_SEED = 1234
 
 
 @dataclass
-class _SeedFit:
+class SeedFit:
     """One seed's fitted model and its holdout predictions (the per-seed seam, design D4)."""
 
     split: SplitAssignment
@@ -1244,7 +1252,7 @@ def _fit_one_seed(
     device: str,
     phase_harmonics: int = 1,
     split: SplitAssignment | None = None,
-) -> _SeedFit:
+) -> SeedFit:
     """Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
 
     ``run_training`` calls this once per seed; it is module-level so the torch-free tests can
@@ -1298,7 +1306,7 @@ def _fit_one_seed(
     val_aggregate = compute_metrics(y_all[val_mask], y_val_pred, list(TARGET_COLUMNS))[
         "aggregate"
     ]
-    return _SeedFit(
+    return SeedFit(
         split=split,
         model=model,
         feature_std=feature_std,
@@ -1349,7 +1357,7 @@ def fit_seed(
     num_layers: int = DEFAULT_NUM_LAYERS,
     lr: float = 1e-3,
     device: str = "cpu",
-) -> _SeedFit:
+) -> SeedFit:
     """Fit one seed of the shipped recipe on a caller-supplied split (the bench's seam).
 
     The split is validated (non-empty, disjoint, present in ``df``) before anything else, so an
@@ -1392,7 +1400,7 @@ def fit_seed(
 
 
 def predict_frame(
-    fit: _SeedFit, frame: pd.DataFrame, *, device: str = "cpu"
+    fit: SeedFit, frame: pd.DataFrame, *, device: str = "cpu"
 ) -> NDArray[np.floating]:
     """Predict the six coefficients for arbitrary rows with a fitted seed.
 
@@ -1431,11 +1439,11 @@ def run_training(
     timestamp: str,
     seed: int = DEFAULT_SEED,
     sweep_seeds: Sequence[int] = (),
-    epochs: int = 2000,
-    n_val_configs: int = 3,
+    epochs: int = DEFAULT_EPOCHS,
+    n_val_configs: int = DEFAULT_N_VAL_CONFIGS,
     hidden: int = DEFAULT_HIDDEN,
     num_layers: int = DEFAULT_NUM_LAYERS,
-    lr: float = 1e-3,
+    lr: float = DEFAULT_LR,
     device: str = "cpu",
     wandb_mode: str = "disabled",
     wandb_project: str = "force-surrogate",

@@ -183,7 +183,7 @@ def _install_recorder(monkeypatch, *, fail_on):
             raise RuntimeError(f"recorder: seed {seed} failed")
         split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
         n_test = int(np.isin(df["config_name"], split.test_configs).sum())
-        return train._SeedFit(
+        return train.SeedFit(
             split=split,
             model=None,
             feature_std=train.Standardizer(),

@@ -56,3 +56,50 @@ def test_the_bench_seeds_are_the_shipped_seeds():
     from mosquito_cfd.surrogate_bench import BENCH_SEEDS
 
     assert BENCH_SEEDS == (1234, 1235, 1236, 1237, 1238)
+
+
+def test_the_bench_mlp_recipe_is_the_shipped_trainers_defaults():
+    """mlp_h1 must reproduce the shipped recipe, so the bench reads it from run_training."""
+    import inspect
+
+    from mosquito_cfd.force_surrogate import train
+    from mosquito_cfd.surrogate_bench import BENCH_SEEDS, metrics, runner, splits
+
+    defaults = {
+        name: p.default
+        for name, p in inspect.signature(train.run_training).parameters.items()
+    }
+    assert runner.MLP_HYPERPARAMETERS == {
+        "hidden": defaults["hidden"],
+        "num_layers": defaults["num_layers"],
+        "lr": defaults["lr"],
+    }
+    assert (
+        inspect.signature(runner.run_bench).parameters["epochs"].default
+        == (defaults["epochs"])
+    )
+    assert splits.N_VAL_CONFIGS == defaults["n_val_configs"]
+    assert BENCH_SEEDS == tuple(range(defaults["seed"], defaults["seed"] + 5))
+    assert metrics.MIN_SEEDS == len(BENCH_SEEDS)
+
+
+def test_the_window_start_follows_the_grid():
+    import math
+
+    from mosquito_cfd.surrogate_bench import gate
+    from mosquito_cfd.surrogate_bench.ridge import N_GRID
+
+    assert gate.WINDOW_START == math.ceil(gate.WINDOW_PHASE * N_GRID)
+    assert (
+        gate.WINDOW_START / N_GRID
+        >= gate.WINDOW_PHASE
+        > (gate.WINDOW_START - 1) / N_GRID
+    )
+
+
+def test_fit_seed_and_predict_frame_use_a_public_result_type():
+    from mosquito_cfd import force_surrogate
+    from mosquito_cfd.force_surrogate import train
+
+    assert force_surrogate.SeedFit is train.SeedFit
+    assert "SeedFit" in force_surrogate.__all__
