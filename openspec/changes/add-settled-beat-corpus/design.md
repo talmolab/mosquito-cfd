@@ -187,7 +187,7 @@ fine grid if the coarse grid needs 8 and the fine 6.
 
 | outcome | action |
 |---|---|
-| any run has no `N*_run`, is not contracting on its full length, or has `NOISE_FACTOR · J > MAX_NOISE` for a target | `stop`: no regeneration; report to the user |
+| any run has no `N*_run`, is not contracting on its full length, or has `NOISE_FACTOR · J > MAX_NOISE` (or a non-finite value) for a target | `stop`: no regeneration; report to the user |
 | every run has `N*_run` and `N* > 6` | `regenerate_needs_cost_approval` |
 | otherwise | `regenerate` |
 
@@ -226,7 +226,9 @@ likely outcomes are `regenerate_needs_cost_approval` with `N*` of 7–8, or `sto
 - **Recomputation.** `check_settling.py` recomputes every force-derived number from the committed
   datasets with the current code, validates every record, and requires each dataset to have been
   extracted from the CSV its record hashes. A changed `settling.py` fails the precedence check
-  unless a deviation is recorded.
+  unless a deviation is recorded. Its helpers in `dataset.py` (de-duplication),
+  `metadata_capture.py` (realized timestep) and `constants.py` (`DT`) are not gated; a change
+  to them after the runs should be recorded as a deviation too, by review rather than by test.
 
 ## D4. Stage 1 runs and controls
 
@@ -252,8 +254,12 @@ Both are pulled by digest, and each image's `com.mosquito-cfd.iamrex-commit` lab
 The new corpora use the same images, so each extends its predecessor like for like.
 
 **Controls.** Each result goes into the run record. The settling manifest declares which controls
-apply to which run. The report is `controls_incomplete` while any declared control is missing,
-`control_failed` when a recorded control failed, and `data_incomplete` when a run has no rows.
+apply to which run. The report's status, in order of precedence:
+- `controls_incomplete`: a declared record or control result is missing;
+- `control_failed`: a record is invalid or a control did not pass;
+- `precedence_failed`: the precedence check fails;
+- `data_incomplete`: a run has no rows, fewer complete beats than declared, a malformed
+  frame, or a dataset not extracted from the CSV its record hashes.
 
 | id | applies to | check | pass |
 |---|---|---|---|
@@ -263,11 +269,13 @@ apply to which run. The report is `controls_incomplete` while any declared contr
 
 - **Comparison.** The new run's force CSV first goes through the extractor's validated
   de-duplication: fine decks run `ns.init_iter = 2`, which writes two extra `iStep == 0` rows by
-  design. Rows are then matched by `time` to the committed `dataset.parquet`, which is in git, so
-  CI can re-check them.
-- **Coverage.** Every run row must match exactly one reference row, and every reference row up to
-  the run's last time must be matched, and the run must reach the control's declared step
-  count, so a gapped or truncated run fails.
+  design. Rows whose step ends past each side's `stop_time` are dropped, and the rest are
+  matched by step index `round(time / dt)` to the committed `dataset.parquet`, which is in
+  git, so CI can re-check them.
+- **Coverage.** The comparison covers steps `0 .. n − 1` (C1: `n` = 400; C3: every reference
+  step left after the reference's clamped row). Each must appear exactly once on both sides;
+  later rows of a long run are not compared. Separately, every run must reach its deck's
+  `max_step`, so a gapped or truncated run fails.
 - **Tolerance**, per value: `max(1e-9 · max |column|, 1.5 units in the 6th significant figure of
   the reference value)`. The CSV prints 6 significant figures. The extra half unit absorbs
   floating-point error in the subtraction, which otherwise fails about half of legitimate
@@ -310,7 +318,8 @@ Their run records say `git_dirty: true`, which the fixture README notes. The tes
 **Outputs** (committed in PR 3, `examples/settling_check/`):
 - the decks and `settling_manifest.json`;
 - one `dataset.parquet` per grid;
-- `records/<grid>_<config>.json` (outside the ignored `runs/`);
+- `records/<grid>_<config>.json` and `records/<grid>_c1_<config>.json` (outside the ignored
+  `runs/`);
 - `settling_report.json`;
 - `settling_figure.png` with its sidecar;
 - `DECISION.md`.

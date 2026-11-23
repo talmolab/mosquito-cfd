@@ -65,8 +65,9 @@ worst-settling corner from the 27-config beat-1→2 comparison (exploration stud
 like for like.
 
 **Controls** (`design.md` D4), each with a recorded result:
-- **C1**: the first 400 steps reproduce the committed corpus run on each grid, to `1e-9` of each
-  column's maximum, which is far above round-off.
+- **C1**: the first 400 steps reproduce the committed corpus run on each grid, within
+  `max(1e-9 · max |column|, 1.5 units in the 6th significant figure)` per value: bit-identical
+  output, allowing a flip of the last printed digit.
 - **C3**: the first two beats of every long run reproduce the committed corpus to the same
   tolerance.
 - **C4**: the realized interior timestep never drops below nominal, over all 8 beats.

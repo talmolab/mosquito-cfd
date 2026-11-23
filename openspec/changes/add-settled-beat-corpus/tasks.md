@@ -120,9 +120,10 @@ Rules:
   are not.
 
 ### 5. Controls and report (one commit each)
-- [x] 5.1 Tests first, then `settling.compare_force_csv(run_csv, reference_rows, stop_time, dt)`. The
-  reference is the configuration's rows of the committed `dataset.parquet`, matched by `time`
-  after the extractor's de-duplication. Tests:
+- [x] 5.1 Tests first, then `settling.compare_force_csv(run_csv, reference, *, config_name, dt,
+  run_stop_time, reference_stop_time, declared_steps)`. The reference is the configuration's
+  rows of the committed `dataset.parquet`, matched by step index after the extractor's
+  de-duplication. Tests:
   - identical values pass;
   - a `5e-13` round-off perturbation passes, and so does a flip of the last printed digit
     (including `1.00000` against `0.999999`);
@@ -139,7 +140,8 @@ Rules:
 - [x] 5.3 Tests first, then `scripts/check_settling.py`, on a synthetic run tree:
   - every report field of "A settling report records its controls and its inputs";
   - `controls_incomplete` and a non-zero exit when a declared control is missing;
-    `control_failed` when a recorded control failed; `data_incomplete` when a run has no rows;
+    `control_failed` when a record is invalid or a control failed; `precedence_failed`;
+    `data_incomplete` when a run has no rows, too few beats, or the wrong CSV;
   - run-record completeness: image digest equal to the manifest's pin, IAMReX label, command,
     hardware, seconds per step, git-derived provenance (see 6.4), and the gated file hashes;
   - the record writer `scripts/record_settling_run.py` (`settling.build_run_record`, checked by
@@ -183,6 +185,16 @@ Rules:
   - integer `wingbeat` and the first beat's completeness are checked;
   - orphan decks are flagged; the `.gitignore` tests fail on a git error;
   - the `project.md` arena unit is corrected to bytes.
+- [x] 6.5 Fixes from the focused re-review of 6.4 (tests first, second section of
+  `tests/test_settling_hardening.py`):
+  - a NaN noise floor in any coefficient stops (`noisiest_target`);
+  - only new, untracked records are exempt from the dirty check;
+  - the upstream must be `origin/main` and must exist ("fetch origin");
+  - `launch` refuses a dirty or off-`main` checkout before a run starts;
+  - the IAMReX label comes only from `docker image inspect`;
+  - raw-file hashes and the field-change shape are validated, and the CSV link fails closed;
+  - an infinite reference value fails, and a short or malformed run is `data_incomplete`;
+  - a missing docker or `hardware.json` is a clean refusal.
 
 ## Stage 1 runs on gh-04 (after PR 1 is merged)
 
