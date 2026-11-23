@@ -94,3 +94,11 @@ def test_every_flag_is_required(flag, repo):
         _load_cli().main(argv)
     assert excinfo.value.code == 2
     assert not out.exists()
+
+
+def test_help_gives_the_accepted_digest_form(capsys):
+    # A bare "sha256:..." is rejected by validate_image_digest; the help must not suggest it.
+    with pytest.raises(SystemExit):
+        _load_cli().main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert "<repo>@sha256:<64hex>" in text

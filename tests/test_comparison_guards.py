@@ -223,3 +223,45 @@ def test_a_verbatim_skill_one_ulp_off_fails(copy):
     _edit_json(_metrics(copy, figure), edit)
     with pytest.raises(AssertionError, match=f"{figure}.*targets.CF_mz.fine.values"):
         check_committed_figure(copy, figure)
+
+
+def test_a_wrong_inputs_block_fails(copy):
+    figure = "error_histograms"
+    _edit_json(_meta(copy, figure), lambda d: d["inputs"].update(hash="0" * 64))
+    with pytest.raises(AssertionError, match=f"{figure}.*inputs does not name"):
+        check_committed_figure(copy, figure)
+
+
+def test_a_wrong_figure_name_fails(copy):
+    figure = "cycle_mean_r2_diagnostic"
+    _edit_json(_meta(copy, figure), lambda d: d.update(figure="skill_ranges"))
+    with pytest.raises(AssertionError, match=f"{figure}.*figure field"):
+        check_committed_figure(copy, figure)
+
+
+def test_a_missing_input_role_fails(copy):
+    figure = "skill_ranges"
+    _edit_json(_meta(copy, figure), lambda d: d["input_files"].pop("coarse_dataset"))
+    with pytest.raises(AssertionError, match=f"{figure}.*input_files roles"):
+        check_committed_figure(copy, figure)
+
+
+def test_a_computed_value_moved_past_1e_12_fails(copy):
+    # 5e-12 relative passes a 1e-11 tolerance and fails the spec's 1e-12.
+    figure = "cycle_mean_r2_diagnostic"
+
+    def edit(d):
+        eps = d["grids"]["coarse"]["CF_x"]["eps"]
+        eps[1] = eps[1] * (1 + 5e-12)
+
+    _edit_json(_metrics(copy, figure), edit)
+    with pytest.raises(AssertionError, match=f"{figure}.*grids.coarse.CF_x.eps"):
+        check_committed_figure(copy, figure)
+
+
+def test_a_swapped_png_fails(copy):
+    figure = "error_histograms"
+    out = copy / FIGURE_DIR
+    shutil.copyfile(out / "skill_ranges.png", out / f"{figure}.png")
+    with pytest.raises(AssertionError, match=f"{figure}.*png_sha256"):
+        check_committed_figure(copy, figure)

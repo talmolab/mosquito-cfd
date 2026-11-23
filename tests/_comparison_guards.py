@@ -161,3 +161,7 @@ def check_committed_figure(root: Path, figure: str) -> None:
     assert meta.get("figure") == figure, (
         f"{figure}: figure field is {meta.get('figure')!r}"
     )
+    png = out / f"{figure}.png"
+    assert png.is_file() and meta.get("png_sha256") == _sha256(png), (
+        f"{figure}: {figure}.png does not match its recorded png_sha256"
+    )

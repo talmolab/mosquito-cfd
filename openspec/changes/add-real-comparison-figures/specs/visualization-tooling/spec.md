@@ -188,8 +188,9 @@ guard the defect trips.
     - A null `skill` or `config_mean_r2` is either null for every seed of that corpus and target, or
       for none of them.
     - No `config_mean_r2` exceeds 1.
-11. **Pairing.** The coarse and fine corpora have equal configuration sets, equal seed lists, equal
-    per-seed `val_configs` and equal N.
+11. **Pairing.** The coarse and fine corpora have equal dataset configuration sets, equal holdout
+    configuration sets, equal seed lists, equal per-seed `val_configs` (present in both) and equal
+    N.
 
 Within those guards the loader SHALL also refuse:
 
@@ -215,7 +216,7 @@ Within those guards the loader SHALL also refuse:
   - the coarse and the fine dataset sha256 each changed;
   - a dataset whose wingbeats are `{0, 2}`, and one configuration with an extra beat, both built
     before the dataset is hashed, so its hash still matches;
-  - `phase_baseline.converged_min_wingbeat` set to `0`;
+  - `phase_baseline.converged_min_wingbeat` set to `0`, and separately to the float `1.0`;
   - a prediction row with `wingbeat == 0`;
   - a `CF_x_true` changed by one ulp;
   - the fine predictions copied into the coarse directory;
@@ -227,7 +228,10 @@ Within those guards the loader SHALL also refuse:
     `summarize_seed_sweep`;
   - a non-primary `config_mean_r2` of `1.5`, and separately of `nextafter(1, 2)`, both placed
     before `summarize_seed_sweep`;
-  - differing configuration sets, seed lists or `val_configs`;
+  - differing holdout configuration sets, seed lists or `val_configs`;
+  - a training configuration dropped from, and separately one added to, the fine dataset, with
+    the holdout sets unchanged;
+  - `val_configs` missing from both corpora;
   - a coarse corpus with wingbeats `{0, 1}` beside a fine one with `{0, 1, 2}`
 - **WHEN** each of the three builders is called
 - **THEN** each raises `ValueError` whose message names the corpus and the first guard tripped (the
@@ -491,7 +495,11 @@ data.
   `scripts/make_coarse_vs_fine_figures.py`, read from those files' own locations (not from `root`)
   and keyed by those fixed names, with `null` for a file that is absent (an installed package without
   the `scripts/` directory);
-- `figure`.
+- `figure`;
+- `png_sha256`: the sha256 of the PNG bytes written.
+
+**Rendering.** Each figure SHALL be drawn and saved under matplotlib's `default` style, so a
+caller's rcParams or a local `matplotlibrc`, which `git.dirty` cannot see, does not change the PNG.
 
 **Portable paths.** Every recorded path SHALL be relative to `root`, written with forward slashes,
 with no drive letter, no leading `/` and no `..`. A pure `_portable_path(path, root)` SHALL produce
@@ -515,7 +523,8 @@ and the failing field or role. It SHALL require:
 - the five `library_versions` keys to be non-null strings (not compared with the running
   environment);
 - `git.commit` to be 40 hex characters and `git.dirty` to be false;
-- `figure` to equal the name.
+- `figure` to equal the name;
+- the committed `<figure>.png` to have the recorded `png_sha256`.
 
 **The CI test.** A CI test SHALL apply the checker to each committed figure, and SHALL require one
 `timestamp` across the three. It SHALL also check independent anchors computed in the test itself:
@@ -539,11 +548,19 @@ false.
   - an absolute path;
   - a per-seed `skill` in `skill_ranges_metrics.json` moved by `1e-10` relative;
   - an `ε_s` in `cycle_mean_r2_diagnostic_metrics.json` moved by `1e-10` relative;
-  - the recorded hash of `comparison_figure.py` changed
+  - the recorded hash of `comparison_figure.py` changed;
+  - another figure's PNG copied over this figure's PNG
 - **WHEN** `check_committed_figure` runs on each copy
 - **THEN** the unmodified layout passes, and each copy fails with `AssertionError` naming the
   figure and the role or field (`fine_metrics`, `git.dirty`, `path`, the sidecar key,
-  `renderer_sources`)
+  `renderer_sources`, `png_sha256`)
+
+#### Scenario: local matplotlib settings do not change the PNG
+
+- **GIVEN** a valid synthetic corpus pair
+- **WHEN** `skill_ranges` is rendered once plainly and once inside a `matplotlib.rc_context` that
+  changes `lines.markersize`, `savefig.facecolor` and `font.size`
+- **THEN** the two PNGs are byte-identical, and each run metadata's `png_sha256` is its PNG's sha256
 
 #### Scenario: recorded paths are portable on every OS
 

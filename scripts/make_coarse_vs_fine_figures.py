@@ -12,8 +12,8 @@ Arguments (all required):
 - ``--out-dir``: where ``<figure>.png``, ``_metrics.json`` and ``_run_metadata.json`` are written
   (render into a scratch directory outside the repository, then copy the files in, so the recorded
   ``git.dirty`` stays false);
-- ``--docker-digest``: a pinned ``sha256:`` image digest (by convention the fine corpus's CFD
-  digest, ``examples/prelim_sweep_fine/run_metadata.json``);
+- ``--docker-digest``: a pinned image digest, ``<repo>@sha256:<64hex>`` (by convention the fine
+  corpus's CFD digest, ``examples/prelim_sweep_fine/run_metadata.json``);
 - ``--timestamp``: a caller-supplied ISO-8601 timestamp.
 
 The regeneration recipe for the committed figures is in ``examples/prelim_sweep_fine/README.md``
@@ -59,7 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--docker-digest",
         required=True,
-        help="Pinned sha256: image digest (mutable tags rejected).",
+        help="Pinned image digest, <repo>@sha256:<64hex> (mutable tags rejected).",
     )
     parser.add_argument(
         "--timestamp",

@@ -214,6 +214,22 @@ an installed package without `scripts/`, that file is absent. Recording `null` k
 usable there, and the committed-figure check still fails, because the committed sidecars record a
 hash.
 
+#### Why record `png_sha256` and draw under the default style? (`/review-pr`)
+
+Two review findings. First, the checker read only the sidecars, so another figure's PNG copied over
+this one passed. `_write_outputs` already holds the PNG bytes, so it records their sha256, and the
+checker compares it with the committed PNG. This checks the committed file's integrity, not
+re-render reproducibility, so it does not depend on the platform. Second, an untracked
+`matplotlibrc` changed the PNG while `git.dirty` stayed false. `_render_and_write` draws and saves
+inside `plt.style.context("default")`.
+
+#### Why does guard 11 compare the dataset configuration sets too? (`/review-pr`)
+
+Comparing only the holdout sets let a fine corpus that had lost or gained a training configuration
+render. Its baseline would then come from a different training set. Guard 11 now compares the
+dataset sets first, then the holdout sets, and reads `val_configs` with `_get`, so a key missing
+from both corpora is refused instead of comparing equal.
+
 ### D6 — Captions and shared constants
 
 - **Captions** are built by pure functions (spec lists the required and forbidden content).

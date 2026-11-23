@@ -32,6 +32,7 @@ import os
 import platform
 import re
 import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
@@ -451,12 +452,13 @@ def _load_corpus(root: str | Path, corpus_dir: str | Path, name: str) -> Corpus:
 
 def _check_pair(coarse: Corpus, fine: Corpus) -> int:
     """Guard 11: the two corpora are paired. Returns the shared beat count N."""
-    sets = [set(c.predictions["config_name"].unique()) for c in (coarse, fine)]
-    if sets[0] != sets[1]:
-        raise ValueError(
-            "coarse and fine holdout configuration sets differ: "
-            f"{sorted(sets[0] ^ sets[1])} are in only one"
-        )
+    for kind, frame in (("dataset", "dataset"), ("holdout", "predictions")):
+        sets = [set(getattr(c, frame)["config_name"].unique()) for c in (coarse, fine)]
+        if sets[0] != sets[1]:
+            raise ValueError(
+                f"coarse and fine {kind} configuration sets differ: "
+                f"{sorted(sets[0] ^ sets[1])} are in only one"
+            )
     seeds = [
         [r["seed"] for r in c.metrics["seed_sweep"]["runs"]] for c in (coarse, fine)
     ]
@@ -467,10 +469,12 @@ def _check_pair(coarse: Corpus, fine: Corpus) -> int:
         fine.metrics["seed_sweep"]["runs"],
         strict=True,
     ):
-        if rc.get("val_configs") != rf.get("val_configs"):
+        val_c = _get(rc, "coarse_metrics", "val_configs")
+        val_f = _get(rf, "fine_metrics", "val_configs")
+        if val_c != val_f:
             raise ValueError(
                 f"coarse and fine val_configs differ at seed {rc['seed']}: "
-                f"{rc.get('val_configs')} vs {rf.get('val_configs')}"
+                f"{val_c} vs {val_f}"
             )
     if coarse.n_beats != fine.n_beats:
         raise ValueError(
@@ -589,6 +593,25 @@ def _dumps(payload: dict[str, Any]) -> bytes:
     )
 
 
+_DPI = 200  # PNG resolution of every comparison figure
+
+
+def _render_and_write(
+    out_dir: str | Path,
+    figure: str,
+    draw: Callable[[dict[str, Any]], Any],
+    metrics: dict[str, Any],
+    metadata: dict[str, Any],
+) -> None:
+    """Draw ``figure`` under matplotlib's default style, then write its three files.
+
+    The style context isolates the PNG from a caller's rcParams or a local ``matplotlibrc``,
+    which ``git.dirty`` cannot see.
+    """
+    with plt.style.context("default"):
+        _write_outputs(out_dir, figure, draw(metrics), metrics, metadata)
+
+
 def _write_outputs(
     out_dir: str | Path,
     figure: str,
@@ -598,18 +621,22 @@ def _write_outputs(
 ) -> None:
     """Write ``<figure>.png``, ``_metrics.json``, ``_run_metadata.json`` (in that order).
 
-    The PNG is rendered into memory and the figure closed before anything touches the disk; each
-    file is written to a temporary name and moved into place with ``os.replace``. A failure
-    between two moves leaves exactly the files already moved and no temporary file.
+    The PNG is rendered into memory and the figure closed before anything touches the disk; its
+    sha256 is added to the run metadata as ``png_sha256``. Each file is written to a temporary
+    name and moved into place with ``os.replace``. A failure while staging leaves no file; a
+    failure between two moves leaves exactly the files already moved. Neither leaves a temporary
+    file.
     """
-    out_dir = Path(out_dir)
     try:
         buffer = io.BytesIO()
-        fig.savefig(buffer, format="png", dpi=200, bbox_inches="tight")
+        fig.savefig(buffer, format="png", dpi=_DPI, bbox_inches="tight")
     finally:
         plt.close(fig)
+    out_dir = Path(out_dir)
+    png = buffer.getvalue()
+    metadata = {**metadata, "png_sha256": hashlib.sha256(png).hexdigest()}
     payloads = [
-        (f"{figure}.png", buffer.getvalue()),
+        (f"{figure}.png", png),
         (f"{figure}_metrics.json", _dumps(metrics)),
         (f"{figure}_run_metadata.json", _dumps(metadata)),
     ]
@@ -618,8 +645,9 @@ def _write_outputs(
     try:
         for name, data in payloads:
             tmp = out_dir / f".{name}.tmp"
-            tmp.write_bytes(data)
+            # Staged before writing, so a write that fails part-way is still cleaned up.
             staged.append((tmp, out_dir / name))
+            tmp.write_bytes(data)
         for tmp, dst in staged:
             os.replace(tmp, dst)
     finally:
@@ -896,9 +924,7 @@ def build_skill_ranges(
         timestamp=timestamp,
         figure="skill_ranges",
     )
-    _write_outputs(
-        out_dir, "skill_ranges", _draw_skill_ranges(metrics), metrics, metadata
-    )
+    _render_and_write(out_dir, "skill_ranges", _draw_skill_ranges, metrics, metadata)
     return metrics
 
 
@@ -1167,8 +1193,8 @@ def build_error_histograms(
         timestamp=timestamp,
         figure="error_histograms",
     )
-    _write_outputs(
-        out_dir, "error_histograms", _draw_error_histograms(metrics), metrics, metadata
+    _render_and_write(
+        out_dir, "error_histograms", _draw_error_histograms, metrics, metadata
     )
     return metrics
 
@@ -1495,6 +1521,11 @@ def build_cycle_mean_r2_diagnostic(
         timestamp=timestamp,
         figure="cycle_mean_r2_diagnostic",
     )
-    fig = _draw_cycle_mean_r2_diagnostic(metrics)
-    _write_outputs(out_dir, "cycle_mean_r2_diagnostic", fig, metrics, metadata)
+    _render_and_write(
+        out_dir,
+        "cycle_mean_r2_diagnostic",
+        _draw_cycle_mean_r2_diagnostic,
+        metrics,
+        metadata,
+    )
     return metrics

@@ -233,10 +233,14 @@ def test_one_configuration_with_an_extra_beat_is_refused(builder, tmp_path):
     _expect_refusal(builder, tmp_path, "coarse_dataset", "wingbeat")
 
 
+@pytest.mark.parametrize("value", [0, 1.0])
 @pytest.mark.parametrize("builder", BUILDERS)
-def test_converged_min_wingbeat_mismatch_is_refused(builder, tmp_path):
+def test_converged_min_wingbeat_mismatch_is_refused(builder, value, tmp_path):
+    # 1.0 equals the constant numerically but is not the integer the training code records.
     def edit(metrics):
-        metrics["phase_baseline_skill"]["phase_baseline"]["converged_min_wingbeat"] = 0
+        metrics["phase_baseline_skill"]["phase_baseline"]["converged_min_wingbeat"] = (
+            value
+        )
 
     write_repo(tmp_path, coarse=CorpusSpec(edit_metrics=edit))
     _expect_refusal(builder, tmp_path, "coarse_metrics", "converged_min_wingbeat")
@@ -357,6 +361,49 @@ def test_differing_validation_carves_are_refused(builder, tmp_path):
         tmp_path, fine=CorpusSpec(salt=0.013, digest=FINE_DIGEST, edit_runs=edit)
     )
     _expect_refusal(builder, tmp_path, "val_configs")
+
+
+@pytest.mark.parametrize("change", ["drop t05", "add t99"])
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_differing_training_configuration_sets_are_refused(builder, change, tmp_path):
+    # The holdout sets agree; only the training sets differ, so the baselines would too.
+    def edit(df):
+        if change == "drop t05":
+            return df[df["config_name"] != "t05"].reset_index(drop=True)
+        extra = df[df["config_name"] == "t05"].copy()
+        extra["config_name"] = "t99"
+        return pd.concat([df, extra], ignore_index=True)
+
+    write_repo(
+        tmp_path, fine=CorpusSpec(salt=0.013, digest=FINE_DIGEST, edit_dataset=edit)
+    )
+    _expect_refusal(
+        builder,
+        tmp_path,
+        "configuration sets differ",
+        "t0" if change == "drop t05" else "t99",
+    )
+
+
+@pytest.mark.parametrize("missing", ["coarse", "fine", "both"])
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_missing_val_configs_is_refused(builder, missing, tmp_path):
+    # Read with _get, so a key missing from both corpora cannot compare equal (None == None).
+    def edit(runs):
+        for r in runs:
+            r.pop("val_configs")
+
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(edit_runs=edit if missing != "fine" else None),
+        fine=CorpusSpec(
+            salt=0.013,
+            digest=FINE_DIGEST,
+            edit_runs=edit if missing != "coarse" else None,
+        ),
+    )
+    first = "fine" if missing == "fine" else "coarse"
+    _expect_refusal(builder, tmp_path, f"{first}_metrics lacks val_configs")
 
 
 @pytest.mark.parametrize("builder", BUILDERS)
@@ -502,7 +549,8 @@ def test_write_outputs_writes_exactly_three_files(tmp_path):
     meta = json.loads(
         (out / "skill_ranges_run_metadata.json").read_text(encoding="utf-8")
     )
-    assert meta == {"b": None}
+    png_sha = hashlib.sha256((out / "skill_ranges.png").read_bytes()).hexdigest()
+    assert meta == {"b": None, "png_sha256": png_sha}
     assert b"\r\n" not in (out / "skill_ranges_metrics.json").read_bytes()
     assert plt.get_fignums() == before
 
@@ -540,6 +588,59 @@ def test_write_outputs_partial_set_after_the_second_replace_fails(
         cf._write_outputs(out, "skill_ranges", _trivial_figure(), {}, {})
     assert sorted(p.name for p in out.iterdir()) == ["skill_ranges.png"]
     assert plt.get_fignums() == []
+
+
+def test_write_outputs_leaves_no_temp_file_when_a_staging_write_fails(
+    tmp_path, monkeypatch
+):
+    # The second staging write creates its file, writes part of it, then fails (disk full).
+    out = tmp_path / "out"
+    real_write = Path.write_bytes
+    calls = []
+
+    def partial(self, data):
+        calls.append(self)
+        if len(calls) == 2:
+            real_write(self, data[:10])
+            raise OSError(28, "No space left on device")
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", partial)
+    with pytest.raises(OSError):
+        cf._write_outputs(out, "skill_ranges", _trivial_figure(), {}, {})
+    assert list(out.iterdir()) == []
+    assert plt.get_fignums() == []
+
+
+def test_write_outputs_closes_the_figure_when_out_dir_is_not_a_path():
+    before = plt.get_fignums()
+    with pytest.raises(TypeError):
+        cf._write_outputs(None, "skill_ranges", _trivial_figure(), {}, {})
+    assert plt.get_fignums() == before
+
+
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_run_metadata_records_the_png_sha256(builder, tmp_path):
+    write_repo(tmp_path)
+    out = tmp_path / "out"
+    _call(builder, tmp_path, out)
+    name = builder.__name__.removeprefix("build_")
+    meta = json.loads((out / f"{name}_run_metadata.json").read_text(encoding="utf-8"))
+    png = (out / f"{name}.png").read_bytes()
+    assert meta["png_sha256"] == hashlib.sha256(png).hexdigest()
+
+
+def test_rendering_ignores_local_matplotlib_settings(tmp_path):
+    # An untracked matplotlibrc, or rcParams set by the caller, must not change the PNG.
+    write_repo(tmp_path)
+    _call(cf.build_skill_ranges, tmp_path, tmp_path / "plain")
+    with matplotlib.rc_context(
+        {"lines.markersize": 20, "savefig.facecolor": "yellow", "font.size": 4}
+    ):
+        _call(cf.build_skill_ranges, tmp_path, tmp_path / "styled")
+    plain = (tmp_path / "plain" / "skill_ranges.png").read_bytes()
+    styled = (tmp_path / "styled" / "skill_ranges.png").read_bytes()
+    assert plain == styled
 
 
 def test_metrics_payload_numpy_scalars_serialise(tmp_path):

@@ -134,13 +134,15 @@ the grids.
 
 Each figure's `_metrics.json` holds every plotted value, its caption and what was drawn. Its
 `_run_metadata.json` records each input's repository-relative path and sha256, both corpora's CFD
-image digests (`corpus_docker_images`), the library versions and the renderer's hashes
-(`renderer_sources`). Its `docker_image` is this corpus's CFD digest, by convention: the figures were
-rendered natively on Windows, not in that container. `git.commit` is the commit they were rendered
-from.
+image digests (`corpus_docker_images`), the library versions, the renderer's hashes
+(`renderer_sources`) and the PNG's sha256 (`png_sha256`). Its `docker_image` is this corpus's CFD
+digest, by convention: the figures were rendered natively on Windows, not in that container.
+`git.commit` is the commit they were rendered from. It is a branch commit, so after the PR is
+squash-merged it stays reachable through GitHub's `refs/pull/183/head`. Each figure is drawn under
+matplotlib's `default` style, so a local `matplotlibrc` does not change it.
 
 `tests/test_committed_comparison_figures.py` recomputes the sidecars from the committed inputs and
-fails if any input or the renderer changes. A corpus regeneration or a retrain therefore fails it on
+fails if any input, the renderer or a PNG changes. A corpus regeneration or a retrain therefore fails it on
 purpose: retrain, then re-render all three figures into a scratch directory outside the repository
 and copy them in. Rendering in place over the committed files would record `git.dirty: true`.
 
