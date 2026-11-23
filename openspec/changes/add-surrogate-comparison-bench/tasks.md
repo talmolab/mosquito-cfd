@@ -207,14 +207,14 @@
 
 ### 6a. Gate errors and yardsticks
 
-- [ ] 6a.1 **Tests first** (`tests/test_surrogate_bench_gate.py`): the gate scenarios for:
+- [x] 6a.1 **Tests first** (`tests/test_surrogate_bench_gate.py`): the gate scenarios for:
   - GCI traceability, grid peaks and rotation;
   - yardstick values;
   - the shared window, including the windowed-normaliser known answer;
   - the `late_beat` yardstick clauses of "Late-beat boundary", including the coarse corpus lacking
     the target beat (the guards are in 5.1);
   - the wrap jump (sawtooth known answer).
-- [ ] 6a.2 Implement errors and yardsticks in `surrogate_bench/gate.py`, with a comment citing #173
+- [x] 6a.2 Implement errors and yardsticks in `surrogate_bench/gate.py`, with a comment citing #173
   at the grid-peak rule. Mutation-test; each must be killed:
   - stroke sign, stroke in degrees, a missing `/f*`, a missing pitch lead, `R` for `Rᵀ`;
   - raw-row instead of grid peaks;
@@ -224,7 +224,7 @@
   - a ×100 scaling;
   - wrap-jump extrapolation from rows −2 and −1, extrapolation to `φ_0` instead of `1 + φ_0`, and raw
     swapped with last-but-one.
-- [ ] 6a.3 Shipped-artifact check. Commit: `feat(surrogate-bench): gate errors and yardsticks`.
+- [x] 6a.3 Shipped-artifact check. Commit: `feat(surrogate-bench): gate errors and yardsticks`.
 
 ### 6b. Gate verdicts
 
