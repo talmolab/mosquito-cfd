@@ -262,13 +262,13 @@ So all of it is one commit.
 
 ## 7. Merge main
 
-- [ ] 7.1 Run `git merge origin/main`, with no rebase.
-- [ ] 7.2 Re-run the 0.3 files and `tests/test_json_loader.py`.
-- [ ] 7.3 If the merge changed code in a touched file, re-run that file's mutants.
+- [x] 7.1 Run `git merge origin/main`, with no rebase.
+- [x] 7.2 Re-run the 0.3 files and `tests/test_json_loader.py`.
+- [x] 7.3 If the merge changed code in a touched file, re-run that file's mutants.
 
 ## 8. CHANGELOG (last commit)
 
-- [ ] 8.1 In `docs/CHANGELOG.md`, under `[Unreleased]` → `### Changed`, add **one** bullet in the
+- [x] 8.1 In `docs/CHANGELOG.md`, under `[Unreleased]` → `### Changed`, add **one** bullet in the
   file's style:
   - The headline and the OpenSpec slug in parentheses: every way a force-surrogate JSON file can
     fail to load is a labelled `ValueError` (`harden-json-loader`).
