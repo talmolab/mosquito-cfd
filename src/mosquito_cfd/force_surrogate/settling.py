@@ -23,9 +23,13 @@ and the full run has ``E_N <= 1%``. See :func:`evaluate_run` and :func:`decide_b
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -488,3 +492,166 @@ def decide_beat_count(verdicts: Sequence[RunVerdict]) -> Decision:
         slowest.binding_target,
         f"N* = {n_star}, set by {slowest.run} ({slowest.binding_target})",
     )
+
+
+# --------------------------------------------------------------------------- pre-registration
+
+PREREGISTERED_NAMES = (
+    "SETTLED_TOLERANCE",
+    "COMPLETE_FRACTION",
+    "MIN_BEATS",
+    "FIRST_RATIO_BEAT",
+    "NOISE_FACTOR",
+    "MAX_NOISE",
+)
+_BLOCK_START = "<!-- settling-constants:start -->"
+_BLOCK_END = "<!-- settling-constants:end -->"
+_ASSIGNMENT = re.compile(r"^\s*([A-Z_]+)\s*=\s*([0-9.eE+-]+)\s*$")
+_SPEC_ASSIGNMENT = re.compile(r"`([A-Z_]+) = ([0-9.eE+-]+)`")
+
+# Files whose bytes a settling run record pins (repository-relative). settling.py is recorded
+# too, but only reported: the runs do not depend on it, and the analysis is recomputed.
+GATED_FILES = (
+    "examples/settling_check/PREREGISTRATION.md",
+    "examples/settling_check/generate_decks.py",
+)
+
+
+def read_preregistered_constants(path: Path | str) -> dict[str, float]:
+    """Parse the constants block of ``PREREGISTRATION.md``.
+
+    The block sits between ``<!-- settling-constants:start -->`` and
+    ``<!-- settling-constants:end -->`` and holds one ``NAME = value`` per line (a code fence
+    around it is ignored).
+
+    Raises:
+        ValueError: If either anchor is missing or repeated, a line inside the block is not an
+            assignment, or a name repeats.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    if text.count(_BLOCK_START) != 1 or text.count(_BLOCK_END) != 1:
+        raise ValueError(
+            f"{path}: expected exactly one {_BLOCK_START} and one {_BLOCK_END} "
+            "(settling-constants block)"
+        )
+    body = text.split(_BLOCK_START, 1)[1].split(_BLOCK_END, 1)[0]
+    values: dict[str, float] = {}
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("```"):
+            continue
+        match = _ASSIGNMENT.match(stripped)
+        if match is None:
+            raise ValueError(
+                f"{path}: not a NAME = value line in the constants block: {line!r}"
+            )
+        name, value = match.group(1), float(match.group(2))
+        if name in values:
+            raise ValueError(f"{path}: {name} appears twice in the constants block")
+        values[name] = value
+    return values
+
+
+def constants_mismatches(declared: Mapping[str, float]) -> list[str]:
+    """Differences between pre-registered constants and this module's, one message each."""
+    out = []
+    for name in PREREGISTERED_NAMES:
+        current = globals()[name]
+        if name not in declared:
+            out.append(f"{name}: missing from the preregistration")
+        elif float(declared[name]) != float(current):
+            out.append(
+                f"{name}: preregistered {declared[name]:g}, settling.py {current:g}"
+            )
+    for name in sorted(set(declared) - set(PREREGISTERED_NAMES)):
+        out.append(f"{name}: preregistered but not a settling constant")
+    return out
+
+
+def spec_constants(spec_path: Path | str) -> dict[str, float]:
+    """The pre-registered constants as the spec states them (`` `NAME = value` `` pairs)."""
+    text = Path(spec_path).read_text(encoding="utf-8")
+    found = {
+        name: float(value)
+        for name, value in _SPEC_ASSIGNMENT.findall(text)
+        if name in PREREGISTERED_NAMES
+    }
+    return found
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _deviation_ok(deviations: list, file: str, old: str, new: str) -> bool:
+    for entry in deviations:
+        if (
+            isinstance(entry, dict)
+            and entry.get("file") == file
+            and entry.get("old_sha256") == old
+            and entry.get("new_sha256") == new
+            and str(entry.get("reason", "")).strip()
+            and str(entry.get("pr", "")).strip()
+        ):
+            return True
+    return False
+
+
+def check_precedence(settling_dir: Path | str, *, repo_root: Path | str) -> list[str]:
+    """Check that the committed criterion is the one the settling runs were started under.
+
+    - Every run record in ``records/`` must carry the SHA-256 of each file in
+      :data:`GATED_FILES`, and the committed file must still hash to it, unless a
+      ``deviations.json`` entry (``file``, ``old_sha256``, ``new_sha256``, ``reason``, ``pr``)
+      accounts for the difference.
+    - Once ``DECISION.md`` or ``settling_report.json`` exists, the number of run records must
+      equal the number of runs the settling manifest declares, and be greater than zero.
+
+    Reads only committed files (no git history), so it works on a shallow CI checkout.
+
+    Returns:
+        Failure messages; empty when the check passes.
+    """
+    settling_dir = Path(settling_dir)
+    repo_root = Path(repo_root)
+    failures: list[str] = []
+    deviations_path = settling_dir / "deviations.json"
+    deviations = (
+        json.loads(deviations_path.read_text(encoding="utf-8"))
+        if deviations_path.exists()
+        else []
+    )
+    records = sorted((settling_dir / "records").glob("*.json"))
+    for record_path in records:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        hashes = record.get("file_sha256") or {}
+        for rel in GATED_FILES:
+            recorded = hashes.get(rel)
+            if recorded is None:
+                failures.append(f"{record_path.name}: no recorded SHA-256 for {rel}")
+                continue
+            current = _sha256(repo_root / rel)
+            if current != recorded and not _deviation_ok(
+                deviations, rel, recorded, current
+            ):
+                failures.append(
+                    f"{record_path.name}: {rel} changed since the run "
+                    f"(recorded {recorded[:12]}, now {current[:12]}) with no deviations.json entry"
+                )
+    if (settling_dir / "DECISION.md").exists() or (
+        settling_dir / "settling_report.json"
+    ).exists():
+        manifest_path = settling_dir / "settling_manifest.json"
+        if not manifest_path.exists():
+            failures.append(
+                "a decision or report exists but settling_manifest.json does not"
+            )
+        else:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            declared = len(manifest.get("runs", []))
+            if declared == 0 or len(records) != declared:
+                failures.append(
+                    f"a decision or report exists with {len(records)} run record(s); "
+                    f"the settling manifest declares {declared}"
+                )
+    return failures
