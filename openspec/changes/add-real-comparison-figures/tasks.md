@@ -366,17 +366,17 @@ This section is additive; the old builders stay until 7.
 
 ## 10. Docs
 
-- [ ] 10.1 **Test first:** `_readme_guards.check_coarse_qs_ratios`.
+- [x] 10.1 **Test first:** `_readme_guards.check_coarse_qs_ratios`.
   - It takes the bullet slice and collapses its whitespace.
   - It requires two tokens in order and the phrase, and rejects the IB-bias-free regex.
   - It is tested on synthetic bullets for each defect in the spec scenario, then wired to the
     committed coarse README, where it fails today.
-- [ ] 10.1b **Test first**, in `tests/test_committed_comparison_figures.py`: the coarse README links
+- [x] 10.1b **Test first**, in `tests/test_committed_comparison_figures.py`: the coarse README links
   to `../prelim_sweep_fine/README.md#comparison-figures`, and the fine README has a
   `### Comparison figures` heading whose three PNG links resolve to the committed files. It fails
   today. The test is committed with the README edits
   that make it pass (10.2–10.4).
-- [ ] 10.2 Coarse README.
+- [x] 10.2 Coarse README.
   - Replace the two quasi-steady spans with the text in design D9. Grep the tests for every phrase
     being reworded, including `"2.4" not in readme`.
   - Add the Figure-section link to `../prelim_sweep_fine/README.md#comparison-figures`.
