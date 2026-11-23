@@ -21,10 +21,10 @@ jobs:
       # missing path, so a rename/move of any of these dirs must update these two run lines (and
       # this comment) too. (git does not track empty dirs, so each must contain a committed .py.)
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/
+        run: uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/ examples/settling_check/
 
       - name: Check formatting with ruff
-        run: uv run ruff format --check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/
+        run: uv run ruff format --check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/ examples/settling_check/
 
   test:
     name: Test

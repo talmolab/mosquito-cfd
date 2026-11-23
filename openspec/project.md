@@ -37,7 +37,8 @@ mosquito-cfd/
 ├── examples/                 # Validation cases
 │   ├── flow_past_sphere/     # Classic CFD validation case
 │   ├── flapping_wing/        # Validated flapping-wing demo (generic sinusoidal kinematics, van Veen axis convention)
-│   └── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
+│   ├── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
+│   └── settling_check/       # 8-beat settling runs that set the corpus beat count (#192; see its PREREGISTRATION.md)
 ├── cluster/argo/             # Argo Workflows for cluster-side sweep orchestration (production)
 │   ├── workflow-templates/   # Single-config WorkflowTemplate (one A40 pod = one mpirun)
 │   ├── workflows/            # Fan-out sweep Workflow over the manifest configs
@@ -186,6 +187,12 @@ through a full run and a green test suite):
    run.** The CC-F1 field-capture check was mandatory in the submission runbook and had no
    recorded outcome anywhere in the corpus — "required" and "silently skipped" look identical
    after the fact. Every mandatory check must write its result somewhere machine-readable.
+4. **Pre-register a criterion before the data that judge it exist, and say which data it
+   predates.** A rule written after looking at the numbers can be bent to fit them. The settling
+   check (`examples/settling_check/PREREGISTRATION.md`, #192) fixes its constants in a
+   hash-pinned file merged before the runs; every run record pins that hash, and any later edit
+   needs a recorded deviation. A rule tuned on earlier data predates only the new data, and the
+   pre-registration says so.
 
 ### Code Style
 - **Python**: Enforce with `ruff` (line-length: 88, target: py311). `E501` is ignored --
@@ -209,7 +216,7 @@ Use `uv` for all Python operations:
 ```bash
 uv run python script.py
 uv run pytest
-uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/
+uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/ examples/settling_check/
 uv run generate-wing-planform --output wing.vertex
 ```
 
