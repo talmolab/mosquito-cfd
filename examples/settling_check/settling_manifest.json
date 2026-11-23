@@ -1,0 +1,211 @@
+{
+  "change": "add-settled-beat-corpus",
+  "checkpoints_per_beat": 1,
+  "controls": [
+    {
+      "config": "s55_f115_p30",
+      "deck": "coarse/controls/inputs.3d.c1_s55_f115_p30",
+      "deck_sha256": "f0be7eaaeca8a30846052e5736607efd3813aa051d7ae7d8a2a314825a08146d",
+      "declared_keys": [
+        "amrex.the_arena_init_size",
+        "max_step"
+      ],
+      "grid": "coarse",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+      "kind": "C1",
+      "max_step": 400,
+      "name": "coarse_c1_s55_f115_p30",
+      "reference": "examples/prelim_sweep/dataset.parquet",
+      "source_deck": "examples/prelim_sweep/inputs/inputs.3d.s55_f115_p30",
+      "source_deck_sha256": "fc6d150d232ee6482a2b8c22e505fd855f2b272fd0858af9a559cf18fbbaf2f0",
+      "stop_time": 1.7391304347826089
+    },
+    {
+      "config": "s55_f115_p30",
+      "deck": "fine/controls/inputs.3d.c1_s55_f115_p30",
+      "deck_sha256": "6e1227a90cafb44bec9a5e0c44e57ab3cdeef4d315b49b7378f195ba09395044",
+      "declared_keys": [
+        "amrex.the_arena_init_size",
+        "max_step"
+      ],
+      "grid": "fine",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47",
+      "kind": "C1",
+      "max_step": 400,
+      "name": "fine_c1_s55_f115_p30",
+      "reference": "examples/prelim_sweep_fine/dataset.parquet",
+      "source_deck": "examples/prelim_sweep_fine/inputs/inputs.3d.s55_f115_p30",
+      "source_deck_sha256": "1f85aedf62576c5b8eb2cee0be04d26b6461cf333bb84b5c175077c940a289c8",
+      "stop_time": 1.7391304347826089
+    }
+  ],
+  "frames_per_beat": 20,
+  "images": {
+    "coarse": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+    "fine": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47"
+  },
+  "n_wingbeats": 8,
+  "preregistration": "examples/settling_check/PREREGISTRATION.md",
+  "runs": [
+    {
+      "config": "s35_f085_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "coarse/inputs/inputs.3d.s35_f085_p30",
+      "deck_sha256": "d014109feeccd39c810df1cc990895f4f0c6c91443a72bd33d159657323c9a96",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "coarse",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+      "kind": "long",
+      "max_step": 18824,
+      "n_wingbeats": 8,
+      "name": "coarse_s35_f085_p30",
+      "source_deck": "examples/prelim_sweep/inputs/inputs.3d.s35_f085_p30",
+      "source_deck_sha256": "2adcf16409b77142a46710da016333dcbc1a8b4045a06639f97768da50fff630",
+      "stop_time": 9.411764705882353
+    },
+    {
+      "config": "s45_f100_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "coarse/inputs/inputs.3d.s45_f100_p30",
+      "deck_sha256": "edcbf482a321275331f0b264a0e5f4b5275335d4caf82f47346b7e36bababdfd",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "coarse",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+      "kind": "long",
+      "max_step": 16000,
+      "n_wingbeats": 8,
+      "name": "coarse_s45_f100_p30",
+      "source_deck": "examples/prelim_sweep/inputs/inputs.3d.s45_f100_p30",
+      "source_deck_sha256": "1273980ad0d0f1d6d8076d26ab7c9e9c7df7dd50ef42657d3fb5a494d2773668",
+      "stop_time": 8.0
+    },
+    {
+      "config": "s55_f115_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "coarse/inputs/inputs.3d.s55_f115_p30",
+      "deck_sha256": "c3df0b245ec891d1efa092eb4742cbd81026a9254496fdd52139c3b3e9dcec23",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "coarse",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:07625ce41bef8dae5983afddf5a3d09a3fb7706cb29292d19a479600967b24d3",
+      "kind": "long",
+      "max_step": 13913,
+      "n_wingbeats": 8,
+      "name": "coarse_s55_f115_p30",
+      "source_deck": "examples/prelim_sweep/inputs/inputs.3d.s55_f115_p30",
+      "source_deck_sha256": "fc6d150d232ee6482a2b8c22e505fd855f2b272fd0858af9a559cf18fbbaf2f0",
+      "stop_time": 6.9565217391304355
+    },
+    {
+      "config": "s35_f085_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "fine/inputs/inputs.3d.s35_f085_p30",
+      "deck_sha256": "9b14bab7348985a3d6f04d63b0d68622301117182a28499999d0130fd6a16b2b",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_int",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "fine",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47",
+      "kind": "long",
+      "max_step": 18824,
+      "n_wingbeats": 8,
+      "name": "fine_s35_f085_p30",
+      "source_deck": "examples/prelim_sweep_fine/inputs/inputs.3d.s35_f085_p30",
+      "source_deck_sha256": "c72e402512948bfbd6f0d693dbbc630cbdc6ec2d9cd552df4cff41c883de197d",
+      "stop_time": 9.411764705882353
+    },
+    {
+      "config": "s45_f100_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "fine/inputs/inputs.3d.s45_f100_p30",
+      "deck_sha256": "b6ad9454cc52b31d877c6720a277ec351ae24f5238c64276bae9de9212968821",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_int",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "fine",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47",
+      "kind": "long",
+      "max_step": 16000,
+      "n_wingbeats": 8,
+      "name": "fine_s45_f100_p30",
+      "source_deck": "examples/prelim_sweep_fine/inputs/inputs.3d.s45_f100_p30",
+      "source_deck_sha256": "f8b21d2461b931992b9dde0bb43fc1afe7329cd2be6e7a289bf43ebb6e99ae49",
+      "stop_time": 8.0
+    },
+    {
+      "config": "s55_f115_p30",
+      "controls": [
+        "C3",
+        "C4"
+      ],
+      "deck": "fine/inputs/inputs.3d.s55_f115_p30",
+      "deck_sha256": "c052821ad3c775b320a36c0f13b54f064e21a454c942ea7fd00f7ee65a8db79d",
+      "declared_keys": [
+        "amr.check_int",
+        "amr.check_per",
+        "amr.plot_int",
+        "amr.plot_per",
+        "amrex.the_arena_init_size",
+        "max_step",
+        "stop_time"
+      ],
+      "grid": "fine",
+      "image": "ghcr.io/talmolab/mosquito-cfd@sha256:92817878fead23f9c6b8219706a2ebcec7cccf2158db8016e867e0227ca68a47",
+      "kind": "long",
+      "max_step": 13913,
+      "n_wingbeats": 8,
+      "name": "fine_s55_f115_p30",
+      "source_deck": "examples/prelim_sweep_fine/inputs/inputs.3d.s55_f115_p30",
+      "source_deck_sha256": "1f85aedf62576c5b8eb2cee0be04d26b6461cf333bb84b5c175077c940a289c8",
+      "stop_time": 6.9565217391304355
+    }
+  ],
+  "schema_version": 1
+}

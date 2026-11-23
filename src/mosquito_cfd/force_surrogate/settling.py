@@ -655,3 +655,42 @@ def check_precedence(settling_dir: Path | str, *, repo_root: Path | str) -> list
                     f"the settling manifest declares {declared}"
                 )
     return failures
+
+
+# --------------------------------------------------------------------------- decks
+
+
+def deck_key_mismatches(
+    source: Mapping[str, str],
+    generated: Mapping[str, str],
+    declared: set[str] | frozenset[str],
+) -> list[str]:
+    """Check that ``generated`` differs from ``source`` in exactly the ``declared`` keys.
+
+    Args:
+        source: The committed corpus deck, parsed (``metadata_capture.parse_deck``).
+        generated: The settling-check deck, parsed.
+        declared: Keys the settling manifest declares as changed or added.
+
+    Returns:
+        One message per problem: a declared key left unchanged, an undeclared key changed, or an
+        undeclared key removed. Empty when the decks differ in exactly ``declared``.
+    """
+    out: list[str] = []
+    for key in sorted(declared):
+        if key in source and generated.get(key) == source[key]:
+            out.append(f"declared key {key} is not changed or added")
+        elif key not in generated:
+            out.append(f"declared key {key} is not changed or added")
+    for key in sorted(set(source) | set(generated)):
+        if key in declared:
+            continue
+        if key not in generated:
+            out.append(f"undeclared key {key} is missing from the generated deck")
+        elif key not in source:
+            out.append(f"undeclared key {key} is added: {generated[key]!r}")
+        elif generated[key] != source[key]:
+            out.append(
+                f"undeclared key {key} differs: {source[key]!r} -> {generated[key]!r}"
+            )
+    return out

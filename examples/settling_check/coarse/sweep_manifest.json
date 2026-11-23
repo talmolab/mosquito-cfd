@@ -1,0 +1,72 @@
+{
+  "configs": [
+    {
+      "check_per": 1.1764705882352942,
+      "frequency_fstar": 0.85,
+      "index": 0,
+      "input_file": "inputs/inputs.3d.s35_f085_p30",
+      "max_step": 18824,
+      "name": "s35_f085_p30",
+      "nu_star": 0.115,
+      "pitch_amp_deg": 30.0,
+      "plot_per": 0.058823529411764705,
+      "reynolds": 42.5537291206389,
+      "split": "train",
+      "stop_time": 9.411764705882353,
+      "stroke_amp_deg": 35.0
+    },
+    {
+      "check_per": 1.0,
+      "frequency_fstar": 1.0,
+      "index": 12,
+      "input_file": "inputs/inputs.3d.s45_f100_p30",
+      "max_step": 16000,
+      "name": "s45_f100_p30",
+      "nu_star": 0.115,
+      "pitch_amp_deg": 30.0,
+      "plot_per": 0.05,
+      "reynolds": 64.3669852244958,
+      "split": "train",
+      "stop_time": 8.0,
+      "stroke_amp_deg": 45.0
+    },
+    {
+      "check_per": 0.8695652173913044,
+      "frequency_fstar": 1.15,
+      "index": 24,
+      "input_file": "inputs/inputs.3d.s55_f115_p30",
+      "max_step": 13913,
+      "name": "s55_f115_p30",
+      "nu_star": 0.115,
+      "pitch_amp_deg": 30.0,
+      "plot_per": 0.043478260869565216,
+      "reynolds": 90.47137367665243,
+      "split": "train",
+      "stop_time": 6.9565217391304355,
+      "stroke_amp_deg": 55.0
+    }
+  ],
+  "dt": 0.0005,
+  "grid": {
+    "frequency_fstar": [
+      0.85,
+      1.0,
+      1.15
+    ],
+    "pitch_amp_deg": [
+      30.0,
+      45.0,
+      60.0
+    ],
+    "stroke_amp_deg": [
+      35.0,
+      45.0,
+      55.0
+    ]
+  },
+  "n_wingbeats": 8,
+  "nu_star": 0.115,
+  "r_mid": 1.5,
+  "reynolds_policy": "nu_star_fixed",
+  "schema_version": 1
+}
