@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from _json_payloads import FIVE
 
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate import (
@@ -120,6 +121,32 @@ def test_read_units_sidecar_rejects_invalid(tmp_path):
     illegal.write_text(json.dumps({"force": "newtons"}), encoding="utf-8")
     with pytest.raises(ValueError):
         read_units_sidecar(illegal)
+
+
+@pytest.mark.parametrize("case", ["malformed", *FIVE])
+def test_read_units_sidecar_labels_every_content_failure(tmp_path, case):
+    """harden-json-loader D8 (#175): every content failure is exactly a ValueError naming the
+    units sidecar -- BREAKING (minor): new message text, and nesting / non-UTF-8 / the digit
+    limit were RecursionError / bare UnicodeDecodeError / unlabelled ValueError."""
+    path = tmp_path / "units.json"
+    path.write_bytes(b"{" if case == "malformed" else FIVE[case])
+    with pytest.raises(BaseException) as excinfo:
+        read_units_sidecar(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"units sidecar {path} "), str(err)[:200]
+    if case == "malformed":
+        assert str(err).startswith(f"units sidecar {path} is not valid JSON: ")
+    if case == "list":
+        assert str(err) == f"units sidecar {path} top level is a list, not an object"
+
+
+def test_read_units_sidecar_directory_is_an_os_error(tmp_path):
+    # Opening errors are not wrapped (harden-json-loader D3).
+    with pytest.raises(BaseException) as excinfo:
+        read_units_sidecar(tmp_path)
+    assert isinstance(excinfo.value, OSError), repr(excinfo.value)
+    assert not isinstance(excinfo.value, ValueError), repr(excinfo.value)
 
 
 def test_capture_surrogate_run_metadata(tmp_path):

@@ -81,15 +81,13 @@ def read_units_sidecar(path: Path) -> dict[str, str]:
         The column-to-unit mapping.
 
     Raises:
-        ValueError: If the file is not valid JSON, is not a JSON object, or contains a
-            unit not in :data:`UNITS_VOCABULARY` (read enforces the same vocabulary as
-            write).
+        ValueError: If the file is not valid UTF-8, not valid JSON or not a JSON object
+            (exactly ``ValueError``, labelled ``units sidecar <path>`` by
+            :func:`mosquito_cfd._json_loader.load_json_clear_error`), or contains a unit not in
+            :data:`UNITS_VOCABULARY` (read enforces the same vocabulary as write). Errors
+            opening the path are not wrapped.
     """
-    with open(path, encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    data = load_json_clear_error(path, label="units sidecar")
     _validate_units(data)
     return data
 
