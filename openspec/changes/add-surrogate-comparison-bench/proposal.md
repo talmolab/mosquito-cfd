@@ -68,7 +68,7 @@ shipped default, the coarse corpus as a bench target, the regenerated corpus.
 - Affected code:
   - `src/mosquito_cfd/force_surrogate/train.py`: `build_features`, `_fit_one_seed`, `run_training`
     and `build_phase_only_baseline`; the validation carve inside `make_config_splits`, extracted into
-    a shared helper; new `fit_seed`, `predict_frame` and `phase_harmonics_from_features`; the
+    the shared helper `carve_validation`; new `fit_seed`, `predict_frame` and `phase_harmonics_from_features`; the
     `build_model` docstring.
   - `src/mosquito_cfd/force_surrogate/__init__.py`: exports.
   - `scripts/train_surrogate.py`.
@@ -100,3 +100,28 @@ shipped default, the coarse corpus as a bench target, the regenerated corpus.
   - F3b plugs field entries into this bench.
   - After the corpus is regenerated, the bench is rerun, not rewritten.
 - Claim scope: see `BENCH_SCOPE` in the bench spec.
+
+## Reconciliation with the implementation (PR 1)
+
+### Why a public `carve_validation` instead of a private helper?
+
+The spec said validation is carved "by the same private helper `make_config_splits` uses". The
+helper is `force_surrogate.train.carve_validation`, public at module level but not exported from
+`force_surrogate/__init__.py`. `surrogate_bench.splits` imports it from another package, and
+importing a leading-underscore name across packages would make it part of the bench's contract
+anyway, so the name says so. The behaviour is unchanged: `make_config_splits` calls it, and task 3a's
+tests pin that it returns `make_config_splits`'s validation lists. The spec now names the helper.
+
+### Why does an unknown git state count as dirty?
+
+The spec defined the refusal only for a dirty tree. `benchmarks.metadata.get_git_info` returns no
+`dirty` key when git cannot report one (for example from WSL on a Windows worktree). Treating that
+as clean would let an unverifiable tree produce committed results, so the driver treats it as dirty:
+it is refused without `--allow-dirty` and recorded as `dirty: true` with it. The spec now says so.
+
+### Other implementation notes (no behaviour change)
+
+- `--out-dir` and `--docker-digest` are required flags, as in `extract_forces.py` and
+  `make_comparison_figure.py`. A missing digest was already a refusal.
+- The runner builds each split's phase-only baseline once and reuses it across seeds. The baseline
+  never depends on the seed, so the results are unchanged; the CPU test tier runs faster.

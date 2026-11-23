@@ -134,6 +134,7 @@ def test_a_non_empty_out_dir_is_left_unchanged(driver, corpora, tmp_path):
     (out / "keep.txt").write_bytes(b"precious")
     assert driver.main(_argv(*corpora, out)) != 0
     assert [p.name for p in out.iterdir()] == ["keep.txt"]
+    assert (out / "keep.txt").read_bytes() == b"precious"
 
 
 def test_a_coarse_corpus_missing_a_configuration_exits_non_zero(driver, tmp_path):

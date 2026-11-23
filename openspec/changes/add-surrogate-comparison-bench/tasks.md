@@ -315,10 +315,10 @@
 
 ### 8. Rebase, documentation and reconciliation for PR 1
 
-- [ ] 8.1 Once PR #171 has merged, rebase on `origin/main` (or merge it in; the PR is squash-merged
+- [x] 8.1 Once PR #171 has merged, rebase on `origin/main` (or merge it in; the PR is squash-merged
   either way). Confirm `git status --porcelain` is empty. The docs below are written after this step,
   so `docs/CHANGELOG.md` and `openspec/project.md`, which `main` has changed, cannot conflict.
-- [ ] 8.2 Write the PR 1 docs:
+- [x] 8.2 Write the PR 1 docs:
   - `openspec/project.md`:
     - the package tree;
     - a short bench subsection describing the code: the entries, the driver flags (noting that
@@ -327,7 +327,7 @@
     - the `mlp_h1` regression's host and library preconditions, marked "test lands in PR 2";
     - it does not describe `bench/`, `surrogate_h3/` or `figures_h3/` as committed.
   - `docs/CHANGELOG.md`: an entry for the code only, at the top of the file.
-- [ ] 8.3 Reconcile proposal, spec and tasks against the implementation (new-feature step 9). Record
+- [x] 8.3 Reconcile proposal, spec and tasks against the implementation (new-feature step 9). Record
   any deviation in a "Why N instead of M?" section.
 - [ ] 8.4 Commit 8.2 and 8.3: `docs: surrogate bench in project.md and changelog`. Then run, in
   order:

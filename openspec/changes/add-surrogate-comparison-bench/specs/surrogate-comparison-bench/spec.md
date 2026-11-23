@@ -21,8 +21,8 @@ configurations labelled `split == "train"`; the builder SHALL require 21 of them
 Each of the three settings SHALL have exactly 3 distinct values in the dataset, else the builder SHALL
 raise `ValueError` naming the setting (so a missing outer value never silently promotes the middle
 value to a face). Within each split, a learned model's validation configurations SHALL be carved from
-that split's training configurations only, with 3 validation configurations, by the same private
-helper `make_config_splits` uses, so that for the `interpolation` split it returns exactly
+that split's training configurations only, with 3 validation configurations, by the same helper
+`make_config_splits` uses (`force_surrogate.train.carve_validation`), so that for the `interpolation` split it returns exactly
 `make_config_splits(df, seed, n_val_configs=3)`'s validation configurations. Train, validation and
 test SHALL be non-empty, pairwise disjoint and SHALL cover only configurations present in the
 dataset. The split table (name, train, validation per seed, test) SHALL be written with the results.
@@ -583,7 +583,8 @@ three limits:
 - generic sinusoidal validation kinematics, not van Veen's and not a mosquito's (#142).
 
 The fine README SHALL quote `BENCH_SCOPE` verbatim. The run SHALL refuse a dirty tree unless
-`--allow-dirty` is passed, in which case the metadata records `dirty: true`. It SHALL also refuse:
+`--allow-dirty` is passed, in which case the metadata records `dirty: true`. A tree whose git state
+carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 
 - a mutable image tag;
 - a missing `--timestamp`;
