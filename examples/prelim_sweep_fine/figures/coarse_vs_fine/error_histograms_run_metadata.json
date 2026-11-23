@@ -1,8 +1,8 @@
 {
-  "run_id": "701eab89-440e-4b3c-b0cd-7c9669d64a48",
-  "timestamp": "2026-11-22T23:00:00Z",
+  "run_id": "41009bef-04f9-489e-8064-3ed2bc4248d4",
+  "timestamp": "2026-11-23T03:02:55Z",
   "git": {
-    "commit": "ebe94a369301d419902339994ed5171607a16df1",
+    "commit": "6181dfb8ac95ddcdddab19acbf1780cbe8f95a4a",
     "branch": "add-real-comparison-figures",
     "dirty": false,
     "repository": "https://github.com/talmolab/mosquito-cfd.git"
@@ -65,12 +65,13 @@
     "matplotlib": "3.10.8"
   },
   "renderer_sources": {
-    "comparison_figure.py": "f8cc73c497250bb375cdefc6bcdd3605ade2aab471783fdfd6a1c30f0c507409",
-    "scripts/make_coarse_vs_fine_figures.py": "3dbec70a77ff3f66737aa2d0bb463f85443a04b182d7eae25d2807c5075f807c"
+    "comparison_figure.py": "ee4a912ede1fd0049211245e14056c053945406eec824d23684a68d08b975702",
+    "scripts/make_coarse_vs_fine_figures.py": "0d904c4cb9ac3e9cf34eb41c4d1eac448339ac528bc15816f552912e479da8bb"
   },
   "figure": "error_histograms",
   "inputs": {
     "file": "examples/prelim_sweep/surrogate/metrics.json",
     "hash": "9a6a0ddc85105c3537bfe4f7592bc9f734f5de51de641881a73624f832dd6359"
-  }
+  },
+  "png_sha256": "4bba46f8c6e8b6227ad31f4b19d56afd453dcc0f529332794e8a54a8ae95e998"
 }
