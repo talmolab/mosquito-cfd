@@ -62,8 +62,11 @@ absent or `null` `git` block does not block it.
 
 Loading a pod-side `run_metadata.json` whose top level is not a JSON object SHALL raise `ValueError`
 naming the path (previously `AttributeError`). A missing file still raises `FileNotFoundError`.
-JSON nested beyond the recursion limit is out of scope here: it is a follow-up issue against
-`sidecar.load_json_clear_error`.
+Every other rejection of the file's contents SHALL also be exactly a `ValueError` labelled
+`pod-side run_metadata.json <path>`: bytes that are not valid UTF-8, and JSON the parser refuses
+with `ValueError` or `RecursionError` (nesting beyond the recursion limit, an integer beyond
+Python's digit limit). See the `force-surrogate` capability, "Force-surrogate JSON files load
+through one labelled loader".
 
 #### Scenario: full SHA passes through unmodified when no override is supplied
 
@@ -159,6 +162,15 @@ JSON nested beyond the recursion limit is out of scope here: it is a follow-up i
 - **WHEN** `load_pod_run_metadata` loads each
 - **THEN** each raises exactly `ValueError` naming the path (never `AttributeError`); and a path that
   does not exist still raises `FileNotFoundError`
+
+#### Scenario: an unparseable pod-side run_metadata.json is a labelled ValueError
+
+- **GIVEN** a pod-side `run_metadata.json` nested 100000 levels deep, one holding a 5000-digit
+  integer, and one of non-UTF-8 bytes
+- **WHEN** `load_pod_run_metadata` reads each
+- **THEN** each raises exactly `ValueError`. The first two messages begin
+  `pod-side run_metadata.json <path> is not valid JSON: ` and the third begins
+  `pod-side run_metadata.json <path> is not valid UTF-8: `.
 
 ### Requirement: docker image identity is a single unambiguous, digest-validated field
 
@@ -665,4 +677,69 @@ output, for any case where the direct git query or the Windows-worktree retry al
 - **THEN** the direct `git rev-parse HEAD` invocation is attempted (and observably fails) before
   the baked-commit dict is returned — the fallback tier is never consulted first, only after the
   direct attempt (and the Windows-worktree retry, when applicable) has already failed
+
+### Requirement: The generator reads the sweep manifest through the shared validated reader
+
+`metadata_capture.source_config_fields` SHALL read the sweep manifest through
+`mosquito_cfd._manifest.load_manifest_configs`, the same reader `build_dataset` and `FieldCorpus`
+use (see the `force-surrogate` capability, "Sweep-manifest reading lives in a shared
+standard-library-only module"). Every manifest that reader rejects SHALL raise its `ValueError`
+before the config lookup. That covers:
+
+- a file that is not valid UTF-8 or not valid JSON;
+- a top level that is not an object, or a missing or non-list `configs`;
+- a non-mapping config, a config missing one of the reader's required keys, or a duplicate config
+  name.
+
+A config absent from the manifest SHALL still raise `KeyError` naming the config and listing the
+available names. A manifest entry missing `max_step` SHALL still raise `KeyError` naming
+`max_step`; `max_step` is not one of the reader's required keys. Every committed sweep manifest
+SHALL still be accepted.
+
+#### Scenario: A config missing a required key is a ValueError
+
+- **GIVEN** a sweep manifest whose only config has `name` and `max_step` and no other key
+- **WHEN** `source_config_fields` is called for that config
+- **THEN** it raises exactly `ValueError` naming the missing required keys, including
+  `stroke_amp_deg`, and does not raise `KeyError`
+
+#### Scenario: A missing max_step is still a KeyError
+
+- **GIVEN** a sweep manifest whose only config has every key the reader requires, but no `max_step`
+- **WHEN** `source_config_fields` is called for that config, with a deck that has every key it reads
+- **THEN** it raises `KeyError` naming `max_step`
+
+#### Scenario: An absent config is still a KeyError
+
+- **GIVEN** the committed fixture sweep manifest
+- **WHEN** `source_config_fields` is called for a config name it does not contain
+- **THEN** it raises `KeyError` naming that config
+
+#### Scenario: Unparseable and wrongly shaped manifests are ValueErrors
+
+- **GIVEN** sweep manifests nested 100000 levels deep, holding a 5000-digit integer inside an
+  object, of non-UTF-8 bytes, of `[]`, of `5`, and of `{}`
+- **WHEN** `source_config_fields` reads each
+- **THEN** each raises exactly `ValueError` naming the manifest path, never `RecursionError`,
+  `AttributeError`, `TypeError` or `KeyError`
+- **AND** the `[]` message is `manifest <path> top level is a list, not an object; not a sweep
+  manifest`
+
+#### Scenario: Wrongly shaped config lists are ValueErrors
+
+- **GIVEN** sweep manifests of `{"configs": 5}`, of `{"configs": [5]}`, and with two otherwise
+  valid configs sharing one name
+- **WHEN** `source_config_fields` reads each
+- **THEN** each raises exactly `ValueError` with the shared reader's message (`manifest 'configs'
+  must be a list`, `manifest config 0 is not a mapping`, `duplicate config name`). These messages
+  do not name the path; that is the shared reader's existing wording.
+
+#### Scenario: Every committed sweep manifest is still accepted
+
+- **GIVEN** each config of the committed sweep manifests under `examples/prelim_sweep`,
+  `examples/prelim_sweep_fine` and `examples/prelim_sweep_fine_pilot`, with the deck its
+  `input_file` names; and config `s35_f085_p45` of `tests/fixtures/run_metadata/sweep_manifest.json`
+  with `tests/fixtures/run_metadata/inputs.3d.s35_f085_p45`
+- **WHEN** `source_config_fields` is called for each
+- **THEN** each returns the config's fields without raising
 

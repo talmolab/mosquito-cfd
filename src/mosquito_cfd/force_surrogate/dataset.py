@@ -181,8 +181,9 @@ class ConfigExtractionError(ValueError):
 
     A ``ValueError`` subclass, so callers that catch ``ValueError`` are unaffected. The
     acceptance gate catches this narrower type to report the config as a failure, while
-    malformed-file errors (unparseable JSON, a malformed ``iStep`` sequence) stay plain
-    ``ValueError`` and propagate as before.
+    malformed-file errors (unparseable JSON -- malformed, nested beyond the recursion limit, or
+    holding an integer beyond Python's digit limit -- or a malformed ``iStep`` sequence) stay
+    plain ``ValueError`` and propagate as before.
     """
 
 
@@ -256,17 +257,29 @@ def _verify_deck_sha256(
     the anchoring metadata file's path in posix form (not resolved), or ``None`` when there
     is no anchor (no such file, or one without ``deck_sha256``). ``extract_forces.py
     --run-metadata-name`` turns a ``None`` into an error.
+
+    The file is read with ``require_object=False`` so this function, not the loader, rejects a
+    non-object top level as a :class:`ConfigExtractionError`. The loader's not-UTF-8
+    ``ValueError`` is recognised by its ``__cause__`` and re-raised as a
+    :class:`ConfigExtractionError` chained from the ``UnicodeDecodeError``; any other
+    ``ValueError`` from the loader propagates unchanged.
     """
     if metadata_path is None or not metadata_path.is_file():
         return None
     try:
-        metadata = load_json_clear_error(metadata_path, label="run_metadata file")
-    except UnicodeDecodeError as exc:
-        # Malformed JSON stays a plain ValueError (a malformed-file error the gate
-        # propagates); bytes that are not UTF-8 at all are this config's input defect.
-        raise ConfigExtractionError(
-            f"run metadata for config {name!r} at {metadata_path} is not UTF-8: {exc}"
-        ) from exc
+        metadata = load_json_clear_error(
+            metadata_path, label="run_metadata file", require_object=False
+        )
+    except ValueError as exc:
+        # Unparseable JSON stays the loader's plain ValueError (a malformed-file error the gate
+        # propagates); bytes that are not UTF-8 at all are this config's input defect. The
+        # loader raises the UTF-8 case from the UnicodeDecodeError (harden-json-loader D4).
+        if isinstance(exc.__cause__, UnicodeDecodeError):
+            raise ConfigExtractionError(
+                f"run metadata for config {name!r} at {metadata_path} is not UTF-8: "
+                f"{exc.__cause__}"
+            ) from exc.__cause__
+        raise
     if not isinstance(metadata, Mapping):
         raise ConfigExtractionError(
             f"run metadata for config {name!r} at {metadata_path} is a JSON "

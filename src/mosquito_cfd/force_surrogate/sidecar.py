@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+# Re-exported (redundant alias marks it explicit): the loader moved to the stdlib-only
+# mosquito_cfd._json_loader so mosquito_cfd._manifest can share it (harden-json-loader, #175).
+from mosquito_cfd._json_loader import load_json_clear_error as load_json_clear_error
 from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.benchmarks.metadata import capture_run_metadata
 
@@ -25,20 +28,6 @@ UNITS_VOCABULARY: frozenset[str] = frozenset(
         "dimensionless (f*)",
     }
 )
-
-
-def load_json_clear_error(path: Path, *, label: str) -> dict:
-    """Load JSON from ``path``, wrapping a decode failure in a clear, file-identified error.
-
-    Lives here (a leaf module with no force-surrogate-internal dependencies) rather than in
-    ``metadata_capture.py`` or ``dataset.py`` so both can share it without a circular import --
-    ``dataset.py`` is imported by ``runner.py``, which is imported by ``metadata_capture.py``.
-    """
-    text = path.read_text(encoding="utf-8")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} {path} is not valid JSON: {exc}") from exc
 
 
 def _validate_units(units: object) -> None:
@@ -92,15 +81,13 @@ def read_units_sidecar(path: Path) -> dict[str, str]:
         The column-to-unit mapping.
 
     Raises:
-        ValueError: If the file is not valid JSON, is not a JSON object, or contains a
-            unit not in :data:`UNITS_VOCABULARY` (read enforces the same vocabulary as
-            write).
+        ValueError: If the file is not valid UTF-8, not valid JSON or not a JSON object
+            (exactly ``ValueError``, labelled ``units sidecar <path>`` by
+            :func:`mosquito_cfd._json_loader.load_json_clear_error`), or contains a unit not in
+            :data:`UNITS_VOCABULARY` (read enforces the same vocabulary as write). Errors
+            opening the path are not wrapped.
     """
-    with open(path, encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    data = load_json_clear_error(path, label="units sidecar")
     _validate_units(data)
     return data
 
