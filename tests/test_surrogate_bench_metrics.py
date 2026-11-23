@@ -258,6 +258,23 @@ def test_a_single_fit_entry_is_allowed_one_seed():
     assert len(out) == 1
 
 
+@pytest.mark.parametrize("which", ["one_config", "both_configs"])
+def test_a_nan_seed_pools_to_nan_never_to_a_perfect_score(which):
+    """A diverged seed's NaN sse/grid_sse must not sum to 0 (skill 1.0, RMSE 0.0)."""
+    res = _results()
+    bad = res["seed"] == 3
+    if which == "one_config":
+        bad &= res["config_name"] == "c1"
+    res.loc[bad, ["sse", "grid_sse"]] = np.nan
+    pooled = metrics.pooled(res)
+    row = pooled[pooled["seed"] == 3].iloc[0]
+    assert np.isnan(row["skill"]) and np.isnan(row["rmse_frac_component_peak"])
+    ranges = metrics.seed_ranges(pooled).iloc[0]
+    assert ranges["skill_n_finite_seeds"] == 4
+    assert ranges["rmse_frac_component_peak_n_finite_seeds"] == 4
+    assert ranges["skill_max"] < 1.0 and ranges["rmse_frac_component_peak_min"] > 0.0
+
+
 def test_seed_ranges_are_nan_aware():
     pooled = metrics.pooled(_results())
     pooled.loc[pooled["seed"] == 2, "skill"] = np.nan
@@ -433,20 +450,24 @@ def test_the_like_for_like_view_reports_rms_only_and_nulls_a_face_without_holdou
         assert sides["face"]["rmse_frac_component_peak"] == {
             "min": pytest.approx(_rms(1 * ts)),
             "max": pytest.approx(_rms(5 * ts)),
+            "n_finite": 5,
         }
         # Controls: the random controls (here 0 and 1) x seeds, on h1 only; E4 apart.
         ctrl = [_rms(s * ts * k) for s in seeds for k in (0.5, 0.7)]
         assert sides["controls"]["rmse_frac_component_peak"] == {
             "min": pytest.approx(min(ctrl)),
             "max": pytest.approx(max(ctrl)),
+            "n_finite": 10,
         }
         assert sides["control:e4_seed0"]["rmse_frac_component_peak"] == {
             "min": pytest.approx(_rms(1 * ts * 9.0)),
             "max": pytest.approx(_rms(5 * ts * 9.0)),
+            "n_finite": 5,
         }
         assert sides["face"]["baseline_rmse_frac_component_peak"] == {
             "min": pytest.approx(_rms(9.0 * ts)),
             "max": pytest.approx(_rms(9.0 * ts)),
+            "n_finite": 5,
         }
 
 

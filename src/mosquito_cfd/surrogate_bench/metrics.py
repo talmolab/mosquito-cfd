@@ -281,17 +281,22 @@ def per_seed_skill(
 # --- Summaries --------------------------------------------------------------------------------
 
 
+def _total(column: pd.Series) -> float:
+    """Sum that is NaN if any term is: a diverged seed must never pool to a perfect score."""
+    return float(column.sum(skipna=False))
+
+
 def _pool(group: pd.DataFrame) -> pd.Series:
-    sse_b = group["sse_baseline"].sum()
-    n_grid = group["n_grid"].sum()
+    sse_b = _total(group["sse_baseline"])
+    n_grid = _total(group["n_grid"])
     peak = group["peak_t"].iloc[0]
     return pd.Series(
         {
-            "skill": 1.0 - group["sse"].sum() / sse_b if sse_b > 0 else np.nan,
-            "rmse_frac_component_peak": np.sqrt(group["grid_sse"].sum() / n_grid)
+            "skill": 1.0 - _total(group["sse"]) / sse_b if sse_b > 0 else np.nan,
+            "rmse_frac_component_peak": np.sqrt(_total(group["grid_sse"]) / n_grid)
             / peak,
             "baseline_rmse_frac_component_peak": np.sqrt(
-                group["baseline_grid_sse"].sum() / n_grid
+                _total(group["baseline_grid_sse"]) / n_grid
             )
             / peak,
         }
@@ -380,6 +385,7 @@ def _range(values: Sequence[float]) -> dict[str, float]:
     return {
         "min": float(finite.min()) if finite.size else np.nan,
         "max": float(finite.max()) if finite.size else np.nan,
+        "n_finite": int(finite.size),  # values left out as NaN are counted, never lost
     }
 
 

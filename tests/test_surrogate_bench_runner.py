@@ -362,7 +362,17 @@ def test_a_diverged_seed_gives_outside_null_verdicts_not_a_crash(tmp_path, monke
             assert v["verdict"] == "outside" and v["margin"] is None, (comp, name)
             assert "NaN" in v["reason"], (comp, name)
     assert judged > 0
-    # The seed ranges skip the NaN seed; the per-seed record keeps it as null.
+    # The seed ranges skip the NaN seed and count it out; it never scores as perfect.
+    for r in summary["seed_ranges"]:
+        if r["entry"] == "mlp_h1":
+            assert r["skill_n_finite_seeds"] == 4, r
+            assert r["rmse_frac_component_peak_n_finite_seeds"] == 4, r
+            assert r["rmse_frac_component_peak_min"] > 0.0, r
+    face = summary["like_for_like"]["face:stroke_amp_deg=35"]["mlp_h1"]["targets"][
+        "CF_x"
+    ]
+    assert face["face"]["rmse_frac_component_peak"]["n_finite"] == 4
+    # The per-seed record keeps it as null.
     skills = summary["per_seed_skill"]["mlp_h1"]["interpolation"]
     assert all(v is None for v in skills[str(DivergedSeed.BAD)].values())
     assert all(
