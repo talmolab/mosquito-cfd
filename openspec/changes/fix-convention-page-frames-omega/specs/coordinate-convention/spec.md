@@ -92,7 +92,8 @@ commit may carry new-convention geometry with old-convention documentation**.
 - **Given** `docs/coordinate-convention.md`, with HTML comments removed
 - **When** a guard test reads it
 - **Then** every `F_ref` expression (`F_ref =`, `:=` or `≡`, with `F_ref` optionally in backticks),
-  read to the first `,`, `;`, backtick or line end, that contains `ω` contains `ω_peak²` (or
+  read to the first `,`, `;`, backtick or line end (or, when nothing follows the `=` before that
+  point, the next code span), that contains `ω` contains `ω_peak²` (or
   `ω_peak^2`) and no `ω` not followed by `_peak`; one that contains `S_yy` but no `ω` fails; and at
   least two expressions contain `ω_peak²`
 - **And** the page contains `ω_peak = 2π·f_star·radians(phi_amp_deg)` and `` `ω = 2πf` ``, names

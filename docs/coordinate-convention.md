@@ -118,8 +118,9 @@ F_ref = ½·ρ·ω_peak²·S_yy,        S_yy = ∫₀ᴿ c(y)·y² dy
 `ω_peak` is the peak stroke rate, `max|φ̇|` of the stroke `φ(t) = φ_amp·sin(ωt)`. It is not the flap
 angular frequency `ω = 2πf` of the kinematics table above; the two differ by the factor
 `radians(φ_amp)`. Van Veen's simulations include accelerating and decelerating strokes, and this
-repository's implementation of his quasi-steady model scales its forces with the instantaneous
-stroke speed `|φ̇|` (`mosquito_cfd.benchmarks.van_veen_model`). This project's `F_ref`
+repository's implementation of his quasi-steady model scales its translational force with the
+instantaneous stroke speed `|φ̇|`, and its added-mass and Wagner terms with the stroke acceleration
+(`mosquito_cfd.benchmarks.van_veen_model`). This project's `F_ref`
 instead uses one constant `ω_peak` per configuration, so it is a fixed reference force. `F_ref` is
 computed per configuration. At the validated point (`f* = 1`, `φ_amp = 70°`), `ω_peak ≈ 7.676` and
 `F_ref ≈ 200.27`.
@@ -148,7 +149,8 @@ hinge origin the pipeline did not implement, which is how #108 arose.
 in the same lab axes as the corpus `CF_x..CF_z`. Unlike `CF_chord`/`CF_normal`, they are not
 rotated into the wing frame: only the origin is the hinge. A wing-frame (body-frame) moment would
 additionally require rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked
-(issue #1, which delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical pitching moment.
+(issue #1, which delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical
+pitching moment.
 
 > **The axis table above is the rest-pose-aligned frame.** Lab and wing axes coincide only at
 > `φ = α = θ = 0`; under a stroke rotation the wing's instantaneous axes leave the lab axes. So this

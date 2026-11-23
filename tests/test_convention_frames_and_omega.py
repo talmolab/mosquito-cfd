@@ -342,7 +342,14 @@ def f_ref_expressions(page: str) -> list[str]:
     for m in _F_REF_ASSIGN.finditer(text):
         cut = re.search(r"[,;`\n]", text[m.end() :])
         end = m.end() + (cut.start() if cut else len(text) - m.end())
-        out.append(text[m.start() : end].strip())
+        expr = text[m.start() : end].strip()
+        if not expr[m.end() - m.start() :].strip():
+            # Nothing after ``=`` before the cut: the right-hand side is the next code span
+            # (`` `F_ref` = `½·ρ·…` ``), so read that span as the expression (re-review).
+            nxt = re.match(r"`?\s*`([^`\n]*)`", text[end:])
+            if nxt:
+                expr = f"{expr} {nxt.group(1)}"
+        out.append(expr)
     return out
 
 
@@ -390,9 +397,13 @@ def quoted_value_failures(page: str) -> list[str]:
     failures = []
     for symbol, value in expected.items():
         # A number that continues into a symbol or formula (``ω_peak = 2π·…``) is a definition.
-        literals = re.findall(
-            rf"{symbol}\s*[≈~=]\s*([0-9]+(?:\.[0-9]+)?)(?![\w·⋅π(*/^])", flat
+        # ``\.?`` in the lookahead stops backtracking to the integer part (``200.27·k`` → ``200``).
+        quotes = re.findall(
+            rf"{symbol}\s*([≈~=])\s*([0-9]+(?:\.[0-9]+)?)(?!\.?[\w·⋅π(*/^])", flat
         )
+        literals = [lit for _, lit in quotes]
+        if literals and not any(op == "≈" for op, _ in quotes):
+            failures.append(f"no quoted '{symbol} ≈ …' value")
         if not literals:
             failures.append(f"no quoted '{symbol} ≈ …' value")
         for lit in literals:
@@ -417,6 +428,8 @@ def test_every_f_ref_expression_uses_omega_peak():
         "`F_ref` = ½·ρ·ω²·S_yy",
         "F_ref := ½·ρ·(2π·f·φ_amp)²·S_yy",
         "F_ref ≡ ½·ρ·ω²S_yy",
+        "`F_ref` = `½·ρ·(2πf)²·S_yy`",
+        "`F_ref` = `½·ρ·ω²·S_yy`",
     ],
 )
 def test_f_ref_expression_check_rejects_bare_forms(bad):
@@ -470,6 +483,25 @@ def test_quoted_value_check_rejects_the_two_pi_reading():
     ):
         page = f"ω_peak ≈ 7.676 and F_ref ≈ 200.27; also {quote}."
         assert any("134.17" in f for f in quoted_value_failures(page)), quote
+
+
+def test_quoted_value_check_skips_numbers_that_continue_into_a_formula():
+    """``F_ref = 200.27·k`` is a scaled expression, not a quote; no backtracking to ``200``."""
+    base = "ω_peak ≈ 7.676 and F_ref ≈ 200.27"
+    for tail in (
+        "F_ref = 200.27·k",
+        "F_ref = 134.17e0",
+        "F_ref = 134.17²",
+        "F_ref ≈ 200.27.",
+    ):
+        assert quoted_value_failures(f"{base}; {tail} here") == [], tail
+
+
+def test_quoted_value_check_requires_an_approximate_quote():
+    """``=`` quotes alone do not satisfy "at least one ``≈`` quote of each"."""
+    failures = quoted_value_failures("ω_peak = 7.676 and F_ref = 200.27.")
+    assert "no quoted 'ω_peak ≈ …' value" in failures
+    assert "no quoted 'F_ref ≈ …' value" in failures
 
 
 @pytest.mark.parametrize(("f_star", "phi_amp_deg"), [(1.0, 70.0), (1.15, 55.0)])

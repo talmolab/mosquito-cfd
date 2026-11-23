@@ -94,7 +94,8 @@ slip would fail it.
 **Attribution.** Van Veen's simulations include accelerating and decelerating strokes (the
 supplementary database in `tests/fixtures/van_veen_2022/` has 477 accelerating and 46 decelerating
 rows against 43 steady), and this repository's implementation of his quasi-steady model scales its
-forces with the instantaneous `|φ̇|`. So eq 1.1's stroke rate is not a constant in the paper. The
+translational force with the instantaneous `|φ̇|` and its added-mass and Wagner terms with the
+stroke acceleration. So eq 1.1's stroke rate is not a constant in the paper. The
 page says that this project's `F_ref` uses one constant `ω_peak` per configuration and is a fixed
 reference force. The paper's exact wording of eq 1.1 was not re-checked in this change; the page
 states only what the repository's data and code show, and keeps the citation the project already

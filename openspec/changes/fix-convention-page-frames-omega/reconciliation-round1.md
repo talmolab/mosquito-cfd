@@ -429,3 +429,24 @@ Not adopted:
 - A data check of the `fig_forces` code path: its legends are #203; a source-text check would be
   weak. The page's frame claim for it was verified by reading `generate_all_figures.py:261-284`.
 - Exact-heading matching in `_section`: a second `## Forces…` heading fails loudly already.
+
+### Re-review of the round-1 fix commit `ac06ea2` (opus, by reproduction)
+
+No blocking findings. Two IMPORTANT holes, both introduced by the round-1 fix itself:
+
+- **RR1.** "The lookahead `(?![\w·⋅π(*/^])` is defeated by backtracking … `F_ref = 200.27·k` →
+  'F_ref ≈ 200: quote at least two decimals'", and "at least one of each with `≈`" was not enforced.
+  Fixed: lookahead `(?!\.?[\w·⋅π(*/^])`, an explicit "no `≈` quote" failure, and tests
+  `test_quoted_value_check_skips_numbers_that_continue_into_a_formula` and
+  `test_quoted_value_check_requires_an_approximate_quote`.
+- **RR2.** "`` `F_ref` = `½·ρ·(2πf)²·S_yy` `` passes both guards." Fixed: when nothing follows the
+  `=` before the cut, `f_ref_expressions` reads the next code span; two parametrized negative controls
+  added; the delta scenario says so.
+
+Suggestion adopted: the page says the model's translational force scales with `|φ̇|` and its
+added-mass and Wagner terms with the stroke acceleration (exact per `van_veen_model.py:27-31`).
+
+Not adopted, as coverage limits documented by the scenario wording rather than bugs: the
+contradiction rule's trigger words (`CF_x..CF_z`, "force(s)") and its `CF_chord` exemption, and the
+narrower phrase set in `check_failure_class_frames`. Widening the triggers to "coefficient" would
+reject the page's own "body-frame per-component comparison against van Veen's fitted coefficients".

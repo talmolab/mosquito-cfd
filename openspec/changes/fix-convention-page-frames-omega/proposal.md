@@ -65,8 +65,8 @@ The coordinate-convention spec, the flapping-wing-validation spec (four requirem
   - writes `F_ref = ½·ρ·ω_peak²·S_yy` and keeps the "van Veen (2022, eq 1.1) normalization" citation;
   - gives `ω_peak = 2π·f_star·radians(phi_amp_deg)` as this project's constant normalization scale.
     Van Veen's simulations include accelerating strokes, and the repository's implementation of his
-    model uses the instantaneous stroke speed, so `F_ref` is a fixed reference force, not van Veen's
-    instantaneous scaling;
+    model scales its translational force with the instantaneous stroke speed, so `F_ref` is a fixed
+    reference force, not van Veen's instantaneous scaling;
   - says it is not the `` `ω = 2πf` `` of the table;
   - places the speed `ω_peak·r_gyr` at the radius of gyration (today it says the stroke *rate* is "at"
     the radius);

@@ -447,7 +447,8 @@ running it on a tooling-only proposal costs one subagent.
 >    built on them; spanwise dropped) is wing-frame. The corpus and surrogate `CF_x..CF_z`, the
 >    flapping-wing lab-frame series and the moments are lab-frame components; derived `CF_m*` are
 >    about the deck's hinge, raw `Mx..Mz` about the particle origin. `CF_*` are on-wing, the
->    negation of the raw on-fluid `Fx..Mz`. Are frame transforms right (rotation direction, transpose, time dependence)?
+>    negation of the raw on-fluid `Fx..Mz`. Are frame transforms right (rotation direction,
+>    transpose, time dependence)?
 > 2. Reference points and normalization: the moment reference point (the deck's hinge); F_ref at
 >    the radius of gyration (about 200.27 at the validated point), not the peak-tip speed (624.79);
 >    per-unit-density `ib_force`, where rho_f cancels only because the same rho_f builds F_ref.
