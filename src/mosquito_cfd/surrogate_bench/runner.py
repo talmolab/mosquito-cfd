@@ -12,6 +12,8 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import re
+import shutil
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -381,6 +383,30 @@ def _coarse_grids(
     return dict(zip(names, grids, strict=True)), ""
 
 
+def _write_atomically(out_dir: Path, write_all: Any) -> None:
+    """All five artifacts or none: stage beside ``out_dir``, then move them in.
+
+    A failure while writing (a full disk, a figure error) removes the staging directory and
+    leaves ``out_dir`` as it was: absent, or empty. The emptiness check is repeated just before
+    the move, since a full run takes hours.
+    """
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.", dir=out_dir.parent))
+    try:
+        write_all(staging)
+        if not out_dir.exists():
+            staging.rename(out_dir)
+            return
+        if not out_dir.is_dir() or any(out_dir.iterdir()):
+            raise ValueError(f"output directory {out_dir} is no longer empty")
+        for item in staging.iterdir():
+            os.replace(item, out_dir / item.name)
+        staging.rmdir()
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+
+
 def _figure_rows(pooled: pd.DataFrame) -> pd.DataFrame:
     per_seed = pooled.groupby(["entry", "split", "seed"], sort=False)["skill"].mean()
     rows = []
@@ -621,17 +647,22 @@ def run_bench(
         "settings_columns": list(SETTINGS),
     }
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    paths = {
-        "results": out_dir / "results.parquet",
-        "splits": out_dir / "splits.json",
-        "summary": out_dir / "summary.json",
-        "figure": out_dir / "bench_summary.png",
-        "metadata": out_dir / "run_metadata.json",
+    names = {
+        "results": "results.parquet",
+        "splits": "splits.json",
+        "summary": "summary.json",
+        "figure": "bench_summary.png",
+        "metadata": "run_metadata.json",
     }
-    table.loc[:, list(RESULT_COLUMNS)].to_parquet(paths["results"], index=False)
-    write_json(paths["splits"], splits_json)
-    write_json(paths["summary"], summary)
-    write_summary_figure(_figure_rows(pooled), paths["figure"])
-    write_json(paths["metadata"], metadata)
-    return {**paths, "summary_data": summary}
+
+    def write_all(directory: Path) -> None:
+        table.loc[:, list(RESULT_COLUMNS)].to_parquet(
+            directory / names["results"], index=False
+        )
+        write_json(directory / names["splits"], splits_json)
+        write_json(directory / names["summary"], summary)
+        write_summary_figure(_figure_rows(pooled), directory / names["figure"])
+        write_json(directory / names["metadata"], metadata)
+
+    _write_atomically(out_dir, write_all)
+    return {**{k: out_dir / v for k, v in names.items()}, "summary_data": summary}

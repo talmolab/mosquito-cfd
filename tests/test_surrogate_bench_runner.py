@@ -599,3 +599,54 @@ def test_ridge_fixed_records_no_selection_and_ridge_does(full_run):
         assert record["point"] == [16, 3, 1e-6], name
     for name, record in summary["ridge"]["ridge"].items():
         assert record["selection"]["chosen"] == record["point"], name
+
+
+# --- Atomic write ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pre_existing", [False, True])
+def test_a_failure_while_writing_leaves_no_partial_bench(
+    tmp_path, monkeypatch, pre_existing
+):
+    """All five artifacts or none: a late failure leaves out_dir as it was, with no debris."""
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full while writing the figure")
+
+    monkeypatch.setattr(runner, "write_summary_figure", broken)
+    out = tmp_path / "out"
+    if pre_existing:
+        out.mkdir()
+    with pytest.raises(OSError, match="disk full"):
+        _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    if pre_existing:
+        assert out.is_dir() and list(out.iterdir()) == []
+    else:
+        assert not out.exists()
+    assert [p.name for p in tmp_path.iterdir()] == (["out"] if pre_existing else [])
+
+
+def test_a_successful_run_leaves_no_staging_directory(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    out.mkdir()  # absent or empty are both allowed
+    _, out, _ = _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    assert {p.name for p in out.iterdir()} == FILES
+    assert [p.name for p in tmp_path.iterdir()] == ["out"]
+
+
+def test_an_out_dir_filled_during_the_run_is_refused_and_left_alone(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "out"
+    out.mkdir()
+    real = runner.write_summary_figure
+
+    def intruder(rows, path):
+        real(rows, path)
+        (out / "someone_else.txt").write_bytes(b"theirs")  # written mid-run
+
+    monkeypatch.setattr(runner, "write_summary_figure", intruder)
+    with pytest.raises(ValueError, match="no longer empty"):
+        _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    assert [p.name for p in out.iterdir()] == ["someone_else.txt"]
+    assert [p.name for p in tmp_path.iterdir()] == ["out"]

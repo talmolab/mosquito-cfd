@@ -605,7 +605,8 @@ carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 - an empty `--timestamp`, or a `--device` other than `cpu`, `cuda` or `cuda:<n>`;
 - an `--out-dir` that exists and is not a directory.
 
-All refusals SHALL happen before any file is written. Every check that depends only on the data
+All refusals SHALL happen before any file is written. The five artifacts SHALL be written
+atomically: a failure while writing leaves `--out-dir` as it was (absent or empty). Every check that depends only on the data
 (splits, target beat, yardsticks, wrap jumps) SHALL run before the first fit, so a bad corpus is
 refused before any GPU time is spent. The committed copy SHALL live in `examples/prelim_sweep_fine/bench/` and
 SHALL be produced from a clean tree whose commit is on `main`.
