@@ -112,6 +112,7 @@ AUTHORITY_AND_METHOD = (
     "openspec/specs/force-surrogate/spec.md",
     "radians(phi_amp_deg)",
     "docs/coordinate-convention.md",
+    "narrative only",
     "confirm the code implements",
     "flag, do not resolve",
     "recompute every constant",
@@ -122,6 +123,10 @@ AUTHORITY_AND_METHOD = (
 FAILURE_CLASSES = (
     "sign and frame",
     "no insect-body frame",
+    "CF_chord",
+    "CF_x..CF_z",
+    "flapping-wing lab-frame series",
+    "lab-frame components",
     "reference point",
     "normaliz",
     "units",
@@ -135,6 +140,15 @@ FAILURE_CLASSES = (
     "known-answer",
     "like-for-like",
 )
+# #181: the corpus/surrogate CF_x..CF_z and the flapping-wing lab series are lab-frame, so the
+# failure-class list must not say forces in general are wing-frame.
+FAILURE_CLASSES_FORBIDDEN = (
+    "forces are in the wing frame",
+    "forces in the wing frame",
+    "By design, forces",
+)
+# #161 is fixed on the convention page; the authority note must not keep describing it.
+AUTHORITY_FORBIDDEN = ("uses ω for two quantities",)
 
 STEP4_REQUIRED = (
     "physics/convention/units errors",
@@ -419,6 +433,8 @@ def check_subagent6_launch_rules(text: str) -> None:
 def check_authority_and_method(text: str) -> None:
     template = _prompt_template(_section(text, 6))
     _require(template, AUTHORITY_AND_METHOD, "Subagent 6 prompt template")
+    for anchor in AUTHORITY_FORBIDDEN:
+        _forbid(template, anchor, "Subagent 6 prompt template")
 
 
 def check_failure_classes(text: str) -> None:
@@ -427,6 +443,8 @@ def check_failure_classes(text: str) -> None:
         template, FAILURE_CLASSES_LABEL, "Subagent 6 prompt template"
     )
     _require(block, FAILURE_CLASSES, f"Subagent 6 {FAILURE_CLASSES_LABEL}")
+    for anchor in FAILURE_CLASSES_FORBIDDEN:
+        _forbid(block, anchor, f"Subagent 6 {FAILURE_CLASSES_LABEL}")
 
 
 def check_step4(text: str) -> None:
