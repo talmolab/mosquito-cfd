@@ -323,3 +323,209 @@ def config_wrap_jumps(
     out["normal_peak"] = wrap_jump(phase, series["normal"], grid_peaks["normal_peak"])
     out["chord_peak"] = wrap_jump(phase, series["chord"], grid_peaks["chord_peak"])
     return out
+
+
+# --- Verdicts --------------------------------------------------------------------------------
+
+ALL_ZERO_REASON = "all configurations 0/0"
+HOLDOUT_STATEMENT = (
+    "No entry is known to be holdout-clean, so an inside verdict here is not an unbiased "
+    "estimate of the error on new configurations."
+)
+FIXED_REASONS = (
+    "grid_gci is from one configuration at 70° stroke, outside the corpus's 35–55°",
+    "grid_gci is from a one-beat run, so the startup beat",
+    "T3c refined grid and timestep together, and its fine run used dt = 2.5e-4 at "
+    "cfl = 0.3 while the corpus uses 5e-4 at 0.6, so the corpus's temporal error is not "
+    "covered",
+    "the T3c deck's z boundary condition is 2 where the corpus's is 4",
+    "coarse_vs_fine bounds the coarse grid's error, not the fine grid's",
+    "beat1_vs_beat2 includes the startup beat of a 2-beat run that has not settled",
+)
+_WINDOWED_YARDSTICKS = ("beat1_vs_beat2",)
+
+
+def verdict(
+    errors: Mapping[str, Sequence[float]], yardsticks: Mapping[str, float]
+) -> dict[str, Any]:
+    """The verdict of one entry, component and yardstick.
+
+    The worst seed decides; it is NaN if any seed is NaN. ``inside`` needs ``worst ≤
+    yardstick`` for every configuration. The margin is the minimum of ``yardstick / worst``:
+    ``"inf"`` where the worst error is 0, configurations with both 0 left out (``None`` if all
+    are), and ``None`` with ``outside`` on any NaN.
+
+    Args:
+        errors: Per configuration, the error of each seed.
+        yardsticks: Per configuration, the yardstick value.
+
+    Returns:
+        ``{"verdict", "margin"}`` and, where the margin is ``None``, a ``"reason"``.
+    """
+    worst = {}
+    for config, values in errors.items():
+        arr = np.asarray(values, dtype=float)
+        worst[config] = float("nan") if np.isnan(arr).any() else float(arr.max())
+    for config, value in worst.items():
+        if np.isnan(value):
+            return {
+                "verdict": "outside",
+                "margin": None,
+                "reason": f"a seed's error is NaN for {config}",
+            }
+        if np.isnan(yardsticks[config]):
+            return {
+                "verdict": "outside",
+                "margin": None,
+                "reason": f"the yardstick is NaN for {config}",
+            }
+    inside = all(worst[c] <= yardsticks[c] for c in worst)
+    terms = []
+    for config, value in worst.items():
+        y = float(yardsticks[config])
+        if value == 0.0 and y == 0.0:
+            continue
+        terms.append(float("inf") if value == 0.0 else y / value)
+    result: dict[str, Any] = {"verdict": "inside" if inside else "outside"}
+    if not terms:
+        result.update(margin=None, reason=ALL_ZERO_REASON)
+    else:
+        margin = min(terms)
+        result["margin"] = "inf" if margin == float("inf") else margin
+    return result
+
+
+def component_verdicts(
+    errors: Mapping[str, Mapping[int, Mapping[str, float]]],
+    yardsticks: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> dict[str, Any]:
+    """Verdicts of one entry and component against each yardstick separately.
+
+    Args:
+        errors: ``{config: {seed: {"full", "window"}}}``.
+        yardsticks: ``{config: {yardstick: entry}}``.
+
+    Returns:
+        ``{yardstick: verdict}``, or ``{"status": "no_yardstick"}`` when no yardstick applies.
+    """
+    configs = list(errors)
+    names = list(yardsticks[configs[0]])
+    out: dict[str, Any] = {}
+    for name in names:
+        first = yardsticks[configs[0]][name]
+        if first.get("not_applicable"):
+            out[name] = {"verdict": "not_applicable"}
+            continue
+        if "unavailable" in first:
+            out[name] = {"verdict": "unavailable", "reason": first["unavailable"]}
+            continue
+        key = "window" if name in _WINDOWED_YARDSTICKS else "full"
+        per_config = {
+            c: [errors[c][s][key] for s in sorted(errors[c])] for c in configs
+        }
+        values = {c: float(yardsticks[c][name]["value"]) for c in configs}
+        out[name] = {**verdict(per_config, values), "yardstick": values}
+    if not any("yardstick" in v for v in out.values()):
+        return {"status": "no_yardstick"}
+    return out
+
+
+def with_combined_yardsticks(
+    yardsticks: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Add the peaks' quadrature and linear GCI + late-beat yardsticks where late is available."""
+    out = {comp: dict(entries) for comp, entries in yardsticks.items()}
+    for comp in PEAKS:
+        late = out.get(comp, {}).get("late_beat", {})
+        if "value" not in late:
+            continue
+        gci = GCI_FINE[comp]
+        out[comp]["grid_gci_late_quadrature"] = {
+            "value": float(np.hypot(gci, late["value"]))
+        }
+        out[comp]["grid_gci_late_linear"] = {"value": float(gci + late["value"])}
+    return out
+
+
+def wrap_reason(
+    wrap_jumps: Mapping[str, Mapping[str, Mapping[str, float]]],
+    peak_wrap_distance: Mapping[str, float],
+    test_configs: Sequence[str],
+) -> str:
+    """The non-periodic-beat reason, computed from the recorded jumps (never fixed text)."""
+    every = [j["normal_peak"]["last_but_one"] for j in wrap_jumps.values()]
+    tested = [
+        wrap_jumps[c]["normal_peak"]["last_but_one"]
+        for c in test_configs
+        if c in wrap_jumps
+    ]
+    return (
+        "the converged beat is not periodic: its largest body-frame normal wrap jump "
+        f"(first row vs last-but-one row) is {100 * max(every):.1f} % of the normal peak over "
+        f"all configurations and {100 * max(tested):.1f} % over the gated test "
+        f"configurations, beside grid_gci {100 * GCI_FINE['normal_peak']:.1f} %; every normal "
+        f"peak lies within {max(peak_wrap_distance.values()):.3f} of phase of the wrap"
+    )
+
+
+def gate_block(
+    *,
+    entries: Mapping[
+        str, Mapping[str, Mapping[int, Mapping[str, Mapping[str, float]]]]
+    ],
+    yardsticks: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    wrap_jumps: Mapping[str, Mapping[str, Mapping[str, float]]],
+    peak_wrap_distance: Mapping[str, float],
+    test_configs: Sequence[str],
+    holdout_status: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """The provisional per-component hover gate of the interpolation split.
+
+    Args:
+        entries: ``{entry: {config: {seed: {component: {"full", "window"}}}}}``.
+        yardsticks: ``{config: {component: {yardstick: entry}}}`` from
+            :func:`config_yardsticks`.
+        wrap_jumps: ``{config: …}`` from :func:`config_wrap_jumps`, every configuration.
+        peak_wrap_distance: Per configuration, the phase distance of its normal peak from
+            the wrap.
+        test_configs: The gated test configurations.
+        holdout_status: Per entry, ``holdout_informed`` and ``holdout_reason``.
+
+    Returns:
+        The gate block: ``provisional``, ``reasons``, ``holdout_statement`` and the verdicts per
+        entry and component. It has no overall pass/fail.
+    """
+    combined = {c: with_combined_yardsticks(yardsticks[c]) for c in test_configs}
+    components = list(combined[test_configs[0]])
+    out_entries = {}
+    for entry, per_config in entries.items():
+        comps = {}
+        for comp in components:
+            errs = {
+                c: {s: per_config[c][s][comp] for s in per_config[c]}
+                for c in test_configs
+            }
+            comps[comp] = component_verdicts(
+                errs, {c: combined[c][comp] for c in test_configs}
+            )
+        out_entries[entry] = {**holdout_status[entry], "components": comps}
+    return {
+        "provisional": True,
+        "reasons": [
+            *FIXED_REASONS,
+            wrap_reason(wrap_jumps, peak_wrap_distance, test_configs),
+        ],
+        "holdout_statement": HOLDOUT_STATEMENT,
+        "entries": out_entries,
+    }
+
+
+def normal_peak_wrap_distance(
+    grid: NDArray[np.floating], *, stroke: float, fstar: float, pitch: float
+) -> float:
+    """Phase distance from the wrap of a configuration's body-frame normal grid peak."""
+    series = body_frame_series(
+        PHASE_GRID, grid, stroke=stroke, fstar=fstar, pitch=pitch
+    )
+    phase = float(PHASE_GRID[int(np.argmax(np.abs(series["normal"])))])
+    return min(phase, 1.0 - phase)

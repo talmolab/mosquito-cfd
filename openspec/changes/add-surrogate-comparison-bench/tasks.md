@@ -228,18 +228,18 @@
 
 ### 6b. Gate verdicts
 
-- [ ] 6b.1 **Tests first**: the verdict scenarios. These cover the worst seed with NaN propagation,
+- [x] 6b.1 **Tests first**: the verdict scenarios. These cover the worst seed with NaN propagation,
   fractions, all boundary cases, `no_yardstick`/`not_applicable`, `late_beat` beside the other
   yardsticks, `holdout_informed` marks, the seven provisional reasons with the wrap-jump reason
   computed from the recorded jumps, and no overall key.
-- [ ] 6b.2 Implement the verdicts. Mutation-test; each must be killed:
+- [x] 6b.2 Implement the verdicts. Mutation-test; each must be killed:
   - the worst-seed reduction made NaN-aware;
   - the margin taken from the median seed;
   - NaN handling;
   - 0/0 handling;
   - the margin's minimum over configurations;
   - a hard-coded wrap-jump reason text.
-- [ ] 6b.3 Shipped-artifact check. Commit: `feat(surrogate-bench): gate verdicts`.
+- [x] 6b.3 Shipped-artifact check. Commit: `feat(surrogate-bench): gate verdicts`.
 
 ### 7a. Summary figure
 
