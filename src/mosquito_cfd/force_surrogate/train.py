@@ -527,9 +527,11 @@ def compute_config_resolved(
     shared by every config), so it overstates the kinematics→force-map skill (CC-4, design D13).
     For each target this reports, grouped by ``config_name`` (pure numpy):
 
-    - ``config_mean_r2`` — R² on the per-configuration **cycle-mean** coefficient (phase removed;
-      the physically-central cycle-averaged force), the NaN sentinel when between-config variance
-      is (near-)zero (``_VARIANCE_EPS`` floor, consistent with :func:`compute_metrics`).
+    - ``config_mean_r2`` — R² on the per-configuration **cycle-mean** coefficient (phase
+      removed), the NaN sentinel when between-config variance is (near-)zero (``_VARIANCE_EPS``
+      floor, consistent with :func:`compute_metrics`). A diagnostic, not the headline skill: it
+      divides by the spread of a few held-out cycle means and is strongly seed-dependent; the
+      headline is the skill over the phase-only baseline.
     - ``within_config_variance_fraction`` — the fraction of total holdout variance that is
       within-configuration (the waveform), exposing how waveform-driven the aggregate R² is.
 

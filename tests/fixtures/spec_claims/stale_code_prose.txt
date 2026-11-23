@@ -1,0 +1,963 @@
+Stale fixture for tests/test_live_spec_claims.py (fix-stale-spec-claims): comments and docstrings of the three code targets at c87e39c, as _stale_claims.python_prose reads them. Do not edit.
+
+===== c87e39c:src/mosquito_cfd/force_surrogate/evidence_figure.py (python_prose) =====
+
+headless: figures are written, never shown (matches examples/*)
+
+noqa: E402 noqa: E402 noqa: E402 noqa: E402
+
+noqa: E402
+
+noqa: E402
+
+noqa: E402
+
+noqa: E402
+
+The three figure axes. CF_my is the fixed headline moment (design D1) — labeled an "M_y component", not "pitch moment" (moments are lab-frame; the wing-frame conversion is not currently tracked). D1 originally picked CF_my because it was the only moment with config-resolved signal in the first corpus; which moment carries the most is corpus-dependent and has already inverted more than once, so it is NOT re-derived here — the panel set stays fixed, and build_caption() discloses the actual off-panel numbers instead of assuming which axis (if any) is signal-free.
+
+All six targets (the trainer's own list): the caption's skill floor and the sidecar cover every one (issue #116).
+
+The one phrase used wherever a sweep has a single seed (never an implied spread).
+
+Coarse-grid A40 CFD cost (~2.4 min/wingbeat; roadmap Hardware row: the rounded 146 s of one A40 run of the 70° validation deck, examples/flapping_wing/RESULTS.md "Performance"). Used only for the coarse speedup denominator, which the annotation labels "coarse-grid A40 CFD" (design D4).
+
+The fine CFD cost is the median per-step A40 wall time over the corpus's run metadata (force_surrogate.cfd_cost), supplied by the caller; it has no default.
+
+Columns the figure requires from the predictions parquet (besides config_name/phase).
+
+including -0.0, which is not below anything
+
+resolve_grid guarantees it
+
+Shared config->color legend (so the colors are readable) + the 1:1 line, at the top.
+
+--- Validate + compute EVERYTHING fallible first; only then touch the filesystem, so a late failure can never leave a partial artifact set (no orphan PNG).
+
+fail-fast on a mutable tag
+
+records inputs.file + inputs.hash (predictions)
+
+The helper hashes only the single inputs_file; record the *second* input's hash under a distinct key so the built-in inputs.file/hash is not clobbered.
+
+--- All computation succeeded: write the three artifacts together.
+
+Predicted-vs-CFD evidence figure for the force surrogate (Track B PR6, force-only).
+
+Reads the committed PR5 artifacts (``holdout_predictions.parquet`` + ``metrics.json``) and
+emits the NVIDIA-grant *Evidence-of-Readiness* figure: predicted-vs-CFD scatter for
+``CF_x / CF_z / CF_my`` on the held-out configurations (points colored by config with a shared
+legend) and an honest caption + batched-throughput speedup annotation. The translational
+Sane-Dickinson quasi-steady model is computed as a **reference number** (RMS ratio), not
+drawn on the scatter — the uncalibrated translational model is a poor fit to the CFD lift (it
+omits rotational, added-mass, and LEV lift), so an overlay would mostly re-display the model's
+analytic loops rather than surrogate skill (CC-4 deviation). No solver, cluster, GPU, or plotfile
+(CC-6); the metrics the trainer already computed are *read*, never re-derived.
+
+Design decisions (change ``add-force-surrogate-evidence-figure``): D1 (CF_my headline,
+named as a lab-frame component), D2 (translational Sane-Dickinson via the CC-3
+``compute_force_reference`` helper; reference-only, not overlaid), D3 (honest caption, split
+compact-caption vs README), D4 (batched-throughput >1,000x speedup, disclosed as batch-size
+driven; the latency floor is read from ``metrics.json`` each run, never a fixed number — it has
+already changed with every corpus regeneration).
+
+The grid-specific text and CFD cost of one corpus's evidence figure.
+
+The coarse profile's strings are the figure's original wording, so the default figure is
+byte-identical to the committed coarse one (change ``add-fine-corpus-surrogate``, D2).
+
+Attributes:
+    name: ``"coarse"`` or ``"fine"``.
+    cfd_label: The CFD named in the speedup headline, after "sequential".
+    lift_label: The CFD lift the quasi-steady reference is compared with.
+    qs_suffix: Appended to "not used as a quantitative baseline" (the coarse caption gives
+        the resolution as the reason; on the fine grid the reason is the omitted terms).
+    grid_caveat: The caveat sentence naming the grid and what the figure does not show.
+    readme_pointer: The corpus README the caption points to.
+    cfd_seconds_per_wingbeat: The fixed per-wingbeat CFD cost, or ``None`` when it is
+        derived from a supplied per-step cost.
+
+Kinematic parameters parsed from a sweep ``config_name``.
+
+Attributes:
+    phi_amp_deg: Stroke amplitude [deg].
+    f_star: Dimensionless flap frequency.
+    pitch_amp_deg: Pitch amplitude [deg].
+
+Parse a ``s<phi>_f<fff>_p<pitch>`` config name into kinematic parameters.
+
+The frequency field is encoded as ``f* * 100`` (``f085`` -> 0.85, ``f100`` -> 1.0,
+``f115`` -> 1.15); stroke and pitch are integer degrees.
+
+Args:
+    name: Configuration name, e.g. ``"s45_f115_p60"``.
+
+Returns:
+    The parsed :class:`KinematicParams`.
+
+Raises:
+    ValueError: If ``name`` does not match the ``s<int>_f<int>_p<int>`` grammar.
+
+Dickinson-Lehmann-Sane (1999) Robofly empirical lift-coefficient fit.
+
+``C_L(alpha) = 0.225 + 1.58 * sin(2.13*alpha_deg - 7.2deg)``. The argument is evaluated
+in radians; because ``radians()`` is linear, ``radians(2.13*alpha_deg) = 2.13*alpha_rad``
+exactly (the per-degree slope is preserved, not rescaled — design D2).
+
+Args:
+    alpha_deg: Angle(s) of attack [deg]. Scalar or array-like.
+
+Returns:
+    The lift coefficient(s), preserving input shape.
+
+Actual converged-beat row count per config, from the parquet (design D4).
+
+Design D4 defines ``rows_per_wingbeat(cfg)`` as the **parquet rows for cfg** (the real
+converged-beat count, which can differ by one row from the theoretical ``1/(f*·dt)`` at
+the beat boundary). Using the data — not the analytic value — keeps the committed sidecar
+consistent with the file it describes.
+
+Args:
+    predictions: Holdout predictions frame with a ``config_name`` column.
+
+Returns:
+    Mapping of ``config_name`` to its row count.
+
+Translational-only Sane-Dickinson quasi-steady lift coefficient (design D2).
+
+``CF_trans(t) = F_trans / F_ref = (U/U_tip)^2 * C_L(alpha_eff)`` with
+``U/U_tip = cos(2*pi*phase)`` and the symmetric-rotation hovering AoA
+``alpha_eff = pitch_amp * |cos(2*pi*phase)|``. The reference force ``F_ref`` and tip
+speed come from the single-source :func:`compute_force_reference` (CC-3); the force is
+divided by that ``F_ref`` explicitly (no inline re-derivation), so a different ``f_ref``
+from the helper changes the result.
+
+Args:
+    phase: Cyclic phase in [0, 1). Scalar or array-like.
+    f_star: Dimensionless flap frequency.
+    phi_amp_deg: Stroke amplitude [deg].
+    pitch_amp_deg: Pitch amplitude [deg].
+
+Returns:
+    The dimensionless quasi-steady lift coefficient, preserving input shape.
+
+Return ``mapping[key]`` or raise a clear KeyError naming the missing key + context.
+
+Read ``per_target.<coef>`` (clear error if any level is missing).
+
+Read ``per_target.<coef>.rmse`` (clear error if any level is missing).
+
+Read ``phase_baseline_skill.per_target.<coef>`` (skill + the phase-only baseline's R²).
+
+Read ``per_target.<coef>.r2`` (``None`` is the NaN sentinel; a missing key raises).
+
+Read ``phase_baseline_skill.per_target.<coef>.phase_baseline_r2`` (missing raises).
+
+Read the ``seed_sweep`` block; a metrics.json without one is rejected (no default seed).
+
+The plotted seed must be listed first: the provenance records ``seeds[1:]`` as the sweep.
+
+Read ``seed_sweep.range.<coef>.skill`` (``None`` when null for every seed).
+
+
+
+Render a skill or R² value for the figure (design D6).
+
+Three decimals; a value that would print ``1.000`` prints ``>0.999``; a nonzero value that
+would print ``±0.000`` prints in scientific form (so a below-baseline flag never reads
+``0.000``); negatives use U+2212; a null (the NaN sentinel) prints ``n/a``.
+
+
+
+``"0.988 (5 seeds: 0.988 to 0.992)"``, or ``"... (single seed, no range)"``.
+
+Per-panel annotation: skill (with seed range), pointwise R² and RMSE from ``metrics``.
+
+Skill is over the phase-only baseline; every value is read, never a literal.
+
+Args:
+    metrics: The loaded ``metrics.json`` dict.
+    coef: Panel coefficient, e.g. ``"CF_z"``.
+
+Returns:
+    A short two-line annotation string.
+
+Raises:
+    KeyError: If a required metrics key for ``coef`` is missing.
+
+The skill floor over all six targets' seed-sweep minima (design D6).
+
+The floor is reported instead of a "weakest target": overlapping seed ranges do not support
+a ranking. Null minima are skipped; the targets whose minimum is below zero (worse than the
+phase-only baseline) are listed in target order. A minimum of exactly 0 is not below it.
+
+Returns:
+    ``{"value": float | None, "targets_below_phase_baseline": [...], "n_defined": int}``.
+
+The :data:`GRID_PROFILES` entry for ``grid``; ``ValueError`` naming the valid names.
+
+Look up a grid profile and validate the CFD cost supplied for it.
+
+A profile with a fixed per-wingbeat cost (coarse) takes no per-step cost. A profile without
+one (fine) requires the CFD's median seconds per timestep, from which the figure derives the
+per-wingbeat cost of its representative configuration (:func:`cfd_seconds_per_wingbeat`).
+
+Args:
+    grid: A :data:`GRID_PROFILES` name.
+    cfd_seconds_per_step: The CFD's wall-clock seconds per timestep, or ``None``.
+
+Returns:
+    The profile and the validated seconds per step (``None`` for a fixed-cost profile).
+
+Raises:
+    ValueError: If ``grid`` is unknown; a fixed-cost profile is given a per-step cost; or a
+        profile without a fixed cost gets none, or a non-finite or non-positive one.
+
+The CFD cost of one wingbeat of the representative configuration.
+
+The profile's fixed cost, or the per-step cost times the representative configuration's
+rows per wingbeat (one dataset row per CFD timestep), so the speedup's per-row CFD cost is
+exactly the per-step cost.
+
+Decompose the inference-vs-CFD speedup into throughput (headline) and latency (floor).
+
+The headline >1,000x is **batched GPU throughput** vs the grid's A40 CFD rate;
+because it equals ``latency_speedup * batch_size`` (the surrogate batches; the CFD is a
+sequential time integration), the batch size and parallelism factor are returned for
+honest disclosure (design D4).
+
+Args:
+    inference: The ``metrics.json`` ``inference`` block (``latency_ms``,
+        ``throughput_rows_per_s``, ``basis``).
+    rows_per_wingbeat: Converged-beat rows for the representative config.
+    cfd_seconds_per_wingbeat: CFD wall-clock seconds per wingbeat (default: the coarse
+        grid's).
+
+Returns:
+    A dict with ``throughput_speedup``, ``latency_speedup``, ``batch_size``,
+    ``parallelism_factor``, ``cfd_rows_per_s``, ``cfd_seconds_per_wingbeat``,
+    ``rows_per_wingbeat``, ``surrogate_throughput_rows_per_s``,
+    ``surrogate_latency_ms``, and ``cfd_rate_is_sequential`` (True).
+
+Raises:
+    KeyError: If ``inference`` lacks ``latency_ms`` or ``throughput_rows_per_s``.
+
+The skill-floor caveat: the floor, or the targets below the phase-only baseline.
+
+Build the compact, honest figure caption (design D6; full prose lives in the README).
+
+A positive headline (the plotted seed, the definition of skill over the phase-only
+baseline and the seed count, + the batched >1,000x speedup; the per-axis numbers live on
+the panels), a terse "Caveats:" line, a terse quasi-steady-reference line, and a README
+pointer. Configuration-resolved R² is not printed: it divides by the near-zero spread of
+six cycle means for some targets and swings with the seed (it stays in ``metrics.json``
+and the README).
+
+The caveats state the **skill floor** over all six targets -- not a "weakest" target,
+because overlapping seed ranges do not support a ranking -- or, when that floor is
+negative, each target below the phase-only baseline, as a subordinate flag. The off-panel
+CF_mx/CF_mz skill is read at call time, so a corpus in which an off-panel moment outscores
+the headline stays visible.
+
+Args:
+    metrics: The loaded ``metrics.json`` dict.
+    speedup: The :func:`compute_speedup` result.
+    baseline: The :func:`_baseline_reference` result (overshoot factor for the caption).
+    grid: The :data:`GRID_PROFILES` name whose wording the caption uses.
+
+Returns:
+    The multi-line caption string. Every number is read from the artifacts.
+
+Raises:
+    KeyError: If ``seed_sweep``, ``phase_baseline_skill`` or a target's entry is missing.
+    ValueError: If ``grid`` is unknown, or the speedup's CFD cost does not fit the
+        profile's label (see :func:`resolve_grid`; the fine label over the coarse 144 s
+        is rejected too).
+
+Sane-Dickinson CF_z prediction for one config's rows.
+
+Root-mean-square error.
+
+Translational Sane-Dickinson CF_z reference (computed, NOT overlaid on the figure).
+
+The uncalibrated translational quasi-steady model is a poor fit to the CFD lift (it omits
+rotational, added-mass, and LEV lift; on the coarse corpus its RMS ratio is reported against
+the in-band CFD under the van Veen convention) — so the gap mostly re-displays the model's
+analytic loops rather than surrogate skill.
+It is therefore reported as a reference number (RMSE + overshoot factor), not drawn as a
+misleading scatter overlay (design D2; CC-4 deviation recorded in the proposal).
+
+Args:
+    predictions: Holdout predictions frame.
+    grid: The :data:`GRID_PROFILES` name whose CFD lift the ``note`` names.
+
+Returns:
+    ``{baseline_rmse_cf_z, overshoot_factor, note}`` — ``overshoot_factor`` is
+    ``rms(baseline) / rms(cfd_true)`` over CF_z.
+
+Axis title for a panel coefficient (CF_my labeled an M_y component, not 'pitch').
+
+Assemble the three-panel predicted-vs-CFD evidence figure (object model, no I/O).
+
+Args:
+    predictions: Holdout predictions frame (``config_name, phase, CF_*_{true,pred}``).
+    metrics: The loaded ``metrics.json`` dict.
+    grid: The :data:`GRID_PROFILES` name for the caption's grid wording.
+    cfd_seconds_per_step: CFD cost per timestep for a grid without a fixed cost
+        (see :func:`resolve_grid`).
+
+Returns:
+    A :class:`matplotlib.figure.Figure` with three predicted-vs-CFD scatter panels
+    (CF_x, CF_z, CF_my), points colored by held-out configuration with a shared legend.
+
+Actual converged-beat rows of the config closest to f*=1.0 (speedup headline).
+
+The representative is the config nearest f*=1.0 (for the validated holdout that is the
+f*=1.0 config, 2000 rows); its **actual** parquet row count is used so the headline
+speedup matches the committed data (design D4).
+
+Validate the predictions frame: required columns present and CF_* values finite.
+
+Raises a clear ``ValueError`` if a required column is missing or if any coefficient
+column contains NaN/inf — a non-finite coefficient would otherwise produce a silently
+wrong (``nan``) evidence artifact (the figure's whole purpose is an *honest* number).
+
+The sidecar's ``skill.<coef>``: the plotted seed's value and the seed-sweep range.
+
+SHA256 hex digest of a file's bytes.
+
+Generate + write the evidence figure, its metrics sidecar, and run provenance.
+
+Force-only (CC-6): the only inputs are the committed predictions parquet and metrics.json.
+
+Args:
+    predictions_path: Committed ``holdout_predictions.parquet``.
+    metrics_path: Committed ``metrics.json``.
+    out_dir: Output directory (the corpus's ``figures/``).
+    docker_image_digest: Pinned ``sha256:`` image digest (mutable tags rejected, CC-1).
+    timestamp: Caller-supplied ISO-8601 timestamp (no wall-clock baked in, CC-1).
+    dpi: Raster resolution (>=200).
+    grid: The :data:`GRID_PROFILES` name (caption wording and CFD cost).
+    cfd_seconds_per_step: The CFD's median wall-clock seconds per timestep: required
+        for ``"fine"``; must be omitted for ``"coarse"``, whose cost is the fixed
+        :data:`CFD_SECONDS_PER_WINGBEAT`.
+
+Returns:
+    The ``evidence_figure_metrics.json`` payload: per-axis surrogate RMSE, the plotted seed
+    and seed count, six-target skill (plotted seed + seed range), pointwise R² and
+    phase-only baseline R², the skill floor, the quasi-steady reference and the speedup
+    decomposition -- every number the caption prints. The provenance seeds are read from
+    ``metrics.json`` ``seed_sweep``, so they cannot disagree with the caption.
+
+Raises:
+    ValueError: If the digest is a mutable tag, the grid or CFD cost is invalid (see
+        :func:`resolve_grid`), or the predictions have <2 configs / 0 rows.
+
+===== c87e39c:src/mosquito_cfd/force_surrogate/train.py (python_prose) =====
+
+pragma: no cover - typing only, never imported at runtime in CI
+
+Input features: the three swept kinematic knobs + the cyclic phase encoding (design D3). Reynolds is deliberately excluded — under the nu*-fixed policy it is a deterministic function of (stroke, frequency) and carries no independent information.
+
+Targets: all six normalized coefficients (design D4). These are read straight from the dataset's already-normalized columns — coefficient math is never re-derived here (CC-3).
+
+Holdout identifier columns carried into the predictions table.
+
+Dataset columns the trainer requires: the prediction ids, the split label, the three swept kinematic knobs (build_features derives phase_sin/phase_cos from `phase`), and the six targets.
+
+Converged-beat threshold: the first whole beat (wingbeat 0) is the startup transient.
+
+Relative tolerance below which a column is treated as constant (zero-variance). The R² guards (:func:`_r2`) and the within-config fraction compare ``SS_tot`` to the target's own ``sum(t**2)`` scale, so the sentinel fires on genuine constancy at any magnitude — including the small unnormalized SS of a few cycle-means — without nulling a tiny-but-real spread. ``Standardizer`` uses it as a near-zero floor on the per-column std (design D4/D13).
+
+--- Feature / target construction -------------------------------------------------------
+
+Floor a (near-)zero-variance column's scale to 1.0 so it standardizes to 0 rather than NaN/inf; the tolerance catches genuinely-constant columns without amplifying a tiny-but-nonzero std into an astronomically-scaled feature (design D4).
+
+--- Held-out-configuration split (CC-4) -------------------------------------------------
+
+--- Metrics -----------------------------------------------------------------------------
+
+(near-)constant target -> R² undefined
+
+R² (with the scale-relative zero-variance sentinel) via the single-source helper.
+
+All three aggregates are NaN-aware and consistent: a target whose metric is NaN (a constant-target R² sentinel, or a target with a NaN datum) is skipped, not propagated — so a single bad column never silently nulls the headline RMSE/MAE while R² survives.
+
+--- PhysicsNeMo model + training (torch tier; lazy import, design D1/D2) ----------------  Everything below imports ``torch``/``physicsnemo`` *inside* the function so this module stays importable on the CPU-only CI runner without the optional ``train`` group. Only the PhysicsNeMo model ships — there is no PyTorch fallback (design D1). These are exercised by the GPU/torch test tier (``@pytest.mark.gpu``) and the operator's A5000 run.
+
+PhysicsNeMo MLP defaults for this small kinematics->coefficients regression.
+
+Seed the legacy global numpy RNG (not just a local Generator) because torch/physicsnemo init paths may reach for np.random.* — required for the GPU-tier determinism guarantee.
+
+warn_only: some CUDA kernels lack a deterministic impl; we scope the bitwise claim to CPU.
+
+Require a non-empty val set for selection; an empty one would make MSELoss NaN and silently keep the final-epoch weights (best_state never set). Fall back to final weights.
+
+restore best-validation weights (model selection)
+
+parity with compute_metrics (no NaN-with-RuntimeWarning)
+
+sorted
+
+config-to-config R² on the cycle-means (scale-relative sentinel via the shared helper).
+
+Scale-relative guard, consistent with _r2: a (near-)constant target has no fraction.
+
+Per-target statistics recorded for every seed of a sweep (design D4).
+
+--- Evaluation, artifacts, provenance, wandb (mostly torch-free) -------------------------
+
+Phase-honest config-resolved skill, reported alongside the waveform-dominated aggregate (D13).
+
+noqa: BLE001 - any wandb/import/network failure must not block
+
+warm up
+
+Default training seed for the surrogate run (recorded in run_metadata; design D6).
+
+Train with the val set driving best-checkpoint selection (CC-4: val is config-level).
+
+Validation generalization of the selected model (the val set is held out of the fit and of the holdout metrics; reported so the carved configs are used, not silently discarded).
+
+NOTE: torch is imported lazily (by the per-seed fit and the checkpoint write) so all the pure-pandas validation here — seeds, digest, schema, converged-beat/holdout checks — is reachable and testable without the optional `train` group (design D2).
+
+Seeds first: nothing is read or created for an invalid sweep (design D4).
+
+Fail fast on a missing/mutable digest *before* paying for the full A5000 training run (a pure regex guard; the same digest is re-validated by build_training_metadata, CC-1).
+
+Hash the exact bytes that are parsed, so the provenance names what was trained on.
+
+Distinguish "all holdout configs lost their converged beats" from the genuine "no holdout label" case make_config_splits would otherwise misreport.
+
+A holdout config with no converged-beat rows silently vanishes from the eval.
+
+The holdout rows and the phase-only baseline depend on the dataset, not the seed (D2), so a malformed baseline reference fails here, before any seed trains.
+
+The primary (committed) seed first, timed right after it is trained (design D4).
+
+Sweep seeds contribute metrics only; their models are discarded.
+
+Every seed has finished: only now is anything written (a failure above writes nothing). lazy: only the checkpoint write needs it (design D2)
+
+Kinematics(+phase) -> force-coefficient surrogate trainer (Track B, PR5).
+
+Trains a small **PhysicsNeMo** regressor mapping a wing-kinematics vector plus the within-beat
+phase to the six normalized force/moment coefficients of a committed corpus's
+``dataset.parquet`` (``examples/prelim_sweep/`` or ``examples/prelim_sweep_fine/``), evaluates it on **held-out configurations** (CC-4),
+and emits ``metrics.json`` + a holdout-predictions table + ``run_metadata.json`` (CC-1). This is
+the deliberately small, **force-only** surrogate (roadmap CC-6): no field/plotfile reading, no
+DoMINO/latent-dynamics, no RL.
+
+**Two import tiers (design D2).** The pure data/feature/split/standardizer/metrics helpers below
+import **no** torch, so this module imports cleanly on the CPU-only CI runner without the optional
+``train`` dependency-group; they gate CI. The model + training functions (:func:`build_model`,
+:func:`train_model`, :func:`predict`) import ``torch``/``physicsnemo`` **lazily inside themselves**
+and are exercised only by the GPU/torch test tier (``@pytest.mark.gpu``) on the local RTX A5000.
+
+**Reproducibility (design D6).** Seeds are explicit; the torch-free CPU helper chain is
+bitwise-reproducible (CI-tested). The seeded ``train_model`` step is determinism-tested on the CPU
+torch device; the CUDA/GPU run is seeded but not asserted bitwise (cuDNN/TF32). ``metrics.json``
+records ``reproducibility.bitwise == "cpu_only"`` to scope the claim honestly.
+
+Decisions D1-D8 are documented in the OpenSpec change ``add-force-surrogate-train`` (``design.md``).
+
+Build the standardizable input feature matrix from a dataset slice.
+
+Inputs are ``[stroke_amp_deg, frequency_fstar, pitch_amp_deg, sin(2*pi*phase),
+cos(2*pi*phase)]`` (cyclic phase respects the 0/1 wrap; Reynolds is excluded, design D3).
+
+Args:
+    df: A dataset frame carrying at least ``stroke_amp_deg``, ``frequency_fstar``,
+        ``pitch_amp_deg``, and ``phase``.
+
+Returns:
+    ``(X, feature_names)`` where ``X`` is a ``(n_rows, 5)`` float array whose columns are
+    :data:`FEATURE_COLUMNS`.
+
+Keep only the converged-beat rows (``wingbeat >= min_wingbeat``).
+
+The startup transient (``wingbeat == 0``) is dropped here **explicitly** — the dataset
+extractor deliberately carried every beat tagged with ``wingbeat`` so the consumer filters
+visibly, not via a silent mask (PR4 D3).
+
+Args:
+    df: The dataset frame (must carry ``wingbeat``).
+    min_wingbeat: Lowest wingbeat index to keep (default the converged beat, 1).
+
+Returns:
+    A copy of ``df`` restricted to ``wingbeat >= min_wingbeat``.
+
+Filter to the converged beat and report any **holdout** configs that lost all rows.
+
+A holdout config whose rows are all startup-transient (``wingbeat == 0``) silently vanishes
+from the evaluation after :func:`filter_converged_beat`. This wraps the filter and returns the
+names of any such dropped holdout configs so the caller can warn (a degraded corpus) or fail
+with a clear, correctly-attributed error rather than a misleading "no holdout label" message.
+
+Args:
+    df: The dataset frame (must carry ``wingbeat``, ``split``, ``config_name``).
+    min_wingbeat: Lowest wingbeat index to keep (default the converged beat, 1).
+
+Returns:
+    ``(filtered_df, dropped_holdout_names)`` — the converged-beat frame and the sorted names
+    of holdout configs that had no converged-beat rows (``[]`` when none were dropped).
+
+Per-column mean/std standardizer fit on training rows only (no leakage, design D3/D4).
+
+A zero-variance column (e.g. ``CF_y`` ~ 0 by symmetry) is floored to scale 1.0 so it
+standardizes to 0 rather than producing NaN.
+
+Config-level train/validation/test assignment (sorted, disjoint name lists).
+
+Attributes:
+    train_configs: Training configuration names.
+    val_configs: Validation configuration names (seeded carve from the train pool).
+    test_configs: The held-out configuration names (the dataset ``holdout`` label).
+
+Assign whole configurations to train / validation / test (CC-4).
+
+The configurations labelled ``split == "holdout"`` are the **test** set (taken verbatim
+from the dataset, never re-derived). A seeded selection of ``n_val_configs`` whole
+configurations is carved from the ``split == "train"`` pool for validation; the remaining
+train configurations are the training set. Selection draws from the **sorted** unique
+config-name list so it is reproducible across pandas versions.
+
+Args:
+    df: Dataset frame carrying ``config_name`` and ``split``.
+    seed: Seed for the validation carve.
+    n_val_configs: Number of whole training configurations to hold for validation.
+
+Returns:
+    A :class:`SplitAssignment` with sorted, mutually disjoint config-name lists.
+
+Raises:
+    ValueError: If ``df`` has no ``split`` column, no ``holdout`` configurations, or
+        ``n_val_configs`` would leave an empty validation or training set.
+
+R² = 1 - SS_res/SS_tot, with a **scale-relative** zero-variance sentinel.
+
+Single source of the R² + sentinel idiom shared by :func:`compute_metrics` (pointwise) and
+:func:`compute_config_resolved` (per-config cycle-means). The denominator ``SS_tot`` is the
+total sum of squares of ``t`` about its mean; when ``t`` is (near-)constant this is ~0 and R²
+is the NaN sentinel rather than an explosive ``0/0``. The floor is **relative to the target's
+own scale** (``SS_tot <= _VARIANCE_EPS * sum(t**2)``), so it fires on genuine constancy at any
+magnitude — including the small unnormalized SS of a handful of cycle-means — but never nulls a
+tiny-but-real spread (e.g. CF_y's near-zero-by-symmetry cycle-means keep their honest, possibly
+negative, R²).
+
+Args:
+    t: True values (1-D).
+    p: Predicted values (1-D), same shape as ``t``.
+
+Returns:
+    The R², or ``nan`` when ``t`` is (near-)constant.
+
+Per-target RMSE/MAE/R² + a NaN-aware aggregate (pure numpy; no scipy/sklearn).
+
+R² comes from :func:`_r2` (``1 - SS_res/SS_tot`` with a scale-relative zero-variance
+sentinel → ``nan``, serialized as ``null`` downstream, rather than an unhandled ``0/0``). All
+three ``aggregate`` values are NaN-skipping means, so a constant/NaN target does not poison
+them.
+
+Args:
+    y_true: ``(n, n_targets)`` true coefficients (physical units, inverse-transformed).
+    y_pred: ``(n, n_targets)`` predicted coefficients.
+    target_names: The ``n_targets`` column names (e.g. :data:`TARGET_COLUMNS`).
+
+Returns:
+    ``{"per_target": {name: {rmse, mae, r2}}, "aggregate": {rmse, mae, r2}}``.
+
+Seed python/numpy/torch and enable deterministic algorithms (design D6, lazy torch).
+
+Construct the seeded PhysicsNeMo fully-connected regressor (``n_in`` -> ``n_out``).
+
+PhysicsNeMo-only — no PyTorch fallback model (design D1). The exact PhysicsNeMo MLP class is
+confirmed against the installed API by the de-risk task on the A5000; this uses the
+documented ``physicsnemo.models.mlp.FullyConnected``.
+
+Args:
+    n_in: Number of input features (5: :data:`FEATURE_COLUMNS`).
+    n_out: Number of targets (6: :data:`TARGET_COLUMNS`).
+    seed: Seed applied before weight initialization.
+    hidden: Hidden layer width.
+    num_layers: Number of hidden layers.
+
+Returns:
+    A PhysicsNeMo ``torch.nn.Module`` mapping ``(batch, n_in)`` -> ``(batch, n_out)``.
+
+Seeded MSE training loop; returns the per-epoch training-loss history.
+
+If a validation set (``x_val``/``y_val``) is supplied, the per-epoch validation loss is
+tracked and the **best-validation** weights are restored into ``model`` at the end (model
+selection / early-stopping-equivalent, CC-4). Without it, the final-epoch weights are kept.
+
+Determinism: on ``device="cpu"`` the loss trajectory is reproducible for a fixed seed
+(asserted by the torch tier); the CUDA run is seeded but not asserted bitwise (design D6).
+
+Args:
+    model: A model from :func:`build_model`.
+    x: ``(n, n_in)`` standardized training features.
+    y: ``(n, n_out)`` standardized training targets.
+    epochs: Number of full-batch gradient steps.
+    seed: Seed applied before training.
+    lr: Adam learning rate.
+    device: ``"cpu"`` or ``"cuda"``.
+    x_val: Optional ``(m, n_in)`` standardized validation features for model selection.
+    y_val: Optional ``(m, n_out)`` standardized validation targets.
+
+Returns:
+    The list of per-epoch **training** losses (length ``epochs``).
+
+Run a forward pass and return predictions as a numpy array.
+
+Args:
+    model: A trained model.
+    x: ``(n, n_in)`` standardized features.
+    device: ``"cpu"`` or ``"cuda"``.
+
+Returns:
+    ``(n, n_out)`` standardized predictions (inverse-transform before metrics).
+
+Phase-honest, config-resolved metrics that the waveform-dominated aggregate R² hides.
+
+The pointwise aggregate R² is mostly the within-beat **waveform** (a smooth periodic shape
+shared by every config), so it overstates the kinematics→force-map skill (CC-4, design D13).
+For each target this reports, grouped by ``config_name`` (pure numpy):
+
+- ``config_mean_r2`` — R² on the per-configuration **cycle-mean** coefficient (phase removed;
+  the physically-central cycle-averaged force), the NaN sentinel when between-config variance
+  is (near-)zero (``_VARIANCE_EPS`` floor, consistent with :func:`compute_metrics`).
+- ``within_config_variance_fraction`` — the fraction of total holdout variance that is
+  within-configuration (the waveform), exposing how waveform-driven the aggregate R² is.
+
+Args:
+    y_true: ``(n, n_targets)`` true coefficients (physical units), aligned with ``config_names``.
+    y_pred: ``(n, n_targets)`` predictions (physical units).
+    config_names: ``(n,)`` configuration name per row.
+    target_names: The ``n_targets`` column names.
+
+Returns:
+    ``{name: {"config_mean_r2", "within_config_variance_fraction"}}``.
+
+Raise unless every phase is finite and in ``[0, 1)``.
+
+Phase-only baseline: the mean training waveform, ignoring the kinematics (design D2).
+
+For each ``split == "train"`` configuration, each converged beat
+(``wingbeat >= CONVERGED_MIN_WINGBEAT``) is linearly interpolated in phase with period 1
+(a query past the last sample wraps to phase 0); a configuration's curve is the mean of its
+beat curves, and the baseline is the **equal-weight** mean over configurations, whatever
+their row or beat counts. Holdout rows are never used, and input row order does not matter.
+Pure numpy (no torch).
+
+Args:
+    df: Dataset frame carrying ``config_name``, ``split``, ``wingbeat``, ``phase`` and the
+        target columns.
+    query_phase: ``(n,)`` phases in ``[0, 1)`` to evaluate the baseline at.
+    target_names: Target columns (defaults to :data:`TARGET_COLUMNS`).
+
+Returns:
+    ``(predictions, definition)``: an ``(n, n_targets)`` array, and the ``phase_baseline``
+    definition block recorded in ``metrics.json``.
+
+Raises:
+    ValueError: If there is no reference configuration, a beat has fewer than 2 rows or a
+        duplicate phase, a reference value is non-finite, or a reference or query phase is
+        non-finite or outside ``[0, 1)``.
+
+Skill over the phase-only baseline, ``1 - SSE(surrogate)/SSE(baseline)`` (design D1).
+
+Pooled over rows per target, on the same rows as the pointwise ``per_target`` metrics, so it
+is the MSE ratio. Not clipped: a negative skill means worse than the phase-only baseline.
+When the baseline's SSE is at most ``_VARIANCE_EPS * sum(t**2)`` (it already matches the
+target), skill is the NaN sentinel, serialized ``null``.
+
+Args:
+    y_true: ``(n, n_targets)`` true coefficients (physical units).
+    y_pred: ``(n, n_targets)`` surrogate predictions, aligned with ``y_true``.
+    y_baseline: ``(n, n_targets)`` phase-only baseline predictions, aligned with ``y_true``.
+    target_names: The ``n_targets`` column names.
+
+Returns:
+    ``{name: {"skill", "phase_baseline_rmse", "phase_baseline_r2"}}``.
+
+Raises:
+    ValueError: On zero rows, mismatched shapes, or a ``target_names`` length mismatch.
+
+One seed's ``seed_sweep.runs`` entry (pure numpy, design D4).
+
+Uses the same helpers as :func:`build_metrics`, so the primary seed's entry equals the
+top-level ``per_target``, ``config_resolved`` and ``phase_baseline_skill`` values.
+
+Args:
+    seed: The seed this run was trained with.
+    val_configs: The validation configurations that seed carved.
+    y_true: ``(n, n_targets)`` true holdout coefficients.
+    y_pred: ``(n, n_targets)`` this seed's holdout predictions.
+    holdout_df: The holdout rows (carries ``config_name``), aligned with ``y_true``.
+    y_baseline: ``(n, n_targets)`` phase-only baseline predictions, aligned with ``y_true``.
+    target_names: Target column names (defaults to :data:`TARGET_COLUMNS`).
+
+Returns:
+    ``{"seed", "val_configs", "per_target": {name: {skill, r2, rmse, config_mean_r2}}}``.
+
+Assemble the ``seed_sweep`` block: the runs, primary first, and per-target ranges.
+
+Each range is the NaN-aware min/max of a statistic over **all** seeds, the primary
+included; a statistic that is null (NaN or ``None``) for every seed has a ``None`` range.
+With n = 5 seeds, min/max is reported rather than a spread the sample cannot support.
+
+Args:
+    runs: One :func:`build_seed_run` entry per seed.
+    primary_seed: The committed seed; its run is listed first.
+
+Returns:
+    ``{"primary_seed", "seeds", "runs", "range": {name: {stat: {"min", "max"} | None}}}``.
+
+Raises:
+    ValueError: If a seed is repeated or the primary seed has no run.
+
+Recursively replace non-finite floats with ``None`` (NaN R² sentinel -> JSON null).
+
+Write a JSON file with NaN/inf coerced to ``null`` and LF newlines (reproducible).
+
+Assemble the versioned holdout-predictions table for the downstream figure (PR6).
+
+Args:
+    holdout_df: The scored holdout rows (converged beat), carrying the
+        :data:`PREDICTION_ID_COLUMNS`. Row order must align with ``y_true``/``y_pred``.
+    y_true: ``(n, 6)`` true coefficients (physical units).
+    y_pred: ``(n, 6)`` predicted coefficients (physical units, inverse-transformed).
+
+Returns:
+    A frame with ``config_name, time, phase, wingbeat`` plus a ``CF_*_true`` and
+    ``CF_*_pred`` column per target.
+
+Assemble the ``metrics.json`` payload (per-target / aggregate / per-config / + blocks).
+
+Args:
+    y_true: ``(n, n_targets)`` true coefficients (physical units), aligned with ``holdout_df``.
+    y_pred: ``(n, n_targets)`` predictions (physical units).
+    holdout_df: The scored holdout rows (carries ``config_name`` for the per-config split).
+    target_names: Target column names (defaults to :data:`TARGET_COLUMNS`).
+    inference: The inference-timing block (``latency_ms``/``throughput_rows_per_s``/basis).
+    reproducibility: The reproducibility block (seeds, features, ``bitwise`` scope).
+    phase_baseline: ``(predictions, definition)`` from :func:`build_phase_only_baseline`,
+        aligned with ``y_true``. When given, a ``phase_baseline_skill`` block is added.
+
+Returns:
+    ``{"per_target", "aggregate", "per_config", "config_resolved", "inference",
+    "reproducibility"}``, plus ``"phase_baseline_skill"`` when ``phase_baseline`` is given.
+
+Resolved version of an installed distribution, or ``None`` (no import, no GPU needed).
+
+Capture training-run provenance (CC-1): pinned digest, timestamp, seeds, lib versions.
+
+Wraps :func:`capture_surrogate_run_metadata` (which requires a pinned ``sha256:`` digest and
+accepts a caller-supplied timestamp). The seeds, feature list, and resolved
+``torch``/``physicsnemo`` versions are added via ``extra`` (top-level). Versions are read
+from installed-package metadata (no import), so they are ``None`` on the CI tier where the
+``train`` group is absent and populated on the A5000 training host.
+
+Args:
+    docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
+    timestamp: Caller-supplied ISO-8601 timestamp.
+    seeds: The run seeds (``{"global": <primary>, "sweep": [<sweep seeds>]}`` from
+        :func:`run_training`).
+    feature_names: The input feature list.
+    dataset_path: The dataset parquet the run consumed, recorded as ``inputs.file`` /
+        ``inputs.hash`` (sha256) so a committed surrogate names the corpus it came from.
+    dataset_sha256: The sha256 taken when the dataset was read. When given, the recorded
+        ``inputs.hash`` must equal it, so a file rewritten during training is refused
+        rather than recorded as the bytes the model trained on.
+
+Returns:
+    The provenance dict with ``seeds``, ``features``, and ``library_versions`` at top level,
+    and ``inputs`` when ``dataset_path`` is given.
+
+Raises:
+    FileNotFoundError: If ``dataset_path`` is given but is not a regular file (the base
+        capture would otherwise silently record no ``inputs``).
+    RuntimeError: If the dataset's sha256 no longer equals ``dataset_sha256``.
+
+Log a run to Weights & Biases, gated so it never blocks the committed ``metrics.json``.
+
+``mode == "disabled"`` (the CI/rerun default) is a no-op that does **not** import ``wandb``.
+``mode == "online"`` wraps **both** ``import wandb`` and the init/log call in one
+``try/except`` so a missing or unreachable wandb (e.g. no login on a CI runner) is logged and
+swallowed — the committed ``metrics.json`` is written from local state regardless (design D7).
+
+Args:
+    mode: ``"disabled"`` or ``"online"``.
+    project: wandb project name.
+    run_config: Run configuration to attach.
+    metrics: Metrics to log.
+
+Measure single-row latency (ms) and batched throughput (rows/s) for the speedup figure.
+
+On CUDA, kernel launches are asynchronous, so the timed regions are bracketed with
+``torch.cuda.synchronize()`` (otherwise ``perf_counter`` captures only launch overhead).
+Both numbers are **averaged** (latency over ``n_latency`` single-row passes, throughput over
+``n_throughput`` full-batch passes), after an un-timed warm-up, so neither is a one-shot
+measurement subject to scheduler jitter. Tensors are placed on-device once so host->device
+transfer and ``model.to`` are not counted in the inference time.
+
+One seed's fitted model and its holdout predictions (the per-seed seam, design D4).
+
+Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
+
+``run_training`` calls this once per seed; it is module-level so the torch-free tests can
+replace it with a recorder (order and atomicity, design D4).
+
+Train the PhysicsNeMo surrogate end-to-end and emit the four committed artifacts.
+
+Consumes **only** the tidy ``dataset.parquet`` (kinematics + phase + coefficients) — no
+plotfiles, fields, DoMINO, or RL (CC-6). Filters to the converged beat, splits at the
+configuration level (CC-4), standardizes on train rows only, trains the PhysicsNeMo
+regressor, evaluates on the holdout configs, and writes ``metrics.json``, the
+holdout-predictions parquet, the model checkpoint, and ``run_metadata.json`` into ``out_dir``.
+
+Each ``sweep_seeds`` entry is trained after the primary ``seed`` in the same process and
+contributes metrics only (``metrics.json`` ``seed_sweep``); the checkpoint, predictions and
+inference timing are the primary seed's. All four artifacts are written after the last seed
+finishes, so a failure in any seed writes nothing (design D4).
+
+Torch tier: this drives ``build_model``/``train_model``/``predict`` and ``torch.save`` (lazy
+imports), so it runs on the A5000, not CI.
+
+Args:
+    dataset_path: Path to a corpus's ``dataset.parquet`` (coarse or fine).
+    out_dir: Directory to write the four artifacts into.
+    docker_image_digest: Pinned ``sha256:`` digest (sourced from the dataset's
+        ``run_metadata.json``).
+    timestamp: Caller-supplied ISO-8601 timestamp.
+    seed: The primary seed (the committed model).
+    sweep_seeds: Further seeds trained for metrics only (default none).
+    epochs: Training epochs (full-batch).
+    n_val_configs: Validation configurations carved from the train pool.
+    hidden: MLP hidden width.
+    num_layers: MLP hidden layers.
+    lr: Adam learning rate.
+    device: ``"cpu"`` or ``"cuda"``.
+    wandb_mode: ``"disabled"`` (default) or ``"online"``.
+    wandb_project: wandb project name.
+    checkpoint_name: Filename for the saved checkpoint under ``out_dir``.
+
+Returns:
+    A dict of the written artifact paths plus the in-memory ``metrics`` and ``split``.
+
+Raises:
+    ValueError: If a sweep seed equals the primary seed or repeats (before anything is
+        read or written).
+
+Initialize an unfitted standardizer (``mean_``/``scale_`` set by :meth:`fit`).
+
+Fit mean and (zero-floored) std from ``x``; returns self.
+
+Standardize ``x`` with the fitted mean/scale.
+
+Invert :meth:`transform`.
+
+
+
+===== c87e39c:tests/test_wing_kinematics.py (python_prose) =====
+
+peak stroke rate
+
+peak rate at midstroke
+
+Degenerate frequency=0 -> stationary wing, no error.
+
+Independent primitive rotations (hand-written, NOT imported from the module under test).
+
+Wrong composition order must NOT accidentally match.
+
+The legacy (pre-T2a) order is genuinely different for this triple.
+
+ωt = π/2
+
+span-tip arm
+
+Stroke extreme (t = T/4): φ = +70°, α = 0.
+
+New convention: span is along y, tip body vector (0, r, 0).
+
+Horizontal (in-stroke-plane, x) excursion is non-zero: |x| = r*sin(70°).
+
+Old convention: span is along z, tip body vector (0, 0, r); stroke Rz(φ) is about the span.
+
+At the stroke extreme the old span-tip has NO horizontal (x,y) excursion — it sits on the axis.
+
+pure stroke — isolate the stroke's effect on the span-tip
+
+Central finite difference of tip position at t=0 (φ=0, φ̇ = 2π·φ_amp·f_star, maximal).
+
+New tip sweeps horizontally at r·φ̇ = r·2π·φ_amp·f_star (cos(0)=1).
+
+Old span-tip lies ON the stroke (z) axis under pure stroke → Rz(φ) never moves it: ~zero speed.
+
+t = T/4: phi = phi_amp, phi_dot = 0, alpha_dot = -alpha_amp*w about Rz(phi_amp) y.
+
+Cluster-free tests for the Python wing-kinematics mirror (Tier T2a).
+
+Two guards: (1) the mirror's rotation matches the **design-D2 target composition**
+``R = Rz(φ)·Ry(α)·Rx(θ)`` at golden angles and is order-locked (the C++ ``WingKinematics.H`` must
+conform to this — a matching fork-side test closes the loop); (2) the refactored stroke MOTION
+sweeps the span-tip (van Veen's translational sweep), whereas the old stroke-∥-span composition does
+not. Pure numpy — no CFD.
+
+stroke_rate returns the analytic (phi_dot, phi_ddot) of phi(t)=phi_amp*sin(2*pi*f*t).
+
+
+
+
+
+
+
+
+
+φ alone → Rz(φ): stroke rotates about the lab vertical z (golden).
+
+α alone → Ry(α): pitch rotates about the span y (golden).
+
+θ alone → Rx(θ): deviation rotates about the chord x (golden).
+
+Generic θ≠0 triple: equals Rz·Ry·Rx and DIFFERS from the wrong order / the legacy order.
+
+
+
+At the quarter-period midstroke, φ is at amplitude and α (∝cos) is 0.
+
+Exact transcription of ``WingKinematics.H::ComputeRotationMatrix`` (van Veen / T2a).
+
+KEEP IN LOCK-STEP with ``IAMReX-fork/Source/WingKinematics.H``: this is the fork-conformance
+guard (the C++ is not exercised by CI). Any change to the C++ rotation MUST update this.
+
+The C++ ComputeRotationMatrix formula equals the Python mirror (bidirectional drift guard).
+
+The NEW motion displaces the span-tip along the stroke arc; the OLD (stroke-∥-span) does not.
+
+Position check at the stroke EXTREME (φ = +70°, φ̇ = 0, α = 0 — i.e. t = T/4, the turnaround).
+
+VELOCITY-level: the STROKE sweeps the NEW span-tip through the horizontal plane; the OLD
+(stroke-∥-span) stroke leaves the span-tip stationary.
+
+Position displacement alone doesn't prove a *translational sweep* — the load-bearing claim is that
+the tip *translates*. We isolate the stroke's effect with a **pure-stroke** motion (pitch α≡0,
+deviation θ≡0, only `φ = φ_amp·sin(2πt)`) and finite-difference the span-tip position at the
+maximum-stroke-rate phase (t = 0, φ = 0, φ̇ = 2π·φ_amp·f_star). Isolating the stroke avoids the
+pitch confound: at the real coupled kinematics α is maximal exactly when φ̇ is, which would tilt the
+old span-tip off its rotation axis and mask the distinction.
+
+R(t) built from the hand-written primitives above, not from the module under test.
+
+Lab-frame Omega equals the skew part of R_dot R^T (issue #109's work oracle).
+
+Lab axes need ``R_dot R^T``; ``R^T R_dot`` would give body axes. Nonzero stroke, pitch and
+deviation amplitudes so every term, its sign and the composition order are exercised. The
+module's own ``rotation_matrix(*euler_angles(t))`` must equal the independent ``R(t)``, so
+``angular_velocity``'s copy of the angle laws cannot drift from ``euler_angles``'.
+
+Midstroke Omega is pure stroke rate about lab z; at the quarter beat the stroke term vanishes.
+
+
