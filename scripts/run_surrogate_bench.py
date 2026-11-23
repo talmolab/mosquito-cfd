@@ -20,12 +20,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
-import json
 import sys
 from pathlib import Path
 
 import pandas as pd
 
+from mosquito_cfd._json_loader import load_json_clear_error
 from mosquito_cfd.benchmarks.metadata import get_git_info, get_hardware_info
 from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 from mosquito_cfd.force_surrogate.train import DEFAULT_EPOCHS
@@ -105,13 +105,8 @@ def _corpus_record(dataset: Path) -> tuple[Path, dict | None]:
     meta = dataset.resolve().parent / "run_metadata.json"
     if not meta.exists():
         return meta, None
-    try:
-        record = json.loads(meta.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
-        raise ValueError(f"{_shown(meta)} cannot be read as JSON: {exc}") from exc
-    if not isinstance(record, dict):
-        raise ValueError(f"{_shown(meta)} is not a JSON object")
-    return meta, record
+    # The project's labelled loader (#175): every content failure is a ValueError naming it.
+    return meta, load_json_clear_error(meta, label="corpus run_metadata.json")
 
 
 def input_provenance(
@@ -148,7 +143,7 @@ def input_provenance(
     else:
         try:
             _, coarse_record = _corpus_record(coarse)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:  # informational: noted, never fatal
             coarse_record, source = None, str(exc)
         else:
             if coarse_record is None:

@@ -332,8 +332,8 @@ def test_a_fine_record_without_an_image_is_recorded_as_such(driver, tmp_path):
 @pytest.mark.parametrize(
     ("text", "phrase"),
     [
-        ("{not json", "cannot be read"),
-        ("[1]", "not a JSON object"),
+        ("{not json", "not valid JSON"),
+        ("[1]", "not an object"),
         ("{}", "no docker_image"),
     ],
 )
