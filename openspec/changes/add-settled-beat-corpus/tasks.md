@@ -141,7 +141,7 @@ Rules:
   - `controls_incomplete` and a non-zero exit when a declared control is missing;
     `control_failed` when a recorded control failed; `data_incomplete` when a run has no rows;
   - run-record completeness: image digest equal to the manifest's pin, IAMReX label, command,
-    hardware, seconds per step, start SHA, `git_dirty == false`, and the three file hashes;
+    hardware, seconds per step, git-derived provenance (see 6.4), and the gated file hashes;
   - the record writer `scripts/record_settling_run.py` (`settling.build_run_record`, checked by
     `settling.validate_run_record`) produces a
     complete record from a synthetic run directory; C4 uses `metadata_capture`'s realized-timestep
@@ -167,6 +167,22 @@ Rules:
   criterion before the data that judge it exist, and say which data it predates").
 - [ ] 6.3 `/review-pr`, a focused re-review of each fix commit, then `/pre-merge-check` (no
   Copilot review). **HUMAN GATE: approval before pushing.**
+- [x] 6.4 PR-review fixes (tests first, in `tests/test_settling_hardening.py`), each reproduced
+  before it was fixed:
+  - a NaN/inf force now fails C1/C3, and a missing column is a failure, not a crash;
+  - the precedence check compares the set of records with runs **and** controls, and reports
+    malformed JSON by name;
+  - a run must reach its deck's `max_step` (C1 included), and the report requires the declared
+    beats;
+  - provenance is derived from git (`record_settling_run.py launch` / `record`), not typed in;
+  - the report validates every record, accepts only boolean `true` as a pass, and requires each
+    dataset to come from the CSV its record hashes;
+  - `settling.py` is gated, and the decision, tolerance and threshold numbers are pre-registered
+    (12 constants);
+  - the decision's beat and target describe the same beat, and a NaN noise floor stops;
+  - integer `wingbeat` and the first beat's completeness are checked;
+  - orphan decks are flagged; the `.gitignore` tests fail on a git error;
+  - the `project.md` arena unit is corrected to bytes.
 
 ## Stage 1 runs on gh-04 (after PR 1 is merged)
 
@@ -182,8 +198,10 @@ Rules:
 - [ ] 7.4 **HUMAN GATE: go-ahead for the long runs.**
   - Run fine `s35_f085_p30`, `s45_f100_p30`, `s55_f115_p30`, then the three coarse runs, 8 beats
     each, one at a time.
-  - After each run: extract, run C3 and C4, write the record, then `scp` to the share and verify
-    the file count and CSV hash.
+  - Before each run: `scripts/record_settling_run.py launch --run-dir <dir>`. After it:
+    `record --name <run> --run-dir <dir>` (`--field-change` for fine runs), which runs C3 and C4.
+    Then `scp` to the share (layout `<grid>/<config>`), verify the file count and CSV hash, and
+    extract.
   - Stop on any failed control.
 
 ## PR 2 — regeneration tooling (branch `add-settled-beat-corpus-tooling`; written while 7.x runs, **merged only after 13.2 says `regenerate`**)

@@ -29,57 +29,76 @@ Raw runs are not in git. Directories named `runs/` here are ignored.
 ## Where the raw data lives
 
 There is **one copy only**, on the cluster share:
-`Z:\users\eberrigan\mosquito-cfd\examples\settling_check_2026-11\<run>\`.
+`Z:\users\eberrigan\mosquito-cfd\examples\settling_check_2026-11\<grid>\<config>\` for the long
+runs, and `…\<grid>\c1_<config>\` for the C1 controls.
 
-Each run is written on gh-04, copied there with `scp` straight from gh-04, and verified by file
-count and force-CSV SHA-256. It is never staged on the workstation's `C:`.
+- Each run directory is named by its configuration so that `scripts/extract_forces.py`, which
+  reads `<input-dir>/<config>/IB_Particle_1.csv`, works with `--input-dir …\<grid>` unchanged.
+- Each run is written on gh-04 in the same layout, copied with `scp` straight from gh-04, and
+  verified by file count and force-CSV SHA-256. It is never staged on the workstation's `C:`.
 
 Each run directory holds:
 - `IB_Particle_1.csv` and `run.log`;
-- the deck and `wing.vertex`;
-- `command.txt` and `hardware.json`;
+- the deck (named as in the settling manifest's `deck`) and `wing.vertex`;
+- `launch.json`, `command.txt` and `hardware.json`;
 - the plotfiles (20 per beat);
 - the checkpoints (one per beat; not usable for restarts until #205 is fixed).
 
 ## Procedure
 
-Each launch needs the user's explicit go-ahead.
+Each launch needs the user's explicit go-ahead. One run per GPU at a time: every deck reserves a
+12 GiB AMReX arena (`amrex.the_arena_init_size` is in bytes), coarse decks included.
 
-1. **On gh-04.** From a clean checkout of the `main` commit that holds this directory:
+1. **Prepare gh-04.** Use a clean checkout of the `main` commit that holds this directory, then:
    - pull both images by digest;
-   - record their `com.mosquito-cfd.iamrex-commit` labels;
-   - confirm the GPU is idle and the disk has space.
-2. **C1.** Run the two control decks (400 steps each), then record them:
+   - confirm the GPU is idle;
+   - confirm the disk has room (a fine 8-beat run writes about 160 plotfiles).
+2. **Before each run starts**, from the checkout:
    ```bash
-   uv run python scripts/record_settling_run.py --name fine_c1_s55_f115_p30 \
-       --run-dir <run dir> --start-commit "$(git rev-parse HEAD)" \
-       --git-dirty "$( [ -z "$(git status --porcelain)" ] && echo false || echo true )" \
-       --iamrex-commit <label> --command "$(cat <run dir>/command.txt)" \
-       --hardware-json <run dir>/hardware.json
+   uv run python scripts/record_settling_run.py launch --run-dir <run dir>
    ```
+   Then copy the deck into the run directory and start the container. Write the exact
+   `docker run …` command (naming the pinned image digest) to `command.txt` and the GPU and host
+   to `hardware.json`.
+3. **C1.** Run the two control decks (400 steps each), then record each:
+   ```bash
+   uv run python scripts/record_settling_run.py record --name fine_c1_s55_f115_p30 --run-dir <run dir>
+   ```
+   The record step does five things:
+   - derives the git provenance itself (HEAD still the launch commit, an ancestor of
+     `origin/main`, clean at launch and now, gated files unchanged);
+   - reads the image's IAMReX label with `docker image inspect`;
+   - checks the deck hash, the step count and that the command names the pinned image;
+   - runs C1;
+   - refuses to write an invalid record.
+
    C1 also measures seconds per step. Report it and the projected wall time before asking for
    the long runs.
-3. **Long runs.** Run the six long runs one at a time, and record each the same way.
-   - For the fine runs, add `--field-change`.
+4. **Long runs.** Run the six long runs one at a time, and record each the same way.
+   - For the fine runs, add `--field-change` (needs `yt`; it runs after validation).
    - The record runs C3 and C4.
    - A failed control stops the work.
-4. **Extract** each grid's dataset:
+5. **Extract** each grid's dataset:
    ```bash
    uv run python scripts/extract_forces.py --manifest examples/settling_check/<grid>/sweep_manifest.json \
-       --input-dir <runs of that grid> --out examples/settling_check/<grid>/dataset.parquet \
+       --input-dir <the grid's run folder> --out examples/settling_check/<grid>/dataset.parquet \
        --units examples/settling_check/<grid>/dataset.units.json \
        --metadata examples/settling_check/<grid>/run_metadata.json \
        --docker-digest <grid image> --timestamp <ISO-8601>
    ```
-5. **Report and figure:**
+   The report checks that each dataset was extracted from the CSV its record hashes
+   (`run_metadata.json` → `extraction_inputs.csv_sha256`).
+6. **Report and figure:**
    ```bash
    uv run python scripts/check_settling.py --git-commit "$(git rev-parse HEAD)"
    uv run python scripts/make_settling_figure.py --report examples/settling_check/settling_report.json \
        --out-dir examples/settling_check --git-commit "$(git rev-parse HEAD)" --timestamp <ISO-8601>
    ```
-   `check_settling.py` exits non-zero unless every declared record and control is present, has
-   passed, and every run has data.
-6. **Decide.** Write `DECISION.md` from the report.
+   `check_settling.py` exits non-zero unless the status is `complete`:
+   - every declared record is present and valid, and every control passed;
+   - the precedence check passes;
+   - every run has its declared beats and was extracted from its recorded CSV.
+7. **Decide.** Write `DECISION.md` from the report.
 
 ## Schemas
 
@@ -106,20 +125,22 @@ Long runs also have `n_wingbeats` and `controls` (`["C3", "C4"]`). C1 entries al
 | key | meaning |
 |---|---|
 | `run`, `grid`, `config`, `kind` | identity (from the settling manifest) |
-| `start_commit`, `git_dirty` | the `main` commit the run started from, and the checkout state (must be `false`) |
-| `file_sha256` | SHA-256 of `PREREGISTRATION.md`, `generate_decks.py` (both gated) and `settling.py` (reported) |
-| `image`, `iamrex_commit` | the digest-pinned image and its IAMReX label |
-| `command`, `hardware` | the exact container command, and the GPU and host |
-| `wall_time_s`, `steps`, `seconds_per_step` | timing (from `run.log`'s run-time line and the de-duplicated CSV) |
+| `provenance` | derived from git: `start_commit` (from `launch.json`), `head_commit`, `upstream_ref`, `ancestor_of_upstream`, `dirty_at_launch`, `dirty_at_record`, `file_sha256` (each gated file at the start commit), `working_tree_matches_commit` |
+| `file_sha256` | the gated files' hashes (`PREREGISTRATION.md`, `generate_decks.py`, `settling.py`), as in `provenance` |
+| `image`, `iamrex_commit` | the manifest's digest-pinned image, and its IAMReX label from `docker image inspect` |
+| `command`, `deck_sha256` | the exact container command (must name the image), and the hash of the deck in the run directory (must be the committed deck) |
+| `hardware` | the GPU and host |
+| `wall_time_s`, `steps`, `seconds_per_step` | timing: the single run-time line in `run.log`, and the de-duplicated CSV row count (must equal the deck's `max_step`) |
 | `force_csv_sha256`, `run_log_sha256` | hashes of the raw files kept on the share |
-| `controls` | `C1`, or `C3` and `C4`: each has `passed`, plus the comparison counts and failures (C1, C3) or the realized-timestep summary (C4) |
-| `field_change` | optional (fine long runs): `beats` → per-frame median and fraction above 0.1 of the vector-difference change against the last beat; `plotfile_header_sha256` |
+| `controls` | `C1`, or `C3` and `C4`: each has a boolean `passed`, plus the comparison counts and failures (C1, C3) or the realized-timestep summary (C4) |
+| `field_change` | optional (fine long runs): `beats` → per-frame median, and fraction above `FIELD_CHANGE_THRESHOLD`, of the vector-difference change against the last beat; `plotfile_header_sha256` (each plotfile's `Header`) |
 
 ### `settling_report.json`
 
 Top-level keys:
-- `status`: `complete`, `controls_incomplete`, `control_failed` or `data_incomplete`, with lists
-  `missing`, `failed` and `data_missing`;
+- `status`: `complete`, `controls_incomplete`, `control_failed`, `precedence_failed` or
+  `data_incomplete`, with lists `missing`, `failed`, `precedence` and `data_missing`;
+- `field_change_missing`: fine runs without a field change (reported only);
 - `constants`, `preregistration_sha256`, `git_commit`;
 - `settling_py_sha256` and `settling_py_matches_records`;
 - `controls`, `runs`, `decision`.
@@ -127,10 +148,11 @@ Top-level keys:
 Each run in `runs` has:
 - `b_last`, `incomplete_beats`, `n_star`, `passes`;
 - `contracting`, `max_noise`, `noise_target`, `binding_beat`, `binding_target`;
-- `mean_cf_z` and `field_change`;
+- `mean_cf_z`, `mean_cf_z_drift` (change from the previous beat) and `field_change`;
 - `targets`, which for each coefficient holds `steps`, `steps_max_abs`, `distances`,
   `distances_max_abs`, `estimate`, `jitter`, `noise_floor`, `tail`, `rho`, `contracting`,
   `ratios` and `skipped`.
 
 Beats are string keys. An infinite value (`tail` of a non-contracting target) is written as
-`null`.
+`null`. The decision's `beat` and `target` describe the same beat: for `N*`, the beat below `N*`
+that failed and its worst coefficient.

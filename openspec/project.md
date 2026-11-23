@@ -255,9 +255,12 @@ docker run --rm --gpus all `
   bash /workspace/<run_script>.sh 2>&1 | tee examples/flapping_wing/sim-<label>.log
 ```
 
-**A5000 arena cap** — always pass `amrex.the_arena_init_size=18` (value is in GiB).
-AMReX defaults to ¾ × VRAM = 18 GiB on a 24 GB card, but set it explicitly so a
-future AMReX version can't silently change the default. A40 (40 GB) uses 28.
+**A5000 arena cap** — the value of `amrex.the_arena_init_size` is in **bytes** (AMReX reads it as
+a `Long`; `AMReX_Arena.cpp:419` in the pinned image). Pass `amrex.the_arena_init_size=12884901888`
+(12 GiB): AMReX's default is ¾ × VRAM, about 18 GiB on a 24 GB card, which has run out of memory
+here, and the fine runs' observed high-water is about 8 GB. An earlier note said "18 (value is in
+GiB)", and A40 runs used "28". Those values were 18 and 28 bytes, so they set no real
+preallocation.
 
 **CFL mechanism (corrected) and the `ns.cfl` fix** — `ns.fixed_dt` is a **ceiling**, not an
 enforced value: `NavierStokesBase.cpp`'s `estTimeStep()` returns `factor*fixed_dt` early

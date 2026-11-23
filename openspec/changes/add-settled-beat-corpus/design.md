@@ -202,22 +202,31 @@ likely outcomes are `regenerate_needs_cost_approval` with `N*` of 7–8, or `sto
 **Precedence proof.** It is squash-safe and attested, not proven by CI.
 
 - **The constants block.** `PREREGISTRATION.md` holds the constants in an anchored block.
-- **What each run records.** Each gh-04 run starts from a clean checkout of a `main` SHA that is
-  an ancestor of `origin/main`. The run record stores that SHA and the SHA-256 of
-  `PREREGISTRATION.md`, `settling.py` and `generate_decks.py`.
+- **What each run records.** It is derived from git, not typed in (a PR-review finding: an
+  operator-supplied commit and dirty flag attest nothing).
+  - `record_settling_run.py launch` writes HEAD and `git status --porcelain` into the run
+    directory just before the container starts.
+  - `record` checks that HEAD is still that commit, that it is an ancestor of `origin/main`, that
+    the checkout was and is clean (Stage 1 records excepted), and that every gated file equals
+    its bytes at that commit.
+  - The record stores those facts and the gated files' SHA-256 at the commit. The gated files are
+    `PREREGISTRATION.md`, `generate_decks.py` and `settling.py`; the analysis is gated because the
+    verdict is recomputed with the current code.
 - **What CI checks** (from PR 1 on):
-  - the committed `PREREGISTRATION.md` and `generate_decks.py` hash to the recorded values, or a
-    `deviations.json` entry `{file, old_sha256, new_sha256, reason, pr}` explains the difference;
-  - once `DECISION.md` or `settling_report.json` exists, the number of run records equals the
-    number of runs declared in the settling manifest and is greater than zero.
+  - every gated file hashes to the recorded values, or a `deviations.json` entry
+    `{file, old_sha256, new_sha256, reason, pr}` explains the difference;
+  - once `DECISION.md` or `settling_report.json` exists, the set of records equals the set of
+    runs **and controls** the settling manifest declares, with none missing and none stray.
+    (A count of runs alone would have failed permanently: the C1 controls write records too.)
 
   No test reads git history; CI checkouts are shallow.
 - **What it does not prove.** The criterion predates the **fine-grid** and 8-beat data. It was
   tuned with the E0b coarse 6-beat data in view, and that data is also a test fixture.
   `PREREGISTRATION.md` says so.
 - **Recomputation.** `check_settling.py` recomputes every force-derived number from the committed
-  datasets with the current code. It also reports whether `settling.py` differs from the hash
-  recorded at run time.
+  datasets with the current code, validates every record, and requires each dataset to have been
+  extracted from the CSV its record hashes. A changed `settling.py` fails the precedence check
+  unless a deviation is recorded.
 
 ## D4. Stage 1 runs and controls
 
