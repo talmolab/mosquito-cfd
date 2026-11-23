@@ -70,9 +70,6 @@ def _legend_order(runs: dict[str, Any]) -> list[tuple[str, Any]]:
 
 def render(report: dict[str, Any]):
     """Draw the figure; returns the matplotlib ``Figure``."""
-    import matplotlib
-
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     metrics = figure_metrics(report)

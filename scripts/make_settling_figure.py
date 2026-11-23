@@ -25,6 +25,8 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import matplotlib
+
 from mosquito_cfd.force_surrogate import settling_figure
 
 REPO = Path(__file__).resolve().parents[1]
@@ -48,6 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--timestamp", required=True, help="Caller-supplied ISO-8601 time."
     )
     args = parser.parse_args(argv)
+    matplotlib.use("Agg")  # headless: the driver only writes files
 
     report_bytes = args.report.read_bytes()
     report = json.loads(report_bytes)

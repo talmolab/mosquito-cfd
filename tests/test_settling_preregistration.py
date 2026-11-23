@@ -36,14 +36,8 @@ LIVE_SPEC = REPO / "openspec" / "specs" / "force-surrogate" / "spec.md"
 
 def test_preregistered_constants_equal_the_module():
     declared = read_preregistered_constants(PREREG)
-    assert set(declared) == {
-        "SETTLED_TOLERANCE",
-        "COMPLETE_FRACTION",
-        "MIN_BEATS",
-        "FIRST_RATIO_BEAT",
-        "NOISE_FACTOR",
-        "MAX_NOISE",
-    }
+    assert set(declared) == set(settling.PREREGISTERED_NAMES)
+    assert len(settling.PREREGISTERED_NAMES) == 12
     assert constants_mismatches(declared) == []
 
 
@@ -201,7 +195,9 @@ def test_decision_or_report_without_records_fails(tmp_path, artifact):
     root, settling_dir = _tree(tmp_path)
     (settling_dir / artifact).write_text("{}\n", encoding="utf-8")
     failures = check_precedence(settling_dir, repo_root=root)
-    assert failures and "0 run record" in failures[0] and "2" in failures[0]
+    assert len(failures) == 2
+    assert all("has no run record" in f for f in failures)
+    assert any("run0" in f for f in failures) and any("run1" in f for f in failures)
 
 
 def test_decision_with_too_few_records_fails(tmp_path):

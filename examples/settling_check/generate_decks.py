@@ -243,6 +243,20 @@ def generate(repo: Path, out_dir: Path) -> dict[str, bytes]:
     return files
 
 
+def find_orphans(root: Path, files: dict[str, bytes]) -> list[str]:
+    """Files in the generated deck folders under ``root`` that ``build`` no longer produces.
+
+    A renamed or dropped configuration would otherwise leave a stale deck behind.
+    """
+    return sorted(
+        path.relative_to(root).as_posix()
+        for grid in ("coarse", "fine")
+        for folder in ("inputs", "controls")
+        for path in (root / grid / folder).glob("*")
+        if path.is_file() and path.relative_to(root).as_posix() not in files
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Write the decks, or with ``--check`` compare them with the committed files."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -253,14 +267,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.check:
         generate(REPO, HERE)
         return 0
+    files = build(REPO)
     stale = [
         rel
-        for rel, data in build(REPO).items()
+        for rel, data in files.items()
         if not (HERE / rel).exists() or (HERE / rel).read_bytes() != data
     ]
+    orphans = find_orphans(HERE, files)
     for rel in stale:
         print(f"stale or missing: examples/settling_check/{rel}")
-    return 1 if stale else 0
+    for rel in orphans:
+        print(f"not generated (orphan): examples/settling_check/{rel}")
+    return 1 if stale or orphans else 0
 
 
 if __name__ == "__main__":

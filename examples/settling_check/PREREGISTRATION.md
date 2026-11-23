@@ -44,9 +44,9 @@ these keys:
 
 For one run, and each coefficient `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`:
 
-1. **Clamped steps.** Rows whose step would end past `stop_time` (`time + dt > stop_time + 1e-9`)
+1. **Clamped steps.** Rows whose step would end past `stop_time` (`time + dt > stop_time + CLAMP_SLACK`, 1e-9)
    are dropped. At `f* = 0.85` the solver shortens its final step to land on `stop_time`, and that
-   row carries a force spike of up to 10% of peak.
+   row carries a force spike of about 10% of peak (up to 10.4% in the committed corpora).
 2. **Beats.** Beat `b` (1-based) is the rows with `wingbeat == b − 1`, using the extractor's
    `wingbeat` and `phase` as given.
    - A beat is complete when it has at least `COMPLETE_FRACTION / (f*·dt)` rows.
@@ -78,8 +78,8 @@ For one run, and each coefficient `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`:
    - `T = s_B · ρ / (1 − ρ)` in general. This is the sum of the remaining steps if they keep
      shrinking by `ρ`. RMS is a norm, so `‖w_B − w_∞‖ ≤ Σ_{k>B} s_k`.
    - `T` is infinite when the run is not contracting.
-   - When every ratio was skipped, `T = 24 · max s_b` over the ratio beats. That is `ρ/(1 − ρ)` at
-     `ρ = 0.96`.
+   - When every ratio was skipped, `T = AT_FLOOR_FACTOR · max s_b` over the ratio beats.
+     `AT_FLOOR_FACTOR = 24` is `ρ/(1 − ρ)` at `ρ = 0.96`.
 9. **Estimate.** `E_b = D_b + T`.
 
 The largest absolute difference over samples is reported beside every RMS value, but it does not
@@ -98,8 +98,8 @@ beat count is `N* = max N*_run` over the six runs, used for both grids, with no 
 
 | outcome | action |
 |---|---|
-| any run has no `N*_run`, is not contracting on its full length, or has `ν > MAX_NOISE` for a coefficient | `stop`: no regeneration; the result goes to the user |
-| otherwise, `N* > 6` | `regenerate_needs_cost_approval` |
+| any run has no `N*_run`, is not contracting on its full length, or has `ν > MAX_NOISE` (or a non-finite `ν`) for a coefficient | `stop`: no regeneration; the result goes to the user |
+| otherwise, `N* > COST_APPROVAL_ABOVE` (6) | `regenerate_needs_cost_approval` |
 | otherwise | `regenerate` |
 
 `stop` takes precedence, then cost approval.
@@ -111,21 +111,32 @@ Each control records its result in the run's record. A report with a declared co
 
 | id | runs | check |
 |---|---|---|
-| C1 | `s55_f115_p30`, once per grid | The first 400 steps of the unmodified corpus deck reproduce that configuration's rows of the committed `dataset.parquet`. |
+| C1 | `s55_f115_p30`, once per grid | The corpus deck with only `max_step = 400` and the arena size changed runs exactly 400 steps, and they reproduce that configuration's rows of the committed `dataset.parquet`. |
 | C3 | every long run | Its first two beats reproduce the committed `dataset.parquet` rows. The reference's own clamped final row is excluded. |
 | C4 | every long run | No interior step falls below the nominal `ns.fixed_dt`, over all 8 beats. Clamped final steps are excluded. |
 
 **Coverage rule for C1 and C3.**
 - The run's force rows first go through the extractor's de-duplication. That removes the extra
   `iStep == 0` rows written by `ns.init_iter = 2`; any other duplicate is a failure.
-- Rows are then matched by time. Every run row must match exactly one reference row, every
-  reference row up to the run's last time must be matched, and the run must reach its declared
-  step count.
+- Rows whose step ends past each side's `stop_time` are dropped. The remaining rows are matched
+  by step index `round(time / dt)`.
+- The comparison covers steps `0 .. n − 1`:
+  - for C1, `n` is the control deck's `max_step` (400);
+  - for C3, `n` is the number of reference rows left after the reference's clamped row is dropped.
+- Each of those steps must appear exactly once in both the run and the reference. Rows of a long
+  run after step `n − 1` are not compared.
 
-**Tolerance for C1 and C3.** Each value must agree to within
-`max(1e-9 · max |column|, 1.5 units in the 6th significant figure of the reference value)`. The
-CSV prints 6 significant figures, so this means "bit-identical output, allowing a flip of the last
-printed digit". For an exact zero the second term is 0.
+**Tolerance for C1 and C3.** Every value must be finite and agree to within
+`max(COMPARE_RELATIVE_TO_COLUMN · max |column|, COMPARE_PRINT_UNITS · one unit in the 6th
+significant figure of the reference value)`, that is `max(1e-9 · max |column|, 1.5 units)`.
+- The CSV prints 6 significant figures, so this means "bit-identical output, allowing a flip of
+  the last printed digit".
+- The extra half unit absorbs floating-point error in the subtraction.
+- For an exact zero the second term is 0.
+- A NaN or inf on either side fails.
+
+**Run length.** Every run must reach its deck's end: its de-duplicated force CSV has exactly
+`max_step` rows (C1 included), and the long runs' datasets have `n_wingbeats` complete beats.
 
 A failed control stops the work and is reported to the user.
 
@@ -135,11 +146,13 @@ restarts.
 ## Reported, not part of the decision
 
 - **Near-wing field change.** For the fine runs, for each beat `b` and each of the 20 frames: the
-  median, and the fraction above 0.1, of `|u_b − u_B| / u_ref`.
+  median, and the fraction above `FIELD_CHANGE_THRESHOLD` (0.1), of `|u_b − u_B| / u_ref`.
   - `|·|` is the norm of the vector difference.
   - The region is the box from `(1, 0, 2.5)` to `(7, 4, 5.5)`.
   - `u_ref` is the reference speed `2π f*·φ_amp·r_gyr` used for the force coefficients.
-  - The values are reported together with the plotfile hashes.
+  - Matched frames of two beats can be up to one step apart in phase (about 0.3% of `u_ref` in
+    the change), which is negligible against the threshold.
+  - The values are reported together with the SHA-256 of each plotfile's `Header`.
 - **Mean CF_z per beat**, and its drift per beat.
 
 ## Known limitations
@@ -161,17 +174,34 @@ restarts.
 
 ## Precedence
 
-Each run starts from a clean checkout of a `main` commit that is an ancestor of `origin/main`. Its
-record stores that commit and the SHA-256 of:
+Each run starts from a clean checkout of a `main` commit that is an ancestor of `origin/main`.
+This is derived from git, not typed in by the operator:
+- just before the container starts, `scripts/record_settling_run.py launch` writes the
+  checkout's HEAD and `git status --porcelain` into the run directory;
+- when the record is written, the script checks four things:
+  - HEAD is still that commit;
+  - the commit is an ancestor of `origin/main`;
+  - the checkout was and is clean (Stage 1 records under `records/` excepted);
+  - each gated file equals its bytes at that commit.
+
+The record stores the commit and the SHA-256 (at that commit, from `git show`) of the gated
+files:
 - this file;
-- `src/mosquito_cfd/force_surrogate/settling.py`;
-- `examples/settling_check/generate_decks.py`.
+- `examples/settling_check/generate_decks.py`;
+- `src/mosquito_cfd/force_surrogate/settling.py`.
 
-A CI test fails if this file or the deck generator differs from the recorded hash, unless a
-`deviations.json` entry (`file`, `old_sha256`, `new_sha256`, `reason`, `pr`) explains the change.
+`settling.py` is gated because the verdict is recomputed with the current code: changing the
+analysis after seeing the data is a deviation, like changing the criterion.
 
-This attests that the criterion was fixed before the fine-grid data existed. It is not a
-cryptographic proof.
+A CI test fails if any gated file differs from the recorded hash, unless a `deviations.json`
+entry (`file`, `old_sha256`, `new_sha256`, `reason`, `pr`) explains the change. The record also
+stores three things observed at run time:
+- the hash of the deck in the run directory, which must be the committed deck;
+- the exact container command, which must name the pinned image;
+- the image's IAMReX label, from `docker image inspect`.
+
+This attests that the criterion and the analysis were fixed before the fine-grid data existed.
+It is not a cryptographic proof.
 
 ## Constants
 
@@ -183,5 +213,11 @@ MIN_BEATS = 5
 FIRST_RATIO_BEAT = 4
 NOISE_FACTOR = 3
 MAX_NOISE = 0.0006
+AT_FLOOR_FACTOR = 24
+CLAMP_SLACK = 1e-9
+COST_APPROVAL_ABOVE = 6
+COMPARE_RELATIVE_TO_COLUMN = 1e-9
+COMPARE_PRINT_UNITS = 1.5
+FIELD_CHANGE_THRESHOLD = 0.1
 ```
 <!-- settling-constants:end -->

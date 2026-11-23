@@ -8,14 +8,18 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
 - **Beats.** Beat `b` is 1-based and is the rows with `wingbeat == b − 1`. The extractor's
   `wingbeat` and `phase` columns SHALL be used as given, never recomputed. The timestep `dt` and
   `stop_time` SHALL be passed in, taken from the manifest.
-- **Clamped steps.** Rows with `time + dt > stop_time + 1e-9` SHALL be dropped before beats are
+- **Clamped steps.** Rows with `time + dt > stop_time + CLAMP_SLACK` SHALL be dropped before beats are
   formed. Those are steps the solver shortened to land on `stop_time`.
 - **Constants.** These SHALL be module constants: `SETTLED_TOLERANCE = 0.01`,
   `COMPLETE_FRACTION = 0.95`, `MIN_BEATS = 5`, `FIRST_RATIO_BEAT = 4`, `NOISE_FACTOR = 3` and
-  `MAX_NOISE = 0.0006`.
+  `MAX_NOISE = 0.0006`, together with the decision and control constants
+  `AT_FLOOR_FACTOR = 24`, `CLAMP_SLACK = 1e-9`, `COST_APPROVAL_ABOVE = 6`,
+  `COMPARE_RELATIVE_TO_COLUMN = 1e-9`, `COMPARE_PRINT_UNITS = 1.5` and
+  `FIELD_CHANGE_THRESHOLD = 0.1`.
 - **Complete beats.** A beat is complete when it has at least
   `COMPLETE_FRACTION / (frequency_fstar · dt)` rows. `B` is the number of the last complete beat.
 - **Errors.** Each of these SHALL raise `ValueError` naming the configuration and the cause:
+  - an incomplete first beat, or a `wingbeat` value that is not a finite integer;
   - an incomplete beat before `B`;
   - a duplicate or non-increasing `phase` within a beat;
   - a missing column, a non-finite value or a zero peak;
@@ -35,7 +39,7 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
   `ρ ≥ 1` means not contracting.
 - **Tail bound `T`.**
   - `T` is infinite when the run is not contracting.
-  - When every ratio was skipped, `T = 24 · max s_b` over the ratio beats.
+  - When every ratio was skipped, `T = AT_FLOOR_FACTOR · max s_b` over the ratio beats.
   - Otherwise `T = s_B · ρ / (1 − ρ)`.
 - **Estimated distance.** `E_b = D_b + T`.
 - **Reporting.** The maximum absolute difference over samples SHALL be reported beside every RMS
@@ -121,11 +125,11 @@ hold only when, for every target:
 
 The action SHALL be one of these, in this order of precedence:
 - `stop`, when any run has no `N*_run`, any run is not contracting on its full length, or any
-  target has `ν > MAX_NOISE`;
-- `regenerate_needs_cost_approval`, when `N* > 6`;
+  target has a `ν` that is not at most `MAX_NOISE` (a NaN stops);
+- `regenerate_needs_cost_approval`, when `N* > COST_APPROVAL_ABOVE`;
 - otherwise `regenerate`.
 
-The result SHALL name the run, beat and target that set `N*` or caused `stop`. No margin SHALL be
+The result SHALL name the run, beat and target that set `N*` or caused `stop`; for `N*`, the beat is the one below `N*` that failed and the target is the worst there. No margin SHALL be
 added to `N*`.
 
 #### Scenario: The slowest run sets the count
@@ -169,17 +173,31 @@ from that block, or when the block is missing. The file SHALL be merged to `main
 settling run starts, and SHALL state that the criterion predates the fine-grid and 8-beat data
 only.
 
-Every settling run record SHALL carry:
-- the `main` commit the run was started from, which SHALL be an ancestor of `origin/main` with a
-  clean working tree;
-- the SHA-256 of `PREREGISTRATION.md`, `settling.py` and the deck generator at that commit.
+The gated files are `PREREGISTRATION.md`, the deck generator and `settling.py`.
 
-For every committed run record, a test SHALL fail unless the committed `PREREGISTRATION.md` and
-deck generator hash to the recorded values, or an entry in a committed `deviations.json`
-(`file`, `old_sha256`, `new_sha256`, `reason`, `pr`) accounts for the difference.
+Every settling run record SHALL carry git provenance derived by `settling.git_provenance`, never
+typed in by the operator:
+- the launch commit and `git status --porcelain`, written to the run directory just before the
+  run starts;
+- HEAD at record time;
+- whether the launch commit is an ancestor of `origin/main`;
+- whether the checkout was dirty at launch and is dirty at record time, ignoring Stage 1
+  records under `examples/settling_check/records/`;
+- the SHA-256 of each gated file at the launch commit (from `git show`), and whether the
+  working tree still matches it.
 
-When a decision or settling report is committed, a test SHALL fail unless the number of run
-records equals the number of runs declared in the settling manifest and is greater than zero.
+A record SHALL be refused unless HEAD equals the launch commit, the launch commit is an
+ancestor of `origin/main`, the checkout was and is clean, and every gated file matches the
+launch commit.
+
+For every committed run record, a test SHALL fail unless every gated file hashes to the recorded
+value, or an entry in a committed `deviations.json` (`file`, `old_sha256`, `new_sha256`,
+`reason`, `pr`) accounts for the difference. Malformed JSON SHALL be a named failure, not an
+exception.
+
+When a decision or settling report is committed, a test SHALL fail unless the set of run
+records equals the set of runs and controls the settling manifest declares, with none missing
+and none stray.
 
 No such test SHALL read git history.
 
@@ -199,7 +217,22 @@ No such test SHALL read git history.
 
 - **Given** a committed `DECISION.md` and no run records
 - **When** the precedence check runs
-- **Then** it fails, naming the expected number of records
+- **Then** it fails, naming each run and control that has no record
+
+#### Scenario: Control records count, and stray records fail
+
+- **Given** a manifest with long runs and C1 controls, and a record for each
+- **When** the precedence check runs
+- **Then** it passes
+- **And** with one control record removed and a record for an undeclared name added, it fails
+  naming both
+
+#### Scenario: A gated file edited after launch blocks the record
+
+- **Given** a run launched from a clean commit
+- **When** a gated file is edited before the record is written
+- **Then** `git_provenance` reports the working tree no longer matches the launch commit, and
+  the record is refused
 
 ### Requirement: Settling-check decks differ from the corpus decks by a declared key set
 
@@ -232,10 +265,23 @@ and grid, parsed with `metadata_capture.parse_deck`.
 - the result of every control the settling manifest declares for that run;
 - the decision.
 
+Every record SHALL be checked with `settling.validate_run_record`, which requires:
+- clean provenance (see the pre-registration requirement);
+- the manifest's digest-pinned image, named in the recorded container command;
+- the SHA-256 of the deck in the run directory equal to the committed settling deck;
+- a step count equal to the deck's `max_step`, so a run that stopped early fails;
+- non-empty hardware and IAMReX label, positive timing, and a boolean result for every
+  declared control.
+
+A control counts as passed only when its result is the boolean `true`.
+
 The report's `status` SHALL be one of:
-- `controls_incomplete`, when any declared control has no recorded result;
-- otherwise `control_failed`, when a recorded control failed;
-- otherwise `data_incomplete`, when a run has no dataset rows;
+- `controls_incomplete`, when a declared record or control result is missing;
+- otherwise `control_failed`, when a record is invalid or a control did not pass;
+- otherwise `precedence_failed`, when the precedence check fails;
+- otherwise `data_incomplete`, when a run has no dataset rows, fewer complete beats than the
+  manifest declares, or a dataset whose extraction metadata does not name the CSV its record
+  hashes;
 - otherwise `complete`.
 
 The script SHALL exit non-zero unless the status is `complete`.
@@ -254,12 +300,14 @@ Each of those steps SHALL appear exactly once in both the run and the reference.
 duplicate step on either side fails, so a gapped or truncated run cannot pass. Run rows after
 step `n − 1` (a long run continuing past its 2-beat reference) are not compared.
 
-It SHALL pass only when every raw `Fx..Mz` value is within
-`max(1e-9 · max |column|, 1.5 units in the 6th significant figure of the reference value)`. The
-column maximum is taken over the matched reference rows. For a reference value of exactly 0 the
-second term is 0.
+It SHALL pass only when every raw `Fx..Mz` value is finite on both sides and within
+`max(COMPARE_RELATIVE_TO_COLUMN · max |column|, COMPARE_PRINT_UNITS units in the 6th
+significant figure of the reference value)`. The column maximum is taken over the matched
+reference rows. For a reference value of exactly 0 the second term is 0. A NaN or inf on either
+side fails, and a missing column is a failure, not an exception.
 
-The field change is the median, and the fraction above 0.1, of `|u_b − u_B| / u_ref` (the vector
+The field change is the median, and the fraction above `FIELD_CHANGE_THRESHOLD`, of
+`|u_b − u_B| / u_ref` (the vector
 difference norm) over the near-wing box, with `u_ref` from `compute_force_reference`. The field
 change and the mean-lift drift SHALL be reported and SHALL NOT enter the decision.
 
@@ -282,6 +330,18 @@ change and the mean-lift drift SHALL be reported and SHALL NOT enter the decisio
 - **Given** a 400-step run whose rows stop at step 380
 - **When** it is compared with the reference rows for a declared step count of 400
 - **Then** the comparison fails, naming the first missing step
+
+#### Scenario: A non-finite force fails the comparison
+
+- **Given** a run CSV with `nan`, `-nan` or `inf` in one row of `Fz`, otherwise identical
+- **When** it is compared with the committed rows
+- **Then** the comparison fails and names `Fz`
+
+#### Scenario: A run that stopped early is not a valid record
+
+- **Given** a long run whose force CSV ends after 5 of its declared 8 beats
+- **When** its record is validated
+- **Then** validation fails, naming `steps` and the declared `max_step`
 
 #### Scenario: Init-iteration duplicates do not fail the comparison
 

@@ -83,6 +83,16 @@ def test_driver_check_mode_passes_on_the_committed_tree():
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_orphan_decks_are_found(tmp_path):
+    driver = _driver()
+    files = driver.generate(REPO, tmp_path)
+    assert driver.find_orphans(tmp_path, files) == []
+    (tmp_path / "fine" / "inputs" / "inputs.3d.s45_f100_p45").write_text("old deck\n")
+    assert driver.find_orphans(tmp_path, files) == [
+        "fine/inputs/inputs.3d.s45_f100_p45"
+    ]
+
+
 def test_six_long_runs_and_two_c1_decks_are_declared():
     m = _manifest()
     assert m["n_wingbeats"] == 8
@@ -217,6 +227,8 @@ def _ignored(path: str) -> bool:
     proc = subprocess.run(
         ["git", "check-ignore", "-q", "--no-index", path], cwd=REPO, capture_output=True
     )
+    # 0 = ignored, 1 = not ignored; anything else is a git error, never "not ignored".
+    assert proc.returncode in (0, 1), proc.stderr
     return proc.returncode == 0
 
 

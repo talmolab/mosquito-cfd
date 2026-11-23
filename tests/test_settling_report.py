@@ -23,6 +23,7 @@ from mosquito_cfd.force_surrogate.settling import (
     build_settling_report,
     field_change_for_run,
     frame_index,
+    git_provenance,
     validate_run_record,
 )
 
@@ -104,7 +105,9 @@ def _tree(tmp_path: Path, *, ratio: float = 0.2) -> dict:
     corpus = repo / "examples" / "corpus"
     for rel in (*GATED_FILES, SETTLING_PY):
         (repo / rel).parent.mkdir(parents=True, exist_ok=True)
-        (repo / rel).write_text(f"# {rel}\n", encoding="utf-8")
+        # Exact LF bytes: the real gated files are LF-pinned by .gitattributes, and git show
+        # must hash the same bytes as the working tree on every platform.
+        (repo / rel).write_bytes(f"# {rel}\n".encode())
     corpus.mkdir(parents=True)
     ref_steps = 4000
     steps = np.arange(ref_steps)
@@ -155,6 +158,10 @@ def _tree(tmp_path: Path, *, ratio: float = 0.2) -> dict:
             }
         ],
     }
+    deck_bytes = b"# settling deck\n"
+    for entry in [*manifest["runs"], *manifest["controls"]]:
+        entry["deck"] = f"fine/inputs/inputs.3d.{entry['name']}"
+        entry["deck_sha256"] = hashlib.sha256(deck_bytes).hexdigest()
     settling_dir.mkdir(parents=True, exist_ok=True)
     (settling_dir / "settling_manifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
@@ -169,23 +176,67 @@ def _tree(tmp_path: Path, *, ratio: float = 0.2) -> dict:
     c1_dir = tmp_path / "runs" / "fine_c1_cfg"
     _write_csv(c1_dir / "IB_Particle_1.csv", 400)
     _write_log(c1_dir / "run.log", 400)
+    for entry, run_dir in (
+        (manifest["runs"][0], long_dir),
+        (manifest["controls"][0], c1_dir),
+    ):
+        (run_dir / Path(entry["deck"]).name).write_bytes(deck_bytes)
+        (run_dir / "command.txt").write_text(
+            f"docker run --gpus all {IMAGE} mpirun ...\n", encoding="utf-8"
+        )
+    # The grid's extraction metadata, as scripts/extract_forces.py writes it.
+    csv_sha = hashlib.sha256((long_dir / "IB_Particle_1.csv").read_bytes()).hexdigest()
+    (settling_dir / "fine" / "run_metadata.json").write_text(
+        json.dumps({"extraction_inputs": {"csv_sha256": {"cfg": csv_sha}}}),
+        encoding="utf-8",
+    )
+    commit = _init_git(repo)
     return {
         "repo": repo,
         "settling_dir": settling_dir,
         "long": long_dir,
         "c1": c1_dir,
         "manifest": manifest,
+        "commit": commit,
     }
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _init_git(repo: Path) -> str:
+    """Make the tree a git repo whose HEAD is also the 'upstream' branch; return HEAD."""
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "core.autocrlf", "false")
+    _git(repo, "add", "-A")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init")
+    _git(repo, "branch", "upstream")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _provenance(
+    t: dict, *, start_commit: str | None = None, launch_status: str = ""
+) -> dict:
+    launch = {
+        "start_commit": start_commit or t["commit"],
+        "git_status_porcelain": launch_status,
+    }
+    return git_provenance(t["repo"], launch=launch, upstream_ref="upstream")
 
 
 def _record(t: dict, name: str, run_dir: Path, **overrides) -> dict:
     kwargs = dict(
         settling_dir=t["settling_dir"],
         repo_root=t["repo"],
-        start_commit=COMMIT,
-        git_dirty=False,
+        provenance=_provenance(t),
         iamrex_commit="f93dc794",
-        command="docker run ...",
         hardware={"gpu_model": "NVIDIA RTX A5000"},
     )
     kwargs.update(overrides)
@@ -210,8 +261,10 @@ def test_long_run_record_carries_c3_c4_and_provenance(tmp_path):
     assert record["wall_time_s"] == 1234.5
     assert record["steps"] == 16000
     assert record["seconds_per_step"] == pytest.approx(1234.5 / 16000)
-    assert record["start_commit"] == COMMIT and record["git_dirty"] is False
-    assert record["image"] == IMAGE
+    prov = record["provenance"]
+    assert prov["start_commit"] == t["commit"] == prov["head_commit"]
+    assert prov["dirty_at_launch"] is False and prov["dirty_at_record"] is False
+    assert record["image"] == IMAGE and IMAGE in record["command"]
     for rel in (*GATED_FILES, SETTLING_PY):
         sha = hashlib.sha256((t["repo"] / rel).read_bytes()).hexdigest()
         assert record["file_sha256"][rel] == sha
@@ -247,10 +300,12 @@ def test_unknown_run_name_raises(tmp_path):
 @pytest.mark.parametrize(
     "field, value, message",
     [
-        ("git_dirty", True, "git_dirty"),
         ("image", "ghcr.io/talmolab/mosquito-cfd:fp64", "image"),
-        ("start_commit", "abc", "start_commit"),
+        ("command", "", "command"),
         ("hardware", {}, "hardware"),
+        ("steps", 15999, "steps"),
+        ("wall_time_s", 0, "wall_time_s"),
+        ("run", "other", "run"),
         ("iamrex_commit", "", "iamrex_commit"),
         ("seconds_per_step", None, "seconds_per_step"),
     ],
@@ -485,6 +540,7 @@ def _record_script(t: dict, name: str, run_dir: Path, *extra: str):
     args = [
         sys.executable,
         str(script),
+        "record",
         "--name",
         name,
         "--run-dir",
@@ -493,12 +549,10 @@ def _record_script(t: dict, name: str, run_dir: Path, *extra: str):
         str(t["settling_dir"]),
         "--repo-root",
         str(t["repo"]),
-        "--start-commit",
-        COMMIT,
+        "--upstream-ref",
+        "upstream",
         "--iamrex-commit",
         "f93dc794",
-        "--command",
-        "docker run ...",
         "--hardware-json",
         str(hardware),
         *extra,
@@ -506,21 +560,58 @@ def _record_script(t: dict, name: str, run_dir: Path, *extra: str):
     return subprocess.run(args, capture_output=True, text=True)
 
 
+def _launch_script(t: dict, run_dir: Path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "record_settling_run.py"
+    args = [
+        sys.executable,
+        str(script),
+        "launch",
+        "--run-dir",
+        str(run_dir),
+        "--repo-root",
+        str(t["repo"]),
+    ]
+    return subprocess.run(args, capture_output=True, text=True)
+
+
 def test_record_script_writes_a_valid_record_once(tmp_path):
     t = _tree(tmp_path)
-    proc = _record_script(t, "fine_c1_cfg", t["c1"], "--git-dirty", "false")
+    assert _launch_script(t, t["c1"]).returncode == 0
+    launch = json.loads((t["c1"] / "launch.json").read_text(encoding="utf-8"))
+    assert (
+        launch["start_commit"] == t["commit"] and launch["git_status_porcelain"] == ""
+    )
+    proc = _record_script(t, "fine_c1_cfg", t["c1"])
     assert proc.returncode == 0, proc.stdout + proc.stderr
     path = t["settling_dir"] / "records" / "fine_c1_cfg.json"
     record = json.loads(path.read_text(encoding="utf-8"))
     assert validate_run_record(record, t["manifest"]["controls"][0]) == []
     before = path.read_bytes()
-    again = _record_script(t, "fine_c1_cfg", t["c1"], "--git-dirty", "false")
+    again = _record_script(t, "fine_c1_cfg", t["c1"])
     assert again.returncode != 0 and "exists" in again.stdout + again.stderr
     assert path.read_bytes() == before
 
 
 def test_record_script_refuses_a_dirty_checkout(tmp_path):
     t = _tree(tmp_path)
-    proc = _record_script(t, "fine_c1_cfg", t["c1"], "--git-dirty", "true")
-    assert proc.returncode != 0 and "git_dirty" in proc.stdout + proc.stderr
+    (t["repo"] / GATED_FILES[0]).write_text("edited\n", encoding="utf-8")
+    assert _launch_script(t, t["c1"]).returncode == 0
+    proc = _record_script(t, "fine_c1_cfg", t["c1"])
+    assert proc.returncode != 0 and "dirty" in proc.stdout + proc.stderr
     assert not (t["settling_dir"] / "records" / "fine_c1_cfg.json").exists()
+
+
+def test_record_script_refuses_a_run_without_launch_json(tmp_path):
+    t = _tree(tmp_path)
+    proc = _record_script(t, "fine_c1_cfg", t["c1"])
+    assert proc.returncode == 1 and "launch.json" in proc.stdout
+    assert "record not written" in proc.stdout and "Traceback" not in proc.stderr
+
+
+def test_second_record_is_not_blocked_by_the_first(tmp_path):
+    t = _tree(tmp_path)
+    for name, run_dir in (("fine_c1_cfg", t["c1"]), ("fine_cfg", t["long"])):
+        assert _launch_script(t, run_dir).returncode == 0
+    assert _record_script(t, "fine_c1_cfg", t["c1"]).returncode == 0
+    proc = _record_script(t, "fine_cfg", t["long"])
+    assert proc.returncode == 0, proc.stdout + proc.stderr

@@ -6,7 +6,8 @@ declared run record and control result is present, applies the pre-registered de
 writes ``settling_report.json``.
 
 Exit code: 0 when the report's status is ``complete``; 1 otherwise (``controls_incomplete``,
-``control_failed`` or ``data_incomplete``). The report is written either way.
+``control_failed``, ``precedence_failed`` or ``data_incomplete``). The report is written either
+way.
 
 Usage, from the repository root::
 
@@ -50,7 +51,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         encoding="utf-8",
     )
     print(f"settling report: {report['status']} -> {out}")
-    for line in report["missing"] + report["failed"] + report["data_missing"]:
+    for line in (
+        report["missing"]
+        + report["failed"]
+        + report["precedence"]
+        + report["data_missing"]
+    ):
         print(f"  {line}")
     return 0 if report["status"] == "complete" else 1
 
