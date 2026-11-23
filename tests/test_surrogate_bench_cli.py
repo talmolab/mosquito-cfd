@@ -200,6 +200,15 @@ def test_cpu_smoke_run_on_the_real_corpora_without_heavy_imports(tmp_path):
     }
     summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
     assert set(summary["gate"]["entries"]) == {"ridge", "ridge_fixed"}
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    # Inside the repository, paths are recorded relative to it (no local home directory).
+    assert inputs["dataset_file"] == "examples/prelim_sweep_fine/dataset.parquet"
+    assert inputs["coarse_dataset_file"] == "examples/prelim_sweep/dataset.parquet"
+    assert inputs["docker_image_check"] == (
+        "matches examples/prelim_sweep_fine/run_metadata.json"
+    )
 
 
 @pytest.mark.parametrize("entries", [",ridge,", "ridge,,ridge_fixed", ""])
@@ -293,3 +302,97 @@ def test_the_matching_digest_and_the_coarse_digest_are_recorded(driver, tmp_path
         f"matches {(fine.parent / 'run_metadata.json').as_posix()}"
     )
     assert inputs["coarse_docker_image"] == coarse_digest
+
+
+def _write_meta(path, text):
+    path.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("text", ["[1, 2]", "{not json", ""])
+def test_an_unreadable_fine_record_is_refused_naming_it(driver, tmp_path, capsys, text):
+    fine, coarse = _corpus_dirs(tmp_path)
+    _write_meta(fine.parent / "run_metadata.json", text)
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 2
+    assert "run_metadata.json" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_fine_record_without_an_image_is_recorded_as_such(driver, tmp_path):
+    fine, coarse = _corpus_dirs(tmp_path)
+    _write_meta(fine.parent / "run_metadata.json", json.dumps({"docker_image": None}))
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 0
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    assert inputs["docker_image_check"].endswith("records no docker_image")
+
+
+@pytest.mark.parametrize(
+    ("text", "phrase"),
+    [
+        ("{not json", "cannot be read"),
+        ("[1]", "not a JSON object"),
+        ("{}", "no docker_image"),
+    ],
+)
+def test_a_bad_coarse_record_is_recorded_not_fatal(driver, tmp_path, text, phrase):
+    fine, coarse = _corpus_dirs(tmp_path)
+    _write_meta(coarse.parent / "run_metadata.json", text)
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 0
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    assert inputs["coarse_docker_image"] is None
+    assert phrase in inputs["coarse_docker_image_source"]
+
+
+def test_datasets_sharing_a_directory_do_not_borrow_the_fine_image(driver, tmp_path):
+    folder = tmp_path / "both"
+    folder.mkdir()
+    fine, coarse = folder / "fine.parquet", folder / "coarse.parquet"
+    synthetic_corpus().to_parquet(fine, index=False)
+    synthetic_corpus(scale=1.1).to_parquet(coarse, index=False)
+    _write_meta(folder / "run_metadata.json", json.dumps({"docker_image": DIGEST}))
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 0
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    assert inputs["coarse_docker_image"] is None
+    assert (
+        "shares the fine dataset's run_metadata.json"
+        in inputs["coarse_docker_image_source"]
+    )
+
+
+def test_a_mutable_tag_is_reported_as_such_before_the_record_check(
+    driver, tmp_path, capsys
+):
+    fine, coarse = _corpus_dirs(tmp_path, fine_digest=DIGEST)
+    out = tmp_path / "out"
+    argv = _argv(fine, coarse, out)
+    argv[argv.index(DIGEST)] = "ghcr.io/talmolab/mosquito-cfd:latest"
+    assert driver.main(argv) == 2
+    assert "digest-pinned" in capsys.readouterr().err
+
+
+def test_the_wrote_line_names_all_five_artifacts(driver, corpora, tmp_path, capsys):
+    out = tmp_path / "out"
+    assert driver.main([*_argv(*corpora, out), "--entries", "ridge_fixed"]) == 0
+    printed = capsys.readouterr().out
+    for name in (
+        "results.parquet",
+        "splits.json",
+        "summary.json",
+        "bench_summary.png",
+        "run_metadata.json",
+    ):
+        assert name in printed, name
+
+
+def test_git_state_is_read_from_the_repository_not_the_working_directory():
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "get_git_info(REPO)" in source

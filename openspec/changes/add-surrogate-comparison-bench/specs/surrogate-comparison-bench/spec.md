@@ -579,8 +579,9 @@ It SHALL write into `--out-dir`:
 - `bench_summary.png` (skill by entry and split, seed range as error bars);
 - `run_metadata.json`, captured with a pinned container **digest** and a caller-supplied timestamp. It
   records the dataset sha256 and file, the coarse dataset's sha256, file and recorded image (from
-  the `run_metadata.json` beside it, or `null`), how `--docker-digest` was checked against the
-  fine corpus, the git commit, branch and dirty flag, the hardware block, the seeds,
+  the `run_metadata.json` beside it, or `null` with the reason, never borrowed from the fine
+  corpus's record), how `--docker-digest` was checked against the fine corpus, with dataset paths
+  relative to the repository when inside it, the git commit, branch and dirty flag, the hardware block, the seeds,
   the device, the entries and epochs, the `CUBLAS_WORKSPACE_CONFIG` environment value (or `null`),
   and a `library_versions` block (`numpy`, plus `torch` and `physicsnemo` when installed) in the same
   shape the trainer's `run_metadata.json` uses.
@@ -598,7 +599,7 @@ The fine README SHALL quote `BENCH_SCOPE` verbatim. The run SHALL refuse a dirty
 carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 
 - a mutable image tag, or one other than the `docker_image` recorded by a `run_metadata.json`
-  beside the fine dataset;
+  beside the fine dataset, or such a file that cannot be read as a JSON object;
 - a missing `--timestamp`;
 - a non-empty `--out-dir`;
 - an unknown, duplicated or empty `--entries` token, or no entries;

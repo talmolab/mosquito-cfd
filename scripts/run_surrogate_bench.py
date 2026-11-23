@@ -27,8 +27,11 @@ from pathlib import Path
 import pandas as pd
 
 from mosquito_cfd.benchmarks.metadata import get_git_info, get_hardware_info
+from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 from mosquito_cfd.force_surrogate.train import DEFAULT_EPOCHS
 from mosquito_cfd.surrogate_bench.runner import ENTRIES, run_bench
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,13 +87,31 @@ def _read(path: Path) -> tuple[pd.DataFrame, str]:
     return pd.read_parquet(io.BytesIO(data)), hashlib.sha256(data).hexdigest()
 
 
-def _recorded_digest(dataset: Path) -> tuple[str | None, Path]:
-    """The ``docker_image`` the corpus's ``run_metadata.json`` beside the dataset records."""
-    meta = dataset.parent / "run_metadata.json"
-    if not meta.is_file():
-        return None, meta
-    image = json.loads(meta.read_text(encoding="utf-8")).get("docker_image")
-    return (image if isinstance(image, str) else None), meta
+def _shown(path: Path) -> str:
+    """A path as recorded: relative to the repository when inside it, else absolute."""
+    path = path.resolve()
+    try:
+        return path.relative_to(REPO).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _corpus_record(dataset: Path) -> tuple[Path, dict | None]:
+    """The ``run_metadata.json`` beside a dataset, parsed, or ``None`` if there is none.
+
+    Raises:
+        ValueError: If the file exists but cannot be read as a JSON object (naming it).
+    """
+    meta = dataset.resolve().parent / "run_metadata.json"
+    if not meta.exists():
+        return meta, None
+    try:
+        record = json.loads(meta.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{_shown(meta)} cannot be read as JSON: {exc}") from exc
+    if not isinstance(record, dict):
+        raise ValueError(f"{_shown(meta)} is not a JSON object")
+    return meta, record
 
 
 def input_provenance(
@@ -98,36 +119,63 @@ def input_provenance(
 ) -> dict[str, object]:
     """Input provenance beyond the fine dataset's sha256.
 
+    The fine corpus's record is binding: ``--docker-digest`` must equal the ``docker_image``
+    it records. The coarse corpus's image is informational, so a missing or unreadable coarse
+    record is noted, never fatal.
+
     Raises:
-        ValueError: If the fine corpus's ``run_metadata.json`` records a different image than
-            ``--docker-digest``.
+        ValueError: If the fine corpus's ``run_metadata.json`` cannot be read as a JSON object,
+            or records a different image than ``--docker-digest``.
     """
-    recorded, meta = _recorded_digest(dataset)
-    if recorded is None:
+    meta, record = _corpus_record(dataset)
+    recorded = None if record is None else record.get("docker_image")
+    if record is None:
         check = "no run_metadata.json beside the fine dataset"
+    elif not isinstance(recorded, str):
+        check = f"{_shown(meta)} records no docker_image"
     elif recorded != docker_digest:
         raise ValueError(
             f"--docker-digest {docker_digest} differs from the image the fine corpus records "
-            f"in {meta.as_posix()}: {recorded}"
+            f"in {_shown(meta)}: {recorded}"
         )
     else:
-        check = f"matches {meta.as_posix()}"
-    coarse_image, _ = _recorded_digest(coarse)
+        check = f"matches {_shown(meta)}"
+
+    coarse_meta = coarse.resolve().parent / "run_metadata.json"
+    coarse_image = None
+    if coarse_meta == meta:
+        source = "the coarse dataset shares the fine dataset's run_metadata.json"
+    else:
+        try:
+            _, coarse_record = _corpus_record(coarse)
+        except ValueError as exc:
+            coarse_record, source = None, str(exc)
+        else:
+            if coarse_record is None:
+                source = "no run_metadata.json beside the coarse dataset"
+            elif isinstance(coarse_record.get("docker_image"), str):
+                coarse_image = coarse_record["docker_image"]
+                source = _shown(coarse_meta)
+            else:
+                source = f"{_shown(coarse_meta)} records no docker_image"
     return {
-        "dataset_file": dataset.as_posix(),
-        "coarse_dataset_file": coarse.as_posix(),
+        "dataset_file": _shown(dataset),
+        "coarse_dataset_file": _shown(coarse),
         "docker_image_check": check,
         "coarse_docker_image": coarse_image,
+        "coarse_docker_image_source": source,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the bench; returns a process exit code."""
     args = build_parser().parse_args(argv)
-    git = get_git_info()
+    git = get_git_info(REPO)  # this repository, whatever the working directory
     if "dirty" not in git:
         git = {**git, "dirty": True}  # an unknown state is never treated as clean
     try:
+        # A mutable tag is named as such before the corpus record is compared.
+        validate_image_digest(args.docker_digest)
         dataset, coarse_path = Path(args.dataset), Path(args.coarse_dataset)
         extra = input_provenance(dataset, coarse_path, args.docker_digest)
         frame, dataset_sha256 = _read(dataset)
@@ -151,9 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         # OSError: a missing or unreadable dataset, an output path that is a file.
         print(f"run_surrogate_bench: {exc}", file=sys.stderr)
         return 2
-    print(
-        f"Wrote {', '.join(str(result[k]) for k in ('results', 'summary', 'figure'))}"
-    )
+    artifacts = ("results", "splits", "summary", "figure", "metadata")
+    print("Wrote " + ", ".join(str(result[k]) for k in artifacts))
     return 0
 
 
