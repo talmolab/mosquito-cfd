@@ -446,11 +446,14 @@ This section is additive; the old builders stay until 7.
   - Only the PR body says "Closes #114" and "Closes #130", and only if the user approves.
   - It says "advances #131".
   - It notes that the figure sidecars name a commit resolvable via `refs/pull/<n>/head`.
-- [ ] 11.6 Run `git merge-base --is-ancestor`. Check that the branch tip is green. **Stop for the
+- [x] 11.6 Run `git merge-base --is-ancestor`. Check that the branch tip is green. **Stop for the
   user's approval before pushing.** Ask about pushing, or a draft PR, before 2026-11-24.
+  - Ancestry checked before every push; CI green on `d5d9162`; the user approved pushing and marking
+    PR #183 ready. Squash-merged as `708e568`, whose tree equals `d5d9162`'s.
 
 ## 12. After merge
 
-- [ ] 12.1 `openspec archive add-real-comparison-figures --yes`, then validate the live specs.
-- [ ] 12.2 Add the roadmap row in `docs/force_surrogate/roadmap.md`.
-- [ ] 12.3 Clean up the worktree and branch.
+- [x] 12.1 `openspec archive add-real-comparison-figures --yes`, then validate the live specs.
+- [x] 12.2 Add the roadmap row in `docs/force_surrogate/roadmap.md`.
+- [x] 12.3 Clean up the worktree and branch.
+  - Worktree removed; local branch deleted; the remote branch was already deleted on merge.
