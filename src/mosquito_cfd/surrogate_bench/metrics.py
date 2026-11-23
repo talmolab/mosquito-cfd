@@ -117,7 +117,7 @@ def split_baseline(
     return SplitBaseline(target_frame, configs, list(targets), definition)
 
 
-def _grid_frame(target_frame: pd.DataFrame, configs: Sequence[str]) -> pd.DataFrame:
+def grid_frame(target_frame: pd.DataFrame, configs: Sequence[str]) -> pd.DataFrame:
     """``N_GRID`` rows per configuration with its settings and ``phase = k/N_GRID``."""
     settings = target_frame.groupby("config_name")[list(SETTINGS)].first()
     parts = []
@@ -175,9 +175,7 @@ def score_split_seed(
             f"y_pred has shape {y_pred.shape}, expected {(len(test), len(targets))}"
         )
     configs = sorted(str(c) for c in test["config_name"].unique())
-    grid_pred = np.asarray(
-        predict_grid(_grid_frame(target_frame, configs)), dtype=float
-    )
+    grid_pred = np.asarray(predict_grid(grid_frame(target_frame, configs)), dtype=float)
     base_grid = baseline.at(PHASE_GRID)
     y_base = baseline.at(test["phase"].to_numpy(dtype=float))
     y_true = test[targets].to_numpy(dtype=float)

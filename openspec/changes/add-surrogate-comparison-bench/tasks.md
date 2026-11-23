@@ -249,7 +249,7 @@
 
 ### 7b. Runner
 
-- [ ] 7b.1 **Tests first** (`tests/test_surrogate_bench_runner.py`; `fit_seed` and `predict_frame`
+- [x] 7b.1 **Tests first** (`tests/test_surrogate_bench_runner.py`; `fit_seed` and `predict_frame`
   patched at their import site; git state and the memory probe injected through the runner's
   `git_state` and `memory_probe` arguments):
   - the hyperparameters reach `fit_seed`;
@@ -280,7 +280,7 @@
   - the summary recomputes from `results.parquet`;
   - no checkpoint file is written, and a static scan of the runner's ridge functions (`run_ridge_entries`)
     finds no checkpoint writer or loader.
-- [ ] 7b.2 Implement `surrogate_bench/runner.py`. Mutation-test: `mlp_h1`/interpolation not run
+- [x] 7b.2 Implement `surrogate_bench/runner.py`. Mutation-test: `mlp_h1`/interpolation not run
   first; a filtered frame passed instead of the full one; a multi-beat frame passed; the memory peak
   not reset; the base not subtracted. Shipped-artifact check. Commit:
   `feat(surrogate-bench): runner and artifacts`.
