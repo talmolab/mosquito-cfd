@@ -287,7 +287,7 @@
 
 ### 7c. Driver
 
-- [ ] 7c.1 **Tests first** (`tests/test_surrogate_bench_cli.py`):
+- [x] 7c.1 **Tests first** (`tests/test_surrogate_bench_cli.py`):
   - every flag in the spec is wired;
   - each refusal in the spec (duplicate entries and a coarse dataset missing a configuration
     included) exits non-zero, leaving the output directory absent or its prior contents unchanged;
@@ -298,7 +298,7 @@
       digest, a fixed `--timestamp` and `--allow-dirty`, into a temporary directory;
     - it writes every file, including the figure;
     - the gate block covers the two ridge entries only.
-- [ ] 7c.2 Implement `scripts/run_surrogate_bench.py`. Mutation-test each refusal and the
+- [x] 7c.2 Implement `scripts/run_surrogate_bench.py`. Mutation-test each refusal and the
   refuse-before-write ordering. Shipped-artifact check. Commit: `feat(surrogate-bench): driver script`.
 
 ### 7d. GPU end-to-end
