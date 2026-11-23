@@ -62,8 +62,10 @@ clears the #130 doc and provenance follow-ups.
   - new `scripts/make_coarse_vs_fine_figures.py`.
 - **Tests:**
   - `tests/test_comparison_figure.py` and `tests/test_make_comparison_figure_cli.py` rewritten;
-  - new `tests/_comparison_corpus.py`, `tests/_comparison_guards.py`,
-    `tests/test_comparison_guards.py` and `tests/test_committed_comparison_figures.py`;
+  - new `tests/_comparison_corpus.py`, `tests/test_comparison_corpus.py`,
+    `tests/test_comparison_figure_guards.py`, `tests/_comparison_guards.py`,
+    `tests/test_comparison_guards.py`, `tests/test_committed_comparison_figures.py` and
+    `tests/test_readme_comparison_docs.py`;
   - `tests/test_force_surrogate_train.py`, `tests/_readme_guards.py` and
     `tests/test_committed_surrogate_provenance.py` extended.
 - **Docs:**

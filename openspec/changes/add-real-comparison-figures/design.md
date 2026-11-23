@@ -183,6 +183,37 @@ block is read. It also catches a `metrics.json` that no longer matches its predi
   - Explicit `subplots_adjust` is used, not `tight_layout`, which can warn with a long caption.
   - Files are read with `Path.read_bytes`, so no `ResourceWarning` is raised.
 
+#### Why per-corpus guard order instead of one global order?
+
+The code loads the coarse corpus completely (guards 2–10), then the fine corpus, then pairs them
+(guard 11). A global order would run guard 2 on both corpora before guard 3 on either, so a coarse
+defect at guard 7 and a fine defect at guard 2 would report the fine one first. Either rule gives
+one deterministic message per defect. Per-corpus loading keeps `_load_corpus` a single function
+that returns one validated corpus, and the spec's guard requirement now states this order.
+
+#### Why more checks than the spec's eleven?
+
+Review rounds and mutation testing found inputs that passed the eleven guards as first written and
+then failed later, or loaded wrongly without failing. Examples are `1e999` in a JSON file, which
+loads as `inf`; an integer too large for a float; a boolean column; a prediction `phase` that
+differs from the dataset's; and a `seeds` list that disagrees with `runs`. Each was added inside
+the guard it belongs to, so the numbering and the first-guard rule are unchanged. The spec now
+lists them.
+
+#### Why make `root` absolute in `_load_pair`?
+
+With a relative `root` other than `.`, an input path was joined to `root` and then made relative to
+it again, so the recorded path was wrong. `_load_pair` makes `root` absolute once, before either
+corpus is read. `_prepare` is guard 1 followed by `_load_pair`. The `compute_*_metrics` functions,
+which take no digest, call `_load_pair` directly.
+
+#### Why can `renderer_sources` hold `null`?
+
+`_renderer_sources` hashes `scripts/make_coarse_vs_fine_figures.py` from the repository layout. In
+an installed package without `scripts/`, that file is absent. Recording `null` keeps the builders
+usable there, and the committed-figure check still fails, because the committed sidecars record a
+hash.
+
 ### D6 — Captions and shared constants
 
 - **Captions** are built by pure functions (spec lists the required and forbidden content).

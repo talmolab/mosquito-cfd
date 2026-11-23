@@ -158,10 +158,11 @@ surrogate it is drawn with.
 Each `comparison_figure.py` builder SHALL take the repository root as `root: Path` (the driver
 passes `Path.cwd()`) and SHALL resolve the eight inputs as `root / <corpus dir> / ...`.
 
-Before anything is written, it SHALL apply the guards below **in this order**. On the first that
-fails it SHALL raise `ValueError` naming the corpus, the role and the defect, with no file written
-and no matplotlib figure left open. A test of a defect SHALL assert the message of the first guard
-the defect trips.
+Before anything is written, it SHALL apply the guards below **in this order**: guard 1 once, then
+guards 2–10 to the coarse corpus, then guards 2–10 to the fine corpus, then guard 11. On the first
+that fails it SHALL raise `ValueError` naming the corpus, the role and the defect, with no file
+written and no matplotlib figure left open. A test of a defect SHALL assert the message of the first
+guard the defect trips.
 
 1. The digest is validated, before any file is touched.
 2. Each of the eight files exists.
@@ -189,6 +190,16 @@ the defect trips.
     - No `config_mean_r2` exceeds 1.
 11. **Pairing.** The coarse and fine corpora have equal configuration sets, equal seed lists, equal
     per-seed `val_configs` and equal N.
+
+Within those guards the loader SHALL also refuse:
+
+- in guard 3, a non-finite number anywhere in a JSON input, including a literal that overflows to
+  infinity (`1e999`) and an integer too large for a float;
+- in guard 4, a `config_name` that is not a non-null string, a `wingbeat` that is not an integer
+  column, and a `phase` or coefficient column that is not numeric (booleans included);
+- in guard 9, a prediction row whose `phase` or `wingbeat` differs from the matched dataset row;
+- in guard 10, a seed or `primary_seed` that is not an integer, a recorded statistic that is neither
+  a number nor null, and a `seeds` list that differs from the runs' seeds.
 
 #### Scenario: each defect is refused before any output
 
@@ -478,7 +489,8 @@ data.
 - `library_versions`: python, numpy, pandas, pyarrow and matplotlib;
 - `renderer_sources`: the sha256 of the LF-normalised bytes of `comparison_figure.py` and
   `scripts/make_coarse_vs_fine_figures.py`, read from those files' own locations (not from `root`)
-  and keyed by those fixed names;
+  and keyed by those fixed names, with `null` for a file that is absent (an installed package without
+  the `scripts/` directory);
 - `figure`.
 
 **Portable paths.** Every recorded path SHALL be relative to `root`, written with forward slashes,

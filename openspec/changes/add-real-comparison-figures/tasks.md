@@ -410,10 +410,22 @@ This section is additive; the old builders stay until 7.
 
 ## 11. Reconcile, review, merge
 
-- [ ] 11.1 Re-read the proposal, design, deltas and tasks against the code. Update any drift with a
+- [x] 11.1 Re-read the proposal, design, deltas and tasks against the code. Update any drift with a
   `### Why N instead of M?` note. File an issue for any workaround. Diff each MODIFIED block against
   its live requirement, so no live scenario is dropped by accident.
-- [ ] 11.2 Run `openspec validate --strict`, the full suite and ruff.
+  - Drift found and recorded: the per-corpus guard order, the checks added inside the guards, the
+    absolute `root` in `_load_pair`, and `null` in `renderer_sources` (design D5 notes; the guard and
+    run-metadata requirements now state them); the test-file list in the proposal. No workaround,
+    so no issue.
+  - Why the guard tests are in `tests/test_comparison_figure_guards.py` instead of
+    `tests/test_comparison_figure.py`: together they would be about 1,700 lines, and the guards are
+    shared by all three figures, so they got their own file.
+  - Why 9.1 was committed (`6ca9c6e`) before the 8.3 tick commit (`ebe94a3`): the checker is a test
+    helper that renders nothing into the repository, so writing it before the gate's tick commit did
+    not affect the clean-tree render at 9.4. The render was made from `ebe94a3`.
+  - The four MODIFIED blocks were diffed against main after each merge (`765ada0`, `75020ac`): no live
+    scenario is dropped.
+- [x] 11.2 Run `openspec validate --strict`, the full suite and ruff.
 - [ ] 11.3 `/review-pr`, then fixes. Each fix commit gets a focused adversarial re-review by
   reproduction.
   - **Any byte change to `comparison_figure.py` or the driver**, a docstring included, triggers the
