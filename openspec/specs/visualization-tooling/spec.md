@@ -16,7 +16,7 @@ reachable only by editing source.
 - **GIVEN** a sweep corpus directory containing `sweep_manifest.json` and a generated deck for
   config `s35_f085_p30`
 - **WHEN** `make_flow_video.py` is invoked with `--config s35_f085_p30 --corpus-dir <dir>
-  --field-mode wake-slice --plotfile-dir <plt-dir> --out-dir <out> --docker-digest sha256:<64hex>
+  --field-mode wake-slice --plotfile-dir <plt-dir> --out-dir <out> --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex>
   --timestamp <iso8601>`
 - **THEN** the video is rendered using that config's own hinge/center/kinematics read from its deck,
   with no source-code edit required

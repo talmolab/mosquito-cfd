@@ -124,7 +124,7 @@ spec:
         # here in seconds rather than after 27 x retries of GPU pods.
         image = "{{workflow.parameters.image}}"
         digest = "{{workflow.parameters.docker-digest}}"
-        validate_image_digest(digest)  # rejects a mutable tag (no sha256:)
+        validate_image_digest(digest)  # needs <repo>@sha256:<64 hex>; a mutable tag or bare digest is rejected
         assert image == digest, f"image ({image!r}) and docker-digest ({digest!r}) must be the same @sha256: pin"
         assert os.path.exists("/workspace/sweep_manifest.json"), "sweep_manifest.json not mounted at /workspace"
         # wing.vertex preflight: the decks resolve geometry_file relative to the run dir, so a missing

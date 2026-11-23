@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.force_surrogate import metadata_capture as mc
 from mosquito_cfd.force_surrogate.sidecar import capture_surrogate_run_metadata
 
@@ -39,7 +40,7 @@ _REAL_COMMITTED_METADATA = (
     / "run_metadata_s35_f085_p45.json"
 )
 
-DIGEST = "sha256:" + "0" * 64
+DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "0" * 64
 
 
 def _load_json(path: Path) -> dict:
@@ -285,7 +286,7 @@ def test_docker_digest_field_is_single_named_and_validated():
     pod_metadata = _load_json(_POD_METADATA)
     digest = mc.extract_docker_image(pod_metadata)
     assert digest == pod_metadata["docker_image"]
-    assert digest.startswith("sha256:")
+    assert is_pinned_image_ref(digest)
 
 
 def test_malformed_digest_is_rejected():
@@ -686,7 +687,8 @@ def _assemble(**overrides):
 
 def test_assemble_metadata_produces_normalized_schema():
     result = _assemble()
-    assert result["docker_image"].startswith("sha256:")
+    assert result["docker_image"] == _load_json(_POD_METADATA)["docker_image"]
+    assert is_pinned_image_ref(result["docker_image"])
     assert "image_digest" not in result
     assert (
         result["deck_sha256"]
@@ -1139,3 +1141,106 @@ def test_assemble_metadata_raises_on_row_count_mismatch_uses_raw_count(tmp_path)
     ok.write_text(json.dumps(pod_metadata), encoding="utf-8")
     result = _assemble(pod_metadata_path=ok)
     assert result["timing"]["timesteps"] == 4706
+
+
+# ---------------------------------------------------------------------------
+# share-light-corpus-helpers (#159): full-match SHAs, ValueError-only, repr in the message
+# ---------------------------------------------------------------------------
+
+
+def _raises_value_error_naming(func, *args, value, **kwargs) -> str:
+    """Call ``func``; assert it raises exactly ``ValueError`` whose message has ``repr(value)``."""
+    with pytest.raises(BaseException) as excinfo:
+        func(*args, **kwargs)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)
+    assert repr(value) in str(err), str(err)
+    return str(err)
+
+
+def test_extract_git_info_rejects_trailing_newline_commit():
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"]["commit"] = "a" * 40 + "\n"
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value="a" * 40 + "\n")
+
+
+def test_resolve_git_info_rejects_trailing_newline_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    _raises_value_error_naming(
+        mc.resolve_git_info,
+        pod_metadata,
+        git_commit_override="a" * 40 + "\n",
+        value="a" * 40 + "\n",
+    )
+
+
+@pytest.mark.parametrize(
+    "git",
+    [None, ["x"], "abc", [["commit", "a" * 40]], {"commit": 123}],
+    ids=["null", "list", "str", "list_of_pairs", "int_commit"],
+)
+def test_extract_git_info_rejects_wrongly_typed_git(git):
+    pod_metadata = _load_json(_POD_METADATA)
+    pod_metadata["git"] = git
+    value = git["commit"] if isinstance(git, dict) else git
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value=value)
+
+
+def test_extract_git_info_rejects_absent_git_block_naming_none():
+    pod_metadata = _load_json(_POD_METADATA)
+    del pod_metadata["git"]
+    _raises_value_error_naming(mc.extract_git_info, pod_metadata, value=None)
+
+
+def test_resolve_git_info_rejects_non_string_override():
+    pod_metadata = _load_json(_POD_METADATA)
+    _raises_value_error_naming(
+        mc.resolve_git_info, pod_metadata, git_commit_override=123, value=123
+    )
+
+
+@pytest.mark.parametrize("pod_metadata", [{"git": None}, {}], ids=["null", "absent"])
+def test_valid_override_never_reads_the_pod_git_block(pod_metadata):
+    result = mc.resolve_git_info(pod_metadata, git_commit_override="b" * 40)
+    assert result == {"commit": "b" * 40, "source": "cli-override"}
+
+
+@pytest.mark.parametrize(("text", "type_name"), [("[]", "list"), ("5", "int")])
+def test_pod_run_metadata_rejects_non_object_top_level(tmp_path, text, type_name):
+    path = tmp_path / "run_metadata.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)
+    assert str(err) == (
+        f"pod-side run_metadata.json {path} top level is a {type_name}, not an object"
+    )
+
+
+_ABSENT = object()
+
+
+@pytest.mark.parametrize(
+    "docker_image",
+    [
+        _ABSENT,
+        None,
+        5,
+        "sha256:" + "f" * 64,
+        "ghcr.io/talmolab/mosquito-cfd@sha256:" + "f" * 64 + "\n",
+    ],
+    ids=["absent", "null", "int", "bare_digest", "trailing_newline"],
+)
+def test_extract_docker_image_rejects_non_reference(docker_image):
+    pod_metadata = _load_json(_POD_METADATA)
+    if docker_image is _ABSENT:
+        del pod_metadata["docker_image"]
+        value = None
+    else:
+        pod_metadata["docker_image"] = docker_image
+        value = docker_image
+    message = _raises_value_error_naming(
+        mc.extract_docker_image, pod_metadata, value=value
+    )
+    assert "content-addressable" in message

@@ -18,7 +18,7 @@
     ],
     "gpu_count": 1
   },
-  "docker_image": "sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a",
+  "docker_image": "ghcr.io/talmolab/mosquito-cfd@sha256:f546ead9afd9bf490cdc2b255ed0a254f4079262ea6cd4b3d1d7e6c86b0f286a",
   "config": "s35_f085_p45",
   "deck": "inputs/inputs.3d.s35_f085_p45",
   "deck_sha256": "92d5ab87b8556b711329f23f197aaefca8954db93df91a409bef396a66a7674d",

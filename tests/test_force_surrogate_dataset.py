@@ -1299,3 +1299,38 @@ def test_explicit_run_metadata_paths_are_used_for_the_deck_check(tmp_path):
         build_dataset(
             manifest, {cfg["name"]: FIXTURE}, run_metadata_paths={cfg["name"]: stale}
         )
+
+
+def test_build_dataset_still_sees_a_patched_dataset_reader(tmp_path, monkeypatch):
+    """``build_dataset`` resolves ``load_manifest_configs`` through ``dataset``'s globals.
+
+    share-light-corpus-helpers D3: the reader moves to ``mosquito_cfd._manifest`` and
+    ``dataset`` re-exports it, so a patch of ``dataset.load_manifest_configs`` must still reach
+    ``build_dataset``.
+    """
+    import mosquito_cfd.force_surrogate.dataset as dataset_mod
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    calls = []
+    real = dataset_mod.load_manifest_configs
+
+    def spy(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(dataset_mod, "load_manifest_configs", spy)
+    dataset_mod.build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert len(calls) == 1, calls
+
+
+def test_build_run_metadata_rejects_a_bare_digest():
+    """share-light-corpus-helpers (#159): a bare ``sha256:<hex>`` is not a pinned reference."""
+    import mosquito_cfd.force_surrogate.dataset as dataset_mod
+
+    with pytest.raises(ValueError, match="content-addressable"):
+        dataset_mod.build_run_metadata(
+            docker_image_digest="sha256:" + "a" * 64,
+            timestamp="2026-01-01T00:00:00+00:00",
+            dropped_configs=[],
+        )

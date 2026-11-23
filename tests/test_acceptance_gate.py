@@ -179,6 +179,39 @@ def test_cfl_limited_config_fails(tmp_path):
     )
     assert not result.passed
     assert any("CFL-limited" in f for f in result.failures)
+    # Scenario "A CFL-limited config fails the gate": it names the config and its minimum dt.
+    (cfl,) = [f for f in result.failures if "CFL-limited" in f]
+    assert c["config_name"] in cfl and "0.0003" in cfl
+
+
+def test_cfl_limited_config_with_nonzero_in_tolerance_ratio_fails(tmp_path):
+    """A CFL-limited config the symmetry check cannot see still fails, on the timestep check.
+
+    Scenario "A sufficiently truncated config fails the normalized symmetry check", its And: a
+    mild truncation can stay within the symmetry tolerance, so the observed-timestep check is the
+    defence. The ratio is non-zero but in tolerance; rows equal max_step, so only the CFL check
+    fires. (_make_corpus's default pattern has a ratio of ~0, too trivial to show this.)
+    """
+    from mosquito_cfd.force_surrogate.corpus_guards import SYMMETRY_RATIO_TOLERANCE
+
+    settled_fx = np.linspace(-100.0, 100.0, 6) + 0.8
+    # The settled-beat ratio is scale-invariant in Fx (see _write_csv), so compute it here.
+    ratio = abs(settled_fx.mean()) / np.abs(settled_fx).max()
+    assert 0 < ratio < SYMMETRY_RATIO_TOLERANCE  # non-vacuous precondition
+    c = _make_corpus(
+        tmp_path, settled_fx_override=settled_fx, interior_dt_below_nominal=True
+    )
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert len(result.failures) == 1, result.failures
+    (only,) = result.failures
+    assert "CFL-limited" in only
+    assert c["config_name"] in only and "0.0003" in only
 
 
 def test_row_count_mismatch_fails(tmp_path):

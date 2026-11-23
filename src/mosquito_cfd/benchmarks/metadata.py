@@ -11,13 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-_WINDOWS_GITDIR_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
+from mosquito_cfd._provenance import is_full_commit_sha
 
-# Mirrors force_surrogate.metadata_capture._FULL_SHA_RE -- kept as a separate constant (not a
-# cross-module import) since these two modules have no other shared-regex precedent and
-# force_surrogate already depends on benchmarks (not the reverse); duplicating one regex is
-# cheaper than introducing a new inter-module coupling for it.
-_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_WINDOWS_GITDIR_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
 
 _UNKNOWN_COMMIT_SENTINEL = "unknown"  # must match docker/Dockerfile.fp64's ARG default
 _SOURCE_DOCKER_BUILD_ARG = "docker-image-build-arg"
@@ -117,18 +113,14 @@ def _baked_commit_env() -> str | None:
     ``.git``, so pod-side git queries can never succeed (issue #66). Returns ``None`` for
     ``"unknown"`` (a local dev build with no ``--build-arg`` supplied) so such builds don't
     silently claim a fake commit, and also for any value that isn't a full 40-character lowercase
-    hex SHA -- e.g. a misconfigured build-arg (trailing whitespace, a truncated short SHA) --
-    matching the same format validation :func:`mosquito_cfd.force_surrogate.metadata_capture.
-    resolve_git_info` already applies to a human-supplied ``--git-commit`` override, so this
-    fallback can't silently propagate an unverifiable value into a committed provenance file any
-    more than that one can.
+    hex SHA -- e.g. a misconfigured build-arg (whitespace, a trailing newline, a truncated short
+    SHA) -- using the same shared rule (:func:`mosquito_cfd._provenance.is_full_commit_sha`) that
+    :func:`mosquito_cfd.force_surrogate.metadata_capture.resolve_git_info` applies to a
+    human-supplied ``--git-commit`` override, so this fallback can't silently propagate an
+    unverifiable value into a committed provenance file any more than that one can.
     """
     commit = os.environ.get("MOSQUITO_CFD_COMMIT")
-    if (
-        not commit
-        or commit == _UNKNOWN_COMMIT_SENTINEL
-        or not _FULL_SHA_RE.match(commit)
-    ):
+    if commit == _UNKNOWN_COMMIT_SENTINEL or not is_full_commit_sha(commit):
         return None
     return commit
 

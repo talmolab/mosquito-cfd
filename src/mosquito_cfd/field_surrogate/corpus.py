@@ -28,8 +28,9 @@ from typing import Any
 
 import numpy as np
 
+from mosquito_cfd import _manifest
 from mosquito_cfd._messages import plain_repr
-from mosquito_cfd.field_surrogate._provenance import (
+from mosquito_cfd._provenance import (
     RUN_METADATA_FILENAME,
     read_run_metadata,
     run_provenance,
@@ -183,11 +184,10 @@ class FieldCorpus:
         # presence is NOT cached (steps() re-lists it). A failed parse is not cached. The cached
         # list and its dicts are shared -- callers must not mutate them.
         if self._configs_cache is None:
-            # Imported lazily: force_surrogate.dataset pulls pandas, and this module must stay
-            # cheap for callers that only want snapshots (design.md D4).
-            from mosquito_cfd.force_surrogate.dataset import load_manifest_configs
-
-            self._configs_cache = load_manifest_configs(self.manifest_path)
+            # The stdlib-only shared reader, called through the module so a test has one patch
+            # point; never force_surrogate.dataset, whose import loads pandas and switches the
+            # matplotlib backend in every data-loader worker (share-light-corpus-helpers, #160).
+            self._configs_cache = _manifest.load_manifest_configs(self.manifest_path)
         return self._configs_cache
 
     def config_ids(self) -> list[str]:
@@ -255,11 +255,12 @@ class FieldCorpus:
 
         Raises:
             ValueError: If the config is not in the manifest, or (via ``_configs()``'s
-                ``load_manifest_configs``) if the manifest is missing a required key.
+                ``mosquito_cfd._manifest.load_manifest_configs``) if the manifest is missing a
+                required key.
         """
-        # Every key is guaranteed by the manifest guard (_REQUIRED_CONFIG_KEYS). Index directly so
-        # a broken guarantee is a KeyError, never a shorter dict that misaligns positionally
-        # against global_params_reference.
+        # Every key is guaranteed by the manifest guard (_manifest._REQUIRED_CONFIG_KEYS). Index
+        # directly so a broken guarantee is a KeyError, never a shorter dict that misaligns
+        # positionally against global_params_reference.
         config = self._config(config_id)
         return {k: config[k] for k in GLOBAL_PARAM_KEYS}
 
