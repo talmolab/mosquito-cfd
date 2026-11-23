@@ -405,7 +405,7 @@ This section is additive; the old builders stay until 7.
   bullet's causal wording agrees with the fine README's quasi-steady section; that section's sentence
   becomes conditional (design D9) in the same commit as 10.3.
 - [x] 10.6 Mutation-test 10.1 and the section-4 constants test on README copies.
-- [ ] 10.7 `docs/CHANGELOG.md`: one Added bullet and one Changed line. Last commit:
+- [x] 10.7 `docs/CHANGELOG.md`: one Added bullet and one Changed line. Last commit:
   `docs: changelog for the coarse-vs-fine figures (advances #114, #130)`.
 
 ## 11. Reconcile, review, merge
