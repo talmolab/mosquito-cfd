@@ -83,10 +83,12 @@ def _(A, chosen, cv, mo, rmse):
         times lower on every target. Periodic hover over this grid is a smooth, low-dimensional
         family of waveforms, and a harmonic expansion is its natural description.
 
-        **The MLP is short of phase resolution, not capacity.** Adding the second and third phase
-        harmonics as inputs lifts it from {A.loc["baseline", "median"]:.4f} to
+        **Phase harmonics and model size each close most of the gap.** Adding the second and third
+        phase harmonics as inputs lifts the median from {A.loc["baseline", "median"]:.4f} to
         {A.loc["harmonics_3", "median"]:.4f} at almost the same size. Making it 30 times larger
-        (256 wide, 5 deep) reaches {A.loc["width256_depth5", "median"]:.4f}. One hidden layer is
+        (256 wide, 5 deep) with no harmonics reaches {A.loc["width256_depth5", "median"]:.4f}. These
+        are medians of 5 seeds; the figure shows the ranges. The data do not say which of the two
+        is the cause of the baseline's shortfall. One hidden layer is
         not enough at any width tried ({A.loc["width256_depth1", "median"]:.2f} at 256 wide).
 
         **Pitch amplitude is essential, stroke amplitude matters, frequency barely does.**

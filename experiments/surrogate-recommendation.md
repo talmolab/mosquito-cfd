@@ -36,8 +36,11 @@ touched are marked **untested**.
   surrogate error is about equal, not well inside.
 - E4: a ridge regression on Fourier (16 harmonics) × polynomial (degree 3) features, with its size
   chosen by cross-validation inside the training configs, reaches holdout skill 0.9991 against the
-  MLP's 0.987. Giving the MLP 3 phase harmonics lifts it to 0.995. So most of the MLP's remaining
-  error is its single-harmonic phase input, not missing physics.
+  the MLP's 0.986–0.991 (5 seeds, median 0.987). The ridge figure is one deterministic fit on one
+  split, so it has no range. Giving the MLP 3 phase harmonics lifts it to 0.993–0.996; making it
+  larger with no harmonics (256 wide, 5 deep) reaches 0.995–0.997. Phase harmonics and model size
+  each close most of the gap, so the shortfall is not missing physics, but this does not say which
+  of the two is the cause.
 - E3: the ridge model needs the full grid. Median skill over 5 random subsets is 0.9988 at 18
   configs, but one of the five fell to 0.41; it is 0.906 at 15 and 0.29 at 12. The MLP degrades
   more gently (median 0.984 at 15, 0.957 at 12). With fewer than the full 21 configs, keep the MLP.
@@ -45,8 +48,9 @@ touched are marked **untested**.
   skill; dropping stroke costs 0.19; dropping pitch drops the model below the baseline).
 - Not tested: quasi-steady model plus learned correction. That waits for #141 and #133.
 
-**Recommendation:** keep the MLP as the shipped Track B model but add phase harmonics; report the
-ridge model beside it as the reference a learned model must beat.
+**Recommendation:** keep an MLP as the shipped Track B model, with phase harmonics or more
+capacity (the comparison bench decides which); report the ridge model beside it as the reference
+a learned model must beat.
 
 ### 2. Changing commands: test history dependence with kinematics history first — **untested, but the case for it is stronger**
 
