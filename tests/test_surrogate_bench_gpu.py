@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from test_surrogate_bench_runner import DIGEST, synthetic_corpus
 
 from mosquito_cfd.force_surrogate.train import TARGET_COLUMNS, build_model
 from mosquito_cfd.surrogate_bench import BENCH_SEEDS
 from mosquito_cfd.surrogate_bench.runner import MLP_HARMONICS, MLP_HYPERPARAMETERS
-from test_surrogate_bench_runner import DIGEST, synthetic_corpus
 
 pytestmark = pytest.mark.gpu
 
