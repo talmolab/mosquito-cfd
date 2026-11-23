@@ -431,9 +431,9 @@ running it on a tooling-only proposal costs one subagent.
 > frames, hinge reference point, sign) and `openspec/specs/force-surrogate/spec.md` (F_ref =
 > ½·ρ·ω_peak²·S_yy with ω_peak = 2π·f_star·radians(phi_amp_deg), computed per configuration by
 > `compute_force_reference`); timestep semantics are in `openspec/project.md` ("CFL mechanism").
-> `docs/coordinate-convention.md` is narrative only: it uses ω for two quantities (#161) and has
-> been wrong before (#108). All are sourced to van Veen et al. 2022 (JFM 936 A3). Read them first,
-> and confirm the code implements what they say. Where the proposal, these pages, the code and the
+> `docs/coordinate-convention.md` is narrative only and has been wrong before (#108, #181). All
+> are sourced to van Veen et al. 2022 (JFM 936 A3). Read them first, and confirm the code
+> implements what they say. Where the proposal, these pages, the code and the
 > paper disagree, flag, do not resolve: report the disagreement and which sources say what.
 >
 > **Method:** recompute every constant, reference point, sign, timestep or seed count the proposal
@@ -443,9 +443,12 @@ running it on a tooling-only proposal costs one subagent.
 >
 > **Failure classes:**
 > 1. Sign and frame conventions: there is no insect-body frame; "body" in code and docs means the
->    wing frame. By design, forces are in the wing frame (chord, normal; spanwise dropped) and
->    moments are in the lab frame about the hinge. `CF_*` are on-wing, the negation of the raw
->    on-fluid `Fx..Mz`. Are frame transforms right (rotation direction, transpose, time dependence)?
+>    wing frame. The flapping-wing body-frame family (`CF_chord`/`CF_normal` and the diagnostics
+>    built on them; spanwise dropped) is wing-frame. The corpus and surrogate `CF_x..CF_z`, the
+>    flapping-wing lab-frame series and the moments are lab-frame components; derived `CF_m*` are
+>    about the deck's hinge, raw `Mx..Mz` about the particle origin. `CF_*` are on-wing, the
+>    negation of the raw on-fluid `Fx..Mz`. Are frame transforms right (rotation direction,
+>    transpose, time dependence)?
 > 2. Reference points and normalization: the moment reference point (the deck's hinge); F_ref at
 >    the radius of gyration (about 200.27 at the validated point), not the peak-tip speed (624.79);
 >    per-unit-density `ib_force`, where rho_f cancels only because the same rho_f builds F_ref.

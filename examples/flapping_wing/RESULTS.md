@@ -148,8 +148,9 @@ baseline (see the end of this file).
 ### Reference normalization (van Veen 2022)
 
 Coefficients use the **van Veen (2022, JFM 936:A3) convention** (eq 1.1):
-`F_ref = ½ρ·ω²·S_yy`, the stroke rate at the **radius of gyration** and the spanwise
-**second moment of area** `S_yy = ∫c(y)y²dy`. Equivalently `F_ref = ½ρ·u_ref²·S` with the
+`F_ref = ½ρ·ω_peak²·S_yy`, with the speed `ω_peak·r_gyr` at the **radius of gyration** and the
+spanwise **second moment of area** `S_yy = ∫c(y)y²dy`. `ω_peak` is the peak stroke rate, not
+`2πf` ([convention page](../../docs/coordinate-convention.md#forces)). Equivalently `F_ref = ½ρ·u_ref²·S` with the
 reference speed at the radius of gyration. The single source is
 `mosquito_cfd.force_surrogate.compute_force_reference` (no inline re-derivation, **no
 correction factor**).
@@ -157,10 +158,10 @@ correction factor**).
 | Quantity | Value |
 |----------|-------|
 | Radius of gyration r_gyr | 1.6985 (= sqrt(S_yy/S), from `wing.vertex`; vs tip arm 3.0) |
-| Reference speed u_ref | 13.04 (= 2π·f*·phi_amp·r_gyr) |
+| Reference speed u_ref | 13.04 (= 2π·f*·radians(phi_amp)·r_gyr) |
 | Dynamic pressure q_ref | 85.0 (= 0.5·rho·u_ref²) |
 | Wing area S | 2.356 (elliptic, = pi/4·span·chord) |
-| Force reference F_ref | **200.27** (= q_ref·S = ½ρ·ω²·S_yy) |
+| Force reference F_ref | **200.27** (= q_ref·S = ½ρ·ω_peak²·S_yy) |
 
 > The earlier peak-tip convention (`F_ref ≈ 624.8`) normalized by the wingtip velocity
 > instead of the radius of gyration, making the coefficients a factor of
@@ -178,8 +179,8 @@ section at the end of this file.
 
 | Quantity (lab, IB force on the wing `ib_w`) | New-convention run |
 |----------|-------|
-| CF_x range (chord / streamwise) | [−2.37, +2.35] |
-| CF_z range (vertical / lift) | [−0.03, +1.46] |
+| CF_x range (lab x, streamwise) | [−2.37, +2.35] |
+| CF_z range (lab z, vertical / lift) | [−0.03, +1.46] |
 | max \|CF_x\| | **2.37** |
 | max \|CF_z\| | **1.46** |
 
