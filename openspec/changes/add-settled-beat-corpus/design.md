@@ -40,7 +40,7 @@ These facts were measured or read from the code; sources are in parentheses.
   - `Particles::Restart` truncates the force CSV by line count, so the two extra `iStep == 0`
     rows that `init_iter = 2` writes shift it.
   - It also re-initialises the wing with zero marker velocity before the first forcing step
-    (`DiffusedIB.cpp:1373–1450`).
+    (`DiffusedIB.cpp:1366–1450`).
 - **`ns.init_iter = 0` plotfiles carry velocity.** E0b's coarse plotfiles were written at
   `init_iter = 0`, and the project's CC-F1 check passes on `plt12000` (x_velocity −21.1 to 4.2 in
   the near-wing box). The live CC-F1 requirement says the opposite; that discrepancy is #206.
@@ -77,12 +77,18 @@ These facts were measured or read from the code; sources are in parentheses.
 | `SETTLED_TOLERANCE` | 0.01 | 1% of peak, RMS |
 | `COMPLETE_FRACTION` | 0.95 | a beat with fewer rows than this fraction of `1/(f*·dt)` is incomplete |
 | `MIN_BEATS` | 5 | fewest complete beats the metric accepts |
-| `FIRST_RATIO_BEAT` | 4 | ratios never use the start-up steps `s_2`, `s_3` |
+| `FIRST_RATIO_BEAT` | 4 | ratios start at `r_4 = s_4 / s_3`, so the start-up ratio `s_3 / s_2` (≈0.03) never enters |
 | `NOISE_FACTOR` | 3 | a step is noise when it is at most `NOISE_FACTOR · J` |
-| `MAX_NOISE` | 0.002 | if `NOISE_FACTOR · J` exceeds this, the measurement is too noisy to judge; the noisiest committed final beat has `3J = 8.1e-4` |
+| `MAX_NOISE` | 0.0004 | if `NOISE_FACTOR · J` exceeds this, the measurement is too noisy to judge; the noisiest committed final beat has `3J = 1.9e-4` |
 
-For one run, target `j` (one of `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`) and timestep `dt` (the
-manifest's `fixed_dt`, passed in):
+For one run, target `j` (one of `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`), timestep `dt` (the
+manifest's `fixed_dt`) and `stop_time` (the manifest's), both passed in:
+
+0. **Clamped steps are dropped.** Rows whose step would end past `stop_time`
+   (`time + dt > stop_time + 1e-9`) are removed first. At `f085`, `max_step = round(stop_time/dt)`
+   overshoots, so the solver clamps the final step short. That row is a force spike of up to 0.10·P
+   (median ≈0.04·P) in every committed `f085` run, and in 15 fine cases it *is* the peak. Left in,
+   it alone could force a spurious `stop`. C3 and C4 apply the same exclusion.
 
 1. **Beats.**
    - Beats come from the extractor's `wingbeat` and `phase`, never recomputed.
@@ -94,8 +100,8 @@ manifest's `fixed_dt`, passed in):
    - `dist(a, c)` is the RMS over beat `a`'s own samples of `w_a(φ_i) − L_c(φ_i)`, divided by `P`.
      `L_c` is periodic linear interpolation of beat `c` in `phase`, and `P = max |w_B|` over beat
      `B`'s samples.
-   - There is no 256-point grid. A coarse grid hits or misses the one-sample force spikes at stroke
-     reversal, which put up to 1e-3 of noise into a beat difference, even at `f100` where beats
+   - There is no 256-point phase grid in the gate. Resampling ≈2000 samples onto 256 points
+     aliases sharp features and adds up to 1e-3 to a beat difference, even at `f100` where beats
      share sample phases.
 3. **Steps and distances.** `s_b = dist(b, b − 1)` for `b = 2..B`, and `D_b = dist(b, B)`.
 4. **Jitter.**
@@ -103,18 +109,26 @@ manifest's `fixed_dt`, passed in):
      (no wrap).
    - `Δ²/8` is the maximum error of linear interpolation at half a sample spacing for a locally
      quadratic signal. So `J` bounds the error that off-integer steps per beat add to `s_b`.
-   - Measured: at most 2.7e-4 on the final beats of both committed corpora (f085 worst; f100 and
-     f115 below 6.4e-5), and about 2e-5 on E0b's beat 6.
+   - Measured, with clamped rows dropped: at most 6.4e-5 on the final beat of every configuration
+     of both committed corpora, and about 2e-5 on E0b's beat 6.
+   - It is an interpolation bound, not a white-noise floor. Smooth periodic signals built from
+     every committed `f085`/`f115` final beat, on their true step grids, give `s_b ≤ 0.40·ν`.
+     White-noise samples would exceed it, but the real data's second differences are positively
+     correlated (curvature), not white.
 5. **Ratios** for `b = max(FIRST_RATIO_BEAT, B − 2) .. B`, with noise floor `ν = NOISE_FACTOR · J`:
-   - both `s_{b−1}` and `s_b` at most `ν`: the ratio is skipped (noise);
-   - only `s_{b−1}` at most `ν`: the run is growing, so it is **not contracting**;
+   - `s_{b−1} ≤ ν` and `s_b ≤ 2ν`: the ratio is skipped (noise);
+   - `s_{b−1} ≤ ν` and `s_b > 2ν`: the run is growing, so it is **not contracting**. The factor 2
+     stops two noise-level steps that straddle `ν` from reading as growth;
    - otherwise `r_b = s_b / s_{b−1}`.
 6. **Contraction.** `ρ = max r_b + max(0, r_last − r_first)`, over the kept ratios in beat order.
    The second term widens the bound when the ratios are rising, as E0b's `s45_f100_p45` CF_my does
    (0.40 → 0.64). `ρ ≥ 1` means not contracting.
 7. **Tail bound** (how far beat `B` still is from the periodic state):
    - not contracting: `T = ∞`;
-   - every ratio skipped: `T = 2 · max s_b` over the ratio beats, which assumes `ρ ≤ 2/3`;
+   - every ratio skipped: `T = 24 · max s_b` over the ratio beats
+     `b = max(FIRST_RATIO_BEAT, B − 2) .. B`. This is `ρ/(1 − ρ)` at `ρ = 0.96`, so a slow mode
+     hiding under the noise floor is still bounded. With `ν ≤ MAX_NOISE` this branch gives
+     `T ≤ 24 · 2ν ≤ 1.9%`;
    - otherwise `T = s_B · ρ / (1 − ρ)`.
 
    The geometric bound holds while later steps shrink by at most `ρ`. RMS is a norm, so the
@@ -125,18 +139,28 @@ manifest's `fixed_dt`, passed in):
 each RMS value and does not gate. A 256-point resampling is kept only for figures and for
 reproducing E0b's published tables.
 
-**Stress tests** (synthetic, `ν = 6e-5`):
+**Stress tests** (synthetic, `ν = 6e-5`; the same steps as the spec scenarios):
 
 | case | result | true distance |
 |---|---|---|
-| ratios rising 0.53 → 0.71 | `T = 1.44%`, fails | 1.35% |
+| steps 0.0125, 0.0080, 0.0050, 0.0036 (ratios 0.64, 0.625, 0.72) | `ρ = 0.80`, `T = 1.44%`, fails | — |
 | a slow mode (ratio 0.96) just below 1e-3 | `T = 1.73%`, fails | 1.33% |
 | growth by ×10 per beat starting at 1e-6 | not contracting | — |
 
 **On the E0b coarse runs:**
-- `s45_f100_p30`: CF_z `T = 1.168%`; no settled beat within 6.
-- `s45_f100_p45`: CF_my `ρ = 0.812` (rising ratios), `T = 1.007%`; no settled beat within 6, by a
-  hair.
+- `s45_f100_p30`: the binding target is CF_my, `T = 1.245%` (CF_z 1.168%, CF_mx 1.048%); no
+  settled beat within 6.
+- `s45_f100_p45`: CF_my ratios 0.476, 0.399, 0.644 give `ρ = 0.812` and `T = 1.007%`; no settled
+  beat within 6, by a hair.
+
+**Known limitations** (stated in `PREREGISTRATION.md`):
+- **Two decay modes can defeat a three-ratio window.** A fast mode (0.5) plus a slow mode (0.97,
+  starting at 4e-4) gives ratios 0.53/0.56/0.61 and `T = 0.21%`, against a true tail of ≈1.24%.
+  The reported mean-CF_z drift per beat is the cross-check, and 8-beat runs reduce the risk.
+- **`pass(5)` is harder by design.** At `N = 5` only `r_4` and `r_5` enter, and the start-up
+  transient often depresses `r_4` (on `s45_f100_p30` this adds 0.22 to CF_x's `ρ` and 0.14 to
+  CF_my's).
+- **`ν = 3J` bounds interpolation error, not white noise** (step 4).
 
 `surrogate_bench/gate.py` has a related `late_beat` yardstick. This change does not import or
 edit bench code; consolidation is a follow-up (D10).
@@ -190,8 +214,9 @@ likely outcomes are `regenerate_needs_cost_approval` with `N*` of 7–8, or `sto
 - **What it does not prove.** The criterion predates the **fine-grid** and 8-beat data. It was
   tuned with the E0b coarse 6-beat data in view, and that data is also a test fixture.
   `PREREGISTRATION.md` says so.
-- **Recomputation.** `check_settling.py` recomputes everything from the committed datasets with
-  the current code, and reports whether `settling.py` differs from the hash recorded at run time.
+- **Recomputation.** `check_settling.py` recomputes every force-derived number from the committed
+  datasets with the current code. It also reports whether `settling.py` differs from the hash
+  recorded at run time.
 
 ## D4. Stage 1 runs and controls
 
@@ -219,12 +244,20 @@ apply to which run, and the report is `controls_incomplete` while any declared c
 
 | id | applies to | check | pass |
 |---|---|---|---|
-| C1 | once per grid, `s55_f115_p30` | the first 400 steps against the committed corpus force CSV (its SHA-256 recorded) | every value within `1e-9 · max |column|` |
-| C3 | every long run | its first two beats against the committed 2-beat corpus | the same tolerance |
-| C4 | every long run | the realized interior timestep, from `run.log` | no interior step below nominal `ns.fixed_dt`; the final step is clamped by `stop_time` and excluded |
+| C1 | once per grid, `s55_f115_p30` | the first 400 steps against that configuration's rows in the committed `dataset.parquet` | raw `Fx..Mz` agree within the comparison tolerance |
+| C3 | every long run | its first two beats against the committed `dataset.parquet` rows, excluding the reference's clamped final row | the same tolerance |
+| C4 | every long run | the realized interior timestep, from `run.log` via `metadata_capture`'s realized-timestep summary | no interior step below nominal `ns.fixed_dt`; clamped final steps excluded |
 
-- **Tolerance.** `1e-9 · max |column|` sits about four orders of magnitude above the round-off E0b
-  saw and well below any physical difference.
+- **Comparison.** The new run's force CSV first goes through the extractor's validated
+  de-duplication: fine decks run `ns.init_iter = 2`, which writes two extra `iStep == 0` rows by
+  design. Rows are then matched by `time` to the committed `dataset.parquet`, which is in git, so
+  CI can re-check them.
+- **Tolerance**, per value: `max(1e-9 · max |column|, one print step of the reference value)`. The
+  CSV prints 6 significant figures, so a print step is one unit in the 6th significant figure.
+  The tolerance therefore means "bit-identical output, allowing a flip of the last printed digit".
+  - The 2026-09 cluster-to-A5000 fine probe was bit-exact over 400 steps.
+  - E0b's coarse rerun differed only by round-off in physically-zero values.
+  - A C1 failure stops the work and is reported; the user decides.
 - **Rate check.** C1 also measures seconds per step on gh-04. The long runs start only after the
   user has seen that rate and the projected wall time.
 - **Why C1 and C3 matter.** They are external checks: each run must reproduce the corpus it will
@@ -250,6 +283,8 @@ Their run records say `git_dirty: true`, which the fixture README notes. The tes
   - The report gives the median, and the fraction above 0.1, of `|u_b − u_B| / u_ref` (vector
     difference norm) for each beat and frame.
   - The region is the near-wing box `(1, 0, 2.5)–(7, 4, 5.5)`, a constant in `settling.py`.
+  - Field values are carried in the report with their plotfile hashes. CI does not recompute them,
+    because the plotfiles are not in git.
   - `u_ref` comes from `compute_force_reference(...).u_ref`.
   - Plotfiles are read with the existing `field_surrogate` reader.
 - **Mean CF_z per beat** and its drift per beat (D11).
@@ -304,8 +339,9 @@ The new corpora go in `examples/settled_sweep` and `examples/settled_sweep_fine`
   - Results are written to `sweep_provenance.json` under `cluster_run.settling`.
   - The mid-sweep check runs the same function on configurations as they complete.
 - **Field capture and CC-F1.** Provenance `field_capture` records `frames_per_beat` and
-  `checkpoints_per_beat`. The gate keys CC-F1 on `frames_per_beat > 0`, and the rationale text no
-  longer says no field output is produced.
+  `checkpoints_per_beat`. The gate runs CC-F1 when `frames_per_beat > 0` or `plot_int > 0` (the
+  2-beat fine corpus uses `plot_int`). The rationale text no longer says no field output is
+  produced.
 - **Unchanged checks:** row count equals `max_step`; the realized-timestep check; the
   `wingbeat > 0` tripwire.
 
@@ -317,7 +353,7 @@ The new corpora go in `examples/settled_sweep` and `examples/settled_sweep_fine`
 | start-up-to-settled movies of any configuration | plotfiles in every beat |
 | coarse-versus-fine field comparisons | field capture on the coarse corpus too (velocity is written at `init_iter = 0`) |
 | force traces of all beats | the extractor keeps every beat |
-| a denser re-run of one beat later | `amr.check_per = 1/f*`: one checkpoint per beat boundary. **Not usable until #205 is fixed.** Kept because the fluid checkpoint is sound and a fix to the particle restart would make these files usable; open question 4 |
+| a denser re-run of one beat later | `amr.check_per = 1/f*`: one checkpoint per beat boundary. **Not usable until #205 is fixed.** Kept because the fluid checkpoint is sound and a fix to the particle restart would make these files usable; open question 3 |
 
 - `generate_sweep` gains `frames_per_beat` and `checkpoints_per_beat`, default `None`, which
   reproduces today's output byte-identically.
@@ -364,8 +400,8 @@ The new corpora go in `examples/settled_sweep` and `examples/settled_sweep_fine`
     smoke configuration. This accounts for plotfile I/O.
   - **Coarse** (`settled_sweep`): from the coarse smoke run. The mean is the smoke rate times
     `2.321 / 2.137`, and the max is the smoke rate times `3.302 / 2.137`. This is the fine grid's
-    measured spread, stated as an assumption. The file is committed in PR 4 with the smoke run
-    metadata.
+    measured spread, stated as an assumption. The file is committed in the coarse sizing PR, with
+    the smoke run metadata.
 - **Deadline.** `submit_workflow.sh full` always computes the deadline unless
   `--active-deadline-seconds` is given, using the effective parallelism (the committed 3 unless
   overridden):
@@ -379,9 +415,15 @@ The new corpora go in `examples/settled_sweep` and `examples/settled_sweep_fine`
     manifest with zero configs.
   - Fine, N = 6, `p = 3`: 70.7 + 25.9 → 97 h.
 - **Retry budget.** `maxDuration` lives in the WorkflowTemplate and cannot be patched per
-  submission. It is committed as `"105h"`, covering 6 attempts of N = 8 fine
-  `s35_f085_p30` (6 × 18824 × 3.302 s = 103.6 h) plus 62 min of backoff. A test fails when any
-  committed manifest with a `cluster_sizing.json` needs more.
+  submission, so it is committed as `"120h"`.
+  - Six attempts of N = 8 fine `s35_f085_p30` (6 × 18824 × 3.302 s = 103.6 h) plus 62 min of
+    backoff need 104.6 h. That leaves 15% for the plotfile I/O the fine smoke run may add to
+    `s_max`.
+  - A test fails when any committed manifest with a `cluster_sizing.json` needs more.
+- **When the rates are committed.** Each `cluster_sizing.json` lands on `main` in a small sizing PR
+  before its full sweep is submitted: the coarse one after the coarse smoke run, and the
+  refreshed fine one after the fine smoke run. The PR also bumps `maxDuration` if the test
+  requires it.
 - **Smoke run.** `SMOKE_MAX_STEP` is read from the manifest. An environment value that disagrees
   with it is an error.
 - **Stale values.** The 86400 s / 24 h and 3478 literals are replaced in the runbook,

@@ -6,7 +6,8 @@
 Rules:
 - Tests come first: each is written and seen to fail for the right reason before the code.
 - Every new guard is shown to be failable: mutate it, and the test must fail.
-- One commit per numbered task unless noted.
+- One commit per numbered task unless noted. A tests-first task is committed **together with**
+  its implementation task (e.g. 1.1 + 1.3, 2.1 + 2.2), so every commit is green.
 - Commit messages say `advances #192` (plus `#101`/`#103` where relevant) and never use a closing
   keyword.
 - Before each commit: `uv run --frozen ruff check`, `ruff format --check` and
@@ -31,7 +32,11 @@ Rules:
   - a tiny but nonzero peak (`1e-6`) is accepted;
   - `wingbeat` and `phase` are used as given; a frame with a deliberately inconsistent `wingbeat`
     is not "corrected";
-  - `dt` is a required argument;
+  - `dt` and `stop_time` are required arguments;
+  - a clamped final row (`time + dt > stop_time`) carrying a `0.1 · P` spike is dropped, and the
+    result equals the run without it;
+  - `ν` exactly at `MAX_NOISE` is accepted, and just above it is reported for `stop`;
+  - the maximum absolute difference is reported beside every RMS value;
   - every `ValueError` path names the configuration and the cause.
 - [ ] 1.2 Known-answer fixtures:
   - Copy the needed columns of `explore-surrogate-experiments` `b99c7b2`
@@ -43,9 +48,13 @@ Rules:
   - Tests:
     - E0b's 256-point resampling, with the `phase ≥ 0.05` mask on the differences and the peak over
       all 256 points, reproduces E0b's beat-to-previous tables to `5e-5`;
-    - the pre-registered rule gives `s45_f100_p30` CF_z `T = 0.01168 ± 1e-4` and
-      `s45_f100_p45` CF_my `T = 0.01007 ± 1e-4`, with no settled beat in either;
-    - `J ≤ 2.7e-4` on the final beat of every configuration of both committed corpora.
+    - the pre-registered rule gives `s45_f100_p30` CF_my `T = 0.01245 ± 1e-4` (the binding
+      target; CF_z `0.01168 ± 1e-4`) and `s45_f100_p45` CF_my `T = 0.01007 ± 1e-4`, with no
+      settled beat in either;
+    - with clamped rows dropped, `J ≤ 6.5e-5` on the final beat of every configuration of both
+      committed corpora;
+    - an exactly periodic 8-beat signal built from each committed `f085`/`f115` final beat, on the
+      true step grid, gives `s_b ≤ ν` for every target.
 - [ ] 1.3 Implement `resample_beats` (figures and the E0b reproduction only), `settling_metrics`
   and `jitter`.
 
@@ -54,7 +63,8 @@ Rules:
   - one test per scenario of "Pre-registered settled-beat decision rule";
   - `pass(N)` needs every `N′ ≥ N`;
   - `B = 7` because the last beat is incomplete;
-  - the result names the run, beat and target.
+  - the result names the run, beat and target; on the two E0b fixtures (`B = 6`) the action is
+    `stop`, and `s45_f100_p30`'s failure is reported on CF_my.
 - [ ] 2.2 Implement `decide_beat_count`.
 
 ### 3. Pre-registration and precedence
@@ -82,7 +92,8 @@ Rules:
   - unchanged files pass;
   - an edit with no `deviations.json` entry fails;
   - an edit with a matching entry passes;
-  - a `DECISION.md` with zero or too few run records fails.
+  - a `DECISION.md` with zero or too few run records fails;
+  - a `settling_report.json` with zero run records (and no `DECISION.md`) fails.
   - The repository test runs it on `examples/settling_check/`. It passes trivially in PR 1, where
     no records or decision exist yet, and becomes binding in PR 3.
 
@@ -90,7 +101,7 @@ Rules:
 - [ ] 4.1 Tests first (`tests/test_settling_decks.py`):
   - the differing key set equals the declared set;
   - a deck missing `amrex.the_arena_init_size`, and one with a changed `ns.cfl`, each fail by name;
-  - `max_step` is 18824 / 16000 / 13913;
+  - `max_step` is 18824 / 16000 / 13913, and `stop_time` equals `derive_run_duration`'s;
   - `plot_per = 1/(20 f*)` and `check_per = 1/f*`;
   - `ns.init_iter`, `ns.cfl`, `ns.fixed_dt` and the grid equal the source deck's;
   - the manifest carries both decks' SHA-256 and the controls declared per run (C1 for
@@ -99,17 +110,23 @@ Rules:
     declared set;
   - regeneration is byte-identical.
 - [ ] 4.2 Implement `generate_decks.py` (using `metadata_capture.parse_deck`), and commit the
-  decks and `settling_manifest.json`.
+  decks and `settling_manifest.json`. The manifest's per-run entries carry the fields
+  `scripts/extract_forces.py` needs (name, input file, kinematics, `max_step`, `stop_time`), so the
+  Stage 1 `dataset.parquet` is built by the existing extractor, not new code.
 - [ ] 4.3 `.gitignore`: add `examples/settling_check/**/runs/`. `git check-ignore` tests: a run
   directory is ignored; `dataset.parquet`, the decks, the manifest, `records/*.json` and the figure
   are not.
 
 ### 5. Controls and report (one commit each)
-- [ ] 5.1 Tests first, then `settling.compare_force_csv`:
+- [ ] 5.1 Tests first, then `settling.compare_force_csv(run_csv, reference_rows, stop_time, dt)`. The
+  reference is the configuration's rows of the committed `dataset.parquet`, matched by `time`
+  after the extractor's de-duplication. Tests:
   - identical values pass;
-  - a `5e-13` round-off perturbation passes;
-  - a `1e-6 · max` perturbation fails, naming the column and `iStep`;
-  - a duplicate or missing `iStep` fails.
+  - a `5e-13` round-off perturbation passes, and so does a flip of the last printed digit;
+  - a `1e-4 · max` perturbation near the peak fails, naming the column and `time`;
+  - the two `init_iter = 2` duplicate `iStep == 0` rows pass, and a duplicate or missing step
+    anywhere else fails;
+  - the reference's clamped final row is excluded (C3 at `f085`).
 - [ ] 5.2 Tests first, then `settling.field_change_stats`:
   - identical arrays give 0;
   - a `0.12 · u_ref` offset gives median 0.12 and fraction 1;
@@ -119,13 +136,19 @@ Rules:
   - every report field of "A settling report records its controls and its inputs";
   - `controls_incomplete` and a non-zero exit when a declared control is missing;
   - run-record completeness: image digest equal to the manifest's pin, IAMReX label, command,
-    hardware, seconds per step, start SHA, `git_dirty == false`, and the three file hashes.
-  - Schemas for `settling_manifest.json`, `records/*.json` and `settling_report.json` are
-    documented in `examples/settling_check/README.md` and checked by the tests.
+    hardware, seconds per step, start SHA, `git_dirty == false`, and the three file hashes;
+  - the record writer `scripts/record_settling_run.py` (`settling.write_run_record`) produces a
+    complete record from a synthetic run directory; C4 uses `metadata_capture`'s realized-timestep
+    summary with clamped steps excluded;
+  - field-change values are copied into the report with the SHA-256 of the plotfile headers they
+    came from; the CI recompute covers force-derived numbers only.
+  - The schemas for `settling_manifest.json`, `records/*.json` and `settling_report.json` are
+    defined in this task as JSON-schema-like tables in `examples/settling_check/README.md`, and
+    the tests check them.
 - [ ] 5.4 Tests first (the sidecar numbers equal the report's), then
   `scripts/make_settling_figure.py`: step change per beat on a log axis, one panel per target, six
   runs, with tolerance and noise lines, following the project's figure-sidecar convention.
-- [ ] 5.5 `examples/settling_check/README.md`: commands, file map, schemas, controls per run, the
+- [ ] 5.5 Finish `examples/settling_check/README.md`: commands, file map, controls per run, the
   data location on the share. It links to `PREREGISTRATION.md` without restating it.
 
 ### 6. Docs, CI and PR 1
@@ -144,8 +167,7 @@ Rules:
     clean tree;
   - pull both images by digest and record their IAMReX labels;
   - check free disk and that the GPU is idle;
-  - copy the committed force CSVs of `s55_f115_p30` (both grids) and of the six long-run
-    configurations from the share, and record their SHA-256.
+  - nothing to copy: the control references are the committed `dataset.parquet` rows.
 - [ ] 7.2 **HUMAN GATE: go-ahead for the controls.** Run C1 on both grids. Record the results and
   seconds per step.
 - [ ] 7.3 Report C1 and the projected wall time for the six runs. Stop if C1 fails.
@@ -182,7 +204,10 @@ ones) in the same commit as its code.
 - [ ] 9.2 Implement the writer with a CLI. Add a text-guard test that the runbook calls the CLI.
 
 ### 10. Guards, gate, trainer refusal (three commits)
-- [ ] 10.1 Final-beat symmetry ratio. Tests first:
+- [ ] 10.1 `settling.training_wingbeat` and the final-beat symmetry ratio. Tests first:
+  - `training_wingbeat` returns 5 for a 6-beat manifest;
+  - on both 2-beat corpora, `wingbeat == training_wingbeat` selects exactly the rows
+    `wingbeat >= 1` selects;
   - ratios are bit-identical on both 2-beat corpora;
   - a synthetic 6-beat run truncated at 95% fails the new ratio while the old one stays inside
     0.012;
@@ -196,7 +221,7 @@ ones) in the same commit as its code.
 - [ ] 10.2 Settling acceptance. Tests first: the draft's scenarios, plus:
   - `not_applicable` comes from the manifest;
   - `cluster_run.settling` is written;
-  - `frames_per_beat > 0` triggers CC-F1;
+  - `frames_per_beat > 0` triggers CC-F1, and so does `plot_int > 0` (the 2-beat fine corpus);
   - the mid-sweep check command runs the same function on a partial run tree.
 - [ ] 10.3 Trainer refusal. Tests first:
   - a 6-beat synthetic frame is refused by `filter_converged_beat` and by
@@ -218,7 +243,7 @@ ones) in the same commit as its code.
   - `prelim_sweep` without an explicit deadline fails;
   - `cluster_sizing.json` recomputes from its `source`;
   - smoke `max-step` comes from the manifest, and a disagreeing environment value is an error;
-  - the committed `maxDuration: "105h"` covers every committed manifest that has a
+  - the committed `maxDuration: "120h"` covers every committed manifest that has a
     `cluster_sizing.json`.
 
   Deliberately changed existing tests:
@@ -232,7 +257,7 @@ ones) in the same commit as its code.
   - `test_submit_workflow_provision.py:116, 147, 324, 353, 529`: `_make_corpus` writes configs with
     `max_step` and a `cluster_sizing.json`, and each "argo not invoked" test asserts its specific
     stderr;
-  - `test_argo_workflows.py:59, 149, 160-186`: `"20h"` → `"105h"`; "committed ≥ formula" becomes
+  - `test_argo_workflows.py:59, 149, 160-186`: `"20h"` → `"120h"`; "committed ≥ formula" becomes
     "always patched".
 - [ ] 12.2 Implement in `submit_workflow.sh`, the workflow files and the WorkflowTemplate. Commit
   `examples/prelim_sweep_fine/cluster_sizing.json`.
@@ -259,11 +284,12 @@ ones) in the same commit as its code.
 
   Data and tests go in one commit. The tests:
   - `DECISION.md`'s count equals `decide_beat_count` recomputed from the committed datasets;
-  - the report recomputes to `rel = 1e-12`;
+  - the force-derived numbers of the report recompute to `rel = 1e-12` (field values are checked
+    against their recorded plotfile hashes only);
   - the precedence check passes;
-  - external reference: the coarse `s45_f100_p30` step changes `s_4..s_6` match E0b's run of the
-    same configuration and image to `1e-9` of peak (the runs should be the same computation up to
-    beat 6).
+  - external reference: the coarse `s45_f100_p30` run's raw forces over beats 1–6 match the E0b
+    fixture of the same configuration and image within the C1 comparison tolerance. If the
+    comparison fails there, the difference is reported and the user decides.
 - [ ] 13.2 **HUMAN GATE: the user confirms the outcome.**
   - On `regenerate` or `regenerate_needs_cost_approval`: confirm `N` and the cost, then merge PR 2.
   - On `stop`: report, close the PR 2 branch, merge PR 3 and archive (D1).
@@ -290,12 +316,15 @@ ones) in the same commit as its code.
   and keep a listing as evidence. Record free space on `Z:`.
 - [ ] 14.2 **HUMAN GATE: coarse smoke** (full-length `s55_f115_p30`). Then:
   - measure seconds per step and plotfile and checkpoint sizes;
-  - write the coarse `cluster_sizing.json` (D9 factors);
+  - write the coarse `cluster_sizing.json` (D9 factors) and land it on `main` in a small sizing
+    PR (fresh branch; its test recomputes the file from the smoke metadata; **HUMAN GATE before
+    pushing**);
   - run CC-F1 on one late plotfile (#206);
   - run the one-config gate with settling.
 - [ ] 14.3 **HUMAN GATE: coarse full sweep**, with the mid-sweep settling check on each completed
   configuration.
-- [ ] 14.4 **HUMAN GATE: fine smoke**: refresh the fine `s_max` (D9). Then **HUMAN GATE: fine full
+- [ ] 14.4 **HUMAN GATE: fine smoke**: refresh the fine `s_max` (D9) in a sizing PR, bumping
+  `maxDuration` if its test requires (**HUMAN GATE before pushing**). Then **HUMAN GATE: fine full
   sweep**, with the same checks.
 - [ ] 14.5 Post-run: run the acceptance gate with settling on all 27 configurations of each
   corpus, and write the per-config run metadata and the storage manifests. On any failure, stop and
@@ -304,8 +333,8 @@ ones) in the same commit as its code.
 ## PR 4 — the corpora (branch `add-settled-beat-corpus-data`)
 
 - [ ] 15.1 One commit:
-  - both datasets, units, run metadata, provenance (with `cluster_run.settling`), storage
-    manifests, and the coarse `cluster_sizing.json` with its smoke metadata;
+  - both datasets, units, run metadata, provenance (with `cluster_run.settling`) and storage
+    manifests;
   - `has_parquet=True`;
   - `test_corpus_guards.py:524-531` expected peaks, and the healthy symmetry maximum recomputed by
     a test.

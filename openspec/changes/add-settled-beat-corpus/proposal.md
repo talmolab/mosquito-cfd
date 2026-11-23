@@ -23,6 +23,9 @@ go-ahead at launch.
 | 3 | the settling results, `DECISION.md` with the chosen beat count N, and the new corpus decks | cluster sweeps |
 | 4 | the two regenerated corpora: datasets, run metadata, acceptance records, storage manifests, READMEs | archive the change |
 
+Two small sizing PRs also land between the cluster smoke runs and the full sweeps. Each commits
+that grid's measured seconds per step, which the deadline needs (`design.md` D9).
+
 PR 2's tooling covers:
 - `--n-wingbeats` for the corpus drivers;
 - time-triggered field capture;
@@ -117,7 +120,7 @@ the 2-beat corpora.
 
 **Expected outcome.** On the coarse 6-beat data, the rule finds no settled beat within 6 beats for
 either configuration. The centre configuration misses by a hair (CF_my 1.007%); the 30° pitch one
-misses by 25%. With 8 beats the likely results are N = 7–8, which needs cost approval, or `stop`.
+misses by 25% (CF_my 1.245%). With 8 beats the likely results are N = 7–8, which needs cost approval, or `stop`.
 
 ## Impact
 
@@ -126,7 +129,7 @@ misses by 25%. With 8 beats the likely results are N = 7–8, which needs cost a
     the settling report.
   - PR 2 adds the training beat, settling acceptance, field capture, storage manifest,
     supersession writer and cluster sizing.
-  - PR 2 also modifies nine requirements, named exactly in `stage2-spec-draft.md`.
+  - PR 2 also modifies eleven requirements, named exactly in `stage2-spec-draft.md`.
   - `run-metadata`, `field-surrogate` and `visualization-tooling` need no delta: their
     requirements are field-level, the plotfile reader finds steps from disk, and the figure
     follows the existing sidecar convention.

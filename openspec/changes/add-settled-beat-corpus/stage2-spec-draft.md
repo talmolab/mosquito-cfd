@@ -58,8 +58,11 @@ the requirement's **full** current text, then changed as listed. Headers are the
    - Each submittable corpus directory SHALL carry `cluster_sizing.json`
      (`seconds_per_step_mean`, `seconds_per_step_max`, `source`).
    - A test SHALL recompute it from the files `source` names.
-   - Scenario: the `prelim_sweep_fine` and `settled_sweep_fine` rates recompute to 2.321
-     (step-weighted) and 3.302.
+   - Scenarios:
+     - `prelim_sweep_fine` recomputes to 2.321 (step-weighted) and 3.302 from its 27 run metadata
+       files;
+     - `settled_sweep` and `settled_sweep_fine` recompute from the smoke-run metadata their
+       `source` names, with the D9 factors.
 
 ## MODIFIED (full current text plus these changes, in PR 2)
 
@@ -105,9 +108,9 @@ the requirement's **full** current text, then changed as listed. Headers are the
   - A scenario covers `examples/prelim_sweep` (no `cluster_sizing.json`): `full` fails unless
     `--active-deadline-seconds` is given.
 - **"retryStrategy backoff can cover the full configured retry limit"**
-  - `maxDuration` is the committed `"105h"`: 6 attempts of N = 8 fine `s35_f085_p30` at 3.302 s/step
-    plus 62 min of backoff. A test fails when any committed manifest with a `cluster_sizing.json`
-    needs more.
+  - `maxDuration` is the committed `"120h"`: 6 attempts of N = 8 fine `s35_f085_p30` at
+    3.302 s/step plus 62 min of backoff need 104.6 h, leaving 15% margin. A test fails when any
+    committed manifest with a `cluster_sizing.json` needs more.
 - **"Post-run acceptance gate blocks dataset construction on an unverified corpus"**
   - Adds the settling check of ADDED 2.
   - The symmetry ratio is taken over the final requested beat.

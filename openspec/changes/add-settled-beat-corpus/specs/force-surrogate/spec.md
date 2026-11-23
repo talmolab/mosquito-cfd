@@ -6,11 +6,13 @@
 periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`.
 
 - **Beats.** Beat `b` is 1-based and is the rows with `wingbeat == b − 1`. The extractor's
-  `wingbeat` and `phase` columns SHALL be used as given, never recomputed. The timestep `dt` SHALL
-  be passed in, taken from the manifest's `fixed_dt`.
+  `wingbeat` and `phase` columns SHALL be used as given, never recomputed. The timestep `dt` and
+  `stop_time` SHALL be passed in, taken from the manifest.
+- **Clamped steps.** Rows with `time + dt > stop_time + 1e-9` SHALL be dropped before beats are
+  formed. Those are steps the solver shortened to land on `stop_time`.
 - **Constants.** These SHALL be module constants: `SETTLED_TOLERANCE = 0.01`,
   `COMPLETE_FRACTION = 0.95`, `MIN_BEATS = 5`, `FIRST_RATIO_BEAT = 4`, `NOISE_FACTOR = 3` and
-  `MAX_NOISE = 0.002`.
+  `MAX_NOISE = 0.0004`.
 - **Complete beats.** A beat is complete when it has at least
   `COMPLETE_FRACTION / (frequency_fstar · dt)` rows. `B` is the number of the last complete beat.
 - **Errors.** Each of these SHALL raise `ValueError` naming the configuration and the cause:
@@ -25,14 +27,16 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
   beat `D_b = dist(b, B)`.
 - **Jitter.** `J = rms(w_B[i−1] − 2·w_B[i] + w_B[i+1]) / (8 · P)` over the interior samples of
   beat `B`. The noise floor is `ν = NOISE_FACTOR · J`.
-- **Ratios**, for `b = max(FIRST_RATIO_BEAT, B − 2) .. B`:
-  - when `s_{b−1} ≤ ν` and `s_b ≤ ν` the ratio is skipped;
-  - when only `s_{b−1} ≤ ν` the run is not contracting;
+- **Ratios**, for the ratio beats `b = max(FIRST_RATIO_BEAT, B − 2) .. B`:
+  - when `s_{b−1} ≤ ν` and `s_b ≤ 2ν`, the ratio is skipped;
+  - when `s_{b−1} ≤ ν` and `s_b > 2ν`, the run is not contracting;
   - otherwise `r_b = s_b / s_{b−1}`.
 - **Contraction.** `ρ = max r_b + max(0, r_last − r_first)` over the kept ratios in beat order.
   `ρ ≥ 1` means not contracting.
-- **Tail bound `T`.** `T` is infinite when the run is not contracting. When every ratio was
-  skipped, `T = 2 · max s_b` over the ratio beats. Otherwise `T = s_B · ρ / (1 − ρ)`.
+- **Tail bound `T`.**
+  - `T` is infinite when the run is not contracting.
+  - When every ratio was skipped, `T = 24 · max s_b` over the ratio beats.
+  - Otherwise `T = s_B · ρ / (1 − ρ)`.
 - **Estimated distance.** `E_b = D_b + T`.
 - **Reporting.** The maximum absolute difference over samples SHALL be reported beside every RMS
   value and SHALL NOT enter any verdict.
@@ -43,7 +47,7 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
   identical phases in every beat, with `a` large enough that every `s_b` exceeds `ν`
 - **When** the metric is computed
 - **Then** every `s_b`, `ρ` and `T` equal their closed forms to `rel = 1e-9`
-- **And** `E_b` is at least `dist` between beat `b` and `w_∞` for every beat
+- **And** `E_b` is at least `dist` between beat `b` and `w_∞` for every beat, to `rel = 1e-9`
 
 #### Scenario: Rising ratios widen the bound
 
@@ -67,7 +71,14 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
 
 - **Given** step changes `s_4..s_7` of `5e-5, 4e-5, 3e-5, 4e-5` and `ν = 6e-5`
 - **When** the tail bound is computed with `B = 7`
-- **Then** every ratio is skipped, the run counts as contracting, and `T = 8e-5`
+- **Then** every ratio is skipped, the run counts as contracting, and
+  `T = 24 · 4e-5 = 9.6e-4`
+
+#### Scenario: Two noise-level steps straddling the floor are not growth
+
+- **Given** step changes `s_4..s_7` of `5e-5, 4e-5, 5e-5, 7e-5` and `ν = 6e-5`
+- **When** the tail bound is computed with `B = 7`
+- **Then** the run counts as contracting (`7e-5 ≤ 2ν`) and `T` is finite
 
 #### Scenario: Too few beats are rejected
 
@@ -83,10 +94,17 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
 
 #### Scenario: Off-integer steps per beat add less than the noise floor
 
-- **Given** an exactly periodic smooth signal with a one-sample spike of `0.05 · P` at stroke
-  reversal, sampled at `dt = 5e-4` for `frequency_fstar` 0.85 and 1.15 over 8 beats
+- **Given** an exactly periodic 8-beat signal built from a committed final beat, on the true
+  `step · dt` grid, for each committed configuration at `frequency_fstar` 0.85 and 1.15
 - **When** the metric is computed
 - **Then** every `s_b` for `b ≥ 2` is at most `ν` for every target, and `ν ≤ MAX_NOISE`
+
+#### Scenario: A clamped final step is dropped
+
+- **Given** an 8-beat run at `frequency_fstar = 0.85` whose last row is a short final step carrying
+  a force spike of `0.1 · P`
+- **When** the metric is computed with the manifest's `stop_time`
+- **Then** that row is excluded, and every result equals the result for the run without it
 
 ### Requirement: Pre-registered settled-beat decision rule
 
@@ -138,7 +156,7 @@ added to `N*`.
 
 #### Scenario: Too much noise stops the decision
 
-- **Given** a run whose CF_y has `ν = 2.4e-3`
+- **Given** a run whose CF_y has `ν = 6e-4`
 - **When** `decide_beat_count` is called
 - **Then** the action is `stop`, naming the run and CF_y
 
@@ -217,8 +235,14 @@ and grid, parsed with `metadata_capture.parse_deck`.
 When any declared control has no recorded result, the report SHALL be marked
 `controls_incomplete` and the script SHALL exit non-zero.
 
-The force comparison control SHALL pass only when every value is within `1e-9 · max |column|` of
-the reference.
+The force comparison control SHALL:
+- de-duplicate the run's force rows with the extractor's validated rule;
+- drop rows whose step ends past the reference's or the run's `stop_time`;
+- match the remaining rows to the configuration's rows of the committed `dataset.parquet` by
+  `time`.
+
+It SHALL pass only when every raw `Fx..Mz` value is within
+`max(1e-9 · max |column|, one unit in the 6th significant figure of the reference value)`.
 
 The field change is the median, and the fraction above 0.1, of `|u_b − u_B| / u_ref` (the vector
 difference norm) over the near-wing box, with `u_ref` from `compute_force_reference`. The field
@@ -235,7 +259,15 @@ change and the mean-lift drift SHALL be reported and SHALL NOT enter the decisio
 - **Given** a reference force series and a copy perturbed by `5e-13` in one row of `Fy`
 - **When** they are compared
 - **Then** the comparison passes
-- **And** with a perturbation of `1e-6 · max |Fy|` it fails, naming `Fy` and the `iStep`
+- **And** with a perturbation of `1e-4 · max |Fy|` in a row near the peak it fails, naming `Fy` and
+  the `time`
+
+#### Scenario: Init-iteration duplicates do not fail the comparison
+
+- **Given** a run CSV with the two extra `iStep == 0` rows that `ns.init_iter = 2` writes, and
+  otherwise identical values
+- **When** it is compared with the committed rows
+- **Then** the comparison passes, and a duplicate at any other `iStep` fails
 
 #### Scenario: A uniform field offset is measured in units of the reference speed
 
