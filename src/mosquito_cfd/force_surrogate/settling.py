@@ -390,6 +390,19 @@ def n_star_from_passes(passes: Mapping[int, bool]) -> int | None:
     return n_star
 
 
+def noisiest_target(targets: Mapping[str, TargetSettling]) -> str:
+    """The target with the largest noise floor; a non-finite floor wins outright.
+
+    ``max`` with a NaN key depends on the order of the targets (NaN compares false both
+    ways), so a NaN in any target but the first would be skipped and never reach the
+    decision's ``MAX_NOISE`` test.
+    """
+    for name, target in targets.items():
+        if not math.isfinite(target.noise_floor):
+            return name
+    return max(targets, key=lambda name: targets[name].noise_floor)
+
+
 def evaluate_run(
     run: str,
     frame: pd.DataFrame,
@@ -450,7 +463,7 @@ def evaluate_run(
         binding_beat = n_star - 1
     else:
         binding_beat = n_star
-    noise_target = max(TARGETS, key=lambda t: full.targets[t].noise_floor)
+    noise_target = noisiest_target(full.targets)
     return RunVerdict(
         run=run,
         n_star=n_star,
@@ -516,8 +529,13 @@ def decide_beat_count(verdicts: Sequence[RunVerdict]) -> Decision:
         slowest.run,
         slowest.binding_beat,
         slowest.binding_target,
-        f"N* = {n_star}, set by {slowest.run} (beat {slowest.binding_beat}, "
-        f"{slowest.binding_target}, blocked the count below N*)",
+        (
+            f"N* = {n_star}, set by {slowest.run} (beat {slowest.binding_beat}, "
+            f"{slowest.binding_target}, blocked the count below N*)"
+            if n_star > MIN_BEATS
+            else f"N* = {n_star} = MIN_BEATS, no lower count is evaluated; worst at beat "
+            f"{slowest.binding_beat} is {slowest.binding_target} in {slowest.run}"
+        ),
     )
 
 
@@ -903,8 +921,13 @@ def compare_force_csv(
             COMPARE_RELATIVE_TO_COLUMN * column_max,
             COMPARE_PRINT_UNITS * print_unit(ref_values),
         )
-        # `not (|diff| <= tol)` so that a NaN or inf on either side fails, never passes.
-        bad = np.flatnonzero(~(np.abs(run_values - ref_values) <= tolerance))
+        # Both sides must be finite: an infinite reference would make the tolerance infinite.
+        ok = (
+            np.isfinite(run_values)
+            & np.isfinite(ref_values)
+            & (np.abs(run_values - ref_values) <= tolerance)
+        )
+        bad = np.flatnonzero(~ok)
         if len(bad):
             i = bad[0]
             failures.append(
@@ -960,12 +983,21 @@ def _git(repo_root: Path, *args: str, runner: Runner = subprocess.run):
 
 
 def _dirty_lines(porcelain: str) -> list[str]:
-    """Porcelain lines that make the checkout dirty; Stage 1 records do not."""
-    return [
-        line
-        for line in porcelain.splitlines()
-        if line.strip() and RECORDS_PREFIX not in line
-    ]
+    """Porcelain lines that make the checkout dirty.
+
+    Only a new, untracked file under ``examples/settling_check/records/`` is exempt (a
+    Stage 1 record written during the runs). A tracked record that is modified, deleted or
+    renamed, and anything renamed into that folder, still counts as dirty.
+    """
+    dirty = []
+    for line in porcelain.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip().strip('"')
+        if line.startswith("?? ") and path.startswith(RECORDS_PREFIX):
+            continue
+        dirty.append(line)
+    return dirty
 
 
 def git_launch_state(repo_root: Path | str, *, runner: Runner = subprocess.run) -> dict:
@@ -1012,7 +1044,13 @@ def git_provenance(
     repo_root = Path(repo_root)
     start = str(launch.get("start_commit", ""))
     head = _git(repo_root, "rev-parse", "HEAD", runner=runner).stdout.decode().strip()
-    ancestor = (
+    upstream_found = (
+        _git(
+            repo_root, "rev-parse", "--verify", "--quiet", upstream_ref, runner=runner
+        ).returncode
+        == 0
+    )
+    ancestor = upstream_found and (
         _git(
             repo_root, "merge-base", "--is-ancestor", start, upstream_ref, runner=runner
         ).returncode
@@ -1034,6 +1072,7 @@ def git_provenance(
         "start_commit": start,
         "head_commit": head,
         "upstream_ref": upstream_ref,
+        "upstream_found": upstream_found,
         "ancestor_of_upstream": ancestor,
         "dirty_at_launch": bool(
             _dirty_lines(str(launch.get("git_status_porcelain", "")))
@@ -1052,10 +1091,20 @@ def provenance_problems(provenance: Mapping) -> list[str]:
         problems.append("provenance.start_commit is not a full 40-hex commit")
     if provenance.get("head_commit") != start:
         problems.append("provenance.head_commit differs: HEAD moved since launch")
-    if provenance.get("ancestor_of_upstream") is not True:
+    if provenance.get("upstream_ref") != UPSTREAM_REF:
+        problems.append(
+            f"provenance.upstream_ref is {provenance.get('upstream_ref')!r}; it must be "
+            f"{UPSTREAM_REF}"
+        )
+    if provenance.get("upstream_found") is False:
+        problems.append(
+            f"provenance.upstream_found is false: {provenance.get('upstream_ref')} does not "
+            "exist in this checkout; fetch origin first"
+        )
+    elif provenance.get("ancestor_of_upstream") is not True:
         problems.append(
             "provenance.ancestor_of_upstream is false: the start commit is not on "
-            f"{provenance.get('upstream_ref', UPSTREAM_REF)}"
+            f"{provenance.get('upstream_ref', UPSTREAM_REF)} (fetch origin if it is stale)"
         )
     if provenance.get("dirty_at_launch") is not False:
         problems.append("provenance.dirty_at_launch: the checkout was dirty at launch")
@@ -1269,6 +1318,19 @@ def validate_run_record(record: Mapping, entry: Mapping) -> list[str]:
     for key in ("wall_time_s", "seconds_per_step", "steps"):
         if not _positive_number(record.get(key)):
             problems.append(f"{key} is missing or not positive")
+    for key in ("force_csv_sha256", "run_log_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(record.get(key, ""))):
+            problems.append(f"{key} is missing or not a SHA-256")
+    if "field_change" in record:
+        change = record["field_change"]
+        if not (
+            isinstance(change, Mapping)
+            and isinstance(change.get("beats"), Mapping)
+            and isinstance(change.get("plotfile_header_sha256"), Mapping)
+        ):
+            problems.append(
+                "field_change must have beats and plotfile_header_sha256 mappings"
+            )
     if record.get("steps") != entry.get("max_step"):
         problems.append(
             f"steps is {record.get('steps')}, the deck declares {entry.get('max_step')}: "
@@ -1488,19 +1550,23 @@ def build_settling_report(
             continue
         extracted = _extraction_csv_sha(settling_dir, grid, entry["config"])
         recorded = records.get(name, {}).get("force_csv_sha256")
-        if recorded is not None and extracted != recorded:
+        if name in records and extracted != recorded:
             data_missing.append(
                 f"{name}: the dataset was not extracted from the recorded CSV "
-                f"(extraction {str(extracted)[:12]}, record {recorded[:12]})"
+                f"(extraction {str(extracted)[:12]}, record {str(recorded)[:12]})"
             )
         f_star = float(frame["frequency_fstar"].iloc[0])
-        verdict = evaluate_run(
-            name,
-            frame,
-            frequency_fstar=f_star,
-            dt=DT,
-            stop_time=float(entry["stop_time"]),
-        )
+        try:
+            verdict = evaluate_run(
+                name,
+                frame,
+                frequency_fstar=f_star,
+                dt=DT,
+                stop_time=float(entry["stop_time"]),
+            )
+        except ValueError as exc:
+            data_missing.append(f"{name}: {exc}")
+            continue
         full = verdict.settling
         if full.b_last != int(entry["n_wingbeats"]):
             data_missing.append(

@@ -7,7 +7,8 @@ periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_
 
 - **Beats.** Beat `b` is 1-based and is the rows with `wingbeat == b − 1`. The extractor's
   `wingbeat` and `phase` columns SHALL be used as given, never recomputed. The timestep `dt` and
-  `stop_time` SHALL be passed in, taken from the manifest.
+  `stop_time` SHALL be passed in: `dt` is the project timestep `DT` (a test SHALL check it
+  equals each settling sweep manifest's `dt`) and `stop_time` is the deck's.
 - **Clamped steps.** Rows with `time + dt > stop_time + CLAMP_SLACK` SHALL be dropped before beats are
   formed. Those are steps the solver shortened to land on `stop_time`.
 - **Constants.** These SHALL be module constants: `SETTLED_TOLERANCE = 0.01`,
@@ -129,7 +130,9 @@ The action SHALL be one of these, in this order of precedence:
 - `regenerate_needs_cost_approval`, when `N* > COST_APPROVAL_ABOVE`;
 - otherwise `regenerate`.
 
-The result SHALL name the run, beat and target that set `N*` or caused `stop`; for `N*`, the beat is the one below `N*` that failed and the target is the worst there. No margin SHALL be
+The result SHALL name the run, beat and target that set `N*` or caused `stop`; for `N* > MIN_BEATS`, the beat is the one below `N*` that failed and the target is the
+worst there; for `N* = MIN_BEATS` (no lower count is evaluated) it is the worst target at
+`N*`. No margin SHALL be
 added to `N*`.
 
 #### Scenario: The slowest run sets the count
@@ -180,15 +183,19 @@ typed in by the operator:
 - the launch commit and `git status --porcelain`, written to the run directory just before the
   run starts;
 - HEAD at record time;
-- whether the launch commit is an ancestor of `origin/main`;
-- whether the checkout was dirty at launch and is dirty at record time, ignoring Stage 1
-  records under `examples/settling_check/records/`;
+- whether `origin/main` exists and the launch commit is an ancestor of it (no other
+  upstream is accepted);
+- whether the checkout was dirty at launch and is dirty at record time. Only new, untracked
+  files under `examples/settling_check/records/` are exempt; a tracked record that is
+  modified, deleted or renamed, or anything renamed into that folder, is dirty;
 - the SHA-256 of each gated file at the launch commit (from `git show`), and whether the
   working tree still matches it.
 
 A record SHALL be refused unless HEAD equals the launch commit, the launch commit is an
 ancestor of `origin/main`, the checkout was and is clean, and every gated file matches the
-launch commit.
+launch commit. The launch step SHALL refuse, before any run starts, a checkout that is dirty
+or whose HEAD is not on `origin/main`. The IAMReX label SHALL come from
+`docker image inspect`, never from an operator-supplied value.
 
 For every committed run record, a test SHALL fail unless every gated file hashes to the recorded
 value, or an entry in a committed `deviations.json` (`file`, `old_sha256`, `new_sha256`,
@@ -288,7 +295,7 @@ The script SHALL exit non-zero unless the status is `complete`.
 
 The force comparison control SHALL:
 - de-duplicate the run's force rows with the extractor's validated rule;
-- drop rows whose step ends past the reference's or the run's `stop_time`;
+- drop rows whose step ends past each side's own `stop_time`;
 - match the remaining rows to the configuration's rows of the committed `dataset.parquet` by
   step index `round(time / dt)`.
 

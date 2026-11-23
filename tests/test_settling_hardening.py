@@ -267,7 +267,6 @@ def test_head_moved_since_launch_is_detected(tmp_path):
     prov = git_provenance(
         t["repo"],
         launch={"start_commit": "0" * 40, "git_status_porcelain": ""},
-        upstream_ref="upstream",
     )
     assert prov["head_commit"] == t["commit"] and prov["start_commit"] == "0" * 40
     assert any("HEAD" in p for p in settling.provenance_problems(prov))
@@ -499,3 +498,210 @@ def test_a_name_in_both_runs_and_controls_is_rejected(tmp_path):
     (t["settling_dir"] / "settling_manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="fine_cfg.*2 entries"):
         settling.manifest_entry(t["settling_dir"], "fine_cfg")
+
+
+# --------------------------------------------------------------------------- re-review round 2
+
+
+class _T:
+    def __init__(self, nu):
+        self.noise_floor = nu
+
+
+def test_a_nan_noise_floor_in_any_target_is_the_noise_target():
+    targets = {"CF_x": _T(1e-5), "CF_y": _T(float("nan")), "CF_z": _T(2e-5)}
+    assert settling.noisiest_target(targets) == "CF_y"
+    assert settling.noisiest_target({"CF_x": _T(1e-5), "CF_y": _T(3e-5)}) == "CF_y"
+
+
+def test_reason_at_min_beats_does_not_claim_a_blocked_count():
+    v = RunVerdict(
+        run="r",
+        n_star=settling.MIN_BEATS,
+        contracting=True,
+        max_noise=1e-5,
+        noise_target="CF_x",
+        passes={5: True},
+        binding_beat=5,
+        binding_target="CF_z",
+    )
+    d = decide_beat_count([v])
+    assert d.beat == 5 and "blocked" not in d.reason
+
+
+def test_an_upstream_other_than_origin_main_is_refused(tmp_path):
+    t = _tree(tmp_path)
+    prov = git_provenance(
+        t["repo"],
+        launch={"start_commit": t["commit"], "git_status_porcelain": ""},
+        upstream_ref="upstream",
+    )
+    assert any("upstream_ref" in p for p in settling.provenance_problems(prov))
+
+
+def test_a_missing_origin_main_says_fetch(tmp_path):
+    t = _tree(tmp_path)
+    _git(t["repo"], "update-ref", "-d", "refs/remotes/origin/main")
+    prov = _provenance(t)
+    problems = settling.provenance_problems(prov)
+    assert any("does not exist" in p and "fetch" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "R  src/x.py -> examples/settling_check/records/x.py",
+        " M examples/settling_check/records/fine_c1_cfg.json",
+        " D examples/settling_check/records/fine_c1_cfg.json",
+        "?? stray.py",
+    ],
+)
+def test_only_new_untracked_records_are_exempt_from_the_dirty_check(line):
+    assert settling._dirty_lines(line) == [line]
+
+
+def test_a_new_untracked_record_is_not_dirty():
+    assert (
+        settling._dirty_lines("?? examples/settling_check/records/fine_cfg.json") == []
+    )
+
+
+def test_launch_refuses_a_dirty_checkout(tmp_path):
+    from test_settling_report import _launch_script
+
+    t = _tree(tmp_path)
+    (t["repo"] / "stray.py").write_text("x = 1\n")
+    result = _launch_script(t, t["c1"])
+    assert result.returncode == 1 and "dirty" in result.stdout
+    assert not (t["c1"] / "launch.json").exists()
+
+
+def test_launch_refuses_a_commit_not_on_origin_main(tmp_path):
+    from test_settling_report import _launch_script
+
+    t = _tree(tmp_path)
+    (t["repo"] / "extra.txt").write_text("x")
+    _git(t["repo"], "add", "extra.txt")
+    _git(t["repo"], "-c", "commit.gpgsign=false", "commit", "-q", "-m", "local")
+    result = _launch_script(t, t["c1"])
+    assert result.returncode == 1 and "origin/main" in result.stdout
+    assert not (t["c1"] / "launch.json").exists()
+
+
+def test_launch_accepts_new_untracked_records(tmp_path):
+    from test_settling_report import _launch_script
+
+    t = _tree(tmp_path)
+    (t["settling_dir"] / "records").mkdir()
+    (t["settling_dir"] / "records" / "fine_c1_cfg.json").write_text("{}")
+    assert _launch_script(t, t["long"]).returncode == 0
+
+
+def test_short_run_in_the_report_is_data_incomplete_not_a_crash(tmp_path):
+    t = _complete_tree(tmp_path)
+    _cf_frame("cfg", 3, 0.2).to_parquet(t["settling_dir"] / "fine" / "dataset.parquet")
+    report = build_settling_report(
+        t["settling_dir"], repo_root=t["repo"], git_commit=COMMIT
+    )
+    assert report["status"] == "data_incomplete"
+    assert any("fine_cfg" in m for m in report["data_missing"])
+
+
+@pytest.mark.parametrize("key", ["force_csv_sha256", "run_log_sha256"])
+def test_raw_file_hashes_are_required(tmp_path, key):
+    t = _tree(tmp_path)
+    record = _record(t, "fine_cfg", t["long"])
+    for bad in (None, 5, "abc"):
+        broken = dict(record)
+        if bad is None:
+            broken.pop(key)
+        else:
+            broken[key] = bad
+        assert any(
+            key in p for p in validate_run_record(broken, t["manifest"]["runs"][0])
+        )
+
+
+def test_report_with_a_non_string_csv_hash_names_it(tmp_path):
+    t = _complete_tree(tmp_path)
+    bad = dict(t["long_record"], force_csv_sha256=5)
+    _write_record(t, bad)
+    report = build_settling_report(
+        t["settling_dir"], repo_root=t["repo"], git_commit=COMMIT
+    )
+    assert report["status"] != "complete"
+
+
+def test_infinite_reference_value_fails(tmp_path):
+    csv = tmp_path / "IB_Particle_1.csv"
+    _csv(csv, 400)
+    ref = _ref(400)
+    ref.loc[2, "Fx"] = np.inf
+    result = _compare(csv, ref)
+    assert not result.passed and "Fx" in result.failures[0]
+
+
+def test_record_script_without_docker_fails_cleanly(tmp_path, monkeypatch):
+    from test_settling_report import _launch_script, _script_module
+
+    t = _tree(tmp_path)
+    assert _launch_script(t, t["c1"]).returncode == 0
+    module = _script_module()
+
+    def no_docker(*args, **kwargs):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(module.subprocess, "run", no_docker)
+    with pytest.raises(SystemExit, match="docker"):
+        module._iamrex_label_from_docker("img@sha256:" + "a" * 64)
+
+
+def test_record_script_without_hardware_json_fails_cleanly(tmp_path):
+    from test_settling_report import _launch_script, _run_script
+
+    t = _tree(tmp_path)
+    assert _launch_script(t, t["c1"]).returncode == 0
+    result = _run_script(
+        [
+            "record",
+            "--name",
+            "fine_c1_cfg",
+            "--run-dir",
+            str(t["c1"]),
+            "--settling-dir",
+            str(t["settling_dir"]),
+            "--repo-root",
+            str(t["repo"]),
+        ]
+    )
+    assert result.returncode == 1 and "hardware.json" in result.stdout
+
+
+def test_record_script_has_no_label_or_upstream_override():
+    from test_settling_report import _script_module
+
+    module = _script_module()
+    with pytest.raises(SystemExit):
+        module.main(["record", "--name", "x", "--run-dir", ".", "--iamrex-commit", "y"])
+    with pytest.raises(SystemExit):
+        module.main(["record", "--name", "x", "--run-dir", ".", "--upstream-ref", "y"])
+
+
+def test_field_change_shape_is_validated(tmp_path):
+    t = _tree(tmp_path)
+    record = _record(t, "fine_cfg", t["long"])
+    record["field_change"] = {"beats": "oops"}
+    assert any(
+        "field_change" in p
+        for p in validate_run_record(record, t["manifest"]["runs"][0])
+    )
+
+
+def test_committed_settling_manifests_use_the_project_timestep():
+    for grid in ("coarse", "fine"):
+        sweep = json.loads(
+            (
+                REPO / "examples/settling_check" / grid / "sweep_manifest.json"
+            ).read_text()
+        )
+        assert sweep["dt"] == settling.DT

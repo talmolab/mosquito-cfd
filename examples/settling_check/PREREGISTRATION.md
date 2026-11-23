@@ -29,8 +29,8 @@ lab RTX A5000 machine gh-04.
 these keys:
 - `max_step` and `stop_time`, for 8 beats;
 - `amrex.the_arena_init_size = 12884901888`;
-- `amr.plot_int = -1` and `amr.plot_per = 1/(20·f*)`, giving 20 plotfiles per beat at fixed
-  phases;
+- `amr.plot_int = -1` (already −1 in the coarse decks, so not a change there) and
+  `amr.plot_per = 1/(20·f*)`, giving 20 plotfiles per beat at fixed phases;
 - `amr.check_int = -1` and `amr.check_per = 1/f*`, giving one checkpoint per beat. Checkpoints are
   not used for restarts (#205).
 
@@ -89,7 +89,8 @@ enter the verdict.
 
 For a run with `B` complete beats and a candidate count `N` (`MIN_BEATS ≤ N ≤ B`), **pass(N)**
 holds when, for every coefficient, both of these are true:
-- **(a)** the metric on the run cut at its first `N` beats is contracting, with
+- **(a)** the metric on the run cut at its first `N` beats (rows with `wingbeat < N`, and
+  `stop_time = N/f*` for the clamp rule) is contracting, with
   `T ≤ SETTLED_TOLERANCE`. This is the test every regenerated corpus run will face.
 - **(b)** on the full run, `E_N ≤ SETTLED_TOLERANCE` and the run is contracting.
 
@@ -177,11 +178,13 @@ restarts.
 Each run starts from a clean checkout of a `main` commit that is an ancestor of `origin/main`.
 This is derived from git, not typed in by the operator:
 - just before the container starts, `scripts/record_settling_run.py launch` writes the
-  checkout's HEAD and `git status --porcelain` into the run directory;
+  checkout's HEAD and `git status --porcelain` into the run directory, and refuses to if the
+  checkout is dirty or HEAD is not on `origin/main`;
 - when the record is written, the script checks four things:
   - HEAD is still that commit;
-  - the commit is an ancestor of `origin/main`;
-  - the checkout was and is clean (Stage 1 records under `records/` excepted);
+  - the commit is an ancestor of `origin/main` (no other upstream is accepted);
+  - the checkout was and is clean (only new, untracked records under `records/` are
+    exempt);
   - each gated file equals its bytes at that commit.
 
 The record stores the commit and the SHA-256 (at that commit, from `git show`) of the gated

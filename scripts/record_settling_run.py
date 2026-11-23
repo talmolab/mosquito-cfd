@@ -3,25 +3,25 @@ r"""Record a settling run (OpenSpec change add-settled-beat-corpus, #192).
 Two subcommands, run on the machine that runs the case, from the clean ``main`` checkout:
 
 ``launch --run-dir DIR``
-    Just before the container starts: writes ``DIR/launch.json`` with the checkout's HEAD and
-    ``git status --porcelain``, so the record can attest the state the run started from.
+    Just before the container starts. Refuses (exit 1, nothing written) unless the checkout is
+    clean and HEAD is on ``origin/main``, so a run that could never be recorded is not started.
+    Otherwise writes ``DIR/launch.json`` with HEAD and ``git status --porcelain``.
 
 ``record --name NAME --run-dir DIR``
-    After the run: derives the provenance from git (:func:`settling.git_provenance`: HEAD still
-    the launch commit, an ancestor of the upstream ref, clean at launch and now, gated files
-    equal to the start commit), reads the IAMReX label of the manifest's image with
-    ``docker image inspect`` (or ``--iamrex-commit``), runs the declared controls
-    (:func:`settling.build_run_record`), validates the record, and only then, with
-    ``--field-change``, measures the near-wing field change (fine long runs; needs ``yt``).
-    Writes ``<settling-dir>/records/<NAME>.json``.
+    After the run. Derives the provenance from git (:func:`settling.git_provenance`: HEAD still
+    the launch commit, on ``origin/main``, clean at launch and now, gated files equal to the start
+    commit), reads the IAMReX label of the manifest's image with ``docker image inspect``, runs
+    the declared controls (:func:`settling.build_run_record`), validates the record, and only
+    then, with ``--field-change``, measures the near-wing field change (fine long runs; needs
+    ``yt``). Writes ``<settling-dir>/records/<NAME>.json``.
 
 ``record`` refuses to overwrite an existing record (records are evidence) and refuses to write
-an invalid one; nothing is written on refusal. Stage 1 records written into the checkout do not
-make it dirty.
+an invalid one; nothing is written on refusal. New, untracked records under
+``examples/settling_check/records/`` do not make the checkout dirty.
 
-``DIR`` must hold ``IB_Particle_1.csv``, ``run.log``, ``command.txt`` (the exact container
-command), ``hardware.json``, the run's deck (named as in the settling manifest) and
-``launch.json``.
+``DIR`` must live outside the checkout, or under an ignored ``runs/`` folder, and hold
+``IB_Particle_1.csv``, ``run.log``, ``command.txt`` (the exact container command),
+``hardware.json``, the run's deck (named as in the settling manifest) and ``launch.json``.
 
 Usage, from the repository root::
 
@@ -44,36 +44,48 @@ from mosquito_cfd.force_surrogate.constants import CHORD, R_GYRATION, SPAN
 from mosquito_cfd.force_surrogate.normalization import compute_force_reference
 from mosquito_cfd.force_surrogate.settling import (
     UPSTREAM_REF,
+    _dirty_lines,
     build_run_record,
     field_change_for_run,
     git_launch_state,
     git_provenance,
     manifest_entry,
+    provenance_problems,
     validate_run_record,
 )
 
 IAMREX_LABEL = "com.mosquito-cfd.iamrex-commit"
 
 
-def _iamrex_label(image: str) -> str:
+def _iamrex_label_from_docker(image: str) -> str:
     """The image's IAMReX commit label, from ``docker image inspect``."""
-    proc = subprocess.run(
-        [
-            "docker",
-            "image",
-            "inspect",
-            image,
-            "--format",
-            '{{index .Config.Labels "' + IAMREX_LABEL + '"}}',
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "docker",
+                "image",
+                "inspect",
+                image,
+                "--format",
+                '{{index .Config.Labels "' + IAMREX_LABEL + '"}}',
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise SystemExit(
+            f"record not written: cannot run docker image inspect ({exc})"
+        ) from exc
     if proc.returncode != 0 or not proc.stdout.strip():
         raise SystemExit(
-            f"cannot read {IAMREX_LABEL} of {image}: {proc.stderr.strip()}"
+            f"record not written: cannot read {IAMREX_LABEL} of {image} with docker "
+            f"({proc.stderr.strip()})"
         )
     return proc.stdout.strip()
+
+
+# Looked up at call time, so tests can stand in for docker without a CLI override.
+_iamrex_label = _iamrex_label_from_docker
 
 
 def _field_change(settling_dir: Path, entry: dict, run_dir: Path) -> dict:
@@ -101,17 +113,31 @@ def _field_change(settling_dir: Path, entry: dict, run_dir: Path) -> dict:
 
 
 def _launch(args: argparse.Namespace) -> int:
-    args.run_dir.mkdir(parents=True, exist_ok=True)
     out = args.run_dir / "launch.json"
     if out.exists():
         print(f"refusing to overwrite: {out} exists")
         return 1
     state = git_launch_state(args.repo_root)
-    out.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    dirty = [
-        line for line in state["git_status_porcelain"].splitlines() if line.strip()
+    dirty = _dirty_lines(state["git_status_porcelain"])
+    if dirty:
+        print(
+            "launch refused: the checkout is dirty (a run from it could not be recorded):"
+        )
+        for line in dirty[:10]:
+            print(f"  {line}")
+        return 1
+    probe = git_provenance(args.repo_root, launch=state)
+    upstream = [
+        p for p in provenance_problems(probe) if "upstream" in p or "ancestor" in p
     ]
-    print(f"launch state: {state['start_commit']}" + (" (DIRTY)" if dirty else ""))
+    if upstream:
+        print(f"launch refused: HEAD is not on {UPSTREAM_REF}:")
+        for problem in upstream:
+            print(f"  {problem}")
+        return 1
+    args.run_dir.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"launch state: {state['start_commit']} (clean, on {UPSTREAM_REF})")
     return 0
 
 
@@ -126,24 +152,25 @@ def _record(args: argparse.Namespace) -> int:
             f"record not written: {launch_path} is missing (run `launch` before the run)"
         )
         return 1
+    hardware_path = args.hardware_json or args.run_dir / "hardware.json"
+    if not hardware_path.is_file():
+        print(f"record not written: {hardware_path} is missing (hardware.json)")
+        return 1
     entry = manifest_entry(args.settling_dir, args.name)
     if args.field_change and (entry["kind"] != "long" or entry["grid"] != "fine"):
         print("record not written: --field-change applies to fine long runs only")
         return 1
     provenance = git_provenance(
-        args.repo_root,
-        launch=json.loads(launch_path.read_text(encoding="utf-8")),
-        upstream_ref=args.upstream_ref,
+        args.repo_root, launch=json.loads(launch_path.read_text(encoding="utf-8"))
     )
-    hardware = json.loads(args.hardware_json.read_text(encoding="utf-8"))
     record = build_run_record(
         args.run_dir,
         name=args.name,
         settling_dir=args.settling_dir,
         repo_root=args.repo_root,
         provenance=provenance,
-        iamrex_commit=args.iamrex_commit or _iamrex_label(entry["image"]),
-        hardware=hardware,
+        iamrex_commit=_iamrex_label(entry["image"]),
+        hardware=json.loads(hardware_path.read_text(encoding="utf-8")),
     )
     problems = validate_run_record(record, entry)
     if problems:
@@ -178,24 +205,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--settling-dir", type=Path, default=Path("examples/settling_check")
     )
     record.add_argument("--repo-root", type=Path, default=Path("."))
-    record.add_argument("--upstream-ref", default=UPSTREAM_REF)
     record.add_argument(
         "--hardware-json",
         type=Path,
         default=None,
         help="Default: <run-dir>/hardware.json",
     )
-    record.add_argument(
-        "--iamrex-commit",
-        default=None,
-        help="Override the IAMReX label read with docker image inspect (tests only).",
-    )
     record.add_argument("--field-change", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "launch":
         return _launch(args)
-    if args.hardware_json is None:
-        args.hardware_json = args.run_dir / "hardware.json"
     return _record(args)
 
 

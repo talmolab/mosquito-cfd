@@ -5,7 +5,10 @@ Everything runs on a synthetic repository-shaped tree, so CI needs no CFD output
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -212,12 +215,14 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _init_git(repo: Path) -> str:
-    """Make the tree a git repo whose HEAD is also the 'upstream' branch; return HEAD."""
+    """Make the tree a git repo whose HEAD is also origin/main; return HEAD."""
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "config", "core.autocrlf", "false")
     _git(repo, "add", "-A")
     _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init")
     _git(repo, "branch", "upstream")
+    # A remote-tracking origin/main at HEAD, as on a freshly fetched gh-04 clone.
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     return _git(repo, "rev-parse", "HEAD")
 
 
@@ -228,7 +233,10 @@ def _provenance(
         "start_commit": start_commit or t["commit"],
         "git_status_porcelain": launch_status,
     }
-    return git_provenance(t["repo"], launch=launch, upstream_ref="upstream")
+    return git_provenance(
+        t["repo"],
+        launch=launch,
+    )
 
 
 def _record(t: dict, name: str, run_dir: Path, **overrides) -> dict:
@@ -533,45 +541,63 @@ def test_script_writes_the_report_and_exits_non_zero_when_incomplete(tmp_path):
 # --------------------------------------------------------------------------- record script
 
 
-def _record_script(t: dict, name: str, run_dir: Path, *extra: str):
+def _script_module():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "record_settling_run.py"
+    spec = importlib.util.spec_from_file_location(
+        "record_settling_run_under_test", path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module._iamrex_label = lambda image: (
+        "f93dc794"
+    )  # stands in for docker image inspect
+    return module
+
+
+class _Result:
+    def __init__(self, returncode: int, stdout: str):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = ""
+
+
+def _run_script(argv: list[str]) -> _Result:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            code = _script_module().main(argv)
+        except SystemExit as exc:
+            print(exc)
+            code = exc.code if isinstance(exc.code, int) else 1
+    return _Result(code, out.getvalue())
+
+
+def _record_script(t: dict, name: str, run_dir: Path, *extra: str) -> _Result:
     hardware = run_dir / "hardware.json"
-    hardware.write_text(json.dumps({"gpu_model": "NVIDIA RTX A5000"}), encoding="utf-8")
-    script = Path(__file__).resolve().parents[1] / "scripts" / "record_settling_run.py"
-    args = [
-        sys.executable,
-        str(script),
-        "record",
-        "--name",
-        name,
-        "--run-dir",
-        str(run_dir),
-        "--settling-dir",
-        str(t["settling_dir"]),
-        "--repo-root",
-        str(t["repo"]),
-        "--upstream-ref",
-        "upstream",
-        "--iamrex-commit",
-        "f93dc794",
-        "--hardware-json",
-        str(hardware),
-        *extra,
-    ]
-    return subprocess.run(args, capture_output=True, text=True)
+    if not hardware.exists():
+        hardware.write_text(
+            json.dumps({"gpu_model": "NVIDIA RTX A5000"}), encoding="utf-8"
+        )
+    return _run_script(
+        [
+            "record",
+            "--name",
+            name,
+            "--run-dir",
+            str(run_dir),
+            "--settling-dir",
+            str(t["settling_dir"]),
+            "--repo-root",
+            str(t["repo"]),
+            *extra,
+        ]
+    )
 
 
-def _launch_script(t: dict, run_dir: Path):
-    script = Path(__file__).resolve().parents[1] / "scripts" / "record_settling_run.py"
-    args = [
-        sys.executable,
-        str(script),
-        "launch",
-        "--run-dir",
-        str(run_dir),
-        "--repo-root",
-        str(t["repo"]),
-    ]
-    return subprocess.run(args, capture_output=True, text=True)
+def _launch_script(t: dict, run_dir: Path) -> _Result:
+    return _run_script(
+        ["launch", "--run-dir", str(run_dir), "--repo-root", str(t["repo"])]
+    )
 
 
 def test_record_script_writes_a_valid_record_once(tmp_path):
@@ -594,8 +620,8 @@ def test_record_script_writes_a_valid_record_once(tmp_path):
 
 def test_record_script_refuses_a_dirty_checkout(tmp_path):
     t = _tree(tmp_path)
-    (t["repo"] / GATED_FILES[0]).write_text("edited\n", encoding="utf-8")
-    assert _launch_script(t, t["c1"]).returncode == 0
+    assert _launch_script(t, t["c1"]).returncode == 0  # clean at launch
+    (t["repo"] / GATED_FILES[0]).write_text("edited\n", encoding="utf-8")  # then edited
     proc = _record_script(t, "fine_c1_cfg", t["c1"])
     assert proc.returncode != 0 and "dirty" in proc.stdout + proc.stderr
     assert not (t["settling_dir"] / "records" / "fine_c1_cfg.json").exists()
