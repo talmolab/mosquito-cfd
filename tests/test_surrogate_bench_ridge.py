@@ -323,6 +323,18 @@ def test_interpolation_is_full_rank_with_no_dropped_value(fine_target_beat):
     assert 0 < record["sigma_retained"] <= 1
 
 
+@pytest.mark.parametrize("face", ["face:stroke_amp_deg=55", "face:pitch_amp_deg=30"])
+def test_a_face_fit_recomputes_the_cap_from_its_own_training_levels(
+    fine_target_beat, face
+):
+    """Spec "The identifiability cap": a face leaves its setting 2 levels, so P = 14 at d = 3."""
+    split = build_splits(fine_target_beat)[face]
+    train = fine_target_beat[fine_target_beat["config_name"].isin(split.train)]
+    model = fit_ridge_fixed(train, TARGETS)
+    assert model.rank["P"] == 14
+    assert model.n_params == 6 * (2 * 16 + 1) * 14
+
+
 def test_ridge_fixed_is_the_pre_registered_point_without_selection(fine_target_beat):
     assert RIDGE_FIXED_POINT == {"n_harmonics": 16, "degree": 3, "alpha": 1e-6}
     split = build_splits(fine_target_beat)["interpolation"]

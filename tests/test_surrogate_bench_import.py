@@ -27,8 +27,16 @@ def test_importing_the_bench_imports_no_heavy_dependency():
                     raise ImportError("blocked import: " + name)
                 return None
         sys.meta_path.insert(0, Block())
+        import runpy
         import mosquito_cfd.surrogate_bench
         import mosquito_cfd.surrogate_bench.splits
+        import mosquito_cfd.surrogate_bench.ridge
+        import mosquito_cfd.surrogate_bench.metrics
+        import mosquito_cfd.surrogate_bench.gate
+        import mosquito_cfd.surrogate_bench.figure
+        import mosquito_cfd.surrogate_bench.runner
+        driver = runpy.run_path({str(REPO / "scripts" / "run_surrogate_bench.py")!r})
+        driver["build_parser"]()
         print("imported")
         """
     )

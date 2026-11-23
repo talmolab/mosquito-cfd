@@ -292,7 +292,8 @@ configuration `results.parquet` SHALL record:
 `compute_baseline_skill` over all of that seed's test rows in dataset order (key
 `per_seed_skill`), and per entry and split the pooled values recomputed from the `sse`/`grid_sse`
 sums. Seed spread SHALL be reported as the NaN-aware min/max range over the 5 seeds, never as a
-single run. Skill SHALL NOT be compared across splits; cross-split comparison SHALL use
+single run, with each metric's count of finite seeds beside it so a NaN seed is never silently
+lost. Skill SHALL NOT be compared across splits; cross-split comparison SHALL use
 `rmse_frac_component_peak` next to `baseline_rmse_frac_component_peak`.
 
 #### Scenario: Skill baseline follows the split

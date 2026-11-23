@@ -264,6 +264,9 @@ def test_seed_ranges_are_nan_aware():
     row = metrics.seed_ranges(pooled).iloc[0]
     finite = pooled["skill"].dropna()
     assert row["skill_min"] == finite.min() and row["skill_max"] == finite.max()
+    # A seed that drops out of a range is counted, never silently lost.
+    assert row["n_seeds"] == 5 and row["skill_n_finite_seeds"] == 4
+    assert row["rmse_frac_component_peak_n_finite_seeds"] == 5
 
 
 def test_timing_and_memory_columns_are_excluded_from_equality():

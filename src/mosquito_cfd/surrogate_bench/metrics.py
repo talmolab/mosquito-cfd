@@ -319,6 +319,9 @@ _RANGE_COLUMNS = (
 def seed_ranges(pooled_results: pd.DataFrame) -> pd.DataFrame:
     """NaN-aware min/max over seeds per (entry, split, target).
 
+    Each metric's count of finite seeds sits beside ``n_seeds``, so a diverged seed that
+    leaves a range is visible.
+
     Raises:
         ValueError: If a learned (``mlp_*``) entry has fewer than 5 seeds for any split.
     """
@@ -343,6 +346,8 @@ def seed_ranges(pooled_results: pd.DataFrame) -> pd.DataFrame:
             finite = values[np.isfinite(values)]
             row[f"{col}_min"] = float(finite.min()) if finite.size else np.nan
             row[f"{col}_max"] = float(finite.max()) if finite.size else np.nan
+            # A NaN seed (a diverged fit) leaves the range; the count says so.
+            row[f"{col}_n_finite_seeds"] = int(finite.size)
         rows.append(row)
     return pd.DataFrame(rows)
 

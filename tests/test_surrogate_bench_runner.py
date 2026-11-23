@@ -506,3 +506,96 @@ def test_each_split_baseline_is_built_once_per_phase_array(tmp_path, monkeypatch
     monkeypatch.setattr(metrics, "build_phase_only_baseline", spy)
     _run(tmp_path, monkeypatch, entries=("mlp_h1", "ridge_fixed"))
     assert len(calls) == 3 * 14
+
+
+# --- Wiring: grid predictions, per-seed skill, splits.json, CUBLAS, ridge_fixed ---------------
+
+
+class GridRecorder(Recorder):
+    """Records every frame predict_frame is given."""
+
+    def __init__(self):
+        super().__init__()
+        self.frames = []
+
+    def predict_frame(self, fit, frame, *, device="cpu"):
+        self.frames.append(frame)
+        return super().predict_frame(fit, frame, device=device)
+
+
+def test_grid_sse_comes_from_predict_frame_on_the_grid(tmp_path, monkeypatch):
+    rec = GridRecorder()
+    _, out, _ = _run(tmp_path, monkeypatch, recorder=rec, entries=("mlp_h1",))
+    target = metrics.target_beat_frame(synthetic_corpus())
+    interp = build_splits(target)["interpolation"]
+    expected_grid = metrics.grid_frame(target, sorted(interp.test))
+    first = rec.frames[0]
+    assert list(first["config_name"]) == list(expected_grid["config_name"])
+    assert np.array_equal(first["phase"].to_numpy(), expected_grid["phase"].to_numpy())
+    results = pd.read_parquet(out / "results.parquet")
+    truth = metrics.grid_truth(target, list(TARGET_COLUMNS))
+    row = results[
+        (results["split"] == "interpolation")
+        & (results["seed"] == BENCH_SEEDS[0])
+        & (results["target"] == "CF_z")
+        & (results["config_name"] == "s45_f100_p60")
+    ].iloc[0]
+    j = list(TARGET_COLUMNS).index("CF_z")
+    expected = float(((truth["s45_f100_p60"][:, j] - 0.25) ** 2).sum())
+    assert row["grid_sse"] == pytest.approx(expected, rel=1e-12)
+
+
+def test_the_summary_per_seed_skill_is_the_fits_own_skill(full_run):
+    rec, out, _ = full_run
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    target = metrics.target_beat_frame(synthetic_corpus())
+    split = build_splits(target)["face:pitch_amp_deg=60"]
+    baseline = metrics.split_baseline(target, split.train, list(TARGET_COLUMNS))
+    fit = next(
+        f
+        for f in rec.fits
+        if f["phase_harmonics"] == 3
+        and f["seed"] == BENCH_SEEDS[2]
+        and f["split"] == carve_split(split, seed=BENCH_SEEDS[2])
+    )
+    test = fit["frame"]["config_name"].isin(split.test)
+    y_pred = fit["frame"].loc[test, TARGET_COLUMNS].to_numpy() + (
+        0.001 * (BENCH_SEEDS[2] - 1230) + 0.03
+    )
+    expected = metrics.per_seed_skill(
+        target, split.test, y_pred, baseline, list(TARGET_COLUMNS)
+    )
+    got = summary["per_seed_skill"]["mlp_h3"]["face:pitch_amp_deg=60"][
+        str(BENCH_SEEDS[2])
+    ]
+    assert got == pytest.approx(expected, rel=1e-12)
+
+
+def test_splits_json_holds_train_test_and_each_seeds_validation(full_run):
+    _, out, _ = full_run
+    written = json.loads((out / "splits.json").read_text(encoding="utf-8"))
+    splits = build_splits(metrics.target_beat_frame(synthetic_corpus()))
+    assert list(written) == list(splits)
+    for name, split in splits.items():
+        assert written[name]["train"] == list(split.train)
+        assert written[name]["test"] == list(split.test)
+        assert written[name]["validation"] == {
+            str(s): carve_split(split, seed=s).val_configs for s in BENCH_SEEDS
+        }
+
+
+def test_a_set_cublas_workspace_config_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    _, out, _ = _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["cublas_workspace_config"] == ":4096:8"
+
+
+def test_ridge_fixed_records_no_selection_and_ridge_does(full_run):
+    _, out, _ = full_run
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    for name, record in summary["ridge"]["ridge_fixed"].items():
+        assert record["selection"] is None, name
+        assert record["point"] == [16, 3, 1e-6], name
+    for name, record in summary["ridge"]["ridge"].items():
+        assert record["selection"]["chosen"] == record["point"], name

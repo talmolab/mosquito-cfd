@@ -243,10 +243,29 @@ def _degenerate_frame():
     return pd.concat(rows, ignore_index=True)
 
 
-def test_a_one_value_setting_in_a_fold_drops_its_columns():
+def test_a_one_value_setting_in_a_fold_drops_its_columns(monkeypatch):
+    """Leaving out ``a`` (the only stroke 35) leaves stroke with one value: no stroke column."""
+    from mosquito_cfd.surrogate_bench import ridge as ridge_module
+
+    shapes = []
+    real = ridge_module.polynomial_matrix
+
+    def spy(z, exponents):
+        out = real(z, exponents)
+        shapes.append((z.shape[0], len(exponents), [e[0] for e in exponents]))
+        return out
+
+    monkeypatch.setattr(ridge_module, "polynomial_matrix", spy)
     frame = _degenerate_frame()
-    model = select_ridge(frame, ["CF_x"], ["a", "b", "c", "d"])
-    assert model.selection["ranks"][1]["P"] >= 1
+    select_ridge(frame, ["CF_x"], ["a", "b", "c", "d"])
+    folds = [
+        s for s in shapes if s[0] == 3
+    ]  # the four 3-configuration fold fits, per d
+    no_stroke = [s for s in folds if all(e == 0 for e in s[2])]
+    with_stroke = [s for s in folds if any(e > 0 for e in s[2])]
+    # Exactly the folds without ``a`` (one per degree) have no stroke exponent at all.
+    assert len(no_stroke) == len(ridge_module.GRID_D)
+    assert with_stroke  # the other folds keep it
 
 
 def test_a_constant_target_makes_the_fold_error_zero_over_zero():
