@@ -66,7 +66,7 @@ def _fake_subprocess_run(argv, **kwargs):
         return _FakeCompleted(0, "0" * 40 + "\n")
     if argv[:2] == ["git", "symbolic-ref"]:
         return _FakeCompleted(0, "main\n")
-    if argv[:2] == ["git", "diff"]:
+    if argv[:2] in (["git", "diff"], ["git", "status"], ["git", "ls-files"]):
         return _FakeCompleted(0, "")
     if argv[:2] == ["git", "remote"]:
         return _FakeCompleted(0, "https://github.com/talmolab/mosquito-cfd.git\n")

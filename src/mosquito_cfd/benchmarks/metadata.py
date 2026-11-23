@@ -90,11 +90,25 @@ def _collect_git_info(cwd: str, env: dict[str, str] | None) -> dict[str, Any]:
 
     # Check if dirty
     diff = subprocess.run(["git", "diff", "HEAD"], check=True, **run_kwargs)
-    result["dirty"] = len(diff.stdout) > 0
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        check=True,
+        **run_kwargs,
+    )
+    result["dirty"] = bool(status.stdout)
 
     # Hash of diff if dirty
     if result["dirty"]:
-        result["diff_hash"] = hashlib.sha256(diff.stdout.encode()).hexdigest()[:12]
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            check=True,
+            **run_kwargs,
+        )
+        payload = diff.stdout
+        paths = sorted(path for path in untracked.stdout.split("\0") if path)
+        if paths:
+            payload += "\0untracked\0" + "\0".join(paths)
+        result["diff_hash"] = hashlib.sha256(payload.encode()).hexdigest()[:12]
 
     # Get remote URL
     remote = subprocess.run(["git", "remote", "get-url", "origin"], **run_kwargs)

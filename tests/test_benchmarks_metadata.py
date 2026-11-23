@@ -121,7 +121,7 @@ def _fake_success_run(argv, **kwargs):
         return _completed("abc123\n")
     if argv[:2] == ["git", "symbolic-ref"]:
         return _completed("main\n")
-    if argv[:2] == ["git", "diff"]:
+    if argv[:2] in (["git", "diff"], ["git", "status"], ["git", "ls-files"]):
         return _completed("")
     if argv[:2] == ["git", "remote"]:
         return _completed("git@github.com:talmolab/mosquito-cfd.git\n")
