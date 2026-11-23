@@ -84,23 +84,51 @@ issue #1.) The Python mirror of this rotation is
 
 ## Forces
 
-Following van Veen (who "ignore[s] spanwise aerodynamic forces"), aerodynamic forces are reported in the
-**wing body frame** decomposed into the **chord-wise** and **wing-normal** components:
+The project's wing force coefficients come in two frames. Each statement below names the quantity
+it describes.
+
+**Wing body frame.** Following van Veen (who "ignore[s] spanwise aerodynamic forces"), the
+flapping-wing benchmark's `CF_chord`/`CF_normal`, and the diagnostics built from the same rotation
+(`cf_span`, the added-mass-subtracted diagnostic, the T4 decomposition), are components in the
+**wing body frame**, rotated from the lab axes by `R(t)ᵀ` into the **chord-wise** and
+**wing-normal** directions:
 
 ```
 F = (F_x chord-wise, F_z wing-normal)          spanwise F_y is intentionally dropped
 ```
 
-Coefficients use the van Veen (2022, eq 1.1) normalization — the stroke rate at the **radius of
-gyration** and the spanwise second moment of area:
+**Lab frame.** The force-surrogate corpus and surrogate `CF_x..CF_z` are **lab-frame components of
+the IB force on the wing**: `−F/F_ref` of the solver's `Fx..Fz`, with no rotation
+(`mosquito_cfd.force_surrogate.dataset.build_dataset`). The flapping-wing lab series
+`cf_x_ib`/`cf_z_ib` from `mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_forces` (the
+`plausibility_gate` input) are also lab-frame components of the IB force on the wing. So are the
+`CF_x..CF_z` that `examples/flapping_wing/generate_all_figures.py` plots in `fig_forces`, which it
+forms itself with `force_on_wing`. The `cf_*_added` (`ρ_f·SumU`) and 6-DOF `cf_*_hydro` series of
+`reconstruct_wing_forces` are lab-frame too, but they are not the IB force alone. The comparison
+figures use the same words: "lab-frame components of the IB force and moment on the wing".
+
+Both families use the van Veen (2022, eq 1.1) normalization, with the speed `ω_peak·r_gyr` at the
+**radius of gyration** and the spanwise second moment of area:
 
 ```
-F_ref = ½·ρ·ω²·S_yy,        S_yy = ∫₀ᴿ c(y)·y² dy
+F_ref = ½·ρ·ω_peak²·S_yy,        S_yy = ∫₀ᴿ c(y)·y² dy
+ω_peak = 2π·f_star·radians(phi_amp_deg)
 ```
 
-computed by the single-source `mosquito_cfd.force_surrogate.compute_force_reference` (see also
-[`docs/force_surrogate`](force_surrogate/) and the `standardize-force-normalization` change). The
-body-frame per-component comparison against van Veen's fitted coefficients is delivered by
+`ω_peak` is the peak stroke rate, `max|φ̇|` of the stroke `φ(t) = φ_amp·sin(ωt)`. It is not the flap
+angular frequency `ω = 2πf` of the kinematics table above; the two differ by the factor
+`radians(φ_amp)`. Van Veen's simulations include accelerating and decelerating strokes, and this
+repository's implementation of his quasi-steady model scales its translational force with the
+instantaneous stroke speed `|φ̇|`, and its added-mass and Wagner terms with the stroke acceleration
+(`mosquito_cfd.benchmarks.van_veen_model`). This project's `F_ref`
+instead uses one constant `ω_peak` per configuration, so it is a fixed reference force. `F_ref` is
+computed per configuration. At the validated point (`f* = 1`, `φ_amp = 70°`), `ω_peak ≈ 7.676` and
+`F_ref ≈ 200.27`.
+
+The single source is `mosquito_cfd.force_surrogate.compute_force_reference`, specified in
+[Force Surrogate, "Single-source force normalization"](../openspec/specs/force-surrogate/spec.md)
+(see also [`docs/force_surrogate`](force_surrogate/) and the `standardize-force-normalization`
+change). The body-frame per-component comparison against van Veen's fitted coefficients is delivered by
 `mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_body_forces` /
 `body_frame_overall_match`; the per-component decomposition against van Veen's quasi-steady model
 (translational + added-mass + Wagner; Fig 4 polars / the time-resolved mosquito curves are Fig 13) is
@@ -117,15 +145,17 @@ issue #108). CI reconciles them against their committed decks
 (`tests/test_force_surrogate_scale_invariance.py`). Until that change, this page described a
 hinge origin the pipeline did not implement, which is how #108 arose.
 
-**Frame: lab, not wing.** Unlike the forces above — which are reported in the wing body frame —
-moments are reported as **lab-frame components about the hinge origin**. Only the origin is the
-hinge; the axes are not rotated. A wing-frame (body-frame) moment would additionally require
-rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked (issue #1, which
-delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical pitching moment.
+**Frame: lab, not wing.** Moments are reported as **lab-frame components about the hinge** origin,
+in the same lab axes as the corpus `CF_x..CF_z`. Unlike `CF_chord`/`CF_normal`, they are not
+rotated into the wing frame: only the origin is the hinge. A wing-frame (body-frame) moment would
+additionally require rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked
+(issue #1, which delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical
+pitching moment.
 
 > **The axis table above is the rest-pose-aligned frame.** Lab and wing axes coincide only at
 > `φ = α = θ = 0`; under a stroke rotation the wing's instantaneous axes leave the lab axes. So this
-> page carries body-frame *forces* and lab-frame *moments* by design, not by oversight.
+> page carries wing-frame `CF_chord`/`CF_normal` beside lab-frame `CF_x..CF_z` and moments by
+> design, not by oversight.
 
 **Raw vs derived.** The `Mx/My/Mz` columns in `dataset.parquet` are the solver's as-written values,
 taken about the immersed-boundary particle's **own origin** (IAMReX forms `(r − kernel.location) × f`
@@ -204,7 +234,7 @@ IAMReX's `ib_force` and `ib_moment` (the `Fx..Mz` columns of `IB_Particle_*.csv`
 and moment the wing exerts **on the fluid**. Each marker's force `(U_wing − u*)/dt · dv` is added to
 the fluid's forcing field, and `ib_force` is their sum. Strictly, `ib_force` is force per unit fluid
 density; it equals the force here only because `ρ_f = 1`. The flapping-wing analysis multiplies
-it by `ρ_f` and builds `F_ref = ½·ρ_f·ω²·S_yy` with the same `ρ_f`, so the density cancels from
+it by `ρ_f` and builds `F_ref = ½·ρ_f·ω_peak²·S_yy` with the same `ρ_f`, so the density cancels from
 every coefficient.
 
 Every derived wing coefficient is defined as the **IB force and moment on the wing**, their negation
@@ -219,7 +249,8 @@ The wing paths apply the negation only through `mosquito_cfd.force_surrogate.for
 the raw columns keep the solver's values ([raw vs derived](#moments)).
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
-reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body
+reports 6-DOF series that do include it, separately, as diagnostics: the lab-frame `cf_*_hydro`
+and the wing-body-frame added-mass-subtracted diagnostic. The solver's free-body
 6-DOF balance would add this term (`SumU` is already a time difference), with its angular
 counterpart from `SumT`
 (`DiffusedIB.cpp:1082-1087` and `:1108-1111` at IAMReX `f93dc794`), but the solver never evaluates
