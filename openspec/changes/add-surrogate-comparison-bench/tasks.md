@@ -243,8 +243,8 @@
 
 ### 7a. Summary figure
 
-- [ ] 7a.1 **Test first** (CPU): the summary-figure scenario.
-- [ ] 7a.2 Implement `surrogate_bench/figure.py`. Shipped-artifact check. Commit:
+- [x] 7a.1 **Test first** (CPU): the summary-figure scenario.
+- [x] 7a.2 Implement `surrogate_bench/figure.py`. Shipped-artifact check. Commit:
   `feat(surrogate-bench): summary figure`.
 
 ### 7b. Runner
