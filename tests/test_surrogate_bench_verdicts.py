@@ -148,6 +148,10 @@ def test_the_fixed_reasons_state_their_facts():
     # an upper bound on the fine grid's error, and below the coarse grid's own error.
     assert "upper bound on the fine grid's error" in coarse
     assert "under-estimates the coarse grid's error" in coarse
+    # Both corpora run at dt = 5e-4, so temporal error cancels from the difference.
+    assert "dt = 5e-4" in coarse and "spatial" in coarse
+    assert "5.6-5.7" in coarse and "5.8" not in coarse and "conservative" not in coarse
+    assert "refines the grid only" in gate.SCALED_LABEL
     assert "startup beat" in startup and "has not settled" in startup
 
 

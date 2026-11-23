@@ -34,7 +34,8 @@ WINDOW_START = math.ceil(WINDOW_PHASE * N_GRID)
 LATE_BEAT_MIN_BEATS = 4
 UNAVAILABLE_LATE = "fewer than 4 beats"
 SCALED_LABEL = (
-    "order borrowed from T3c (one configuration, grid and timestep refined together); "
+    "order borrowed from T3c (one configuration, grid and timestep refined together), while "
+    "the corpus pair refines the grid only (both use dt = 5e-4); "
     "safety factor Fs = 1.25 not applied; the two corpora were built with different "
     "container digests"
 )
@@ -357,10 +358,10 @@ FIXED_REASONS = (
     "cfl = 0.3 while the corpus uses 5e-4 at 0.6, so the corpus's temporal error is not "
     "covered",
     "the T3c deck's z boundary condition is 2 where the corpus's is 4",
-    "coarse_vs_fine is an upper bound on the fine grid's error, not an estimate of it: "
-    "under the asymptotic Richardson model the coarse-fine difference is (r^p - 1) "
-    "(about 5.8) times the fine grid's error, and it under-estimates the coarse grid's "
-    "error",
+    "coarse_vs_fine is an upper bound on the fine grid's error, not an estimate of it: the "
+    "two corpora share dt = 5e-4, so it covers spatial error only, and under the asymptotic "
+    "Richardson model the coarse-fine difference is (r^p - 1) (about 5.6-5.7) times the fine "
+    "grid's spatial error; it under-estimates the coarse grid's error",
     "beat1_vs_beat2 includes the startup beat of a 2-beat run that has not settled",
 )
 _WINDOWED_YARDSTICKS = ("beat1_vs_beat2",)

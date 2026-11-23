@@ -271,10 +271,12 @@ yardstick as passing.
   - The 0.125 values were checked against the code before being written into the spec.
 - **`grid_gci` reasons.** Every reason in the spec was checked against `inputs.3d.convergence_fine`
   and the corpus decks.
-- **`coarse_vs_fine`** is the coarse-fine difference. Under the asymptotic Richardson model,
-  $E_c = r^p E_f$, so the difference is $E_c - E_f = (r^p - 1) E_f \approx 5.8\,E_f$: a
-  conservative upper bound on the fine grid's error, and about $0.85\,E_c$, an under-estimate of
-  the coarse grid's. (The proposal first said it bounds the coarse grid's error; the pre-PR
+- **`coarse_vs_fine`** is the coarse-fine difference. Both corpora run at `dt = 5e-4`, so the
+  temporal error cancels and only spatial error is measured. Under the asymptotic Richardson
+  model, $E_c = r^p E_f$, so the difference is $E_c - E_f = (r^p - 1) E_f \approx 5.6\text{–}5.7\,E_f$
+  for the T3c orders: an upper bound on the fine grid's spatial error, not an estimate of it, and
+  about $0.85\,E_c$, an under-estimate of the coarse grid's. As a gate yardstick an over-estimate
+  is lenient, which is why the gate is labelled provisional. (The proposal first said it bounds the coarse grid's error; the pre-PR
   review corrected the direction.) The Richardson estimate of the fine grid's error, $1/(r^p - 1)$
   of it, is reported as `coarse_vs_fine_scaled` with its limits in its label.
 - **`late_beat`** is implemented now, tested on synthetic 2-, 3- and 4-beat frames, and switches on
@@ -344,6 +346,12 @@ three preconditions:
   WSL2);
 - the driver, `torch` and `physicsnemo` match the shipped run;
 - `mlp_h1` / `interpolation` is fitted first in the process.
+
+On a CUDA run a small cuBLAS/cuBLASLt warm-up (a biased `Linear` forward and backward) runs
+before that fit, so its `peak_gpu_mem` is comparable with the others. Verified on 2026-11-22 under
+WSL2 on the A5000: the seed-1234 `mlp_h1` / `interpolation` fit at 2000 epochs, run in fresh
+processes with and without the warm-up, gives per-target skills bitwise equal to each other and to
+the shipped `metrics.json`.
 
 The test compares the two committed `run_metadata.json` files, so a bench recorded on any other host
 (for example the native-Linux gh-04 box) fails these preconditions by design; task 9.1 checks the host

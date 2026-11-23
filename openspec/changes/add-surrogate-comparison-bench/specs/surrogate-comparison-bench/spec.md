@@ -374,10 +374,11 @@ Yardsticks, each recorded with its source. The constants live in one module, `ga
   `tests/test_results_reproducibility.py` and reported as 3.7 % and 27.6 % in
   `examples/flapping_wing/RESULTS.md`). Applies to the two body-frame peaks only.
 - `coarse_vs_fine`: the same metric with the coarse 64³ corpus (`examples/prelim_sweep/`) in place
-  of the model, normalised by the fine corpus's normaliser. Under the asymptotic Richardson model
-  the coarse-fine difference is `(r^p − 1)` (about 5.8) times the **fine** grid's error, so it is
-  a conservative upper bound on the fine grid's error (and under-estimates the coarse grid's) and
-  SHALL be labelled `upper_bound: true`. It SHALL also be reported scaled by `1 / (r^p − 1)` with
+  of the model, normalised by the fine corpus's normaliser. The two corpora share `dt = 5e-4`, so
+  the temporal error cancels and the difference measures spatial error only. Under the asymptotic
+  Richardson model it is `(r^p − 1)` (about 5.6–5.7) times the **fine** grid's spatial error, so it
+  is an upper bound on that error, not an estimate of it (and under-estimates the coarse grid's),
+  and SHALL be labelled `upper_bound: true`. It SHALL also be reported scaled by `1 / (r^p − 1)` with
   `r = 4` and the T3c computed orders (`p = 1.3773` normal, `1.3655` chord, the normal order for the
   lab components) as `coarse_vs_fine_scaled`, labelled with its limits: order borrowed from T3c
   (one configuration, grid and timestep refined together), safety factor `Fs = 1.25` not applied,
@@ -438,8 +439,8 @@ stand-in yardstick:
 - T3c refined grid and timestep together, and its fine run used `dt = 2.5e-4` at `cfl = 0.3`
   while the corpus uses `5e-4` at `0.6`, so the corpus's temporal error is not covered;
 - the T3c deck's z boundary condition is 2 where the corpus's is 4;
-- `coarse_vs_fine` is an upper bound on the fine grid's error, not an estimate of it, and
-  under-estimates the coarse grid's error;
+- `coarse_vs_fine` is an upper bound on the fine grid's error, not an estimate of it, covers
+  spatial error only (the corpora share `dt = 5e-4`), and under-estimates the coarse grid's error;
 - `beat1_vs_beat2` includes the startup beat of a 2-beat run that has not settled;
 - the converged beat is not periodic. The reason states three values, each computed from the
   recorded values, never fixed text:

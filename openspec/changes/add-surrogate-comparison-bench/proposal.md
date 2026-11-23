@@ -124,10 +124,13 @@ it. The spec now says so.
 
 The approved spec and design said the coarse-fine difference "bounds the coarse grid's error, not
 the fine grid's". The pre-PR review showed the reverse under the asymptotic Richardson model the
-gate itself uses ($E_c = r^p E_f$): the difference is $(r^p - 1) E_f \approx 5.8\,E_f$, a
-conservative upper bound on the fine grid's error, and about $0.85\,E_c$, an under-estimate of the
-coarse grid's. The user approved the correction. Spec, design and the provisional reason now say so;
-no value or verdict changes, and `upper_bound: true` keeps its label with the corrected meaning.
+gate itself uses ($E_c = r^p E_f$): the difference is $(r^p - 1) E_f \approx 5.6\text{–}5.7\,E_f$
+for the T3c orders, an upper bound on the fine grid's error (not an estimate of it), and about
+$0.85\,E_c$, an under-estimate of the coarse grid's. The user approved the correction. The second
+review round refined it: both corpora run at `dt = 5e-4`, so the difference covers spatial error
+only, and `coarse_vs_fine_scaled`'s label now says the pair refines the grid only. Spec, design and
+the provisional reason say so; no value or verdict changes, and `upper_bound: true` keeps its label
+with the corrected meaning.
 
 ### Why selection needs 4 training configurations instead of 3?
 
@@ -173,6 +176,30 @@ against. Beyond the three sections above:
   named `train.py` defaults, pinned by a test to `run_training`'s signature; `_SeedFit` became the
   exported `SeedFit`; `carve_validation` sorts names as given, as `make_config_splits` always did,
   and refuses repeats.
+
+A second five-reviewer round on these fixes (fixes have introduced bugs here before) found:
+
+- **Blocking, introduced by the diverged-seed fix:** pandas `sum()` skips NaN, so a NaN seed pooled
+  to skill 1.0 and RMSE 0.0. Pooled sums now propagate NaN, and the like-for-like ranges count
+  finite values as the seed ranges do.
+- **The atomic write deleted a finished run on any failure**, and a move that failed partway left
+  some files in `--out-dir`. The staging directory is now kept and named in the error, moves are
+  rolled back, `--out-dir` is resolved (so `.` works), and an `--out-dir` under a file or an
+  unwritable directory is refused up front.
+- **`cuda:<n>` was accepted** although the memory probe reads the default device; `--device` is now
+  `cpu` or `cuda`.
+- **The driver now reads corpus records strictly** (an unreadable fine record is refused, naming
+  it), records them truthfully (no borrowed coarse image, the reason when there is none), records
+  dataset paths relative to the repository, and reads git state from the script's repository.
+- **The warm-up and D7.** The warm-up now runs before `mlp_h1` / `interpolation`, which D7 requires
+  to be fitted first. Verified on the A5000 under WSL2: that fit's per-target skills are bitwise
+  equal with and without the warm-up, and to the shipped `metrics.json`. design.md D7 records it.
+- Smaller items: the windowed peaks survive a non-finite value before the window; text settings, a
+  bare-string `entries` and mixed carve name types get clear errors; and tests pin the cache key,
+  the grid check, one grid build per split and selection's minimum of 4.
+
+The ridge-only results on the real corpora are bitwise identical before and after the fixes
+(`results.parquet`, timing columns excluded); only new summary keys and the reworded reasons differ.
 
 One finding concerns code outside this change and is drafted as an issue for the user:
 `benchmarks.metadata.get_git_info` computes `dirty` from `git diff HEAD`, so untracked files count
