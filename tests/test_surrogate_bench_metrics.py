@@ -445,3 +445,75 @@ def test_the_like_for_like_view_reports_rms_only_and_nulls_a_face_without_holdou
             "min": pytest.approx(_rms(9.0 * ts)),
             "max": pytest.approx(_rms(9.0 * ts)),
         }
+
+
+# --- The baseline is built once per phase array; the grid is checked -------------------------
+
+
+def _counting_baseline(monkeypatch):
+    calls = []
+    real = metrics.build_phase_only_baseline
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(metrics, "build_phase_only_baseline", spy)
+    return calls
+
+
+def test_the_split_baseline_is_built_once_per_phase_array(monkeypatch):
+    frame = _two_config_frame()
+    calls = _counting_baseline(monkeypatch)
+    baseline = metrics.split_baseline(frame, ["B"], ["CF_x"])
+    built = len(calls)
+    first = baseline.at(PHASE_GRID)
+    again = baseline.at(PHASE_GRID.copy())  # equal values, a different array object
+    assert len(calls) == built + 1
+    assert np.array_equal(first, again)
+    other = baseline.at(np.array([0.1, 0.2]))
+    assert len(calls) == built + 2 and other.shape == (2, 1)
+    # The cached array cannot be changed by a caller.
+    with pytest.raises(ValueError):
+        first[0, 0] = 99.0
+    # The cache returns exactly what a fresh build returns.
+    fresh, _ = metrics.build_phase_only_baseline(
+        frame, PHASE_GRID, ["CF_x"], reference_configs=["B"]
+    )
+    assert np.array_equal(first, fresh)
+
+
+def test_a_grid_prediction_of_the_wrong_length_is_rejected():
+    frame = _two_config_frame()
+    test_rows = frame[frame["config_name"] == "A"]
+    baseline = metrics.split_baseline(frame, ["B"], ["CF_x"])
+    with pytest.raises(ValueError, match="grid"):
+        _score(
+            frame,
+            ["A"],
+            np.zeros((len(test_rows), 1)),
+            lambda grid: np.zeros((len(grid) - 1, 1)),
+            baseline,
+        )
+
+
+def test_a_supplied_grid_must_match_the_test_configurations_in_order():
+    frame = _two_config_frame()
+    both = frame  # A and B are both test configurations here
+    baseline = metrics.split_baseline(frame, ["A"], ["CF_x"])
+    wrong_order = metrics.grid_frame(frame, ["B", "A"])
+    with pytest.raises(ValueError, match="grid"):
+        metrics.score_split_seed(
+            entry="m",
+            split="s",
+            seed=1,
+            target_frame=frame,
+            test_configs=["A", "B"],
+            y_pred=np.zeros((len(both), 1)),
+            predict_grid=lambda grid: np.zeros((len(grid), 1)),
+            grid=wrong_order,
+            baseline=baseline,
+            truth=metrics.grid_truth(frame, ["CF_x"]),
+            peaks=metrics.component_peaks(frame, ["CF_x"]),
+            targets=["CF_x"],
+        )

@@ -9,7 +9,7 @@ built from the split's own training configurations; skill is never compared acro
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -96,22 +96,36 @@ def component_peaks(
 
 @dataclass
 class SplitBaseline:
-    """The phase-only baseline of one split's training configurations."""
+    """The phase-only baseline of one split's training configurations.
+
+    The baseline depends only on the split, so :meth:`at` builds it once per distinct phase
+    array and returns the same read-only result for every seed and entry. The values are exactly
+    those of a fresh :func:`build_phase_only_baseline` call.
+    """
 
     target_frame: pd.DataFrame
     train_configs: list[str]
     targets: list[str]
     definition: dict[str, Any]
+    _cache: dict[bytes, NDArray[np.floating]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def at(self, phases: NDArray[np.floating]) -> NDArray[np.floating]:
-        """Baseline predictions at the given phases, ``(n, T)``."""
-        pred, _ = build_phase_only_baseline(
-            self.target_frame,
-            np.asarray(phases, dtype=float),
-            self.targets,
-            reference_configs=self.train_configs,
-        )
-        return pred
+        """Baseline predictions at the given phases, ``(n, T)``, read-only."""
+        phases = np.ascontiguousarray(phases, dtype=float)
+        key = phases.tobytes()
+        if key not in self._cache:
+            pred, _ = build_phase_only_baseline(
+                self.target_frame,
+                phases,
+                self.targets,
+                reference_configs=self.train_configs,
+            )
+            pred = np.asarray(pred, dtype=float)
+            pred.setflags(write=False)
+            self._cache[key] = pred
+        return self._cache[key]
 
 
 def split_baseline(
@@ -154,6 +168,7 @@ def score_split_seed(
     peaks: Mapping[str, float],
     targets: Sequence[str],
     extra: Mapping[str, Any] | None = None,
+    grid: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """One result row per (target, test configuration).
 
@@ -170,9 +185,15 @@ def score_split_seed(
         peaks: :func:`component_peaks`.
         targets: Target columns.
         extra: Columns copied into every row (timing, memory, parameter count).
+        grid: The grid frame ``predict_grid`` is called with, if the caller has built it;
+            it must be :func:`grid_frame` of the sorted test configurations, in that order.
 
     Returns:
         The result rows.
+
+    Raises:
+        ValueError: If ``y_pred`` or the grid prediction has the wrong shape, or a supplied
+            ``grid`` does not list the sorted test configurations in order.
     """
     targets = list(targets)
     is_test = target_frame["config_name"].isin(list(test_configs)).to_numpy()
@@ -183,7 +204,22 @@ def score_split_seed(
             f"y_pred has shape {y_pred.shape}, expected {(len(test), len(targets))}"
         )
     configs = sorted(str(c) for c in test["config_name"].unique())
-    grid_pred = np.asarray(predict_grid(grid_frame(target_frame, configs)), dtype=float)
+    if grid is None:
+        grid = grid_frame(target_frame, configs)
+    elif list(grid["config_name"].astype(str)) != [
+        c for c in configs for _ in range(N_GRID)
+    ] or not np.array_equal(
+        grid["phase"].to_numpy(), np.tile(PHASE_GRID, len(configs))
+    ):
+        raise ValueError(
+            "the supplied grid frame does not list the sorted test configurations in order"
+        )
+    grid_pred = np.asarray(predict_grid(grid), dtype=float)
+    if grid_pred.shape != (len(configs) * N_GRID, len(targets)):
+        raise ValueError(
+            f"the grid prediction has shape {grid_pred.shape}, expected "
+            f"{(len(configs) * N_GRID, len(targets))}"
+        )
     base_grid = baseline.at(PHASE_GRID)
     y_base = baseline.at(test["phase"].to_numpy(dtype=float))
     y_true = test[targets].to_numpy(dtype=float)

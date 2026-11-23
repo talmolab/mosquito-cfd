@@ -491,3 +491,17 @@ def test_a_data_only_failure_is_raised_before_any_fit(tmp_path, monkeypatch):
         _run(tmp_path, monkeypatch, frame=frame, recorder=Recorder(log=log))
     assert log == []
     assert not (tmp_path / "out").exists()
+
+
+def test_each_split_baseline_is_built_once_per_phase_array(tmp_path, monkeypatch):
+    """One definition build plus the test-row and grid evaluations: 3 per split, not per seed."""
+    calls = []
+    real = metrics.build_phase_only_baseline
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(metrics, "build_phase_only_baseline", spy)
+    _run(tmp_path, monkeypatch, entries=("mlp_h1", "ridge_fixed"))
+    assert len(calls) == 3 * 14

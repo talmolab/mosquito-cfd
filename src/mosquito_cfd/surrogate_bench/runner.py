@@ -203,6 +203,7 @@ def _score(
     peaks: Mapping[str, float],
     extra: Mapping[str, Any],
     baseline: metrics.SplitBaseline,
+    grid: pd.DataFrame,
 ) -> pd.DataFrame:
     return metrics.score_split_seed(
         entry=entry,
@@ -212,6 +213,7 @@ def _score(
         test_configs=split.test,
         y_pred=y_pred,
         predict_grid=lambda _grid: grid_pred,
+        grid=grid,
         baseline=baseline,
         truth=truth,
         peaks=peaks,
@@ -230,11 +232,10 @@ def run_mlp_entry(
     epochs: int,
     device: str,
     probe: _MemoryProbe,
+    baseline: metrics.SplitBaseline,
+    grid: pd.DataFrame,
 ) -> tuple[list[pd.DataFrame], dict[int, dict[str, float]], dict[int, np.ndarray]]:
     """Fit an MLP entry over the bench seeds on one split and score each seed."""
-    configs = sorted(split.test)
-    grid = metrics.grid_frame(target_frame, configs)
-    baseline = metrics.split_baseline(target_frame, split.train, TARGETS)
     rows, skills, grids = [], {}, {}
     for seed in BENCH_SEEDS:
         assignment = carve_split(split, seed=seed)
@@ -272,6 +273,7 @@ def run_mlp_entry(
                 peaks=peaks,
                 extra=extra,
                 baseline=baseline,
+                grid=grid,
             )
         )
         skills[seed] = metrics.per_seed_skill(
@@ -288,6 +290,8 @@ def run_ridge_entries(
     target_frame: pd.DataFrame,
     truth: Mapping[str, np.ndarray],
     peaks: Mapping[str, float],
+    baseline: metrics.SplitBaseline,
+    grid: pd.DataFrame,
 ) -> tuple[pd.DataFrame, dict[str, Any], np.ndarray]:
     """Fit ``ridge`` (selected) or ``ridge_fixed`` on one split and score it (pure numpy)."""
     train = target_frame[target_frame["config_name"].isin(split.train)]
@@ -298,7 +302,6 @@ def run_ridge_entries(
     else:
         model = fit_ridge_fixed(train, TARGETS)
     fit_seconds = time.perf_counter() - t0
-    grid = metrics.grid_frame(target_frame, sorted(split.test))
     t1 = time.perf_counter()
     grid_pred = model.predict(grid)
     per_row = (time.perf_counter() - t1) / len(grid)
@@ -318,7 +321,8 @@ def run_ridge_entries(
         truth=truth,
         peaks=peaks,
         extra=extra,
-        baseline=metrics.split_baseline(target_frame, split.train, TARGETS),
+        baseline=baseline,
+        grid=grid,
     )
     record = {
         "point": [model.n_harmonics, model.degree, model.alpha],
@@ -467,6 +471,16 @@ def run_bench(
         distance[config] = gate.normal_peak_wrap_distance(
             truth[config][:, :3], **settings
         )
+    # The baseline and the grid frame depend only on the split: built once, shared by every
+    # seed and entry.
+    baselines = {
+        name: metrics.split_baseline(target_frame, s.train, TARGETS)
+        for name, s in splits.items()
+    }
+    grid_frames = {
+        name: metrics.grid_frame(target_frame, sorted(s.test))
+        for name, s in splits.items()
+    }
     cuda = memory_probe if memory_probe is not None else _default_cuda(device)
     probe = _MemoryProbe(cuda)
 
@@ -488,6 +502,8 @@ def run_bench(
                     epochs=epochs,
                     device=device,
                     probe=probe,
+                    baseline=baselines[split.name],
+                    grid=grid_frames[split.name],
                 )
                 results.extend(rows)
                 per_seed_skill[entry][split.name] = {
@@ -495,7 +511,13 @@ def run_bench(
                 }
             else:
                 rows, record, grid_pred = run_ridge_entries(
-                    entry, split, target_frame=target_frame, truth=truth, peaks=peaks
+                    entry,
+                    split,
+                    target_frame=target_frame,
+                    truth=truth,
+                    peaks=peaks,
+                    baseline=baselines[split.name],
+                    grid=grid_frames[split.name],
                 )
                 results.append(rows)
                 ridge_records[entry][split.name] = record
