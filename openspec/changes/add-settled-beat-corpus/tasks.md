@@ -1,258 +1,331 @@
 # Tasks: add-settled-beat-corpus
 
-> **Archive only after PR 4 merges.** If Stage 1 ends in `stop`, archive after PR 3 with the
-> Stage 1 delta only (`design.md` D1).
+> **Archive after PR 4 merges.** If Stage 1 ends in `stop`, the PR 2 branch is closed unmerged and
+> the change is archived after PR 3 with the Stage 1 delta only (`design.md` D1).
 
 Rules:
-- **Tests first.** Every test is written first and seen to fail for the right reason. A new guard
-  is also shown to be failable: the guard is mutated and the test must fail.
-- **Commits.** One commit per numbered group unless the group is split below. Messages say
-  `advances #192` (plus `#101`/`#103` where relevant) and never use a closing keyword.
-- **Checks before each commit:** `uv run --frozen ruff check` and `ruff format --check`, plus
-  `uv run --frozen pytest -m "not gpu"` from Git Bash.
-- **Branches.** Each PR gets a fresh branch from `origin/main`. Merge `main` in, never rebase. Run
-  `git merge-base --is-ancestor origin/main HEAD` before every push.
-- **Before each push:** `openspec validate add-settled-beat-corpus --strict`.
-- **HUMAN GATE** marks a step that needs the user's explicit go-ahead.
+- Tests come first: each is written and seen to fail for the right reason before the code.
+- Every new guard is shown to be failable: mutate it, and the test must fail.
+- One commit per numbered task unless noted.
+- Commit messages say `advances #192` (plus `#101`/`#103` where relevant) and never use a closing
+  keyword.
+- Before each commit: `uv run --frozen ruff check`, `ruff format --check` and
+  `uv run --frozen pytest -m "not gpu"`, from Git Bash.
+- PR 1 uses the existing branch. PRs 2–4 each get a fresh branch from `origin/main`.
+- Merge `main` in, never rebase. Run `git merge-base --is-ancestor origin/main HEAD` and
+  `openspec validate add-settled-beat-corpus --strict` before every push.
+- **HUMAN GATE** means the user's explicit go-ahead.
 
 ## PR 1 — settling metric, pre-registration, Stage 1 decks (branch `add-settled-beat-corpus`)
 
 ### 1. Metric (`force_surrogate/settling.py`)
 - [ ] 1.1 Tests first (`tests/test_settling.py`):
   - one test per scenario of "Beat-to-beat settling metric";
-  - the boundaries: exactly 95% of rows (complete), `ρ` exactly 1 (not contracting), a
-    denominator exactly at `STEP_FLOOR` (skipped when the numerator is too), `B = 5` (two ratios)
-    and `B = 6` (three ratios);
-  - per-beat row counts at `f*` 0.85 and 1.15 built as `step · dt` alternate (e.g. 2352/2353) and
-    sum to `max_step`;
-  - a tiny but nonzero peak (`1e-6`) is allowed and reported;
-  - the metric reads `wingbeat` and `phase` and never recomputes them (a frame with a
-    deliberately inconsistent `wingbeat` is used as given);
-  - every `ValueError` path names the config and the column.
-- [ ] 1.2 Known-answer fixture: copy the needed columns (`config_name, time, phase, wingbeat,
-  frequency_fstar, CF_*`) of the E0b coarse 6-beat runs into `tests/fixtures/settling/`, with a
-  README giving the source (`explore-surrogate-experiments` `b99c7b2` outputs, or the run CSV on
-  the share) and the SHA-256. Check with `git ls-files` that the fixture is tracked. Test that it
-  reproduces E0b's beat-to-previous table to `5e-5` with the mask, and gives `T_CF_z = 0.0118 ±
-  1e-4` with the pre-registered rule.
-- [ ] 1.3 Implement `resample_beats`, `settling_metrics`, `jitter`, `training_wingbeat`.
+  - boundaries:
+    - exactly 95% of rows counts as complete;
+    - `ρ` exactly 1 is not contracting;
+    - a step exactly at `ν` counts as noise;
+    - `B = 5` uses two ratios and `B = 6` uses three;
+  - at `f*` 0.85 and 1.15, per-beat row counts built as `step · dt` alternate (for example
+    2352/2353) and sum to `max_step`;
+  - a tiny but nonzero peak (`1e-6`) is accepted;
+  - `wingbeat` and `phase` are used as given; a frame with a deliberately inconsistent `wingbeat`
+    is not "corrected";
+  - `dt` is a required argument;
+  - every `ValueError` path names the configuration and the cause.
+- [ ] 1.2 Known-answer fixtures:
+  - Copy the needed columns of `explore-surrogate-experiments` `b99c7b2`
+    `experiments/e0b_long_run/outputs/long_run.parquet` (blob `f232bca`, `s45_f100_p45`) and
+    `outputs_s45_f100_p30_fields/long_run.parquet` (blob `ef8f74a`) into
+    `tests/fixtures/settling/`.
+  - Add a README with the source, the blobs, the SHA-256, and the note that the source run records
+    say `git_dirty: true`. Check that the files are tracked with `git ls-files`.
+  - Tests:
+    - E0b's 256-point resampling, with the `phase ≥ 0.05` mask on the differences and the peak over
+      all 256 points, reproduces E0b's beat-to-previous tables to `5e-5`;
+    - the pre-registered rule gives `s45_f100_p30` CF_z `T = 0.01168 ± 1e-4` and
+      `s45_f100_p45` CF_my `T = 0.01007 ± 1e-4`, with no settled beat in either;
+    - `J ≤ 2.7e-4` on the final beat of every configuration of both committed corpora.
+- [ ] 1.3 Implement `resample_beats` (figures and the E0b reproduction only), `settling_metrics`
+  and `jitter`.
 
 ### 2. Decision rule
-- [ ] 2.1 Tests first: one test per scenario of "Pre-registered settled-beat decision rule", plus:
+- [ ] 2.1 Tests first:
+  - one test per scenario of "Pre-registered settled-beat decision rule";
   - `pass(N)` needs every `N′ ≥ N`;
-  - a run with `B = 7` because its last beat is incomplete;
-  - jitter above the floor gives `stop`;
-  - the result names run, beat and target.
+  - `B = 7` because the last beat is incomplete;
+  - the result names the run, beat and target.
 - [ ] 2.2 Implement `decide_beat_count`.
 
-### 3. Pre-registration (written before the pinning test)
-- [ ] 3.1 Write `examples/settling_check/PREREGISTRATION.md`. It holds the rule, the rationale for
-  the tail bound, the three configurations and why they were chosen, the controls, the outcome
-  table, the domain caveat, and the constants in a fenced block between
-  `<!-- settling-constants:start -->` and `<!-- settling-constants:end -->`.
-- [ ] 3.2 Tests first: the constants block parses and equals `settling.py`.
-  - A missing anchor raises.
-  - A mutated copy of the file, with a different tolerance, fails.
-  - Mutating `SETTLED_TOLERANCE` in a monkeypatched module fails.
+### 3. Pre-registration and precedence
+- [ ] 3.1 Write `examples/settling_check/PREREGISTRATION.md`, the single narrative home of the
+  criterion. It covers:
+  - the rule and its rationale (tail bound, rising-ratio term, noise floor from `J`, why sample
+    resolution);
+  - the three configurations and why they were chosen;
+  - the controls and the `1e-9 · max |column|` tolerance;
+  - the outcome table;
+  - the domain caveat (#204);
+  - the scope statement that the criterion predates the fine-grid and 8-beat data only;
+  - the near-wing box;
+  - the constants block between `<!-- settling-constants:start -->` and
+    `<!-- settling-constants:end -->`.
+- [ ] 3.2 Tests first, then the pinning helper:
+  - the block parses and equals `settling.py`;
+  - a missing anchor raises;
+  - a mutated copy of the file fails;
+  - a monkeypatched constant fails;
+  - the constants sentence in the change's delta, or in the live spec after archive (path
+    resolved), carries the same values.
+- [ ] 3.3 Tests first, then the precedence checker (`settling.check_precedence`), on synthetic
+  trees:
+  - unchanged files pass;
+  - an edit with no `deviations.json` entry fails;
+  - an edit with a matching entry passes;
+  - a `DECISION.md` with zero or too few run records fails.
+  - The repository test runs it on `examples/settling_check/`. It passes trivially in PR 1, where
+    no records or decision exist yet, and becomes binding in PR 3.
 
 ### 4. Stage 1 decks (`examples/settling_check/`)
 - [ ] 4.1 Tests first (`tests/test_settling_decks.py`):
-  - The differing key set **equals** the declared set per grid.
-  - `max_step` and `stop_time` equal `derive_run_duration(f*, 8)`: 18824, 16000 and 13913.
-  - `plot_per`/`check_per` equal `1/(20 f*)` and `1/f*`.
-  - The coarse decks have `ns.init_iter = 2`.
-  - `ns.cfl`, `ns.fixed_dt` and the grid equal the source.
-  - The manifest carries both decks' SHA-256 and the controls declared per run (C1/C2 for fine
-    `s55_f115_p30`; C3/C4 for every run).
-  - Regeneration is byte-identical.
-  - The C1 and C2 decks (the unmodified corpus deck with `max_step` 400; 1000 then
-    `amr.restart = chk01000` with `max_step` 2000) are generated with their own declared key sets
-    and tested the same way.
-- [ ] 4.2 Implement `generate_decks.py`; commit decks and `settling_manifest.json`.
-- [ ] 4.3 `.gitignore`: add `examples/settling_check/**/runs/`. Test with `git check-ignore` that
-  a run directory is ignored and that `dataset.parquet`, the decks, the manifest, the run records
-  and the figure are not.
+  - the differing key set equals the declared set;
+  - a deck missing `amrex.the_arena_init_size`, and one with a changed `ns.cfl`, each fail by name;
+  - `max_step` is 18824 / 16000 / 13913;
+  - `plot_per = 1/(20 f*)` and `check_per = 1/f*`;
+  - `ns.init_iter`, `ns.cfl`, `ns.fixed_dt` and the grid equal the source deck's;
+  - the manifest carries both decks' SHA-256 and the controls declared per run (C1 for
+    `s55_f115_p30` on each grid; C3 and C4 for every run), and pins each grid's image digest;
+  - the C1 decks are the corpus deck plus `max_step = 400` and the arena key, with their own
+    declared set;
+  - regeneration is byte-identical.
+- [ ] 4.2 Implement `generate_decks.py` (using `metadata_capture.parse_deck`), and commit the
+  decks and `settling_manifest.json`.
+- [ ] 4.3 `.gitignore`: add `examples/settling_check/**/runs/`. `git check-ignore` tests: a run
+  directory is ignored; `dataset.parquet`, the decks, the manifest, `records/*.json` and the figure
+  are not.
 
-### 5. Controls and report
-- [ ] 5.1 Tests first for `compare_force_csv`:
-  - byte-identical rows pass;
-  - one changed digit fails and names the column and `iStep`;
-  - a duplicate or missing `iStep` (the restart append case) fails;
-  - coarse mode reports per-target RMS without a verdict.
-- [ ] 5.2 Tests first for `field_change_stats`:
+### 5. Controls and report (one commit each)
+- [ ] 5.1 Tests first, then `settling.compare_force_csv`:
+  - identical values pass;
+  - a `5e-13` round-off perturbation passes;
+  - a `1e-6 · max` perturbation fails, naming the column and `iStep`;
+  - a duplicate or missing `iStep` fails.
+- [ ] 5.2 Tests first, then `settling.field_change_stats`:
   - identical arrays give 0;
-  - an offset of `0.12 · u_ref` gives median 0.12 and fraction 1;
-  - an offset of `0.08 · u_ref` gives fraction 0;
+  - a `0.12 · u_ref` offset gives median 0.12 and fraction 1;
+  - a `0.08 · u_ref` offset gives fraction 0 (strict `>`, vector difference norm);
   - a shape mismatch or non-finite input raises.
-- [ ] 5.3 Tests first for `scripts/check_settling.py` on a synthetic run tree:
-  - every report field in "A settling report records its controls and its inputs";
+- [ ] 5.3 Tests first, then `scripts/check_settling.py`, on a synthetic run tree:
+  - every report field of "A settling report records its controls and its inputs";
   - `controls_incomplete` and a non-zero exit when a declared control is missing;
-  - run-record completeness: image digest equal to the pinned one, IAMReX label equal to
-    `docker/build-args.env`, command, hardware, seconds per step, start SHA, three file hashes.
-- [ ] 5.4 Implement 5.1–5.3.
-- [ ] 5.5 Tests first, then `scripts/make_settling_figure.py`. The figure is the step change per
-  beat on a log axis, one panel per target, six runs, with the tolerance and floor lines, in the
-  project's figure-sidecar convention. Test that the sidecar's numbers equal the report's.
-- [ ] 5.6 `examples/settling_check/README.md`: commands, file map, the controls each run needs,
-  the data location on the share. It links to `PREREGISTRATION.md` and does not restate it.
+  - run-record completeness: image digest equal to the manifest's pin, IAMReX label, command,
+    hardware, seconds per step, start SHA, `git_dirty == false`, and the three file hashes.
+  - Schemas for `settling_manifest.json`, `records/*.json` and `settling_report.json` are
+    documented in `examples/settling_check/README.md` and checked by the tests.
+- [ ] 5.4 Tests first (the sidecar numbers equal the report's), then
+  `scripts/make_settling_figure.py`: step change per beat on a log axis, one panel per target, six
+  runs, with tolerance and noise lines, following the project's figure-sidecar convention.
+- [ ] 5.5 `examples/settling_check/README.md`: commands, file map, schemas, controls per run, the
+  data location on the share. It links to `PREREGISTRATION.md` without restating it.
 
 ### 6. Docs, CI and PR 1
-- [ ] 6.1 `.github/workflows/ci.yml`: add `examples/settling_check/` to the ruff paths.
-- [ ] 6.2 Short top-of-file entry in `docs/CHANGELOG.md`. In `openspec/project.md`: add
-  `settling_check/` to the directory tree, and add one Verification Principle ("pre-register a
-  criterion before the data that judge it exist").
-- [ ] 6.3 `/review-pr`, a focused re-review of each fix commit, then `/pre-merge-check` (no Copilot
-  review). **HUMAN GATE: approval before pushing.**
+- [ ] 6.1 Add `examples/settling_check/` to the ruff paths in `.github/workflows/ci.yml` and in
+  `openspec/project.md:212`.
+- [ ] 6.2 Add a short top-of-file entry in `docs/CHANGELOG.md`. In `openspec/project.md`: add
+  `settling_check/` to the directory tree, and one Verification Principle ("pre-register a
+  criterion before the data that judge it exist, and say which data it predates").
+- [ ] 6.3 `/review-pr`, a focused re-review of each fix commit, then `/pre-merge-check` (no
+  Copilot review). **HUMAN GATE: approval before pushing.**
 
 ## Stage 1 runs on gh-04 (after PR 1 is merged)
 
 - [ ] 7.1 Prepare (read-only):
-  - On gh-04, `git fetch`, check out the `main` SHA, and verify it is an ancestor of `origin/main`
-    with a clean tree.
-  - Verify the image digest and its IAMReX label.
-  - Check free disk and that the GPU is idle.
-  - Copy the committed cluster force CSV of fine `s55_f115_p30` from the share and record its
-    SHA-256.
-- [ ] 7.2 **HUMAN GATE: go-ahead for the controls.** Run C1 (400 steps) and C2 (1000, restart, to
-  2000). Record the results and seconds per step.
-- [ ] 7.3 Report C1/C2 and the projected wall time for the six runs. Stop if C1 fails.
+  - check out the merged `main` SHA on gh-04 and verify it is an ancestor of `origin/main`, with a
+    clean tree;
+  - pull both images by digest and record their IAMReX labels;
+  - check free disk and that the GPU is idle;
+  - copy the committed force CSVs of `s55_f115_p30` (both grids) and of the six long-run
+    configurations from the share, and record their SHA-256.
+- [ ] 7.2 **HUMAN GATE: go-ahead for the controls.** Run C1 on both grids. Record the results and
+  seconds per step.
+- [ ] 7.3 Report C1 and the projected wall time for the six runs. Stop if C1 fails.
 - [ ] 7.4 **HUMAN GATE: go-ahead for the long runs.**
-  - Fine `s35_f085_p30`, `s45_f100_p30`, `s55_f115_p30`, then the three coarse runs, 8 beats
+  - Run fine `s35_f085_p30`, `s45_f100_p30`, `s55_f115_p30`, then the three coarse runs, 8 beats
     each, one at a time.
-  - After each run: extract, run C3 and C4, write the record, and copy the run to the share
-    (`scp` from gh-04, then verify the file count and CSV hash).
+  - After each run: extract, run C3 and C4, write the record, then `scp` to the share and verify
+    the file count and CSV hash.
   - Stop on any failed control.
 
-## PR 2 — regeneration tooling (fresh branch `add-settled-beat-corpus-tooling`; may be written while 7.x runs)
+## PR 2 — regeneration tooling (branch `add-settled-beat-corpus-tooling`; written while 7.x runs, **merged only after 13.2 says `regenerate`**)
 
-Each group below adds its Stage 2 requirements from `stage2-spec-draft.md` to the delta (full text
-for the MODIFIED ones) in the same commit as its code.
+Each group adds its entries from `stage2-spec-draft.md` to the delta (full text for the MODIFIED
+ones) in the same commit as its code.
 
 ### 8. Generator and drivers
 - [ ] 8.1 Tests first: the field-capture scenarios in the draft, including the crossing-rule phase
-  check at `f* = 0.85` over 8 beats. Non-positive arguments raise.
+  check at `f* = 0.85` over 8 beats. Also:
+  - the provenance rationale no longer says no output is produced;
+  - non-positive arguments raise.
 - [ ] 8.2 Implement 8.1 in `sweep.py`.
 - [ ] 8.3 Tests first:
-  - Both drivers take `--n-wingbeats`, `--frames-per-beat` and `--checkpoints-per-beat`.
-  - Each refuses a directory whose manifest has a different `n_wingbeats`, with an unchanged tree
-    hash.
-  - A manifest without `n_wingbeats` raises.
-  - Omitting the flags reproduces the 2-beat corpora.
-  - The regeneration tests read `n_wingbeats` and the field-capture settings from each corpus's
-    own manifest.
+  - both drivers take `--n-wingbeats`, `--frames-per-beat` and `--checkpoints-per-beat`;
+  - N = 6 gives 14118 / 12000 / 10435;
+  - a write into a directory whose manifest has a different `n_wingbeats` is refused, with an
+    unchanged tree hash;
+  - a manifest without `n_wingbeats` raises;
+  - omitting the flags reproduces the 2-beat corpora;
+  - the regeneration tests read their settings from each corpus's own manifest.
 - [ ] 8.4 Implement 8.3.
 
 ### 9. Supersession writer (#103)
-- [ ] 9.1 Tests first: the draft's scenarios, plus a file that is not written on error.
-- [ ] 9.2 Implement it with a CLI; a test that the runbook calls the CLI instead of describing a
-  hand edit.
+- [ ] 9.1 Tests first: the draft's scenarios, and that the file is not written on error.
+- [ ] 9.2 Implement the writer with a CLI. Add a text-guard test that the runbook calls the CLI.
 
-### 10. Guards, gate, trainer refusal (split into three commits)
+### 10. Guards, gate, trainer refusal (three commits)
 - [ ] 10.1 Final-beat symmetry ratio. Tests first:
-  - bit-identical ratios on both 2-beat corpora;
-  - a synthetic 6-beat run truncated at 95% fails the new ratio, while the old ratio stays inside
+  - ratios are bit-identical on both 2-beat corpora;
+  - a synthetic 6-beat run truncated at 95% fails the new ratio while the old one stays inside
     0.012;
-  - `test_live_spec_claims.py:748`'s call and pinned maximum are updated to the manifest-aware
-    signature;
-  - `test_acceptance_gate.py`'s fixture manifest gains `n_wingbeats`, and its CSVs end at the
-    requested beat, so `test_healthy_corpus_passes` and the just-under/over tolerance tests keep
-    their meaning;
-  - `test_corpus_guards.py`'s synthetic manifests gain `n_wingbeats`;
-  - a manifest without it raises.
-- [ ] 10.2 Settling acceptance. Tests first: the draft's scenarios. `not_applicable` comes from
-  the manifest. `cluster_run.settling` is written. `plot_per > 0` triggers CC-F1. The mid-sweep
-  check command runs the same function on a partial run tree.
-- [ ] 10.3 Trainer refusal. Tests first: a 6-beat synthetic dataset raises, naming the follow-up
-  issue. Both committed corpora still train (existing tests unchanged).
-
-### 11. Storage manifest
-- [ ] 11.1 Tests first: the draft's scenarios on a fake run tree.
-- [ ] 11.2 Implement `storage_manifest.py` and `scripts/write_storage_manifest.py`.
-
-### 12. Cluster sizing (#101; split into a shell/workflow commit and a docs commit)
-- [ ] 12.1 Tests first:
-  - The step-based deadline: 50400 s and 25200 s on toy manifests with `cluster_sizing.json`.
-  - Doubling every `max_step` raises the deadline.
-  - It is always computed without `--active-deadline-seconds`; a missing `cluster_sizing.json` or
-    zero configs is an error.
-  - A test recomputes the fine rates (2.321 step-weighted, 3.302) from the 27 committed run
-    metadata files.
-  - Smoke `max-step` comes from the manifest, and a disagreeing environment value is an error.
-  - `maxDuration` covers `limit + 1` attempts.
+  - a manifest without `n_wingbeats` raises.
 
   Deliberately changed existing tests:
-  - `test_submit_workflow_active_deadline.py` 227–255 (fixtures gain `max_step`; 43200 → 50400),
-    258–275 (14400 → error) and 278–297 (18000 → 25200);
-  - `test_submit_workflow_smoke_guards.py` 85–124 (fixtures gain a manifest);
-  - `test_argo_workflows.py` 59, 149, 160–186 ("committed ≥ formula" replaced by "always
-    patched").
-- [ ] 12.2 Implement in `submit_workflow.sh` and the workflow files. Run `argo lint --offline`
-  locally on the rendered workflow; if `backoff.maxDuration` cannot be templated, commit `"105h"`
-  with its test and record why in `design.md`.
+  - `test_live_spec_claims.py:748` (signature and pinned maximum);
+  - `test_acceptance_gate.py:99-113`, `162`, `235`, `250` (the fixture manifest gains
+    `n_wingbeats` and its CSVs end at the requested beat);
+  - `test_corpus_guards.py:114` (synthetic manifests gain `n_wingbeats`).
+- [ ] 10.2 Settling acceptance. Tests first: the draft's scenarios, plus:
+  - `not_applicable` comes from the manifest;
+  - `cluster_run.settling` is written;
+  - `frames_per_beat > 0` triggers CC-F1;
+  - the mid-sweep check command runs the same function on a partial run tree.
+- [ ] 10.3 Trainer refusal. Tests first:
+  - a 6-beat synthetic frame is refused by `filter_converged_beat` and by
+    `build_phase_only_baseline`, naming the follow-up issue;
+  - both committed corpora still train (existing tests unchanged).
+
+### 11. Storage manifest
+- [ ] 11.1 Tests first: the draft's scenarios on a fake run tree, with the crossing rule on step
+  end times.
+- [ ] 11.2 Implement `storage_manifest.py` and `scripts/write_storage_manifest.py`.
+
+### 12. Cluster sizing (#101; a shell/workflow commit and a docs commit)
+- [ ] 12.1 Tests first:
+  - the step-based deadline gives 50400 s and 25200 s on toy manifests with
+    `cluster_sizing.json`;
+  - doubling every `max_step` raises the deadline;
+  - the deadline is always computed when `--active-deadline-seconds` is not given;
+  - a missing `cluster_sizing.json`, and zero configs, are errors;
+  - `prelim_sweep` without an explicit deadline fails;
+  - `cluster_sizing.json` recomputes from its `source`;
+  - smoke `max-step` comes from the manifest, and a disagreeing environment value is an error;
+  - the committed `maxDuration: "105h"` covers every committed manifest that has a
+    `cluster_sizing.json`.
+
+  Deliberately changed existing tests:
+  - `test_submit_workflow_active_deadline.py`:
+    - 227–255: fixtures gain `max_step` and `cluster_sizing.json`; 43200 → 50400;
+    - 258–275: 14400 → error;
+    - 278–297: 18000 → 25200;
+  - `test_submit_workflow_smoke_guards.py:85-124`: fixtures gain a manifest;
+  - `test_submit_workflow_parallelism.py:96-119`: `test_omitting_parallelism_is_a_true_noop` is
+    reversed, and the fixture corpus gains `cluster_sizing.json`;
+  - `test_submit_workflow_provision.py:116, 147, 324, 353, 529`: `_make_corpus` writes configs with
+    `max_step` and a `cluster_sizing.json`, and each "argo not invoked" test asserts its specific
+    stderr;
+  - `test_argo_workflows.py:59, 149, 160-186`: `"20h"` → `"105h"`; "committed ≥ formula" becomes
+    "always patched".
+- [ ] 12.2 Implement in `submit_workflow.sh`, the workflow files and the WorkflowTemplate. Commit
+  `examples/prelim_sweep_fine/cluster_sizing.json`.
 - [ ] 12.3 Docs, with text-guard tests that the stale values are gone:
-  - `.claude/commands/submit-cluster-sweep.md`: the corpus list, CC-F1 for coarse, step-based
-    numbers, the settling and storage steps, the supersession CLI, the 86400/24 h references at
-    247–249 and 363;
-  - `cluster/argo/README.md` 78, 89 and 132–137;
-  - `submit_workflow.sh:20`.
-- [ ] 12.4 `.gitignore`: `examples/settled_sweep*/runs/`, with `check-ignore` tests.
-- [ ] 12.5 `/review-pr`, re-review of fix commits, `/pre-merge-check`. **HUMAN GATE before
-  pushing.**
+  - `.claude/commands/submit-cluster-sweep.md` lines 41–57 (corpus list, coarse field capture and
+    CC-F1) and 247–249 and 363 (24 h); also the step-based numbers, the settling and storage steps,
+    and the supersession CLI;
+  - `cluster/argo/README.md` lines 78, 89, 132–139;
+  - `submit_workflow.sh` lines 20, 84, 95, 333;
+  - `force-surrogate-smoke.yaml:37`.
+- [ ] 12.4 `.gitignore`: add `examples/settled_sweep*/runs/`, with `check-ignore` tests.
+- [ ] 12.5 `/review-pr`, re-review of fix commits, `/pre-merge-check`. Then **HUMAN GATE before
+  pushing**; the merge waits for 13.2.
 
-## PR 3 — Stage 1 results, decision, corpus decks (fresh branch `add-settled-beat-corpus-results`)
+## PR 3 — Stage 1 results, decision, corpus decks (branch `add-settled-beat-corpus-results`)
 
-- [ ] 13.1 Commit the Stage 1 datasets, run records, `settling_report.json`, the figure and
-  `DECISION.md` (the rule applied, `N*`, the domain caveat with the mean-lift drift).
-  - Tests: `DECISION.md`'s `N` equals `decide_beat_count` recomputed from the committed datasets.
-  - The report recomputes to `rel = 1e-12`.
-  - The precedence test from the spec passes.
-  - The coarse `s45_f100_p30` step changes for beats 2–6 fall within the ranges E0b measured on
-    the same configuration (external reference).
-- [ ] 13.2 **HUMAN GATE: the user confirms N** (and the cost, if `regenerate_needs_cost_approval`).
-  If the action is `stop`, report and end here (archive per D1).
-- [ ] 13.3 Record the chosen N in `proposal.md`, `design.md` and here. Record any deviation in a
-  `### Why … instead of …?` section and in `deviations.json`.
-- [ ] 13.4 Generate `examples/settled_sweep` and `examples/settled_sweep_fine` with N, 20 frames
-  and 1 checkpoint per beat, and coarse `ns.init_iter = 2`. Commit the decks, manifests,
-  provenance (supersession entry via the CLI) and the fine `cluster_sizing.json`.
-  - Register both corpora with `has_parquet=False` and coarse `has_per_config_metadata=True` in
-    the same commit.
-  - Tests: byte-identical regeneration; the deck guards; the CFL, `prescribed_vel` and `num_steps`
-    lints.
+- [ ] 13.1 Commit the Stage 1 datasets, `records/`, `settling_report.json`, the figure and
+  `DECISION.md`. `DECISION.md` covers:
+  - the rule applied and `N*`;
+  - the jitter values;
+  - the field change;
+  - the mean-lift drift and the domain caveat;
+  - the D10 downstream list.
+
+  Data and tests go in one commit. The tests:
+  - `DECISION.md`'s count equals `decide_beat_count` recomputed from the committed datasets;
+  - the report recomputes to `rel = 1e-12`;
+  - the precedence check passes;
+  - external reference: the coarse `s45_f100_p30` step changes `s_4..s_6` match E0b's run of the
+    same configuration and image to `1e-9` of peak (the runs should be the same computation up to
+    beat 6).
+- [ ] 13.2 **HUMAN GATE: the user confirms the outcome.**
+  - On `regenerate` or `regenerate_needs_cost_approval`: confirm `N` and the cost, then merge PR 2.
+  - On `stop`: report, close the PR 2 branch, merge PR 3 and archive (D1).
+- [ ] 13.3 Record the chosen `N` in `proposal.md`, `design.md` and this file. Record any deviation
+  in a `### Why … instead of …?` section and in `deviations.json`.
+- [ ] 13.4 Generate `examples/settled_sweep` and `examples/settled_sweep_fine` with `N`, 20 frames
+  and 1 checkpoint per beat. Commit:
+  - the decks, the manifests and the fine `cluster_sizing.json`;
+  - the provenance, with a supersession entry written by the CLI;
+  - the registry entries (`has_parquet=False`; `has_per_config_metadata=True` for coarse).
+
+  Tests:
+  - regeneration is byte-identical;
+  - the deck guards and the CFL, `prescribed_vel` and `num_steps` lints pass;
+  - for the three settling configurations, each corpus deck equals its settling deck except
+    `max_step`, `stop_time` and the arena key.
 - [ ] 13.5 `/review-pr`, re-review of fix commits, `/pre-merge-check`. **HUMAN GATE before
   pushing.**
 
 ## Cluster runs (after PR 3 is merged)
 
-- [ ] 14.1 `/submit-cluster-sweep` steps 0–1 for each corpus: digest, wing-phase diagnostic,
-  quota. Provision the new share directories (decks, `wing.vertex`, manifest) and produce a
-  listing as evidence. Record free space on `Z:`.
-- [ ] 14.2 **HUMAN GATE: coarse smoke** (full-length `s55_f115_p30`). Measure seconds per step and
-  plotfile/checkpoint sizes, write the coarse `cluster_sizing.json`, run CC-F1, and run the
-  one-config gate with settling.
-- [ ] 14.3 **HUMAN GATE: coarse full sweep.** Mid-sweep settling check on each completed config.
-- [ ] 14.4 **HUMAN GATE: fine smoke**, then **HUMAN GATE: fine full sweep**, with the same checks.
-- [ ] 14.5 Post-run: the acceptance gate with settling on all 27 configs per corpus, per-config run
-  metadata and storage manifests. On any failure, stop and report.
+- [ ] 14.1 Run `/submit-cluster-sweep` steps 0–1 for each corpus: digest pinned per grid (D4),
+  wing-phase diagnostic, quota. Provision the share directories (decks, `wing.vertex`, manifest)
+  and keep a listing as evidence. Record free space on `Z:`.
+- [ ] 14.2 **HUMAN GATE: coarse smoke** (full-length `s55_f115_p30`). Then:
+  - measure seconds per step and plotfile and checkpoint sizes;
+  - write the coarse `cluster_sizing.json` (D9 factors);
+  - run CC-F1 on one late plotfile (#206);
+  - run the one-config gate with settling.
+- [ ] 14.3 **HUMAN GATE: coarse full sweep**, with the mid-sweep settling check on each completed
+  configuration.
+- [ ] 14.4 **HUMAN GATE: fine smoke**: refresh the fine `s_max` (D9). Then **HUMAN GATE: fine full
+  sweep**, with the same checks.
+- [ ] 14.5 Post-run: run the acceptance gate with settling on all 27 configurations of each
+  corpus, and write the per-config run metadata and the storage manifests. On any failure, stop and
+  report.
 
-## PR 4 — the corpora (fresh branch `add-settled-beat-corpus-data`)
+## PR 4 — the corpora (branch `add-settled-beat-corpus-data`)
 
-- [ ] 15.1 In one commit:
-  - extract both datasets and commit the parquet, units, run metadata, provenance (including
-    `cluster_run.settling`) and the storage manifests;
-  - flip `has_parquet=True`;
-  - update `test_corpus_guards.py:524-531`'s expected peaks and the healthy symmetry maximum
-    (recomputed by a test).
-  If the healthy maximum is above 0.012, stop; do not re-tune.
-- [ ] 15.2 Corpus READMEs: what each corpus is, how it differs from the 2-beat corpus, where the
-  raw runs live, the backup status, how to regenerate, and the domain caveat. Also update
-  `openspec/project.md` (directory tree, Cluster Path Mappings with the `Z:` raw-run paths), row 19
-  of `docs/force_surrogate/roadmap.md`, and `docs/field_surrogate/roadmap.md` (the storage note
-  labelled "2-beat corpus", plus the fine settling result).
-- [ ] 15.3 After bench PR 2 has merged: add "superseded by" notes to both 2-beat corpus READMEs,
-  qualifying "the converged beat" as the 2-beat corpus's beat 2.
-- [ ] 15.4 File the D10 issues that do not exist yet, and the resume-on-retry follow-up if C2
-  passed. Tick #197.
+- [ ] 15.1 One commit:
+  - both datasets, units, run metadata, provenance (with `cluster_run.settling`), storage
+    manifests, and the coarse `cluster_sizing.json` with its smoke metadata;
+  - `has_parquet=True`;
+  - `test_corpus_guards.py:524-531` expected peaks, and the healthy symmetry maximum recomputed by
+    a test.
+
+  If that maximum is above 0.012, stop; do not re-tune.
+- [ ] 15.2 Ask the user about backups of `Z:` and a second copy on `G:`. Then write:
+  - the corpus READMEs: what each corpus is, how it differs from the 2-beat corpus, the image per
+    grid, where the raw runs live, the backup status, how to regenerate, the domain caveat, and
+    the restart limitation (#205);
+  - `openspec/project.md`: directory tree, and Cluster Path Mappings with the `Z:` raw-run paths;
+  - `docs/force_surrogate/roadmap.md`: row 19, with the D10 list;
+  - `docs/field_surrogate/roadmap.md`:
+    - items 6 (line 213) and 7 (line 407, now answered);
+    - line 395;
+    - the storage note (lines 304–307), labelled as the 2-beat corpus;
+    - the fine settling result.
+- [ ] 15.3 After bench PR 2 has merged, add "superseded by" notes to both 2-beat corpus READMEs:
+  - qualify "the converged beat" as the 2-beat corpus's beat 2;
+  - qualify `examples/prelim_sweep_fine/README.md:327`'s "force-only defaults".
+- [ ] 15.4 File the D10 issues that do not exist yet. Tick #197.
 - [ ] 15.5 Reconcile `proposal.md`, `design.md` and the delta with what was built. Then
-  `/review-pr`, re-review of fix commits, `/pre-merge-check`. **HUMAN GATE before pushing.**
-- [ ] 15.6 After the merge: archive the change with the openspec CLI.
+  `/review-pr`, re-review of fix commits and `/pre-merge-check`. **HUMAN GATE before pushing.**
+- [ ] 15.6 After merge: archive the change with the openspec CLI.

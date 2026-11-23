@@ -2,51 +2,72 @@
 
 ### Requirement: Beat-to-beat settling metric
 
-`mosquito_cfd.force_surrogate.settling` SHALL measure, for one run and each of the six targets
-`CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`, how far each wingbeat is from the periodic state. Beat `b`
-is 1-based and is the rows with `wingbeat == b − 1`; the extractor's `wingbeat` and `phase` columns
-SHALL be used as given, never recomputed. The constants `SETTLED_TOLERANCE = 0.01`,
-`N_PHASE = 256`, `COMPLETE_FRACTION = 0.95`, `STEP_FLOOR = 0.001`, `MIN_BEATS = 5` and
-`FIRST_RATIO_BEAT = 4` SHALL be module constants.
+`mosquito_cfd.force_surrogate.settling` SHALL measure how far each wingbeat of one run is from the
+periodic state, for each of the six targets `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`.
 
-- A beat is complete when it has at least `COMPLETE_FRACTION / (frequency_fstar · dt)` rows. `B`
-  is the number of the last complete beat. An incomplete beat before `B`, a duplicate or
-  non-increasing `phase` within a beat, a missing column, a non-finite value or a zero peak SHALL
-  raise `ValueError` naming the configuration and the column. `B < MIN_BEATS` SHALL raise
-  `ValueError`.
-- Each complete beat is resampled onto phases `k / N_PHASE` by periodic linear interpolation,
-  giving `w_b`. `P = max |w_B|`.
-- Step change `s_b = rms(w_b − w_{b−1}) / P` (`b = 2..B`); distance to the last beat
-  `D_b = rms(w_b − w_B) / P`.
-- For `b = max(FIRST_RATIO_BEAT, B − 2) .. B`: when `s_{b−1}` and `s_b` are both at most
-  `STEP_FLOOR` the ratio is skipped; when only `s_b` exceeds `STEP_FLOOR` the run is not
-  contracting; otherwise `r_b = s_b / s_{b−1}`. `ρ = max r_b`; `ρ ≥ 1` means not contracting.
-- Tail bound `T`: infinite when not contracting; `2 · max s_b` over the ratio beats when every
-  ratio was skipped; otherwise `s_B · ρ / (1 − ρ)`. `E_b = D_b + T`.
-- Jitter `J = rms(L_even(w_B) − L_odd(w_B)) / P`, where `L_even` and `L_odd` resample beat `B`
-  from its even- and odd-indexed samples, SHALL be reported per target.
-- The maximum absolute difference over phase SHALL be reported beside every RMS value and SHALL
-  NOT enter any verdict.
+- **Beats.** Beat `b` is 1-based and is the rows with `wingbeat == b − 1`. The extractor's
+  `wingbeat` and `phase` columns SHALL be used as given, never recomputed. The timestep `dt` SHALL
+  be passed in, taken from the manifest's `fixed_dt`.
+- **Constants.** These SHALL be module constants: `SETTLED_TOLERANCE = 0.01`,
+  `COMPLETE_FRACTION = 0.95`, `MIN_BEATS = 5`, `FIRST_RATIO_BEAT = 4`, `NOISE_FACTOR = 3` and
+  `MAX_NOISE = 0.002`.
+- **Complete beats.** A beat is complete when it has at least
+  `COMPLETE_FRACTION / (frequency_fstar · dt)` rows. `B` is the number of the last complete beat.
+- **Errors.** Each of these SHALL raise `ValueError` naming the configuration and the cause:
+  - an incomplete beat before `B`;
+  - a duplicate or non-increasing `phase` within a beat;
+  - a missing column, a non-finite value or a zero peak;
+  - `B < MIN_BEATS`.
+- **Distance.** `dist(a, c)` SHALL be the RMS, over beat `a`'s own samples, of
+  `w_a(φ_i) − L_c(φ_i)`, divided by `P = max |w_B|`. `L_c` is periodic linear interpolation of
+  beat `c` in `phase`.
+- **Steps and distances.** Step change `s_b = dist(b, b − 1)` for `b = 2..B`. Distance to the last
+  beat `D_b = dist(b, B)`.
+- **Jitter.** `J = rms(w_B[i−1] − 2·w_B[i] + w_B[i+1]) / (8 · P)` over the interior samples of
+  beat `B`. The noise floor is `ν = NOISE_FACTOR · J`.
+- **Ratios**, for `b = max(FIRST_RATIO_BEAT, B − 2) .. B`:
+  - when `s_{b−1} ≤ ν` and `s_b ≤ ν` the ratio is skipped;
+  - when only `s_{b−1} ≤ ν` the run is not contracting;
+  - otherwise `r_b = s_b / s_{b−1}`.
+- **Contraction.** `ρ = max r_b + max(0, r_last − r_first)` over the kept ratios in beat order.
+  `ρ ≥ 1` means not contracting.
+- **Tail bound `T`.** `T` is infinite when the run is not contracting. When every ratio was
+  skipped, `T = 2 · max s_b` over the ratio beats. Otherwise `T = s_B · ρ / (1 − ρ)`.
+- **Estimated distance.** `E_b = D_b + T`.
+- **Reporting.** The maximum absolute difference over samples SHALL be reported beside every RMS
+  value and SHALL NOT enter any verdict.
 
 #### Scenario: A geometric approach reproduces its closed form
 
-- **Given** synthetic beats `w_b = w_∞ + a · r^b · g(phase)` with `r = 0.6`, `B = 8`, and `a` large
-  enough that every `s_b` exceeds `STEP_FLOOR`
+- **Given** synthetic beats `w_b = w_∞ + a · r^b · g(phase)` with `r = 0.6` and `B = 8`, sampled on
+  identical phases in every beat, with `a` large enough that every `s_b` exceeds `ν`
 - **When** the metric is computed
-- **Then** every `s_b`, `ρ` and `T` equal their closed forms to `rel = 1e-9`, and `E_b` is at least
-  `rms(w_b − w_∞) / P` for every beat
+- **Then** every `s_b`, `ρ` and `T` equal their closed forms to `rel = 1e-9`
+- **And** `E_b` is at least `dist` between beat `b` and `w_∞` for every beat
 
-#### Scenario: Growth from the floor is not contracting
+#### Scenario: Rising ratios widen the bound
 
-- **Given** step changes `s_4..s_7` of `1e-5, 1e-5, 1e-5, 5e-3`
-- **When** the metric is computed with `B = 7`
+- **Given** step changes `s_5..s_8` of `0.0125, 0.0080, 0.0050, 0.0036` and `ν = 6e-5`
+- **When** the tail bound is computed with `B = 8`
+- **Then** `ρ = 0.72 + (0.72 − 0.64) = 0.80` to `rel = 1e-6`, and `T = 0.0144 > SETTLED_TOLERANCE`
+
+#### Scenario: A slow mode below one percent is not mistaken for noise
+
+- **Given** step changes `s_5..s_8` of `8.1e-4, 7.7e-4, 7.4e-4, 7.0e-4` and `ν = 6e-5`
+- **When** the tail bound is computed with `B = 8`
+- **Then** no ratio is skipped and `T > SETTLED_TOLERANCE`
+
+#### Scenario: Growth from the noise floor is not contracting
+
+- **Given** step changes `s_5..s_8` of `1e-6, 1e-5, 1e-4, 9e-4` and `ν = 6e-5`
+- **When** the tail bound is computed with `B = 8`
 - **Then** the run is not contracting and `T` is infinite
 
-#### Scenario: A run that has reached the floor is bounded, not stopped
+#### Scenario: A run at the noise floor is bounded, not stopped
 
-- **Given** step changes `5e-4, 4e-4, 3e-4, 4e-4` at beats `B − 3 .. B`
-- **When** the metric is computed
-- **Then** every ratio is skipped, the run counts as contracting, and `T = 8e-4`
+- **Given** step changes `s_4..s_7` of `5e-5, 4e-5, 3e-5, 4e-5` and `ν = 6e-5`
+- **When** the tail bound is computed with `B = 7`
+- **Then** every ratio is skipped, the run counts as contracting, and `T = 8e-5`
 
 #### Scenario: Too few beats are rejected
 
@@ -60,35 +81,29 @@ SHALL be used as given, never recomputed. The constants `SETTLED_TOLERANCE = 0.0
 - **When** the metric is computed
 - **Then** `B = 7` and beat 8 is listed as incomplete
 
-#### Scenario: Off-integer steps per beat stay below the floor
+#### Scenario: Off-integer steps per beat add less than the noise floor
 
-- **Given** an exactly periodic signal with a one-step spike at stroke reversal, sampled at
-  `dt = 5e-4` for `frequency_fstar` 0.85 and 1.15 over 8 beats
+- **Given** an exactly periodic smooth signal with a one-sample spike of `0.05 · P` at stroke
+  reversal, sampled at `dt = 5e-4` for `frequency_fstar` 0.85 and 1.15 over 8 beats
 - **When** the metric is computed
-- **Then** every `s_b` for `b ≥ 2` and every `J` are below `STEP_FLOOR`
-
-#### Scenario: Known answer on the exploration coarse run
-
-- **Given** the committed test fixture of the coarse 6-beat `s45_f100_p30` run
-- **When** the metric is computed
-- **Then** the CF_z tail bound is `0.0118 ± 1e-4`, and with E0b's `phase ≥ 0.05` mask applied the
-  step changes reproduce E0b's beat-to-previous table to `5e-5`
+- **Then** every `s_b` for `b ≥ 2` is at most `ν` for every target, and `ν ≤ MAX_NOISE`
 
 ### Requirement: Pre-registered settled-beat decision rule
 
-`settling.decide_beat_count(runs)` SHALL apply the following rule, for runs that each have more
-complete beats than the candidate. For a run with `B` complete beats and a candidate
-`N` (`MIN_BEATS ≤ N ≤ B`), `pass(N)` SHALL hold only when, for every target:
+`settling.decide_beat_count(runs)` SHALL apply the following rule.
 
+For a run with `B` complete beats and a candidate `N` with `MIN_BEATS ≤ N ≤ B`, `pass(N)` SHALL
+hold only when, for every target:
 - **(a)** the metric computed on that run's first `N` beats alone is contracting with
   `T ≤ SETTLED_TOLERANCE`; and
 - **(b)** on the full run, `E_N ≤ SETTLED_TOLERANCE` and the run is contracting.
 
 `N*_run` SHALL be the smallest `N` for which `pass(N′)` holds for every `N′` from `N` to `B`, and
-`N* = max N*_run`. The action SHALL be one of three values, in this order of precedence:
+`N* = max N*_run`.
 
+The action SHALL be one of these, in this order of precedence:
 - `stop`, when any run has no `N*_run`, any run is not contracting on its full length, or any
-  target's jitter `J` exceeds `STEP_FLOOR`;
+  target has `ν > MAX_NOISE`;
 - `regenerate_needs_cost_approval`, when `N* > 6`;
 - otherwise `regenerate`.
 
@@ -99,7 +114,8 @@ added to `N*`.
 
 - **Given** runs whose `N*_run` are 5, 6 and 6
 - **When** `decide_beat_count` is called
-- **Then** the action is `regenerate`, `N* = 6`, and a run, beat and target that set it are named
+- **Then** the action is `regenerate` and `N* = 6`
+- **And** a run, beat and target that set it are named
 
 #### Scenario: The truncated test can fail when the full-run test passes
 
@@ -120,22 +136,34 @@ added to `N*`.
 - **When** `decide_beat_count` is called
 - **Then** the action is `regenerate_needs_cost_approval` with `N* = 7`
 
-### Requirement: The settling criterion is pre-registered and its precedence is provable
+#### Scenario: Too much noise stops the decision
 
-`examples/settling_check/PREREGISTRATION.md` SHALL state the settling constants in an anchored,
-machine-readable block. A test SHALL fail when any constant in `settling.py` differs from that
-block, and when the block is missing. The file SHALL be merged to `main` before any settling run
-starts.
+- **Given** a run whose CF_y has `ν = 2.4e-3`
+- **When** `decide_beat_count` is called
+- **Then** the action is `stop`, naming the run and CF_y
+
+### Requirement: The settling criterion is pre-registered and its precedence is attested
+
+`examples/settling_check/PREREGISTRATION.md` SHALL state the settling constants in a
+machine-readable block between `<!-- settling-constants:start -->` and
+`<!-- settling-constants:end -->`. A test SHALL fail when any constant in `settling.py` differs
+from that block, or when the block is missing. The file SHALL be merged to `main` before any
+settling run starts, and SHALL state that the criterion predates the fine-grid and 8-beat data
+only.
 
 Every settling run record SHALL carry:
 - the `main` commit the run was started from, which SHALL be an ancestor of `origin/main` with a
   clean working tree;
 - the SHA-256 of `PREREGISTRATION.md`, `settling.py` and the deck generator at that commit.
 
-Once run records are committed, a test SHALL fail unless the committed `PREREGISTRATION.md` hashes
-to the recorded value, or a committed `deviations.json` entry
-(`old_sha256`, `new_sha256`, `reason`, `pr`) accounts for the change. No such test SHALL read git
-history.
+For every committed run record, a test SHALL fail unless the committed `PREREGISTRATION.md` and
+deck generator hash to the recorded values, or an entry in a committed `deviations.json`
+(`file`, `old_sha256`, `new_sha256`, `reason`, `pr`) accounts for the difference.
+
+When a decision or settling report is committed, a test SHALL fail unless the number of run
+records equals the number of runs declared in the settling manifest and is greater than zero.
+
+No such test SHALL read git history.
 
 #### Scenario: A changed tolerance fails the pinning test
 
@@ -145,17 +173,25 @@ history.
 
 #### Scenario: An unrecorded edit after the runs fails
 
-- **Given** committed run records carrying the pre-registration hash
+- **Given** a run record carrying the pre-registration hash
 - **When** `PREREGISTRATION.md` is edited without a `deviations.json` entry
-- **Then** the precedence test fails
+- **Then** the precedence check fails, and with a matching entry it passes
+
+#### Scenario: A decision without run records fails
+
+- **Given** a committed `DECISION.md` and no run records
+- **When** the precedence check runs
+- **Then** it fails, naming the expected number of records
 
 ### Requirement: Settling-check decks differ from the corpus decks by a declared key set
 
 A settling-check deck SHALL be generated from the committed corpus deck of the same configuration
-and grid. Parsed key by key, the set of keys that differ or are added SHALL equal the key set
-declared for that grid in the settling manifest. `ns.cfl`, `ns.fixed_dt`, the geometry and the grid
-SHALL be equal to the source deck's. `max_step` and `stop_time` SHALL equal `derive_run_duration`
-for the declared beat count. The settling manifest SHALL record the SHA-256 of both decks.
+and grid, parsed with `metadata_capture.parse_deck`.
+- The set of keys that differ or are added SHALL equal the key set the settling manifest declares
+  for that deck.
+- `ns.cfl`, `ns.fixed_dt`, `ns.init_iter`, the geometry and the grid SHALL equal the source deck's.
+- `max_step` and `stop_time` SHALL equal `derive_run_duration` for the declared beat count.
+- The settling manifest SHALL record the SHA-256 of both decks.
 
 #### Scenario: A missing declared key fails
 
@@ -171,22 +207,35 @@ for the declared beat count. The settling manifest SHALL record the SHA-256 of b
 
 ### Requirement: A settling report records its controls and its inputs
 
-`scripts/check_settling.py` SHALL write `settling_report.json` with:
-- the constants used, the pre-registration hash and the git commit;
-- each run's metrics per beat and target, plus each run's jitter, mean CF_z per beat, and the
-  near-wing field change at matched phase;
-- the result of every control the settling manifest declares for that run, and the decision.
+`scripts/check_settling.py` SHALL write `settling_report.json` containing:
+- the constants used, the pre-registration hash, and the git commit;
+- each run's metrics per beat and target, its jitter, its mean CF_z per beat, and its near-wing
+  field change at matched phase;
+- the result of every control the settling manifest declares for that run;
+- the decision.
 
-The report SHALL be marked `controls_incomplete`, and the script SHALL exit non-zero, when any
-declared control has no recorded result. The field change and mean-lift drift SHALL be reported
-and SHALL NOT enter the decision. The field change is the median, and the fraction above 0.1, of
-`|u_b − u_B| / u_ref` over the near-wing box, with `u_ref` from `compute_force_reference`.
+When any declared control has no recorded result, the report SHALL be marked
+`controls_incomplete` and the script SHALL exit non-zero.
+
+The force comparison control SHALL pass only when every value is within `1e-9 · max |column|` of
+the reference.
+
+The field change is the median, and the fraction above 0.1, of `|u_b − u_B| / u_ref` (the vector
+difference norm) over the near-wing box, with `u_ref` from `compute_force_reference`. The field
+change and the mean-lift drift SHALL be reported and SHALL NOT enter the decision.
 
 #### Scenario: A missing control blocks the report
 
 - **Given** a run record with no result for a declared control
 - **When** the report is built
 - **Then** it is marked `controls_incomplete` and the script exits non-zero
+
+#### Scenario: Round-off passes the force comparison and a real difference fails
+
+- **Given** a reference force series and a copy perturbed by `5e-13` in one row of `Fy`
+- **When** they are compared
+- **Then** the comparison passes
+- **And** with a perturbation of `1e-6 · max |Fy|` it fails, naming `Fy` and the `iStep`
 
 #### Scenario: A uniform field offset is measured in units of the reference speed
 
