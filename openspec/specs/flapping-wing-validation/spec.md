@@ -6,7 +6,9 @@ TBD - created by archiving change standardize-force-normalization. Update Purpos
 ### Requirement: Van Veen-faithful force-coefficient convention, no correction factor
 
 The flapping-wing analysis SHALL report force coefficients in the **van Veen (2022) convention**
-(`F_ref = ½ρ·ω²·S_yy`) obtained through the single-source `compute_force_reference` helper (CC-3),
+(`F_ref = ½ρ·ω_peak²·S_yy`, with `ω_peak` the peak stroke rate defined in
+[Force Surrogate](../force-surrogate/spec.md), "Single-source force normalization") obtained
+through the single-source `compute_force_reference` helper (CC-3),
 with the radius of gyration derived from the committed wing geometry. It SHALL NOT apply any post-hoc
 correction factor (no "~2.4×"/"~2.64×" multiplier) anywhere in code or documentation; the in-band
 result SHALL be achieved by normalization alone, re-derived from committed raw forces (no CFD re-run).
@@ -107,7 +109,7 @@ hydrodynamic coefficient `F_hydro = ρ_f·(SumU − ib_force)` (the solver's mom
 `ib_force` the solver's on-fluid column) — written with the on-wing IB force `ib_w = −ib_force` as
 `F_hydro = ρ_f·(SumU + ib_w)` — clearly labelled, but the gate verdict SHALL rest on `ib_force` alone.
 IAMReX's `ib_force` is per unit fluid density (`DiffusedIB.cpp` multiplies it by `euler_fluid_rho`),
-so the IB force on the wing is `ρ_f·ib_w`, and `F_ref = ½·ρ_f·ω²·S_yy` SHALL be built with the same
+so the IB force on the wing is `ρ_f·ib_w`, and `F_ref = ½·ρ_f·ω_peak²·S_yy` SHALL be built with the same
 `ρ_f` (`compute_force_reference(..., rho=rho_f)`). The density therefore cancels:
 `CF_ib = ρ_f·ib_w/F_ref(ρ_f)`, `CF_added` and `CF_hydro = CF_added + CF_ib` are independent of `ρ_f`, and
 so are every ratio (`added_mass_fraction`) and the gate verdict. `ρ_f = 1` in every committed run, so
@@ -162,7 +164,7 @@ The flapping-wing analysis SHALL decompose the lab-frame `ib_force` `(Fx,Fy,Fz)`
 **instantaneous wing body frame** using the **analytic** rotation `R(t)` from the wing kinematics (the
 same composition the solver applies), yielding chord-wise `CF_chord` and wing-normal `CF_normal` series
 in van Veen's convention (`F = (F_x chord, F_z normal)`), normalized by the single-source
-`compute_force_reference` (`F_ref = ½ρω²S_yy`; no correction factor). The rotation axes/order SHALL be
+`compute_force_reference` (`F_ref = ½ρω_peak²S_yy`; no correction factor). The rotation axes/order SHALL be
 passed **explicitly** (no hard-coded streamwise axis) so the analysis layer cannot re-introduce a
 #1-style mislabel. On the **new-convention re-run**, the analysis SHALL grade an **overall scalar
 match** — the **peak** `|CF_chord|` and `|CF_normal|` (cycle-means SHALL be **reported alongside**, not
@@ -380,7 +382,7 @@ no single existing required-column set covers all seven (`_REQUIRED_CSV_COLUMNS`
 `_REQUIRED_BODY_CSV_COLUMNS` lacks the `SumU*` columns; `SumUy` is in **neither**), so the diagnostic SHALL
 define its **own** required-column set including them and raise if **any** one is missing. The diagnostic SHALL be **cluster-free** (the committed
 `forces_t2a_newconv.csv`, 29-col with `SumU{x,y,z}`; CC-V3) and normalized by the single-source
-`compute_force_reference` (`F_ref = ½ρω²S_yy`; no correction factor).
+`compute_force_reference` (`F_ref = ½ρω_peak²S_yy`; no correction factor).
 
 The diagnostic SHALL be **reported, not graded**: it SHALL NOT introduce any new pass/fail against van
 Veen for the diagnostic's values (CC-V2). Its return value SHALL expose **no** `*_match`/`pass`/`floor`/
