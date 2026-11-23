@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 import pytest
+from _json_payloads import UNPARSEABLE, UNPARSEABLE_THREE
 
 from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.force_surrogate import metadata_capture as mc
@@ -1216,6 +1217,29 @@ def test_pod_run_metadata_rejects_non_object_top_level(tmp_path, text, type_name
     assert str(err) == (
         f"pod-side run_metadata.json {path} top level is a {type_name}, not an object"
     )
+
+
+@pytest.mark.parametrize("case", list(UNPARSEABLE_THREE))
+def test_pod_run_metadata_rejects_unparseable_files(tmp_path, case):
+    # harden-json-loader (#175): the gaps the docstring listed as "Not yet wrapped".
+    data, _, prefix = UNPARSEABLE[case]
+    path = tmp_path / "run_metadata.json"
+    path.write_bytes(data)
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"pod-side run_metadata.json {path} {prefix}"), str(err)[
+        :200
+    ]
+
+
+def test_pod_run_metadata_directory_is_an_os_error(tmp_path):
+    # Opening errors are not wrapped (harden-json-loader D3).
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(tmp_path)
+    assert isinstance(excinfo.value, OSError), repr(excinfo.value)
+    assert not isinstance(excinfo.value, ValueError), repr(excinfo.value)
 
 
 _ABSENT = object()

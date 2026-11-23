@@ -66,8 +66,13 @@ def _run_child(body: str, heavy: tuple[str, ...], *args: str) -> list[str]:
     return report["loaded"]
 
 
-def _assert_stdlib_only(path: Path) -> None:
-    """Every import in ``path`` (nested ones included) names a standard-library module."""
+def _assert_stdlib_only(path: Path, allowed: tuple[str, ...] = ()) -> None:
+    """Every import in ``path`` (nested ones included) names a standard-library module.
+
+    A module named *exactly* in ``allowed`` is also accepted, and is then checked the same way
+    with no allow-list (harden-json-loader D2). For ``from X import y`` only ``X`` is checked:
+    ``y`` is an attribute, so ``from mosquito_cfd import _json_loader`` is rejected.
+    """
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.ImportFrom):
             assert node.level == 0, (
@@ -90,7 +95,36 @@ def _assert_stdlib_only(path: Path) -> None:
         else:
             continue
         for name in names:
+            if name in allowed:
+                _assert_stdlib_only(
+                    PKG_DIR / (name.removeprefix("mosquito_cfd.") + ".py")
+                )
+                continue
             assert name.split(".")[0] in sys.stdlib_module_names, name
+
+
+_ALLOW_LIST_VERDICTS = {
+    "import mosquito_cfd._json_loader": True,
+    "from mosquito_cfd._json_loader import load_json_clear_error": True,
+    "from mosquito_cfd import force_surrogate": False,
+    "from mosquito_cfd import _json_loader": False,
+    "import mosquito_cfd": False,
+    "import mosquito_cfd.force_surrogate": False,
+    "import mosquito_cfd._json_loaderx": False,
+    "import mosquito_cfd._json_loader.sub": False,
+}
+
+
+@pytest.mark.parametrize("statement", list(_ALLOW_LIST_VERDICTS))
+def test_stdlib_only_allow_list_is_exact(tmp_path, statement):
+    # harden-json-loader D2: an allowed name matches exactly, never by prefix either way.
+    path = tmp_path / "probe.py"
+    path.write_text(f"import json\n{statement}\n", encoding="utf-8")
+    if _ALLOW_LIST_VERDICTS[statement]:
+        _assert_stdlib_only(path, allowed=("mosquito_cfd._json_loader",))
+    else:
+        with pytest.raises(AssertionError):
+            _assert_stdlib_only(path, allowed=("mosquito_cfd._json_loader",))
 
 
 # --- location and isolation ------------------------------------------------------------------

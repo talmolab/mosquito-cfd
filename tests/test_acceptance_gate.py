@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from _json_payloads import FIVE, UNPARSEABLE_THREE
 
 from mosquito_cfd.force_surrogate.acceptance_gate import (
     record_check_result,
@@ -438,9 +439,96 @@ def test_malformed_run_metadata_json_raises_clear_file_identified_error(tmp_path
         )
 
 
+# harden-json-loader (#175): every content failure of every JSON file the gate reads is exactly a
+# ValueError naming the path -- never RecursionError, a bare UnicodeDecodeError, an unlabelled
+# digit-limit ValueError, or AttributeError/TypeError from a non-object top level.
+
+
+def _gate_error(c: dict) -> BaseException:
+    with pytest.raises(BaseException) as excinfo:
+        run_acceptance_gate(
+            manifest_path=c["manifest_path"],
+            csv_paths=c["csv_paths"],
+            run_metadata_paths=c["run_metadata_paths"],
+            provenance_path=c["provenance_path"],
+        )
+    return excinfo.value
+
+
+@pytest.mark.parametrize("case", list(FIVE))
+def test_gate_rejects_unparseable_provenance(tmp_path, case):
+    c = _make_corpus(tmp_path)
+    c["provenance_path"].write_bytes(FIVE[case])
+    err = _gate_error(c)
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"sweep provenance {c['provenance_path']} "), str(err)[
+        :200
+    ]
+
+
+@pytest.mark.parametrize("case", ["deep_nesting", "int_digit_limit"])
+def test_gate_rejects_unparseable_run_metadata(tmp_path, case):
+    c = _make_corpus(tmp_path)
+    metadata_path = c["run_metadata_paths"][c["config_name"]]
+    metadata_path.write_bytes(FIVE[case])
+    err = _gate_error(c)
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(
+        f"run_metadata file {metadata_path} is not valid JSON: "
+    ), str(err)[:200]
+
+
+@pytest.mark.parametrize("case", list(FIVE))
+def test_gate_manifest_errors_are_the_shared_readers(tmp_path, case):
+    c = _make_corpus(tmp_path)
+    path = c["manifest_path"]
+    path.write_bytes(FIVE[case])
+    err = _gate_error(c)
+    assert type(err) is ValueError, repr(err)[:200]
+    if case in UNPARSEABLE_THREE:
+        assert str(err).startswith(f"sweep manifest {path} "), str(err)[:200]
+    else:
+        assert str(err) == (  # case is "list" or "int", the Python type name
+            f"manifest {path} top level is a {case}, not an object; "
+            "not a sweep manifest"
+        )
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [(b"\xff\xfe{", "is not UTF-8"), (b"[]", "is a JSON list, not an object")],
+    ids=["non_utf8", "list"],
+)
+def test_gate_reports_extraction_errors_for_bad_run_metadata(tmp_path, data, expected):
+    c = _make_corpus(tmp_path)
+    c["run_metadata_paths"][c["config_name"]].write_bytes(data)
+    result = run_acceptance_gate(
+        manifest_path=c["manifest_path"],
+        csv_paths=c["csv_paths"],
+        run_metadata_paths=c["run_metadata_paths"],
+        provenance_path=c["provenance_path"],
+    )
+    assert not result.passed
+    assert any(c["config_name"] in f and expected in f for f in result.failures), (
+        result.failures
+    )
+
+
 # ---------------------------------------------------------------------------
 # record_check_result
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", list(FIVE))
+def test_record_check_result_rejects_unparseable_provenance(tmp_path, case):
+    provenance_path = tmp_path / "sweep_provenance.json"
+    provenance_path.write_bytes(FIVE[case])
+    with pytest.raises(BaseException) as excinfo:
+        record_check_result(provenance_path, "cc_f1", verdict="pass")
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"sweep provenance {provenance_path} "), str(err)[:200]
+    assert provenance_path.read_bytes() == FIVE[case]
 
 
 def test_record_check_result_creates_missing_parent_directory(tmp_path):

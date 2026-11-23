@@ -494,24 +494,17 @@ def load_pod_run_metadata(path: Path | str) -> dict[str, Any]:
         The parsed metadata dict.
 
     Raises:
-        FileNotFoundError: If ``path`` does not exist.
-        ValueError: If the file is not valid JSON (a ``json.JSONDecodeError``, labelled with the
-            path by :func:`~mosquito_cfd.force_surrogate.sidecar.load_json_clear_error`), or its
-            top level is not a JSON object. Not yet wrapped (#175): non-UTF-8 bytes
-            (``UnicodeDecodeError``), nesting beyond the recursion limit (``RecursionError``), an
-            integer beyond Python's digit limit (unlabelled ``ValueError``), and an ``OSError``
-            other than a missing file.
+        FileNotFoundError: If ``path`` does not exist. (Any other ``OSError`` from opening it,
+            e.g. a directory, is raised unwrapped.)
+        ValueError: Exactly ``ValueError``, naming the path, if the file is not valid UTF-8, not
+            valid JSON (including nesting beyond the recursion limit and an integer beyond
+            Python's digit limit), or its top level is not a JSON object (labelled by
+            :func:`mosquito_cfd._json_loader.load_json_clear_error`).
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"pod-side run_metadata.json not found: {path}")
-    meta = load_json_clear_error(path, label="pod-side run_metadata.json")
-    if not isinstance(meta, dict):
-        raise ValueError(
-            f"pod-side run_metadata.json {path} top level is a {type(meta).__name__}, "
-            "not an object"
-        )
-    return meta
+    return load_json_clear_error(path, label="pod-side run_metadata.json")
 
 
 def extract_docker_image(pod_metadata: dict[str, Any]) -> str:

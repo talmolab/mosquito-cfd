@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _json_payloads import FIVE
 
 from mosquito_cfd.force_surrogate import (
     build_dataset,
@@ -1232,10 +1233,48 @@ def test_undecodable_run_metadata_is_a_named_extraction_error(tmp_path):
     cfg = _validated_point_config()
     manifest = _write_manifest(tmp_path / "m.json", [cfg])
     meta = manifest.parent / f"run_metadata_{cfg['name']}.json"
-    meta.write_bytes(b'{"deck_sha256": "caf\xe9"}')  # Latin-1 e-acute: not UTF-8
+    data = b'{"deck_sha256": "caf\xe9"}'  # Latin-1 e-acute: not UTF-8
+    meta.write_bytes(data)
     with pytest.raises(ConfigExtractionError, match=cfg["name"]) as excinfo:
         build_dataset(manifest, {cfg["name"]: FIXTURE})
-    assert str(meta) in str(excinfo.value)
+    # harden-json-loader D4: the message and the chain are unchanged by the shared loader.
+    with pytest.raises(UnicodeDecodeError) as decode:
+        data.decode("utf-8")
+    assert str(excinfo.value) == (
+        f"run metadata for config {cfg['name']!r} at {meta} is not UTF-8: {decode.value}"
+    )
+    assert isinstance(excinfo.value.__cause__, UnicodeDecodeError)
+
+
+def test_non_object_run_metadata_is_an_extraction_error(tmp_path):
+    from mosquito_cfd.force_surrogate import ConfigExtractionError
+
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    meta = manifest.parent / f"run_metadata_{cfg['name']}.json"
+    meta.write_bytes(b"[]")
+    with pytest.raises(BaseException) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    assert type(excinfo.value) is ConfigExtractionError, repr(excinfo.value)
+    assert str(excinfo.value) == (
+        f"run metadata for config {cfg['name']!r} at {meta} is a JSON list, not an object"
+    )
+
+
+@pytest.mark.parametrize("case", ["deep_nesting", "int_digit_limit"])
+def test_unparseable_run_metadata_is_a_labelled_value_error(tmp_path, case):
+    # harden-json-loader D4: these stay malformed-file errors (plain ValueError), now labelled.
+    cfg = _validated_point_config()
+    manifest = _write_manifest(tmp_path / "m.json", [cfg])
+    meta = manifest.parent / f"run_metadata_{cfg['name']}.json"
+    meta.write_bytes(FIVE[case])
+    with pytest.raises(BaseException) as excinfo:
+        build_dataset(manifest, {cfg["name"]: FIXTURE})
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"run_metadata file {meta} is not valid JSON: "), str(
+        err
+    )[:200]
 
 
 @pytest.mark.parametrize("mapping", ["other-config", "empty"])
