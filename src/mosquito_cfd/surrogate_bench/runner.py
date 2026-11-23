@@ -12,7 +12,6 @@ from __future__ import annotations
 import importlib.metadata
 import os
 import re
-import shutil
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
@@ -151,6 +150,8 @@ def _validate(
         raise ValueError(f"output path {out_dir} exists and is not a directory")
     if out_dir.exists() and any(out_dir.iterdir()):
         raise ValueError(f"output directory {out_dir} is not empty")
+    if not out_dir.exists():
+        _check_out_parent(out_dir)
     # mlp_h1 first, so its interpolation fits run first in the process.
     return [e for e in ENTRIES if e in names]
 
@@ -383,28 +384,70 @@ def _coarse_grids(
     return dict(zip(names, grids, strict=True)), ""
 
 
-def _write_atomically(out_dir: Path, write_all: Any) -> None:
-    """All five artifacts or none: stage beside ``out_dir``, then move them in.
+def _check_out_parent(out_dir: Path) -> None:
+    """Refuse up front an ``out_dir`` whose nearest existing ancestor is not a writable directory."""
+    ancestor = out_dir.parent
+    while not ancestor.exists() and ancestor != ancestor.parent:
+        ancestor = ancestor.parent
+    if not ancestor.is_dir():
+        raise ValueError(
+            f"output path {out_dir} lies under {ancestor}, which is not a directory"
+        )
+    if not os.access(ancestor, os.W_OK):
+        raise ValueError(
+            f"output path {out_dir} lies under {ancestor}, which is not writable"
+        )
 
-    A failure while writing (a full disk, a figure error) removes the staging directory and
-    leaves ``out_dir`` as it was: absent, or empty. The emptiness check is repeated just before
-    the move, since a full run takes hours.
+
+def _move_in(staging: Path, out_dir: Path) -> None:
+    """Move every staged file into the empty ``out_dir``; on any failure move them back."""
+    if not out_dir.is_dir() or any(out_dir.iterdir()):
+        raise ValueError(f"output directory {out_dir} is no longer empty")
+    moved = []
+    try:
+        for item in sorted(staging.iterdir()):
+            os.replace(item, out_dir / item.name)
+            moved.append(item.name)
+    except BaseException:
+        for name in moved:  # roll back: out_dir is left as it was
+            os.replace(out_dir / name, staging / name)
+        raise
+
+
+def _write_atomically(out_dir: Path, write_all: Any) -> None:
+    """All five artifacts or none in ``out_dir``: stage beside it, then move them in.
+
+    On any failure (a full disk, a figure error, ``out_dir`` filled by someone else during the
+    run, a locked file) ``out_dir`` is left as it was, absent or empty, and the staging
+    directory, holding whatever was written, is kept and named in the exception's notes: a
+    finished multi-hour run is never deleted. Only a fully successful move removes it.
     """
     out_dir.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.", dir=out_dir.parent))
     try:
         write_all(staging)
         if not out_dir.exists():
-            staging.rename(out_dir)
-            return
-        if not out_dir.is_dir() or any(out_dir.iterdir()):
-            raise ValueError(f"output directory {out_dir} is no longer empty")
-        for item in staging.iterdir():
-            os.replace(item, out_dir / item.name)
-        staging.rmdir()
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging)
+            try:
+                staging.rename(out_dir)
+                _default_permissions(out_dir)
+                return
+            except OSError:
+                if not out_dir.is_dir():  # not the race where out_dir appeared empty
+                    raise
+        _move_in(staging, out_dir)
+    except BaseException as exc:
+        exc.add_note(f"bench artifacts written so far are kept in {staging}")
+        raise
+    staging.rmdir()
+
+
+def _default_permissions(directory: Path) -> None:
+    """``mkdtemp`` creates 0700; give a renamed ``out_dir`` the mode ``mkdir`` would."""
+    if os.name != "posix":
+        return
+    umask = os.umask(0)
+    os.umask(umask)
+    directory.chmod(0o777 & ~umask)
 
 
 def _figure_rows(pooled: pd.DataFrame) -> pd.DataFrame:
@@ -470,7 +513,8 @@ def run_bench(
     Raises:
         ValueError: On any refusal, before anything is written.
     """
-    out_dir = Path(out_dir)
+    # Resolved, so '.', 'x/..' and relative paths have a real name and parent to stage beside.
+    out_dir = Path(out_dir).resolve()
     extra_inputs = dict(extra_inputs or {})
     if "dataset_sha256" in extra_inputs:
         raise ValueError("extra_inputs may not override dataset_sha256")

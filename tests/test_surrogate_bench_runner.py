@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 import itertools
 import json
+import os
 from types import SimpleNamespace
 
 import numpy as np
@@ -614,11 +615,24 @@ def test_ridge_fixed_records_no_selection_and_ridge_does(full_run):
 # --- Atomic write ------------------------------------------------------------------------------
 
 
+def _staging_dirs(parent):
+    return [q for q in parent.iterdir() if q.name.startswith(".out.")]
+
+
+def _kept_staging(exc_info, parent):
+    """A failure keeps the staging directory and names it in the exception's notes."""
+    kept = _staging_dirs(parent)
+    assert len(kept) == 1
+    notes = " ".join(getattr(exc_info.value, "__notes__", []))
+    assert kept[0].as_posix() in notes or str(kept[0]) in notes
+    return kept[0]
+
+
 @pytest.mark.parametrize("pre_existing", [False, True])
-def test_a_failure_while_writing_leaves_no_partial_bench(
+def test_a_failure_while_writing_leaves_out_dir_as_it_was(
     tmp_path, monkeypatch, pre_existing
 ):
-    """All five artifacts or none: a late failure leaves out_dir as it was, with no debris."""
+    """out_dir is untouched; what was written is kept in the named staging directory."""
 
     def broken(*args, **kwargs):
         raise OSError("disk full while writing the figure")
@@ -627,24 +641,29 @@ def test_a_failure_while_writing_leaves_no_partial_bench(
     out = tmp_path / "out"
     if pre_existing:
         out.mkdir()
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.raises(OSError, match="disk full") as exc_info:
         _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
     if pre_existing:
         assert out.is_dir() and list(out.iterdir()) == []
     else:
         assert not out.exists()
-    assert [p.name for p in tmp_path.iterdir()] == (["out"] if pre_existing else [])
+    kept = _kept_staging(exc_info, tmp_path)
+    assert {q.name for q in kept.iterdir()} == {
+        "results.parquet",
+        "splits.json",
+        "summary.json",
+    }
 
 
 def test_a_successful_run_leaves_no_staging_directory(tmp_path, monkeypatch):
     out = tmp_path / "out"
     out.mkdir()  # absent or empty are both allowed
     _, out, _ = _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
-    assert {p.name for p in out.iterdir()} == FILES
-    assert [p.name for p in tmp_path.iterdir()] == ["out"]
+    assert {q.name for q in out.iterdir()} == FILES
+    assert [q.name for q in tmp_path.iterdir()] == ["out"]
 
 
-def test_an_out_dir_filled_during_the_run_is_refused_and_left_alone(
+def test_an_out_dir_filled_during_the_run_is_refused_and_the_bench_kept(
     tmp_path, monkeypatch
 ):
     out = tmp_path / "out"
@@ -656,7 +675,62 @@ def test_an_out_dir_filled_during_the_run_is_refused_and_left_alone(
         (out / "someone_else.txt").write_bytes(b"theirs")  # written mid-run
 
     monkeypatch.setattr(runner, "write_summary_figure", intruder)
-    with pytest.raises(ValueError, match="no longer empty"):
+    with pytest.raises(ValueError, match="no longer empty") as exc_info:
         _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
-    assert [p.name for p in out.iterdir()] == ["someone_else.txt"]
-    assert [p.name for p in tmp_path.iterdir()] == ["out"]
+    assert [q.name for q in out.iterdir()] == ["someone_else.txt"]
+    kept = _kept_staging(exc_info, tmp_path)
+    assert {q.name for q in kept.iterdir()} == FILES  # the finished bench is not lost
+
+
+def test_a_move_that_fails_partway_is_rolled_back(tmp_path, monkeypatch):
+    """All five or none in out_dir, even when the third move fails."""
+    out = tmp_path / "out"
+    out.mkdir()
+    real = runner.os.replace
+    calls = []
+
+    def flaky(src, dst):
+        calls.append(dst)
+        if len(calls) == 3:
+            raise PermissionError("locked by another process")
+        return real(src, dst)
+
+    monkeypatch.setattr(runner.os, "replace", flaky)
+    with pytest.raises(PermissionError) as exc_info:
+        _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    assert list(out.iterdir()) == []
+    kept = _kept_staging(exc_info, tmp_path)
+    assert {q.name for q in kept.iterdir()} == FILES
+
+
+def test_the_current_directory_works_as_out_dir(tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    _run(tmp_path, monkeypatch, entries=("ridge_fixed",), out_dir=".")
+    assert {q.name for q in work.iterdir()} == FILES
+
+
+def test_an_out_dir_under_a_file_is_refused_before_any_fit(tmp_path, monkeypatch):
+    blocker = tmp_path / "afile"
+    blocker.write_bytes(b"x")
+    log = []
+    with pytest.raises(ValueError, match="afile"):
+        _run(
+            tmp_path,
+            monkeypatch,
+            recorder=Recorder(log=log),
+            out_dir=blocker / "sub",
+        )
+    assert log == []
+    assert blocker.read_bytes() == b"x"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory modes")
+def test_a_new_out_dir_gets_the_umask_mode_not_mkdtemps_0700(tmp_path, monkeypatch):
+    old = os.umask(0o022)
+    try:
+        _, out, _ = _run(tmp_path, monkeypatch, entries=("ridge_fixed",))
+    finally:
+        os.umask(old)
+    assert (out.stat().st_mode & 0o777) == 0o755

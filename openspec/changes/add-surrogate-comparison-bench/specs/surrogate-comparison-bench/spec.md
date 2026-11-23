@@ -607,7 +607,9 @@ carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 - an `--out-dir` that exists and is not a directory.
 
 All refusals SHALL happen before any file is written. The five artifacts SHALL be written
-atomically: a failure while writing leaves `--out-dir` as it was (absent or empty). Every check that depends only on the data
+atomically: a failure while writing or moving them leaves `--out-dir` as it was (absent or empty)
+and keeps what was written in a staging directory named in the error, so a finished run is never
+deleted. An `--out-dir` under a path that is not a writable directory is refused up front. Every check that depends only on the data
 (splits, target beat, yardsticks, wrap jumps) SHALL run before the first fit, so a bad corpus is
 refused before any GPU time is spent. The committed copy SHALL live in `examples/prelim_sweep_fine/bench/` and
 SHALL be produced from a clean tree whose commit is on `main`.
