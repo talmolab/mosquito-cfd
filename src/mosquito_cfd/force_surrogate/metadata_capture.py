@@ -94,6 +94,7 @@ from typing import Any
 
 import numpy as np
 
+from mosquito_cfd._manifest import load_manifest_configs
 from mosquito_cfd._provenance import is_full_commit_sha
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
@@ -432,16 +433,19 @@ def source_config_fields(
         A dict with keys ``kinematics`` (nested dict), ``grid``, ``fixed_dt``, ``max_step``.
 
     Raises:
-        ValueError: If the manifest file is not valid JSON.
-        KeyError: If ``config_name`` is not present in the manifest.
+        FileNotFoundError: If the manifest does not exist (other ``OSError`` unwrapped).
+        ValueError: Anything the shared manifest reader
+            :func:`mosquito_cfd._manifest.load_manifest_configs` rejects: a file that is not
+            UTF-8, not JSON or not a JSON object; no ``configs`` list; or a config that is not a
+            mapping, lacks a required key, or repeats a name.
+        KeyError: If ``config_name`` is not present in the manifest, or its entry has no
+            ``max_step`` (or the deck lacks a key read here).
     """
     manifest_path = Path(manifest_path)
-    manifest = load_json_clear_error(manifest_path, label="sweep manifest")
-    entry = next(
-        (c for c in manifest.get("configs", []) if c.get("name") == config_name), None
-    )
+    configs = load_manifest_configs(manifest_path)
+    entry = next((c for c in configs if c["name"] == config_name), None)
     if entry is None:
-        available = [c.get("name") for c in manifest.get("configs", [])]
+        available = [c["name"] for c in configs]
         raise KeyError(
             f"config {config_name!r} not found in manifest {manifest_path} "
             f"(available: {available})"
