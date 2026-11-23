@@ -316,7 +316,7 @@ This section is additive; the old builders stay until 7.
   Fixes are committed before 8.3.
 - [x] 8.3 Commit the ticks for 0–8.3 and any new change-directory file:
   `chore(openspec): tick tasks 0-8 (advances #114)`.
-- [ ] 8.4 Both pre-render checks (working rules) are empty. **From here until 9.6, tick nothing.**
+- [x] 8.4 Both pre-render checks (working rules) are empty. **From here until 9.6, tick nothing.**
 
 ## 9. Committed-artifact checker, render, commit
 
@@ -328,7 +328,7 @@ This section is additive; the old builders stay until 7.
     field.
 
   Commit, green: `test(force-surrogate): committed comparison-figure checker (advances #114)`.
-- [ ] 9.2 Write `tests/test_committed_comparison_figures.py`:
+- [x] 9.2 Write `tests/test_committed_comparison_figures.py`:
   - `check_committed_figure` per figure, against the repository;
   - one shared timestamp across the three figures;
   - the independent anchors (D7);
@@ -338,30 +338,30 @@ This section is additive; the old builders stay until 7.
 
   Run it and see it fail on the absent files. Then move the file out of the repository, to the
   session scratchpad, and confirm that both pre-render checks are empty again.
-- [ ] 9.3 Render each figure into a scratch directory at the same clean HEAD:
+- [x] 9.3 Render each figure into a scratch directory at the same clean HEAD:
   - `--coarse-dir examples/prelim_sweep --fine-dir examples/prelim_sweep_fine`;
   - the fine `run_metadata.json` digest;
   - one timestamp.
 
   Render each a second time into a second scratch directory and `cmp` the PNG and the metrics
   sidecar.
-- [ ] 9.4 **Inspect each PNG by eye.**
+- [x] 9.4 **Inspect each PNG by eye.**
   - No clipped text, and the caption does not overlap the axes.
   - Log and symlog axes are labelled.
   - Markers are distinguishable.
   - The note appears on the `CF_y` row only.
   - Coarse `CF_x` (−6.70) and fine `CF_mz` (−4.70) are inside the seeds-panel limits.
   - The surrogate histograms are resolved.
-- [ ] 9.5 **Binaries checkpoint.** Show the user the three PNGs. For a layout fix:
+- [x] 9.5 **Binaries checkpoint.** Show the user the three PNGs. For a layout fix:
   1. Commit the code fix.
   2. Re-run 9.3–9.4 for all three figures.
-- [ ] 9.6 Copy the nine files into `examples/prelim_sweep_fine/figures/coarse_vs_fine/`. Commit:
+- [x] 9.6 Copy the nine files into `examples/prelim_sweep_fine/figures/coarse_vs_fine/`. Commit:
   `data(force-surrogate): coarse-vs-fine figures from the committed surrogates (advances #114)`.
   Then check, reading the committed sidecars, that:
   - `git show --stat HEAD` lists exactly the 9 files;
   - each recorded `git.commit` equals `git rev-parse HEAD~1`;
   - each recorded `git.dirty` is `false`.
-- [ ] 9.7 Restore `tests/test_committed_comparison_figures.py` and see it pass. Tick 8.4 to 9.7.
+- [x] 9.7 Restore `tests/test_committed_comparison_figures.py` and see it pass. Tick 8.4 to 9.7.
   Commit: `test(force-surrogate): committed coarse-vs-fine figures match their inputs and renderer (advances #114)`.
 
 ## 10. Docs
