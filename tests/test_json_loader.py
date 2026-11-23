@@ -10,7 +10,7 @@ import importlib
 import json
 
 import pytest
-from _json_payloads import UNPARSEABLE
+from _json_payloads import FIVE, UNPARSEABLE
 from test_light_corpus_helpers import (
     _HEAVY,
     PKG_DIR,
@@ -133,3 +133,52 @@ def test_directory_is_an_os_error_not_a_value_error(tmp_path):
         _loader("mosquito_cfd._json_loader")(tmp_path, label="probe")
     assert isinstance(excinfo.value, OSError), repr(excinfo.value)
     assert not isinstance(excinfo.value, ValueError), repr(excinfo.value)
+
+
+# --- the sweep-manifest reader loads through it (design D2) ----------------------------------
+
+
+def test_manifest_uses_the_shared_loader(tmp_path, monkeypatch):
+    manifest = importlib.import_module("mosquito_cfd._manifest")
+    calls = []
+
+    def recording_loader(path, **kwargs):
+        calls.append((path, kwargs))
+        return {"configs": []}
+
+    monkeypatch.setattr(manifest, "load_json_clear_error", recording_loader)
+    path = tmp_path / "sweep_manifest.json"
+    assert manifest.load_manifest_configs(path) == []
+    assert calls == [(path, {"label": "sweep manifest", "require_object": False})]
+
+
+# --- the three loaders reject the same inputs (design D5) ------------------------------------
+
+
+def _json_loader_read(path):
+    return _loader("mosquito_cfd._json_loader")(path, label="probe")
+
+
+def _manifest_read(path):
+    return importlib.import_module("mosquito_cfd._manifest").load_manifest_configs(path)
+
+
+def _provenance_read(path):
+    return importlib.import_module("mosquito_cfd._provenance").read_run_metadata(
+        path, config_id="c0"
+    )
+
+
+@pytest.mark.parametrize(
+    "read",
+    [_json_loader_read, _manifest_read, _provenance_read],
+    ids=["_json_loader", "_manifest", "_provenance"],
+)
+@pytest.mark.parametrize("case", list(FIVE))
+def test_every_loader_rejects_the_same_inputs_as_value_errors(tmp_path, read, case):
+    path = _write(tmp_path, FIVE[case])
+    with pytest.raises(BaseException) as excinfo:
+        read(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(path) in str(err), str(err)[:200]

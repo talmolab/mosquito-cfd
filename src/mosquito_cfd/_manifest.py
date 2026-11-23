@@ -1,22 +1,25 @@
 """The guarded sweep-manifest reader, shared by the field and force surrogates.
 
-Standard library only, by contract (share-light-corpus-helpers, #160): ``FieldCorpus`` reads the
+Light by contract (share-light-corpus-helpers, #160): it imports only the standard library and
+the stdlib-only ``mosquito_cfd._json_loader`` (harden-json-loader, #175). ``FieldCorpus`` reads the
 manifest on its first call, inside every training data-loader worker, and importing
 ``mosquito_cfd.force_surrogate`` there would load pandas, pyarrow and ``matplotlib.pyplot`` and
 switch the process's matplotlib backend. ``mosquito_cfd.force_surrogate.dataset`` re-exports
 everything here as the same objects, so its callers are unchanged.
 
-Every rejection of the file's *contents* (not UTF-8, not JSON, not a sweep manifest) is a
-``ValueError`` naming the manifest path. Errors opening the path are not wrapped: a missing file
-stays ``FileNotFoundError``, and any other ``OSError`` (a directory, a permission error) escapes as
-raised, as before the move.
+Parsing is delegated to :func:`mosquito_cfd._json_loader.load_json_clear_error`. Every rejection
+of the file's *contents* (not UTF-8, not JSON, not a sweep manifest) is a ``ValueError`` naming
+the manifest path. Errors opening the path are not wrapped: a missing file stays
+``FileNotFoundError``, and any other ``OSError`` (a directory, a permission error) escapes as
+raised.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path
+
+from mosquito_cfd._json_loader import load_json_clear_error
 
 # Manifest config keys build_dataset (and FieldCorpus.global_params) read.
 _REQUIRED_CONFIG_KEYS = frozenset(
@@ -80,16 +83,9 @@ def load_manifest_configs(manifest_path: Path | str) -> list[dict]:
             malformed or has a duplicate name.
     """
     path = Path(manifest_path)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"sweep manifest {path} is not valid UTF-8: {exc}") from exc
-    try:
-        manifest = json.loads(text)
-    except (ValueError, RecursionError) as exc:
-        # JSONDecodeError is a ValueError; so is the int-digit limit, and deep nesting raises
-        # RecursionError -- all are "not valid JSON" (as in mosquito_cfd._provenance).
-        raise ValueError(f"sweep manifest {path} is not valid JSON: {exc}") from exc
+    # The shared loader gives the UTF-8 and JSON messages this reader always had; the object
+    # check stays here so its message keeps the "not a sweep manifest" wording.
+    manifest = load_json_clear_error(path, label="sweep manifest", require_object=False)
     if not isinstance(manifest, dict):
         raise ValueError(
             f"manifest {path} top level is a {type(manifest).__name__}, not an object; "

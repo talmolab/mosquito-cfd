@@ -337,7 +337,9 @@ def test_manifest_reexport_is_the_same_object():
 
 
 def test_manifest_module_imports_only_the_standard_library():
-    _assert_stdlib_only(PKG_DIR / "_manifest.py")
+    _assert_stdlib_only(
+        PKG_DIR / "_manifest.py", allowed=("mosquito_cfd._json_loader",)
+    )
 
 
 _MANIFEST_PROBE = """
