@@ -1147,9 +1147,14 @@ drift apart again.
   - the interpreter's `mosquito_cfd.__file__` lies in the source tree under test;
   - the same holds for a fresh interpreter that imports only `mosquito_cfd._manifest` and calls
     `load_manifest_configs`;
-  - the import statements of both `mosquito_cfd/_provenance.py` and `mosquito_cfd/_manifest.py`,
-    found by walking each file's AST (nested imports included), name only standard-library modules,
-    with no relative import and no call to `importlib.import_module` or `__import__`.
+  - the import statements of `mosquito_cfd/_provenance.py`, found by walking the file's AST (nested
+    imports included), name only standard-library modules, with no relative import and no call to
+    `importlib.import_module` or `__import__`;
+  - the import statements of `mosquito_cfd/_manifest.py`, found the same way, name only
+    standard-library modules and exactly `mosquito_cfd._json_loader` (as `import
+    mosquito_cfd._json_loader` or `from mosquito_cfd._json_loader import …`), with no relative import
+    and no dynamic import; and the import statements of `mosquito_cfd/_json_loader.py` name only
+    standard-library modules.
 
 #### Scenario: The shared predicates accept exactly the strict forms and never raise
 

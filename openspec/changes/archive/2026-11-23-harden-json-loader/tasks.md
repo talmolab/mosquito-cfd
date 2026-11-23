@@ -285,9 +285,9 @@ So all of it is one commit.
 
 ## 9. Pre-merge
 
-- [ ] 9.1 Run `/pre-merge-check`.
-- [ ] 9.2 The PR says `Fixes #175` only if every row of the issue's table and every listed caller is
+- [x] 9.1 Run `/pre-merge-check`.
+- [x] 9.2 The PR says `Fixes #175` only if every row of the issue's table and every listed caller is
   covered; otherwise it says `advances #175`. That applies to the PR title and body. Confirm CI is
   green on ubuntu, where the directory tests take the `IsADirectoryError` branch.
-- [ ] 9.3 File a follow-up issue for type checks below the top level: `realized_dt`, `cluster_run`
+- [x] 9.3 File a follow-up issue for type checks below the top level: `realized_dt`, `cluster_run`
   and `cc_f1` in `acceptance_gate`, and `configs` entries in `corpus_guards`. Link it from the PR.
