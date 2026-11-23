@@ -134,6 +134,15 @@ def test_the_two_beat_block_is_provisional_with_seven_reasons_and_no_overall_key
     assert cf_mx["beat1_vs_beat2"]["verdict"] == "inside"
 
 
+def test_the_block_documents_the_all_zero_reason_as_no_error_and_no_yardstick():
+    """Spec "Gate boundaries": the summary documents 0/0 as no error and no yardstick."""
+    notes = _block()["reason_notes"]
+    assert notes[gate.ALL_ZERO_REASON] == (
+        "no error and no yardstick, not a failure: the model and the CFD agree exactly and "
+        "the yardstick is zero"
+    )
+
+
 def test_a_component_with_no_applicable_yardstick_never_passes():
     out = gate.component_verdicts(
         {"h1": {s: {"full": 0.0, "window": 0.0} for s in range(5)}},

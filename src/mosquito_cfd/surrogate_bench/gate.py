@@ -335,6 +335,11 @@ def config_wrap_jumps(
 # --- Verdicts --------------------------------------------------------------------------------
 
 ALL_ZERO_REASON = "all configurations 0/0"
+# How the summary documents a reason (spec "Gate boundaries"): 0/0 is not a failure.
+REASON_NOTES = {
+    ALL_ZERO_REASON: "no error and no yardstick, not a failure: the model and the CFD agree "
+    "exactly and the yardstick is zero",
+}
 HOLDOUT_STATEMENT = (
     "No entry is known to be holdout-clean, so an inside verdict here is not an unbiased "
     "estimate of the error on new configurations."
@@ -499,7 +504,8 @@ def gate_block(
         holdout_status: Per entry, ``holdout_informed`` and ``holdout_reason``.
 
     Returns:
-        The gate block: ``provisional``, ``reasons``, ``holdout_statement`` and the verdicts per
+        The gate block: ``provisional``, ``reasons``, ``holdout_statement``, ``reason_notes``
+        (what a verdict reason such as ``"all configurations 0/0"`` means) and the verdicts per
         entry and component. It has no overall pass/fail.
     """
     combined = {c: with_combined_yardsticks(yardsticks[c]) for c in test_configs}
@@ -523,6 +529,7 @@ def gate_block(
             wrap_reason(wrap_jumps, peak_wrap_distance, test_configs),
         ],
         "holdout_statement": HOLDOUT_STATEMENT,
+        "reason_notes": dict(REASON_NOTES),
         "entries": out_entries,
     }
 
