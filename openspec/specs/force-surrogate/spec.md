@@ -1386,17 +1386,29 @@ periodic shape shared across all configurations and therefore largely "free" to 
 own **overstates** the surrogate's skill at the kinematics→force *map* (the genuinely held-out
 config-to-config dependence) (CC-4 scientific honesty). The evaluation SHALL carry, per target, a
 `config_resolved` block reporting (a) `config_mean_r2` — the R² computed on the per-configuration
-**cycle-mean** coefficient (the phase-removed config-to-config skill, the physically-central
-cycle-averaged force) — and (b) `within_config_variance_fraction` — the fraction of total holdout
-variance that is within-configuration (the waveform), which exposes how much of the aggregate R² is
-waveform-driven. These SHALL be pure-numpy, computed on the inverse-transformed predictions grouped
-by `config_name`, and reported **alongside** (never instead of) the aggregate.
+**cycle-mean** coefficient (the phase-removed config-to-config score) — and (b)
+`within_config_variance_fraction` — the fraction of total holdout variance that is
+within-configuration (the waveform), which exposes how much of the aggregate R² is waveform-driven.
+These SHALL be pure-numpy, computed on the inverse-transformed predictions grouped by `config_name`,
+and reported **alongside** (never instead of) the aggregate.
+
+`config_mean_r2` is a diagnostic, not the surrogate's headline skill. It divides by the spread of only
+a few held-out configurations' cycle means, which is near zero for some targets, so it can swing from
+strongly negative to positive between training seeds. Wherever a headline skill number is reported,
+it SHALL be the skill over the phase-only baseline ("Phase-only baseline skill in metrics.json"), not
+`config_mean_r2`.
 
 #### Scenario: config_resolved block is present per target
 
 - **Given** a completed holdout evaluation
 - **When** `metrics.json` is written and re-read
 - **Then** it contains a `config_resolved` block keyed by `CF_x, CF_y, CF_z, CF_mx, CF_my, CF_mz`, each carrying a `config_mean_r2` and a `within_config_variance_fraction` — distinct from, and reported in addition to, the pointwise `per_target`/`aggregate` blocks
+
+#### Scenario: config_mean_r2 is reported but never headlined
+
+- **Given** a `metrics.json` carrying both a `config_resolved` block and a `phase_baseline_skill` block
+- **When** the evidence figure's caption and sidecar are built from it
+- **Then** they report the skill over the phase-only baseline, contain no `config_mean_r2` value, and `config_mean_r2` stays in `metrics.json` and the corpus README
 
 #### Scenario: config-resolved quantities match known-answer arrays
 
@@ -1623,11 +1635,11 @@ rotational, added-mass, and LEV lift — so a scatter overlay would mostly re-di
 analytic loops rather than demonstrate surrogate skill. The earlier "~2.4× diffused-IB underestimate"
 framing was a normalization-convention artifact and is removed (the CFD `ib_force` is correct). Under
 the corrected van Veen normalization the model's RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)` is reported
-as measured, with no bound asserted: the earlier statement that it is < 1 (≈ 0.7) does not match the
-committed coarse value (≈ 1.3, `examples/prelim_sweep/figures/evidence_figure_metrics.json`); stale
-numbers in this spec are tracked in #115. The figure SHALL record
-this RMS ratio (key `overshoot_factor`) and the baseline RMSE in `evidence_figure_metrics.json`, and
-the caption SHALL disclose the ratio neutrally (the model is ~N× the CFD lift in RMS, the lift
+as measured, with no bound and no direction asserted: whether the model's RMS is above or below the
+CFD lift's is a property of the corpus, read from `evidence_figure_metrics.json`, and this
+requirement states neither. The figure SHALL record
+this RMS ratio (key `overshoot_factor`; the name is historical and asserts no direction) and the baseline RMSE in `evidence_figure_metrics.json`, and
+the caption SHALL disclose the ratio neutrally (the model is ~X× the CFD lift in RMS, the lift
 named for the figure's grid profile: "coarse-grid CFD lift" or "fine-grid CFD lift", in both
 the caption and the sidecar `note`) and that the
 uncalibrated translational model is therefore **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine
@@ -1657,17 +1669,17 @@ profile omits that phrase and does not give the grid as the reason.
 - **When** every panel's series are inspected
 - **Then** **no** axis carries a Sane–Dickinson / baseline point series (the reference is computed, not plotted), and the panels show only the surrogate predictions colored by held-out configuration
 
-#### Scenario: The quasi-steady overshoot is recorded and disclosed, not presented as a baseline
+#### Scenario: The quasi-steady RMS ratio is recorded and disclosed, not presented as a baseline
 
 - **Given** the computed Sane–Dickinson reference and the CFD-true CF_z
 - **When** the sidecar and caption are built
-- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (the RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)`, a positive finite number, reported as measured with no bound asserted for either profile) and `baseline_rmse_cf_z`, and the caption states neutrally that the uncalibrated translational quasi-steady model is ~N× the coarse-grid (or, for the fine profile, fine-grid) CFD lift in RMS and is **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine profile omits that phrase (it is not framed as a comparison the surrogate "beats")
+- **Then** `evidence_figure_metrics.json` records the reference's `overshoot_factor` (the RMS ratio `rms(CF_trans)/rms(CFD-true CF_z)`, a positive finite number, reported as measured with no bound asserted for either profile) and `baseline_rmse_cf_z`, and the caption states neutrally that the uncalibrated translational quasi-steady model is ~X× the coarse-grid (or, for the fine profile, fine-grid) CFD lift in RMS and is **not used as a quantitative baseline** — "at this resolution" on the coarse profile; the fine profile omits that phrase (it is not framed as a comparison the surrogate "beats")
 
 #### Scenario: No diffused-IB underestimate claim remains
 
 - **Given** the evidence-figure module docstring, caption strings, `_baseline_reference` docstring, the `evidence_figure_metrics.json` `note`, and the `Sane–Dickinson` rationale text
 - **When** they are inspected
-- **Then** none contains a "~2.4× diffused-IB underestimate" (or equivalent CFD-is-biased-low) claim and no post-hoc correction factor — the quasi-steady reference's RMS ratio is described neutrally (translational-only model, a poor fit that under-predicts the in-band CFD lift)
+- **Then** none contains a "~2.4× diffused-IB underestimate" (or equivalent CFD-is-biased-low) claim and no post-hoc correction factor — the quasi-steady reference's RMS ratio is described neutrally (translational-only model, a poor fit; the ratio is stated as measured, with no claim that the model over- or under-predicts the CFD lift)
 
 ### Requirement: Honest evidence-figure caption and speedup annotation
 
@@ -1685,7 +1697,7 @@ on or off the panels, SHALL be subordinate (an honesty flag, not a co-headline).
 report the **skill over the phase-only baseline** (read from `metrics.json
 phase_baseline_skill.per_target.<coefficient>.skill`, with its range over the seed sweep from
 `seed_sweep.range`), always naming the reference "phase-only baseline", and SHALL NOT report
-configuration-resolved R² (which divides by the near-zero spread of six cycle means for some targets
+configuration-resolved R² (which divides by the near-zero spread of the held-out configurations' cycle means for some targets
 and is strongly seed-dependent; it remains in `metrics.json` and the README). The caveats SHALL state
 that pointwise R² mostly reflects the shared within-beat waveform, giving the phase-only baseline's
 own pointwise R² (`phase_baseline_skill.per_target.<c>.phase_baseline_r2`) for the three axes as the
@@ -1706,28 +1718,27 @@ annotate the inference-vs-CFD speedup as a **batched GPU-throughput** speedup �
 `inference.throughput_rows_per_s` ÷ the A40 CFD throughput on the figure's grid (per-config
 converged-beat rows ÷ that grid's per-wingbeat wall-clock: 144 s on the coarse grid; on the fine grid
 the median per-step wall time over the committed per-configuration run metadata times the representative
-configuration's rows per wingbeat, labelled as a median per-step time) — which is the >1,000× claim. Because this factor equals
-`latency_speedup × batch_size` (the surrogate is a pointwise map that batches; the CFD is an
-**inherently sequential** time integration that cannot), the annotation SHALL disclose, in the caption's words "N=<batch> parallel evals vs sequential
-<the profile's CFD label>", that
-it is **batched GPU throughput at the stated batch size (N=12,535) versus a sequential A40 CFD
-timestep rate on the figure's grid** — not a per-evaluation speedup. The conservative per-evaluation **latency**
-speedup (~310× on the coarse grid, which is **not** >1,000×; on the fine grid the floor may
-itself exceed 1,000× and is still reported separately) SHALL be reported alongside as the like-for-like floor, and
-SHALL NOT be conflated with the throughput claim or computed by dividing a per-wingbeat cost by a
-per-row latency. All caption/annotation numbers SHALL be read from the committed artifacts, never
+configuration's rows per wingbeat, labelled as a median per-step time) — which is the >1,000× claim. The surrogate
+is a pointwise map that batches; the CFD is an **inherently sequential** time integration that
+cannot. The parallelism factor is `throughput_speedup ÷ latency_speedup` by definition, and equals
+`N · t_single / t_batch` for a batch of `N` rows: a ratio of two separately measured timings, which
+can be larger or smaller than `N`. It SHALL NOT be stated or computed as the batch size. The
+annotation SHALL disclose,
+in the caption's words "N=<batch> parallel evals vs sequential <the profile's CFD label>", that
+it is **batched GPU throughput at the stated batch size (`N` = the sidecar's `speedup.batch_size`)
+versus a sequential A40 CFD timestep rate on the figure's grid** — not a per-evaluation speedup. The
+conservative per-evaluation **latency** speedup SHALL be reported alongside as the like-for-like
+floor, on both profiles, whether or not it exceeds 1,000× (it is not asserted to); it SHALL NOT be
+conflated with the throughput claim or computed by dividing a per-wingbeat cost by a per-row
+latency. All caption/annotation numbers SHALL be read from the committed artifacts, never
 hard-coded. The caption SHALL name the seed of the plotted model (`metrics.json`
 `seed_sweep.primary_seed`) and the number of seeds its skill ranges span; it SHALL NOT present one
 draw as the corpus's skill, it SHALL state "single seed, no range" when the sweep has one seed, and a
 `metrics.json` without `seed_sweep` SHALL be rejected rather than captioned with a default seed.
 
-> Note: the result numbers still embedded above and in the scenarios (~310×, N=12,535, ≈12,009×,
-> 3.7×10⁶×) are stale against the committed artifacts and are tracked separately in issue #115;
-> refreshing them is deliberately out of scope. The `fix-moment-reference-hinge` change rewrote the
-> `CF_mx`/`CF_mz` exclusion clause and the clauses that named specific targets as dominant and as the
-> negative-R² tell; the `replace-config-r2-with-baseline-skill` change replaced
-> configuration-resolved R² with skill over the phase-only baseline throughout this requirement
-> (issue #127).
+> Note: this requirement states no corpus result. The example numbers in its scenarios are the
+> synthetic test fixture's known answers, labelled as such; the corpus's own speedups and batch size
+> are read from `evidence_figure_metrics.json`.
 
 #### Scenario: Caption defines skill and shows why pointwise R² overstates it
 
@@ -1751,13 +1762,13 @@ draw as the corpus's skill, it SHALL state "single seed, no range" when the swee
 
 - **Given** `metrics.json inference.throughput_rows_per_s` (batched GPU throughput) and the coarse-grid A40 CFD throughput (a config's converged-beat row count ÷ the coarse per-wingbeat wall-clock `CFD_SECONDS_PER_WINGBEAT`)
 - **When** the headline speedup annotation is built
-- **Then** the annotated factor equals `throughput_rows_per_s / cfd_rows_per_s` (a known-answer case pins the exact factor, e.g. 5.17e7 ÷ (2000/144) ≈ 3.7×10⁶×), the realized factor exceeds 1,000×, the annotation labels the denominator "coarse-grid A40 CFD" **and discloses the batch size (N=12,535) and that the CFD rate is sequential**, and `evidence_figure_metrics.json` records both throughputs, the per-config rows-per-wingbeat, the batch size, and the implied parallelism factor (≈12,009×, = throughput_speedup ÷ latency_speedup) so the headline is fully decomposable
+- **Then** the annotated factor equals `throughput_rows_per_s / cfd_rows_per_s` (the synthetic test fixture — `throughput_rows_per_s = 5.17e7`, 2000 rows per wingbeat, a 12,535-row batch — pins the exact factor 5.17e7 ÷ (2000/144) ≈ 3.72e6; these are fixture values, not corpus results), the realized factor exceeds 1,000×, the annotation labels the denominator "coarse-grid A40 CFD" **and discloses the batch size and that the CFD rate is sequential**, and `evidence_figure_metrics.json` records both throughputs, the per-config rows-per-wingbeat, the batch size, and the parallelism factor (`throughput_speedup ÷ latency_speedup`, measured, not the batch size) so the headline is fully decomposable
 
 #### Scenario: The single-row latency speedup is reported honestly and not conflated with the headline
 
 - **Given** `metrics.json inference.latency_ms` (single-row latency, ms) and a config's per-row CFD cost `CFD_SECONDS_PER_WINGBEAT ÷ rows_per_wingbeat` (where `rows_per_wingbeat = 1/(f*·dt)` is **per-config**, not a constant)
 - **When** the latency speedup is computed
-- **Then** it equals `t_cfd_per_row / (latency_ms/1000)` with ms→s reconciled (a known-answer case pins ≈310×), it is **not** asserted to exceed 1,000×, and it is **never** computed by dividing a per-wingbeat cost by a per-row latency (the units-mismatch that would fabricate a ~10⁶× number)
+- **Then** it equals `t_cfd_per_row / (latency_ms/1000)` with ms→s reconciled (the synthetic test fixture's `latency_ms = 0.232` at 2000 rows per wingbeat pins the known answer ≈310×; a fixture value, not a corpus result), it is **not** asserted to exceed 1,000×, and it is **never** computed by dividing a per-wingbeat cost by a per-row latency (the units-mismatch that would multiply the latency speedup by the rows per wingbeat)
 
 #### Scenario: On-figure caption is compact; full disclosures live in the README
 
@@ -1889,12 +1900,23 @@ plotfiles/velocity/pressure fields, build a DoMINO/latent-dynamics encoder, or i
 ### Requirement: Re-normalization preserves surrogate skill (scale-invariance)
 
 Re-deriving force/moment coefficients under a different per-configuration normalization-scale convention SHALL rescale the CFD targets and the surrogate predictions by the **same** constant,
-leaving the held-out **R²** and the predicted-vs-CFD relationship invariant. The frozen corpus's raw
+leaving the held-out **R²** and the predicted-vs-CFD relationship invariant. Throughout this
+requirement the convention factor is `k = f_ref_old / f_ref_new`; because `CF = F / f_ref`, the
+re-normalized coefficient is `CF_new = k · CF_old`, so going from the old convention to the new one
+**multiplies** every coefficient by `k` and going back **divides** by it. The committed
+`holdout_predictions.parquet` has held the new (van Veen) convention since #36, when every `CF_*`
+column was multiplied by exactly `k` (`k = f_ref(R_TIP) / f_ref(R_GYRATION) = (R_TIP / R_GYRATION)²`,
+≈ 3.120), so re-expressing it on the old (peak-tip, `F_ref(R_TIP)`) reference divides by `k`. That
+re-expression changes the normalization only. It is not the corpus as it was before #36: the raw
+columns were regenerated since, to fix a geometry defect rather than as a re-normalization
+(`fix-force-surrogate-sweep-hinge`), and the moment reference point
+and the sign changed (`fix-moment-reference-hinge`, `fix-wing-force-sign-convention`). The frozen corpus's raw
 force/moment columns and IB-particle CSVs SHALL NOT be regenerated for a re-normalization convention
 change; only derived coefficients change, and no surrogate retraining SHALL be required for that case.
 
 A change of force/moment **sign** convention (`fix-wing-force-sign-convention`, #109) is this scale
-case with `k = −1`: the raw columns stay frozen, every `CF_*` becomes exactly `CF_old/(−1)`, and the
+case with `k = −1`: the raw columns stay frozen, every `CF_*` becomes exactly `−CF_old` (`k = −1` is
+its own inverse, so multiplying and dividing by it agree), and the
 held-out R² and phase-baseline skill are invariant, so no retrain is *required*. That change
 nevertheless retrains both surrogates **by decision**, so that every committed surrogate is
 reproducible by the trainer from its committed dataset; it is neither a raw-corpus regeneration nor an
@@ -1917,16 +1939,16 @@ change, requires its own equally explicit, equally documented exception.
 
 #### Scenario: R² is invariant under re-normalization
 
-- **Given** the committed `examples/prelim_sweep/surrogate/holdout_predictions.parquet` (`CF_x_true/pred`, `CF_z_true/pred`, …) whose `R²` matches `metrics.json`
-- **When** both the `*_true` and `*_pred` columns are multiplied by the convention factor `k = f_ref_old / f_ref_new` (≈ 3.119)
-- **Then** the recomputed per-target `R²` for `CF_x` and `CF_z` each equals the original within `1e-9`, confirming no retrain is needed
-- **And** the `RMSE`/`MAE` rescale by exactly `k` (reported honestly), while the scatter shape is unchanged (axes relabeled)
+- **Given** the committed `examples/prelim_sweep/surrogate/holdout_predictions.parquet` (`CF_x_true/pred`, `CF_z_true/pred`, …), already in the new (van Veen) convention, whose `R²` matches `metrics.json`
+- **When** both the `*_true` and `*_pred` columns are re-expressed on the old (peak-tip) reference by dividing them by the convention factor `k = f_ref_old / f_ref_new` (≈ 3.120)
+- **Then** the recomputed per-target `R²` for `CF_x` and `CF_z` each equals the committed one within `1e-9`, confirming no retrain is needed
+- **And** the `RMSE`/`MAE` on the old reference are the committed ones divided by `k`, within `1e-9` relative (reported honestly), while the scatter shape is unchanged (axes relabeled)
 
 #### Scenario: Raw corpus stays frozen under re-normalization; only derived coefficients move
 
 - **Given** a re-normalization convention change (not a geometry-defect fix, and not a change that retrains by decision such as `fix-wing-force-sign-convention`) re-derives the corpus coefficients
 - **When** `dataset.parquet` is regenerated
-- **Then** its raw `Fx, Fy, Fz, Mx, My, Mz` column **values** are exactly equal (e.g. `pandas.testing.assert_frame_equal(..., check_exact=True)`) to the committed corpus, only the derived `CF_*` columns change (each new column equals the old divided by `k`), and the committed `metrics.json` per-target `R²` is reused unchanged (within `1e-9`)
+- **Then** its raw `Fx, Fy, Fz, Mx, My, Mz` column **values** are exactly equal (e.g. `pandas.testing.assert_frame_equal(..., check_exact=True)`) to the committed corpus, only the derived `CF_*` columns change (each new column equals the old multiplied by `k`), and the committed `metrics.json` per-target `R²` is reused unchanged (within `1e-9`)
 
 #### Scenario: Degenerate re-normalization is rejected
 
@@ -1952,7 +1974,7 @@ change, requires its own equally explicit, equally documented exception.
 
 - **Given** the corpus re-extracted by `fix-wing-force-sign-convention`
 - **When** it is compared with the corpus committed before that change
-- **Then** the raw `Fx..Mz` column values are exactly equal, and every `CF_*` column is the old one divided by `−1`, as verified by "Sign re-extraction and retrain pass pre-registered gates"
+- **Then** the raw `Fx..Mz` column values are exactly equal, and every `CF_*` column is the negation of the old one (`k = −1`), as verified by "Sign re-extraction and retrain pass pre-registered gates"
 - **And** the frozen raw-force sha256 pins hold, so the change is not counted among the frozen-corpus exceptions
 
 ### Requirement: Fine-grid pilot base deck is deck-invariant except grid resolution
@@ -2721,12 +2743,15 @@ The gate SHALL fail if, for any configuration: the run's observed interior times
 deck's declared `ns.fixed_dt`; the force CSV's deduplicated row count does not equal the manifest's
 `max_step`; or `time` is not strictly increasing.
 
-The gate's primary physical check SHALL be a **normalized** cycle-symmetry ratio — the settled-beat
-mean chordwise coefficient divided by that configuration's settled-beat peak chordwise coefficient —
-rather than an absolute mean. The absolute settled-beat mean is not zero: it scales with pitch
-amplitude and reaches 2.9% of `F_ref` on a healthy corpus, leaving a usable tolerance window of only
-about 1.3×, whereas the normalized ratio separates healthy from truncated configurations by roughly
-two orders of magnitude.
+The gate's physical check SHALL be a **normalized** cycle-symmetry ratio — the magnitude of the
+settled-beat mean lab-frame `CF_x` divided by that configuration's settled-beat peak `|CF_x|` —
+rather than an absolute mean. It is a backstop behind the timestep and row-count checks above, which
+are the gate's primary defences against truncation. The absolute settled-beat mean is not zero on a
+healthy corpus: it grows with pitch amplitude, so a tolerance on it confounds pitch amplitude with
+truncation. Dividing by the configuration's settled-beat peak reduces that dependence; it does not
+remove it. The tolerance and the healthy and materially-truncated magnitudes it separates are
+recorded beside `SYMMETRY_RATIO_TOLERANCE` and in `add-fine-corpus-run-verification` design D6; this
+requirement states none of them and claims no separation factor.
 
 The gate SHALL additionally fail if a mandatory pre-flight check has **no recorded result** for the
 corpus. An absent result SHALL be treated as a failure, not a warning, because an unrecorded check is
@@ -2741,8 +2766,8 @@ or Argo access.
 
 #### Scenario: A CFL-limited config fails the gate
 
-- **Given** a corpus in which one configuration's observed interior timesteps fell to `3.06e-4`
-  against a declared `ns.fixed_dt` of `5e-4`
+- **Given** a corpus in which one configuration's observed interior timesteps fell below its
+  declared `ns.fixed_dt` (a CFL-limited run)
 - **When** the acceptance gate runs
 - **Then** it fails, naming that configuration and its observed minimum timestep
 
@@ -2752,11 +2777,12 @@ or Argo access.
 - **When** the acceptance gate runs
 - **Then** it fails, naming the configuration and both counts
 
-#### Scenario: A truncated config fails the normalized symmetry check
+#### Scenario: A sufficiently truncated config fails the normalized symmetry check
 
-- **Given** a configuration that covered only 83% of its settled wingbeat
+- **Given** a configuration whose settled wingbeat is covered only in part (a run that stopped early, or a CFL-limited run whose steps covered less simulated time), enough that its settled-beat mean is no longer near zero relative to its peak
 - **When** the acceptance gate runs
 - **Then** its normalized cycle-symmetry ratio exceeds the stated tolerance and the gate fails
+- **And** the symmetry check is not claimed to catch every truncation: a milder one can stay within the tolerance, and is caught (if at all) by the observed-timestep or row-count check, so a configuration within the symmetry tolerance whose observed timesteps fell below its declared `ns.fixed_dt` still fails the gate
 
 #### Scenario: A missing mandatory-check result fails the gate
 
@@ -2784,9 +2810,9 @@ or Argo access.
 
 **Note:** `interior_dt_below_nominal` itself is the one value the gate takes on trust from
 `run_metadata_<config>.json` — it cannot be recomputed offline without the run's `run.log`
-(not committed to the corpus). The normalized symmetry check (previous scenario) is the gate's
+(not committed to the corpus). The normalized symmetry check (scenario "A sufficiently truncated config fails the normalized symmetry check") is the gate's
 defense-in-depth against exactly this metadata-generation risk, not a re-derivation of the
-timestep check itself (design.md D6).
+timestep check itself (`add-fine-corpus-run-verification` design D6).
 
 ### Requirement: Mandatory pre-flight check results are recorded in corpus provenance
 
@@ -2841,7 +2867,7 @@ per-config run metadata, that every parquet configuration has a corresponding me
 
 The guards SHALL include at least one **physical** invariant that internal-consistency checks cannot
 provide: the settled-wingbeat normalized cycle-symmetry ratio SHALL be within a stated tolerance,
-with the tolerance recorded alongside the measured healthy maximum and truncated minimum that bound
+with the tolerance recorded alongside the measured healthy maximum and materially-truncated minimum that bound
 it.
 
 #### Scenario: Row count is reconciled against the manifest, not the data
@@ -2857,11 +2883,12 @@ it.
 - **When** the guard runs
 - **Then** each configuration's generated deck `max_step` equals its manifest `max_step`
 
-#### Scenario: A truncated corpus is caught by the normalized symmetry invariant
+#### Scenario: A sufficiently truncated corpus is caught by the normalized symmetry invariant
 
-- **Given** a corpus containing a configuration that covered only 83% of its settled wingbeat
+- **Given** a corpus containing a configuration whose settled wingbeat is covered only in part, enough that its settled-beat mean `CF_x` is no longer near zero relative to its peak
 - **When** the symmetry guard runs
 - **Then** it fails, because that configuration's normalized cycle-symmetry ratio exceeds tolerance
+- **And** a milder truncation that stays within the tolerance is not claimed to be caught by this guard; the row-count reconciliation against the manifest catches a run that stopped early, and the acceptance gate's timestep check catches a CFL-limited run (whose step count is complete)
 
 #### Scenario: Units sidecar cannot silently drift from the parquet
 
@@ -3633,4 +3660,106 @@ and to every other requirement whose code path reaches `validate_image_digest` o
 - **Then** the entry point raises `ValueError` from `validate_image_digest`, and records no
   provenance for that value. Where an existing requirement already says the digest is validated
   before any computation or file write, that ordering still holds.
+
+### Requirement: Guards on specification text read the effective specification
+
+A test that guards the text of an OpenSpec specification SHALL read its **effective** text: the
+live `openspec/specs/<capability>/spec.md` with every active (unarchived) change's delta for that
+capability applied. A `MODIFIED` requirement replaces the live block of the same name, a `REMOVED`
+one drops it, and an `ADDED` one is appended; a `MODIFIED` or `REMOVED` name absent from the live
+specification, or an `ADDED` name already present, SHALL raise. Reading the effective text makes the
+guard hold on a proposal branch, where only the delta carries the new text, and after archiving,
+where the live specification does.
+
+When more than one active change modifies the same requirement, the effective text SHALL carry
+every variant, so a whole-specification scan reads each of them. A requirement whose numbers are
+checked individually (see "Data-dependent claims in the live specs are guarded against committed
+data") SHALL make building that requirement's text for the per-number check raise, naming both
+changes, rather than check one variant.
+
+`RENAMED` sections SHALL raise as unsupported. A delta section other than `ADDED`, `MODIFIED` or
+`REMOVED` (for example a cross-reference list) ends the preceding block and is not applied.
+
+#### Scenario: A delta replaces, drops or appends a block
+
+- **Given** a live specification and an active change whose delta has a `MODIFIED`, a `REMOVED` and an `ADDED` requirement
+- **When** the effective text is built
+- **Then** the modified block replaces the live one, the removed block is absent, the added block is present, and every other live block is unchanged
+
+#### Scenario: Archived changes and other capabilities are ignored
+
+- **Given** a change under `openspec/changes/archive/` and an active change whose deltas are for other capabilities only
+- **When** the effective text of this capability is built
+- **Then** neither contributes
+
+#### Scenario: Inconsistent deltas raise
+
+- **Given** a delta that modifies or removes a requirement absent from the live specification, adds one already present, or renames one
+- **When** the effective text is built
+- **Then** it raises, naming the change and the requirement
+
+#### Scenario: Two changes modifying one requirement
+
+- **Given** two active changes that both modify the same requirement
+- **When** the effective text is built
+- **Then** both variants are present for a whole-specification scan, and building the text of that requirement for a per-number check raises, naming both changes
+
+### Requirement: Data-dependent claims in the live specs are guarded against committed data
+
+A cluster-free test SHALL guard the force-surrogate and flapping-wing-validation specifications
+against the failure of issue #115: a number measured from a committed corpus, frozen into a
+requirement or scenario, that silently stops matching when the corpus is rebuilt. It SHALL read the
+effective text ("Guards on specification text read the effective specification") and have two
+parts.
+
+- **Retired claims.** Each retired phrase is a pattern in the test module's `RETIRED` list,
+  paired with the stale sentences it was written against (`RETIRED_EXAMPLES`). Every pattern
+  SHALL match its stale sentence, SHALL match nothing in the effective text of either
+  specification, and SHALL NOT match the corrective sentences that replaced it. Each specification
+  SHALL also contain a fixed positive anchor, so the check cannot pass on an empty or wrong file.
+  The same check SHALL cover the code docstrings that repeated a retired claim.
+- **Enumerated numbers.** For every requirement named in the test module's `GUARDED` list,
+  every number in the requirement's effective text SHALL
+  be listed in a registry with the phrase that contains it, and each entry SHALL be one of:
+  **recomputed** (recomputed from a committed artifact or a code constant, and equal to the printed
+  number at its printed precision and notation), **fixture** (recomputed in the same way from the
+  synthetic test fixture the scenario names), or **declared** (not a measured result, such as a
+  tolerance, a grid size or a synthetic known-answer input, with its reason in the registry). A
+  number in the text with no entry, an entry whose number or phrase is absent, or a recomputed or
+  fixture value that no longer prints as written SHALL fail the guard, naming the requirement, the
+  number and the phrase.
+
+A number SHALL NOT stay in a guarded requirement unless it is recomputed, fixture or declared; a
+corpus result whose specific value is not the point SHALL be deleted instead, and the behaviour it
+illustrated stated without it.
+
+#### Scenario: A retired claim fails the guard
+
+- **Given** the effective text of either specification, or a guarded code docstring
+- **When** a retired claim's stale sentence is inserted into it
+- **Then** the guard fails, naming the pattern and the file
+
+#### Scenario: Retired patterns accept the corrective text
+
+- **Given** each corrective sentence recorded in the test module's `MUST_PASS` list
+- **When** the retired patterns are applied to it
+- **Then** none matches
+
+#### Scenario: The pre-change text fails the guard
+
+- **Given** the stale text of the guarded requirements as it stood before issue #115 was fixed, kept as committed test fixtures
+- **When** the retired-claim and enumerated-number checks run on it
+- **Then** they report every stale site recorded for those fixtures
+
+#### Scenario: An unregistered, missing or stale number fails the guard
+
+- **Given** a guarded requirement's effective text
+- **When** it gains a number with no registry entry, loses a registered number or phrase, or a recomputed or fixture source changes so that its value no longer prints as written
+- **Then** the guard fails, naming the requirement, the number and the phrase
+
+#### Scenario: Each source of a recomputed number is load-bearing
+
+- **Given** a recomputed or fixture registry entry
+- **When** either the text's number or the source's value is drifted alone (the source through a monkeypatched module attribute read at call time)
+- **Then** the guard fails, so the check cannot be re-pointed at a source that happens to agree
 

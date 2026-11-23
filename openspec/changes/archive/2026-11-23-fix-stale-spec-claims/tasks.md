@@ -210,7 +210,7 @@
 
 ## 10. After merge (user merges)
 
-- [ ] 10.1 Branch off updated `origin/main`.
+- [x] 10.1 Branch off updated `origin/main`.
       - Diff `openspec/specs/{force-surrogate,flapping-wing-validation}/spec.md` between `c87e39c`
         and `origin/main`; if a guarded requirement changed, hand-merge it rather than let the
         archive overwrite it.
