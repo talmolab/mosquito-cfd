@@ -116,12 +116,69 @@ tests pin that it returns `make_config_splits`'s validation lists. The spec now 
 
 The spec defined the refusal only for a dirty tree. `benchmarks.metadata.get_git_info` returns no
 `dirty` key when git cannot report one (for example from WSL on a Windows worktree). Treating that
-as clean would let an unverifiable tree produce committed results, so the driver treats it as dirty:
-it is refused without `--allow-dirty` and recorded as `dirty: true` with it. The spec now says so.
+as clean would let an unverifiable tree produce committed results, so the runner (not only the
+driver) treats it as dirty: it is refused without `--allow-dirty` and recorded as `dirty: true` with
+it. The spec now says so.
+
+### Why does `coarse_vs_fine` bound the fine grid's error instead of the coarse grid's?
+
+The approved spec and design said the coarse-fine difference "bounds the coarse grid's error, not
+the fine grid's". The pre-PR review showed the reverse under the asymptotic Richardson model the
+gate itself uses ($E_c = r^p E_f$): the difference is $(r^p - 1) E_f \approx 5.8\,E_f$, a
+conservative upper bound on the fine grid's error, and about $0.85\,E_c$, an under-estimate of the
+coarse grid's. The user approved the correction. Spec, design and the provisional reason now say so;
+no value or verdict changes, and `upper_bound: true` keeps its label with the corrected meaning.
+
+### Why selection needs 4 training configurations instead of 3?
+
+The spec said "at least 3 training configurations, so that every fold has at least 2", but a fit
+itself needs 3, so a 2-configuration fold could never be fitted. The code always required 3 for a
+fit and 4 for selection, which makes every leave-one-out fold a valid fit. The spec now says that.
+The bench's smallest training set is 18, so no result depends on it.
+
+### Why a per-target like-for-like view with `control:e4_seed0` apart?
+
+The spec scenario fixed the view's metrics but not its grouping. The first implementation took one
+min/max over all six targets, every seed and all seven controls, so a face's range was the spread
+between components (CF_y beside CF_z on the real corpus) and could not show a face failing on one
+component. The view is now per entry and per target, with the six random controls together and the
+rank-deficient `control:e4_seed0` on its own. The scenario says so.
+
+### Changes from the pre-PR review (2026-11-22)
+
+A five-reviewer self-review of the branch before PR 1 was opened found one blocking bug and a set of
+important issues; the user chose to fix them in PR 1. Each fix has a test that a mutant was run
+against. Beyond the three sections above:
+
+- **A diverged MLP seed no longer crashes the bench.** Non-finite grid predictions became an
+  exception in the body-frame rotation after every fit had run; they now reach the gate as NaN
+  errors (`outside`, null margin), as the "Gate boundaries" scenario requires.
+- **Refusals moved up front.** A corpus with fewer than 2 common beats, a configuration labelled
+  neither train nor holdout or with a missing setting, no or empty entries, a non-integer epochs, an
+  empty timestamp, an unknown device and an output path that is a file are refused; every check
+  that depends only on the data runs before the first fit.
+- **The summary documents 0/0** as "no error and no yardstick" (`reason_notes`), which the spec
+  required and nothing did.
+- **Provenance.** `run_metadata.json` records both dataset files, the coarse corpus's sha256 and
+  recorded image, and how `--docker-digest` was checked; a digest other than the one the fine
+  corpus's `run_metadata.json` records is refused. The driver hashes exactly the bytes it parses.
+- **The five artifacts are written atomically**, so a late failure leaves no partial bench.
+- **`seed_ranges` counts finite seeds**, so a NaN seed that leaves a range is visible.
+- **Performance.** Each split's baseline and grid frame are built once and shared by every seed and
+  entry (532 baseline builds per run became 42); the grid prediction's shape and order are checked.
+- **GPU memory.** A CUDA run warms up cuBLAS/cuBLASLt before the first probed fit; measured on the
+  A5000, the first fit's `peak_gpu_mem` was 13.0 MB against 4.47 MB for every other fit without it,
+  and all five are 4.47 MB with it.
+- **Code.** The bench reads the shipped recipe (hidden, layers, lr, epochs, validation count) from
+  named `train.py` defaults, pinned by a test to `run_training`'s signature; `_SeedFit` became the
+  exported `SeedFit`; `carve_validation` sorts names as given, as `make_config_splits` always did,
+  and refuses repeats.
+
+One finding concerns code outside this change and is drafted as an issue for the user:
+`benchmarks.metadata.get_git_info` computes `dirty` from `git diff HEAD`, so untracked files count
+as clean.
 
 ### Other implementation notes (no behaviour change)
 
 - `--out-dir` and `--docker-digest` are required flags, as in `extract_forces.py` and
   `make_comparison_figure.py`. A missing digest was already a refusal.
-- The runner builds each split's phase-only baseline once and reuses it across seeds. The baseline
-  never depends on the seed, so the results are unchanged; the CPU test tier runs faster.

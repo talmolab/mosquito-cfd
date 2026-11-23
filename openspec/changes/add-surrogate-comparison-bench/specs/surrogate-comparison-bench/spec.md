@@ -82,8 +82,9 @@ numpy (no scipy, no sklearn) and deterministic. It SHALL be defined in two stage
 
 Every leave-one-configuration-out fold is a fit in its own right: it re-standardises over, and
 recomputes `L_v` from, its own training configurations. A setting with one distinct value in a fold
-(`L_v = 1`) contributes no column and is not standardised. The ridge SHALL require at least 3
-training configurations, so that every fold has at least 2.
+(`L_v = 1`) contributes no column and is not standardised. A ridge fit SHALL require at least 3
+training configurations, and selection at least 4, so that every leave-one-out fold is itself a
+valid fit.
 
 All bench entries, and the phase-only baseline, train and score on one **target beat**, defined as
 follows:

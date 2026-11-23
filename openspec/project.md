@@ -394,7 +394,10 @@ outer layer of the grid, on the unsettled 2-beat corpus with generic sinusoidal 
 
 - `--allow-dirty` is bench-specific: without it, a dirty tree, or one whose state git cannot report,
   is refused. With it, the metadata records `dirty: true`.
-- Every refusal exits non-zero before anything is written.
+- Every refusal exits non-zero before anything is written, and every check that depends only
+  on the data runs before the first fit. The five artifacts are written atomically.
+- `--docker-digest` must match the `docker_image` recorded by the `run_metadata.json` beside the
+  fine dataset; `run_metadata.json` also records the coarse corpus's sha256 and image.
 - The MLP entries need the `train` group; on Windows they run under WSL2, as the shipped surrogate's
   training did. The figure needs `viz`.
 - `--entries ridge,ridge_fixed` needs no torch, so a ridge-only run works on CPU anywhere.
