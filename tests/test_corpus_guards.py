@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from _json_payloads import FIVE
 
 from mosquito_cfd.force_surrogate import corpus_guards as cg
 from mosquito_cfd.force_surrogate.sidecar import write_units_sidecar
@@ -222,6 +223,23 @@ def test_malformed_manifest_json_raises_clear_file_identified_error(tmp_path):
         ValueError, match=re.escape(str(entry.path / "sweep_manifest.json"))
     ):
         cg.check_deck_matches_manifest_max_step(entry)
+
+
+@pytest.mark.parametrize("case", list(FIVE))
+def test_unparseable_manifest_is_a_labelled_value_error(tmp_path, case):
+    """harden-json-loader (#175): every content failure is exactly a ValueError naming the
+    manifest -- never RecursionError, a bare UnicodeDecodeError, or a TypeError from indexing a
+    non-object."""
+    path = tmp_path / "sweep_manifest.json"
+    path.write_bytes(FIVE[case])
+    entry = cg.CorpusEntry(
+        name="t", path=tmp_path, has_parquet=False, has_per_config_metadata=False
+    )
+    with pytest.raises(BaseException) as excinfo:
+        cg.check_deck_matches_manifest_max_step(entry)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"sweep manifest {path} "), str(err)[:200]
 
 
 def test_deck_max_step_matches_manifest(tmp_path):

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 import pytest
+from _json_payloads import FIVE, UNPARSEABLE, UNPARSEABLE_THREE
 
 from mosquito_cfd._provenance import is_pinned_image_ref
 from mosquito_cfd.force_surrogate import metadata_capture as mc
@@ -249,16 +251,107 @@ def test_source_config_fields_raises_clear_error_on_missing_deck_key(tmp_path):
         )
 
 
-def test_source_config_fields_raises_clear_error_on_missing_manifest_field(tmp_path):
-    manifest = tmp_path / "sweep_manifest.json"
-    manifest.write_text(
-        json.dumps({"configs": [{"name": "s35_f085_p45", "max_step": 4706}]}),
-        encoding="utf-8",
-    )
-    with pytest.raises(KeyError, match="stroke_amp_deg"):
+def _fixture_config(name: str = "s35_f085_p45") -> dict:
+    """The fixture manifest's entry for ``name``: every key the shared reader requires."""
+    configs = json.loads(_MANIFEST.read_text(encoding="utf-8"))["configs"]
+    return next(c for c in configs if c["name"] == name)
+
+
+def _write_manifest_json(tmp_path: Path, content) -> Path:
+    path = tmp_path / "sweep_manifest.json"
+    path.write_text(json.dumps(content), encoding="utf-8")
+    return path
+
+
+def _source_error(manifest: Path) -> BaseException:
+    with pytest.raises(BaseException) as excinfo:
         mc.source_config_fields(
             manifest_path=manifest, deck_path=_DECK, config_name="s35_f085_p45"
         )
+    return excinfo.value
+
+
+# harden-json-loader D7 (#175): the manifest goes through the shared validated reader, so
+# everything it rejects is exactly a ValueError -- BREAKING (minor): these were KeyError,
+# AttributeError or TypeError, or (a duplicate name) silently accepted.
+
+
+def test_source_config_fields_missing_required_key_is_a_value_error(tmp_path):
+    manifest = _write_manifest_json(
+        tmp_path, {"configs": [{"name": "s35_f085_p45", "max_step": 4706}]}
+    )
+    err = _source_error(manifest)
+    assert type(err) is ValueError, repr(err)
+    assert re.search(r"missing required key\(s\).*stroke_amp_deg", str(err)), str(err)
+
+
+def test_source_config_fields_missing_max_step_is_still_a_key_error(tmp_path):
+    # max_step is not one of the shared reader's required keys: _entry_field still reports it.
+    config = {k: v for k, v in _fixture_config().items() if k != "max_step"}
+    manifest = _write_manifest_json(tmp_path, {"configs": [config]})
+    err = _source_error(manifest)
+    assert type(err) is KeyError, repr(err)
+    assert err.args[0] == (
+        f"manifest entry for config 's35_f085_p45' in {manifest} is missing required "
+        "field 'max_step'"
+    )
+
+
+@pytest.mark.parametrize("case", [*FIVE, "empty_object"])
+def test_source_config_fields_rejects_unparseable_manifests(tmp_path, case):
+    manifest = tmp_path / "sweep_manifest.json"
+    manifest.write_bytes(b"{}" if case == "empty_object" else FIVE[case])
+    err = _source_error(manifest)
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(manifest) in str(err), str(err)[:200]
+    if case == "list":
+        assert str(err) == (
+            f"manifest {manifest} top level is a list, not an object; not a sweep manifest"
+        )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ({"configs": 5}, "manifest 'configs' must be a list, got int"),
+        ({"configs": [5]}, "manifest config 0 is not a mapping: 5"),
+        (
+            {"configs": [_fixture_config(), {**_fixture_config(), "index": 1}]},
+            "duplicate config name 's35_f085_p45' in manifest (config 1); names must be "
+            "unique so each maps to one CSV and one split",
+        ),
+    ],
+    ids=["configs_int", "config_not_a_mapping", "duplicate_name"],
+)
+def test_source_config_fields_rejects_wrongly_shaped_config_lists(
+    tmp_path, content, message
+):
+    err = _source_error(_write_manifest_json(tmp_path, content))
+    assert type(err) is ValueError, repr(err)
+    assert str(err) == message
+
+
+_COMMITTED_MANIFESTS = [
+    _REPO_ROOT / "examples" / corpus / "sweep_manifest.json"
+    for corpus in ("prelim_sweep", "prelim_sweep_fine", "prelim_sweep_fine_pilot")
+]
+
+
+def test_source_config_fields_accepts_every_committed_manifest():
+    # design E4: the stricter reader accepts every committed config (57) and the fixture's.
+    calls = 0
+    for manifest in _COMMITTED_MANIFESTS:
+        for config in json.loads(manifest.read_text(encoding="utf-8"))["configs"]:
+            mc.source_config_fields(
+                manifest_path=manifest,
+                deck_path=manifest.parent / config["input_file"],
+                config_name=config["name"],
+            )
+            calls += 1
+    assert calls == 57
+    mc.source_config_fields(
+        manifest_path=_MANIFEST, deck_path=_DECK, config_name="s35_f085_p45"
+    )
 
 
 def test_manifest_lookup_raises_on_missing_config():
@@ -1216,6 +1309,29 @@ def test_pod_run_metadata_rejects_non_object_top_level(tmp_path, text, type_name
     assert str(err) == (
         f"pod-side run_metadata.json {path} top level is a {type_name}, not an object"
     )
+
+
+@pytest.mark.parametrize("case", list(UNPARSEABLE_THREE))
+def test_pod_run_metadata_rejects_unparseable_files(tmp_path, case):
+    # harden-json-loader (#175): the gaps the docstring listed as "Not yet wrapped".
+    data, _, prefix = UNPARSEABLE[case]
+    path = tmp_path / "run_metadata.json"
+    path.write_bytes(data)
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(path)
+    err = excinfo.value
+    assert type(err) is ValueError, repr(err)[:200]
+    assert str(err).startswith(f"pod-side run_metadata.json {path} {prefix}"), str(err)[
+        :200
+    ]
+
+
+def test_pod_run_metadata_directory_is_an_os_error(tmp_path):
+    # Opening errors are not wrapped (harden-json-loader D3).
+    with pytest.raises(BaseException) as excinfo:
+        mc.load_pod_run_metadata(tmp_path)
+    assert isinstance(excinfo.value, OSError), repr(excinfo.value)
+    assert not isinstance(excinfo.value, ValueError), repr(excinfo.value)
 
 
 _ABSENT = object()

@@ -20,6 +20,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mosquito_cfd._manifest import load_manifest_configs
 from mosquito_cfd.force_surrogate.corpus_guards import (
     SYMMETRY_RATIO_TOLERANCE,
     settled_beat_symmetry_ratios,
@@ -59,9 +60,18 @@ def run_acceptance_gate(
         corpus is field-capture-enabled. An extraction rejection of a config's own inputs
         (:class:`~mosquito_cfd.force_surrogate.dataset.ConfigExtractionError`) is returned as
         a single failure, since no other check can run without the frame.
+
+    Raises:
+        ValueError: Naming the path, if the manifest or the provenance file is not valid UTF-8,
+            not valid JSON or not a JSON object (a malformed manifest config list too, through
+            ``load_manifest_configs``), or if a run_metadata file is not valid JSON (malformed,
+            nested beyond the recursion limit, or an integer beyond Python's digit limit;
+            raised by ``build_dataset``). A run_metadata file that is not UTF-8 or not a JSON
+            object is a ``ConfigExtractionError``, returned as a failure, not raised. Errors
+            opening a path are not wrapped.
     """
     manifest_path = Path(manifest_path)
-    manifest = load_json_clear_error(manifest_path, label="sweep manifest")
+    configs = load_manifest_configs(manifest_path)
     failures: list[str] = []
 
     try:
@@ -82,7 +92,7 @@ def run_acceptance_gate(
         failures.append(f"{name}: no force CSV found (dropped from the corpus)")
 
     counts = df["config_name"].value_counts()
-    for config in manifest["configs"]:
+    for config in configs:
         name = config["name"]
         if name in dropped:
             continue
@@ -97,6 +107,8 @@ def run_acceptance_gate(
         if metadata_path is None or not Path(metadata_path).exists():
             failures.append(f"{name}: no run_metadata file found")
             continue
+        # build_dataset already parsed this file (deck-hash reconciliation) and rejected any
+        # content failure, so this read's object check is defence in depth only.
         run_metadata = load_json_clear_error(
             Path(metadata_path), label="run_metadata file"
         )
@@ -113,7 +125,7 @@ def run_acceptance_gate(
             failures.append(f"{name}: time is not strictly increasing")
 
     ratios = settled_beat_symmetry_ratios(df)
-    for config in manifest["configs"]:
+    for config in configs:
         name = config["name"]
         if name in dropped:
             continue

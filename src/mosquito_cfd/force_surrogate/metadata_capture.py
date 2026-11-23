@@ -94,6 +94,7 @@ from typing import Any
 
 import numpy as np
 
+from mosquito_cfd._manifest import load_manifest_configs
 from mosquito_cfd._provenance import is_full_commit_sha
 from mosquito_cfd.benchmarks.metadata import hash_file
 from mosquito_cfd.force_surrogate.runner import STATUS_COMPLETED
@@ -432,16 +433,19 @@ def source_config_fields(
         A dict with keys ``kinematics`` (nested dict), ``grid``, ``fixed_dt``, ``max_step``.
 
     Raises:
-        ValueError: If the manifest file is not valid JSON.
-        KeyError: If ``config_name`` is not present in the manifest.
+        FileNotFoundError: If the manifest does not exist (other ``OSError`` unwrapped).
+        ValueError: Anything the shared manifest reader
+            :func:`mosquito_cfd._manifest.load_manifest_configs` rejects: a file that is not
+            UTF-8, not JSON or not a JSON object; no ``configs`` list; or a config that is not a
+            mapping, lacks a required key, or repeats a name.
+        KeyError: If ``config_name`` is not present in the manifest, or its entry has no
+            ``max_step`` (or the deck lacks a key read here).
     """
     manifest_path = Path(manifest_path)
-    manifest = load_json_clear_error(manifest_path, label="sweep manifest")
-    entry = next(
-        (c for c in manifest.get("configs", []) if c.get("name") == config_name), None
-    )
+    configs = load_manifest_configs(manifest_path)
+    entry = next((c for c in configs if c["name"] == config_name), None)
     if entry is None:
-        available = [c.get("name") for c in manifest.get("configs", [])]
+        available = [c["name"] for c in configs]
         raise KeyError(
             f"config {config_name!r} not found in manifest {manifest_path} "
             f"(available: {available})"
@@ -450,6 +454,8 @@ def source_config_fields(
     deck = parse_deck(deck_path)
 
     def _entry_field(key: str) -> Any:
+        # load_manifest_configs guarantees the kinematics keys, so in practice this guards
+        # max_step, which is not one of the reader's required keys.
         if key not in entry:
             raise KeyError(
                 f"manifest entry for config {config_name!r} in {manifest_path} is missing "
@@ -494,24 +500,17 @@ def load_pod_run_metadata(path: Path | str) -> dict[str, Any]:
         The parsed metadata dict.
 
     Raises:
-        FileNotFoundError: If ``path`` does not exist.
-        ValueError: If the file is not valid JSON (a ``json.JSONDecodeError``, labelled with the
-            path by :func:`~mosquito_cfd.force_surrogate.sidecar.load_json_clear_error`), or its
-            top level is not a JSON object. Not yet wrapped (#175): non-UTF-8 bytes
-            (``UnicodeDecodeError``), nesting beyond the recursion limit (``RecursionError``), an
-            integer beyond Python's digit limit (unlabelled ``ValueError``), and an ``OSError``
-            other than a missing file.
+        FileNotFoundError: If ``path`` does not exist. (Any other ``OSError`` from opening it,
+            e.g. a directory, is raised unwrapped.)
+        ValueError: Exactly ``ValueError``, naming the path, if the file is not valid UTF-8, not
+            valid JSON (including nesting beyond the recursion limit and an integer beyond
+            Python's digit limit), or its top level is not a JSON object (labelled by
+            :func:`mosquito_cfd._json_loader.load_json_clear_error`).
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"pod-side run_metadata.json not found: {path}")
-    meta = load_json_clear_error(path, label="pod-side run_metadata.json")
-    if not isinstance(meta, dict):
-        raise ValueError(
-            f"pod-side run_metadata.json {path} top level is a {type(meta).__name__}, "
-            "not an object"
-        )
-    return meta
+    return load_json_clear_error(path, label="pod-side run_metadata.json")
 
 
 def extract_docker_image(pod_metadata: dict[str, Any]) -> str:
@@ -848,9 +847,12 @@ def assemble_run_metadata(
             disagrees with the CSV-derived timestep count, or (in a multi-config fan-out
             workflow) the pod's own ``orchestration.pod`` name has no matching node in the Argo
             workflow status, or the matching node is not itself a valid ``wall_time_s``
-            candidate -- see :func:`compute_wall_time_s`.
-        KeyError: If ``config_name`` is not present in the manifest, or the manifest entry/deck
-            is missing a required field.
+            candidate -- see :func:`compute_wall_time_s`. That includes a manifest the shared
+            reader :func:`mosquito_cfd._manifest.load_manifest_configs` rejects (any config
+            missing a required key, a non-list ``configs``, a duplicate name), via
+            :func:`source_config_fields`.
+        KeyError: If ``config_name`` is not present in the manifest, its entry has no
+            ``max_step``, or the deck is missing a required key.
     """
     pod_metadata = load_pod_run_metadata(pod_metadata_path)
     docker_image = extract_docker_image(pod_metadata)
