@@ -117,6 +117,25 @@ def _launch(args: argparse.Namespace) -> int:
     if out.exists():
         print(f"refusing to overwrite: {out} exists")
         return 1
+    repo = args.repo_root.resolve()
+    run_dir = args.run_dir.resolve()
+    if run_dir.is_relative_to(repo):
+        probe_path = (run_dir / "launch.json").relative_to(repo).as_posix()
+        ignored = (
+            subprocess.run(
+                ["git", "check-ignore", "-q", "--no-index", probe_path],
+                cwd=repo,
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+        if not ignored:
+            print(
+                f"launch refused: {args.run_dir} is inside the checkout and not ignored by "
+                "git; its output would make the checkout dirty and the record would be "
+                "refused. Use a directory outside the checkout or under an ignored runs/."
+            )
+            return 1
     state = git_launch_state(args.repo_root)
     dirty = _dirty_lines(state["git_status_porcelain"])
     if dirty:

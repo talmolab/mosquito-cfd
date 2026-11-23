@@ -193,6 +193,7 @@ def _tree(tmp_path: Path, *, ratio: float = 0.2) -> dict:
         json.dumps({"extraction_inputs": {"csv_sha256": {"cfg": csv_sha}}}),
         encoding="utf-8",
     )
+    (repo / ".gitignore").write_bytes(b"examples/settling_check/**/runs/\n")
     commit = _init_git(repo)
     return {
         "repo": repo,

@@ -56,8 +56,9 @@ Each launch needs the user's explicit go-ahead. One run per GPU at a time: every
    - pull both images by digest;
    - confirm the GPU is idle;
    - confirm the disk has room (a fine 8-beat run writes about 160 plotfiles).
-2. **Before each run starts**, from the checkout (`launch` refuses, and writes nothing, if the
-   checkout is dirty or HEAD is not on `origin/main`; fetch first):
+2. **Before each run starts**, from the checkout. `launch` refuses, and writes nothing, if the
+   checkout is dirty (skip-worktree and assume-unchanged files count), if HEAD is not on
+   `origin/main` (fetch first), or if the run directory is inside the checkout and not ignored:
    ```bash
    uv run python scripts/record_settling_run.py launch --run-dir <run dir>
    ```

@@ -68,6 +68,14 @@ FIELD_CHANGE_THRESHOLD = 0.1
 _REQUIRED = ("time", "phase", "wingbeat", *TARGETS)
 
 
+class SettlingDataError(ValueError):
+    """A run's data cannot be measured (missing column, non-finite value, too few beats ...).
+
+    The report turns this, and only this, into ``data_incomplete``; any other exception is a
+    bug and propagates.
+    """
+
+
 @dataclass(frozen=True)
 class TailBound:
     """How far the last beat still is from the periodic state, from the last step ratios."""
@@ -207,18 +215,18 @@ def tail_bound(steps: Mapping[int, float], *, b_last: int, nu: float) -> TailBou
 def _check_columns(frame: pd.DataFrame, config_name: str) -> None:
     missing = [c for c in _REQUIRED if c not in frame.columns]
     if missing:
-        raise ValueError(
+        raise SettlingDataError(
             f"settling: config {config_name!r} is missing column(s) {missing}"
         )
     for column in ("time", "phase", *TARGETS):
         values = frame[column].to_numpy(dtype=float)
         if not np.all(np.isfinite(values)):
-            raise ValueError(
+            raise SettlingDataError(
                 f"settling: config {config_name!r} column {column!r} has a non-finite value"
             )
     labels = frame["wingbeat"].to_numpy(dtype=float)
     if not (np.all(np.isfinite(labels)) and np.all(labels == np.round(labels))):
-        raise ValueError(
+        raise SettlingDataError(
             f"settling: config {config_name!r} column 'wingbeat' has a non-integer value"
         )
 
@@ -232,7 +240,9 @@ def _split_beats(
     ordered = frame.sort_values("time", kind="stable")
     labels = ordered["wingbeat"].to_numpy().astype(np.int64)
     if len(labels) and labels.min() < 0:
-        raise ValueError(f"settling: config {config_name!r} has a negative wingbeat")
+        raise SettlingDataError(
+            f"settling: config {config_name!r} has a negative wingbeat"
+        )
     n_beats = int(labels.max()) + 1 if len(labels) else 0
     beats: list[pd.DataFrame] = []
     complete: list[bool] = []
@@ -240,14 +250,14 @@ def _split_beats(
         beat = ordered[labels == index]
         phase = beat["phase"].to_numpy(dtype=float)
         if len(phase) > 1 and not np.all(np.diff(phase) > 0):
-            raise ValueError(
+            raise SettlingDataError(
                 f"settling: config {config_name!r} beat {index + 1} has a duplicate or "
                 "non-increasing phase"
             )
         beats.append(beat)
         complete.append(len(beat) >= need)
     if complete and not complete[0]:
-        raise ValueError(
+        raise SettlingDataError(
             f"settling: config {config_name!r} beat 1 is incomplete "
             f"({len(beats[0])} of {expected:.1f} rows)"
         )
@@ -257,7 +267,7 @@ def _split_beats(
         b_last = max(i + 1 for i, ok in enumerate(complete) if ok)
     for index in range(b_last):
         if not complete[index]:
-            raise ValueError(
+            raise SettlingDataError(
                 f"settling: config {config_name!r} beat {index + 1} is incomplete "
                 f"({len(beats[index])} of {expected:.1f} rows) before the last complete "
                 f"beat {b_last}"
@@ -312,7 +322,7 @@ def settling_metrics(
     beats, incomplete = _split_beats(kept, config_name, frequency_fstar, dt)
     b_last = len(beats)
     if b_last < MIN_BEATS:
-        raise ValueError(
+        raise SettlingDataError(
             f"settling: config {config_name!r} has {b_last} complete beat(s); "
             f"need at least {MIN_BEATS}"
         )
@@ -321,7 +331,7 @@ def settling_metrics(
     for target in TARGETS:
         peak = float(np.max(np.abs(last[target].to_numpy(dtype=float))))
         if peak == 0.0:
-            raise ValueError(
+            raise SettlingDataError(
                 f"settling: config {config_name!r} {target} has a zero peak"
             )
         steps: dict[int, float] = {}
@@ -452,7 +462,9 @@ def evaluate_run(
                 and t_full.estimate[n] <= SETTLED_TOLERANCE
             )
             ok = ok and ok_target
-            if value > worst_value:
+            if not math.isfinite(value) and math.isfinite(worst_value):
+                worst_value, worst_target = value, target
+            elif value > worst_value:
                 worst_value, worst_target = value, target
         passes[n] = ok
         worst[n] = (worst_value, worst_target)
@@ -570,8 +582,9 @@ GATED_FILES = (
     "examples/settling_check/generate_decks.py",
     SETTLING_PY,
 )
-# Records written into the checkout during Stage 1; they do not make it dirty.
+# Records written into the checkout during Stage 1; new ones do not make it dirty.
 RECORDS_PREFIX = "examples/settling_check/records/"
+_RECORD_FILE = re.compile(re.escape(RECORDS_PREFIX) + r"[^/]+\.json")
 
 
 def _preregistered_values() -> dict[str, float]:
@@ -994,10 +1007,33 @@ def _dirty_lines(porcelain: str) -> list[str]:
         if not line.strip():
             continue
         path = line[3:].strip().strip('"')
-        if line.startswith("?? ") and path.startswith(RECORDS_PREFIX):
+        if line.startswith("?? ") and _RECORD_FILE.fullmatch(path):
             continue
         dirty.append(line)
     return dirty
+
+
+def _status_porcelain(repo_root: Path, *, runner: Runner = subprocess.run):
+    """``git status --porcelain`` plus a line for every file git status cannot see.
+
+    Files marked skip-worktree (``S``) or assume-unchanged (lower-case tag in
+    ``git ls-files -v``) can hide edits from ``git status``; each becomes a ``!h <path>``
+    line, which :func:`_dirty_lines` treats as dirty.
+
+    Returns:
+        ``(ok, text)``: whether both git commands succeeded, and the combined text.
+    """
+    status = _git(
+        repo_root, "status", "--porcelain", "--untracked-files=all", runner=runner
+    )
+    listed = _git(repo_root, "ls-files", "-v", runner=runner)
+    hidden = [
+        f"!h {line[2:]}"
+        for line in listed.stdout.decode().splitlines()
+        if line and (line[0].islower() or line[0] == "S")
+    ]
+    ok = status.returncode == 0 and listed.returncode == 0
+    return ok, status.stdout.decode() + "".join(f"{h}\n" for h in hidden)
 
 
 def git_launch_state(repo_root: Path | str, *, runner: Runner = subprocess.run) -> dict:
@@ -1008,14 +1044,12 @@ def git_launch_state(repo_root: Path | str, *, runner: Runner = subprocess.run) 
     """
     repo_root = Path(repo_root)
     head = _git(repo_root, "rev-parse", "HEAD", runner=runner)
-    status = _git(
-        repo_root, "status", "--porcelain", "--untracked-files=all", runner=runner
-    )
-    if head.returncode != 0 or status.returncode != 0:
+    ok, porcelain = _status_porcelain(repo_root, runner=runner)
+    if head.returncode != 0 or not ok:
         raise ValueError(f"settling: {repo_root} is not a usable git checkout")
     return {
         "start_commit": head.stdout.decode().strip(),
-        "git_status_porcelain": status.stdout.decode(),
+        "git_status_porcelain": porcelain,
     }
 
 
@@ -1056,9 +1090,7 @@ def git_provenance(
         ).returncode
         == 0
     )
-    status = _git(
-        repo_root, "status", "--porcelain", "--untracked-files=all", runner=runner
-    )
+    status_ok, porcelain = _status_porcelain(repo_root, runner=runner)
     hashes: dict[str, str | None] = {}
     matches = True
     for rel in GATED_FILES:
@@ -1074,10 +1106,13 @@ def git_provenance(
         "upstream_ref": upstream_ref,
         "upstream_found": upstream_found,
         "ancestor_of_upstream": ancestor,
-        "dirty_at_launch": bool(
-            _dirty_lines(str(launch.get("git_status_porcelain", "")))
+        # A launch state without its git status attests nothing: neither clean nor dirty.
+        "dirty_at_launch": (
+            bool(_dirty_lines(launch["git_status_porcelain"]))
+            if isinstance(launch.get("git_status_porcelain"), str)
+            else None
         ),
-        "dirty_at_record": bool(_dirty_lines(status.stdout.decode())),
+        "dirty_at_record": bool(_dirty_lines(porcelain)) if status_ok else None,
         "file_sha256": hashes,
         "working_tree_matches_commit": matches,
     }
@@ -1564,7 +1599,7 @@ def build_settling_report(
                 dt=DT,
                 stop_time=float(entry["stop_time"]),
             )
-        except ValueError as exc:
+        except SettlingDataError as exc:
             data_missing.append(f"{name}: {exc}")
             continue
         full = verdict.settling

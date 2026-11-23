@@ -178,13 +178,16 @@ restarts.
 Each run starts from a clean checkout of a `main` commit that is an ancestor of `origin/main`.
 This is derived from git, not typed in by the operator:
 - just before the container starts, `scripts/record_settling_run.py launch` writes the
-  checkout's HEAD and `git status --porcelain` into the run directory, and refuses to if the
-  checkout is dirty or HEAD is not on `origin/main`;
+  checkout's HEAD and `git status --porcelain` into the run directory. It refuses if the
+  checkout is dirty, HEAD is not on `origin/main`, or the run directory is inside the checkout
+  without being ignored by git. A launch state without its git status counts as neither clean
+  nor dirty, and the record is refused;
 - when the record is written, the script checks four things:
   - HEAD is still that commit;
   - the commit is an ancestor of `origin/main` (no other upstream is accepted);
-  - the checkout was and is clean (only new, untracked records under `records/` are
-    exempt);
+  - the checkout was and is clean: only new, untracked `*.json` files directly in `records/`
+    are exempt, and files hidden from `git status` (skip-worktree, assume-unchanged) count as
+    dirty;
   - each gated file equals its bytes at that commit.
 
 The record stores the commit and the SHA-256 (at that commit, from `git show`) of the gated

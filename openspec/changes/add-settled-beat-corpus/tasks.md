@@ -195,6 +195,14 @@ Rules:
   - raw-file hashes and the field-change shape are validated, and the CSV link fails closed;
   - an infinite reference value fails, and a short or malformed run is `data_incomplete`;
   - a missing docker or `hardware.json` is a clean refusal.
+- [x] 6.6 Fixes from the third focused re-review (tests first, third section of
+  `tests/test_settling_hardening.py`):
+  - a launch state without its git status is not a clean launch;
+  - `launch` refuses a run directory inside the checkout that git does not ignore;
+  - only new `*.json` files directly in `records/` are exempt from the dirty check;
+  - skip-worktree and assume-unchanged files count as dirty;
+  - the report turns only `SettlingDataError` into `data_incomplete`, so a bug still raises;
+  - a NaN value labels the binding target.
 
 ## Stage 1 runs on gh-04 (after PR 1 is merged)
 

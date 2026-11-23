@@ -705,3 +705,70 @@ def test_committed_settling_manifests_use_the_project_timestep():
             ).read_text()
         )
         assert sweep["dt"] == settling.DT
+
+
+# --------------------------------------------------------------------------- re-review round 3
+
+
+def test_launch_state_without_git_status_is_not_clean(tmp_path):
+    t = _tree(tmp_path)
+    prov = git_provenance(t["repo"], launch={"start_commit": t["commit"]})
+    assert prov["dirty_at_launch"] is None
+    assert any("dirty_at_launch" in p for p in settling.provenance_problems(prov))
+
+
+def test_launch_refuses_a_run_directory_inside_the_checkout(tmp_path):
+    from test_settling_report import _launch_script
+
+    t = _tree(tmp_path)
+    inside = t["repo"] / "myrun"
+    result = _launch_script(t, inside)
+    assert result.returncode == 1 and "inside the checkout" in result.stdout
+    assert not inside.exists()
+
+
+def test_launch_accepts_an_ignored_run_directory_inside_the_checkout(tmp_path):
+    from test_settling_report import _launch_script
+
+    t = _tree(tmp_path)
+    ignored = t["settling_dir"] / "runs" / "fine_cfg"
+    assert _launch_script(t, ignored).returncode == 0
+    assert (ignored / "launch.json").exists()
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "?? examples/settling_check/records/evil.py",
+        "?? examples/settling_check/records/sub/x.json",
+    ],
+)
+def test_only_json_records_directly_in_records_are_exempt(line):
+    assert settling._dirty_lines(line) == [line]
+
+
+def test_a_quoted_record_name_is_exempt():
+    assert settling._dirty_lines('?? "examples/settling_check/records/a b.json"') == []
+
+
+def test_skip_worktree_edits_are_dirty(tmp_path):
+    t = _tree(tmp_path)
+    tracked = "examples/corpus/sweep_manifest.json"
+    _git(t["repo"], "update-index", "--skip-worktree", tracked)
+    (t["repo"] / tracked).write_text("{}")
+    assert _provenance(t)["dirty_at_record"] is True
+
+
+def test_report_does_not_hide_an_unexpected_error(tmp_path, monkeypatch):
+    t = _complete_tree(tmp_path)
+
+    def broken(*args, **kwargs):
+        raise ValueError("a numpy bug, not a data problem")
+
+    monkeypatch.setattr(settling, "evaluate_run", broken)
+    with pytest.raises(ValueError, match="numpy bug"):
+        build_settling_report(t["settling_dir"], repo_root=t["repo"], git_commit=COMMIT)
+
+
+def test_settling_data_errors_are_value_errors():
+    assert issubclass(settling.SettlingDataError, ValueError)

@@ -186,15 +186,18 @@ typed in by the operator:
 - whether `origin/main` exists and the launch commit is an ancestor of it (no other
   upstream is accepted);
 - whether the checkout was dirty at launch and is dirty at record time. Only new, untracked
-  files under `examples/settling_check/records/` are exempt; a tracked record that is
-  modified, deleted or renamed, or anything renamed into that folder, is dirty;
+  `*.json` files directly in `examples/settling_check/records/` are exempt. A tracked record that
+  is modified, deleted or renamed, anything renamed into that folder, and any file hidden from
+  `git status` by skip-worktree or assume-unchanged, is dirty. A launch state without its git
+  status counts as neither clean nor dirty;
 - the SHA-256 of each gated file at the launch commit (from `git show`), and whether the
   working tree still matches it.
 
 A record SHALL be refused unless HEAD equals the launch commit, the launch commit is an
 ancestor of `origin/main`, the checkout was and is clean, and every gated file matches the
 launch commit. The launch step SHALL refuse, before any run starts, a checkout that is dirty
-or whose HEAD is not on `origin/main`. The IAMReX label SHALL come from
+or whose HEAD is not on `origin/main`, and a run directory inside the checkout that git does not
+ignore. The IAMReX label SHALL come from
 `docker image inspect`, never from an operator-supplied value.
 
 For every committed run record, a test SHALL fail unless every gated file hashes to the recorded
