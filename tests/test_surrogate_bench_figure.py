@@ -19,7 +19,7 @@ from mosquito_cfd.surrogate_bench.figure import (  # noqa: E402
     write_summary_figure,
 )
 
-ENTRIES = ["mlp_h1", "mlp_h3", "ridge", "ridge_fixed"]
+ENTRIES = ["mlp_h1", "mlp_h3", "mlp_w256d5", "mlp_w256d5_h3", "ridge", "ridge_fixed"]
 SPLITS = [f"split_{i}" for i in range(14)]
 
 
