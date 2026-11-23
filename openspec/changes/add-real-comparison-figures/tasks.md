@@ -310,11 +310,11 @@ This section is additive; the old builders stay until 7.
 
 ## 8. Gate before rendering
 
-- [ ] 8.1 Run the full suite, ruff, `openspec validate add-real-comparison-figures --strict` and the
+- [x] 8.1 Run the full suite, ruff, `openspec validate add-real-comparison-figures --strict` and the
   mutation table.
-- [ ] 8.2 An adversarial review of sections 3–7 by a fresh reviewer, reproducing by running code.
+- [x] 8.2 An adversarial review of sections 3–7 by a fresh reviewer, reproducing by running code.
   Fixes are committed before 8.3.
-- [ ] 8.3 Commit the ticks for 0–8.3 and any new change-directory file:
+- [x] 8.3 Commit the ticks for 0–8.3 and any new change-directory file:
   `chore(openspec): tick tasks 0-8 (advances #114)`.
 - [ ] 8.4 Both pre-render checks (working rules) are empty. **From here until 9.6, tick nothing.**
 
