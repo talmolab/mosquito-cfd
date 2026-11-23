@@ -82,6 +82,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--device", default="cpu", help="'cpu' or 'cuda' (A5000).")
     p.add_argument(
+        "--phase-harmonics",
+        type=int,
+        default=1,
+        help="Phase harmonics in the inputs (default 1, the shipped recipe).",
+    )
+    p.add_argument(
         "--wandb",
         choices=["disabled", "online"],
         default="disabled",
@@ -115,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         n_val_configs=args.n_val_configs,
         device=args.device,
         wandb_mode=args.wandb,
+        phase_harmonics=args.phase_harmonics,
     )
     agg = result["metrics"]["aggregate"]
     print(

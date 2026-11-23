@@ -422,3 +422,125 @@ def test_sign_equivariance_check_fails_on_each_defect(tmp_path, monkeypatch, def
     )
     assert np.isfinite(p).all() and np.isfinite(p_neg).all()
     assert not np.array_equal(p_neg, -p), defect
+
+
+# --- add-surrogate-comparison-bench (1c): the per-seed seams on the GPU tier -------------
+# Scenarios "Model constructs with the right shape (GPU tier)" (n_in = 9), "predict_frame
+# reproduces the fit's own predictions (GPU tier)" and "The bench path trains like
+# run_training" (force-surrogate spec, requirement "PhysicsNeMo force-coefficient regressor").
+
+FINE_DATASET = (
+    Path(__file__).resolve().parents[1]
+    / "examples"
+    / "prelim_sweep_fine"
+    / "dataset.parquet"
+)
+SEAM_EPOCHS = 20
+
+
+def _fine_converged():
+    from mosquito_cfd.force_surrogate.train import filter_converged_beat
+
+    return filter_converged_beat(pd.read_parquet(FINE_DATASET))
+
+
+def test_build_model_with_nine_inputs_forward_shape():
+    import torch
+
+    model = build_model(9, N_OUT, seed=0)
+    out = model(torch.zeros((4, 9), dtype=torch.float32))
+    assert tuple(out.shape) == (4, N_OUT)
+
+
+@pytest.mark.parametrize("harmonics", [1, 3])
+def test_predict_frame_reproduces_the_fits_own_test_predictions(harmonics):
+    from mosquito_cfd.force_surrogate.train import (
+        fit_seed,
+        make_config_splits,
+        predict_frame,
+    )
+
+    df = _fine_converged()
+    split = make_config_splits(df, seed=1234, n_val_configs=3)
+    fit = fit_seed(
+        df,
+        split,
+        seed=1234,
+        phase_harmonics=harmonics,
+        epochs=SEAM_EPOCHS,
+        device="cuda",
+    )
+    test_rows = df[df["config_name"].isin(split.test_configs)]
+    out = predict_frame(fit, test_rows, device="cuda")
+    assert out.dtype == fit.y_pred.dtype and out.shape == fit.y_pred.shape
+    assert out.tobytes() == fit.y_pred.tobytes()
+
+
+_DEFAULT_FIT_SCRIPT = """
+import sys, numpy as np, pandas as pd
+from mosquito_cfd.force_surrogate import train
+df = train.filter_converged_beat(pd.read_parquet(sys.argv[1]))
+fit = train._fit_one_seed(df, seed=1234, n_val_configs=3, epochs=int(sys.argv[3]),
+                          hidden=train.DEFAULT_HIDDEN, num_layers=train.DEFAULT_NUM_LAYERS,
+                          lr=1e-3, device="cuda")
+np.save(sys.argv[2], fit.y_pred)
+"""
+
+
+def test_the_bench_path_trains_like_run_training(tmp_path):
+    """Default fit first in a fresh process == fit_seed after the bench's prior GPU work."""
+    import subprocess
+    import sys
+    import time
+
+    from mosquito_cfd.force_surrogate.train import (
+        fit_seed,
+        make_config_splits,
+        predict_frame,
+    )
+
+    reference = tmp_path / "default_first.npy"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _DEFAULT_FIT_SCRIPT,
+            str(FINE_DATASET),
+            str(reference),
+            str(SEAM_EPOCHS),
+        ],
+        check=True,
+    )
+    df = _fine_converged()
+    # The bench's sequence before this fit: an unrelated fit, a grid prediction, timing.
+    other = fit_seed(
+        df,
+        make_config_splits(df, seed=99, n_val_configs=3),
+        seed=99,
+        phase_harmonics=3,
+        epochs=SEAM_EPOCHS,
+        device="cuda",
+    )
+    grid = df.drop_duplicates("config_name").loc[
+        :, ["stroke_amp_deg", "frequency_fstar", "pitch_amp_deg"]
+    ]
+    grid = grid.loc[grid.index.repeat(256)].assign(
+        phase=np.tile(np.arange(256) / 256, len(grid))
+    )
+    predict_frame(other, grid, device="cuda")
+    t0 = time.perf_counter()
+    for _ in range(50):
+        predict_frame(other, grid.iloc[:1], device="cuda")
+    assert time.perf_counter() > t0
+    fit = fit_seed(
+        df,
+        make_config_splits(df, seed=1234, n_val_configs=3),
+        seed=1234,
+        phase_harmonics=1,
+        epochs=SEAM_EPOCHS,
+        device="cuda",
+    )
+    expected = np.load(reference)
+    assert fit.y_pred.tobytes() == expected.tobytes(), (
+        "fit order changed the predictions; halt (design D7)"
+    )

@@ -114,3 +114,35 @@ def test_main_delegates_without_importing_torch(monkeypatch):
     assert captured["docker_image_digest"].endswith("a" * 64)
     assert captured["wandb_mode"] == "disabled"
     assert "torch" not in sys.modules  # the driver never triggered the lazy import
+
+
+def test_phase_harmonics_flag_parses_and_reaches_run_training(monkeypatch):
+    """--phase-harmonics parses to an int, defaults to 1, and is passed to run_training.
+
+    Scenario "The harmonic count reaches every seed" (add-surrogate-comparison-bench, 1b).
+    """
+    driver = _load_driver()
+    required = ["--dataset", "d", "--out-dir", "o", "--docker-digest", "x"]
+    parser = driver.build_parser()
+    assert parser.parse_args([*required, "--timestamp", "t"]).phase_harmonics == 1
+    assert (
+        parser.parse_args(
+            [*required, "--timestamp", "t", "--phase-harmonics", "3"]
+        ).phase_harmonics
+        == 3
+    )
+    captured = {}
+
+    def fake_run_training(dataset, out_dir, **kwargs):
+        captured.update(kwargs)
+        return {
+            "metrics_path": "m.json",
+            "predictions_path": "p.parquet",
+            "checkpoint_path": "c.pt",
+            "metadata_path": "r.json",
+            "metrics": {"aggregate": {"rmse": 0.1, "mae": 0.05, "r2": 0.9}},
+        }
+
+    monkeypatch.setattr(driver.train, "run_training", fake_run_training)
+    assert driver.main([*required, "--timestamp", "t", "--phase-harmonics", "3"]) == 0
+    assert captured["phase_harmonics"] == 3

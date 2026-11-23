@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import platform
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,31 +86,110 @@ _VARIANCE_EPS = 1e-12
 # --- Feature / target construction -------------------------------------------------------
 
 
-def build_features(df: pd.DataFrame) -> tuple[NDArray[np.floating], list[str]]:
+def _validate_phase_harmonics(phase_harmonics: object) -> int:
+    """Return ``phase_harmonics`` as an ``int`` or raise.
+
+    Raises:
+        TypeError: if it is not an integer (``bool`` and ``numpy.timedelta64``, which are
+            integer subclasses, are rejected too).
+        ValueError: if it is below 1.
+    """
+    if isinstance(phase_harmonics, bool | np.bool_ | np.timedelta64) or not isinstance(
+        phase_harmonics, int | np.integer
+    ):
+        raise TypeError(
+            f"phase_harmonics must be an integer, got {phase_harmonics!r} "
+            f"({type(phase_harmonics).__name__})"
+        )
+    if phase_harmonics < 1:
+        raise ValueError(f"phase_harmonics must be at least 1, got {phase_harmonics}")
+    return int(phase_harmonics)
+
+
+def _harmonic_feature_names(phase_harmonics: int) -> list[str]:
+    """Feature names for ``phase_harmonics`` harmonics: the base five, then h = 2..H pairs."""
+    names = list(FEATURE_COLUMNS)
+    for h in range(2, phase_harmonics + 1):
+        names += [f"phase_sin_h{h}", f"phase_cos_h{h}"]
+    return names
+
+
+def build_features(
+    df: pd.DataFrame, phase_harmonics: int = 1
+) -> tuple[NDArray[np.floating], list[str]]:
     """Build the standardizable input feature matrix from a dataset slice.
 
     Inputs are ``[stroke_amp_deg, frequency_fstar, pitch_amp_deg, sin(2*pi*phase),
     cos(2*pi*phase)]`` (cyclic phase respects the 0/1 wrap; Reynolds is excluded, design D3).
+    With ``phase_harmonics = H > 1``, ``sin(2*pi*h*phase)`` and ``cos(2*pi*h*phase)`` for
+    ``h = 2..H`` are appended in that order as ``phase_sin_h{h}`` / ``phase_cos_h{h}``. At the
+    default the matrix is bitwise the pre-option construction.
 
     Args:
         df: A dataset frame carrying at least ``stroke_amp_deg``, ``frequency_fstar``,
             ``pitch_amp_deg``, and ``phase``.
+        phase_harmonics: Number of phase harmonics ``H >= 1`` (default 1).
 
     Returns:
-        ``(X, feature_names)`` where ``X`` is a ``(n_rows, 5)`` float array whose columns are
-        :data:`FEATURE_COLUMNS`.
+        ``(X, feature_names)`` where ``X`` is a ``(n_rows, 3 + 2H)`` float array; at the default
+        its columns are :data:`FEATURE_COLUMNS`.
+
+    Raises:
+        TypeError: if ``phase_harmonics`` is not an integer.
+        ValueError: if ``phase_harmonics`` is below 1.
     """
+    n_harmonics = _validate_phase_harmonics(phase_harmonics)
     phase = df["phase"].to_numpy(dtype=float)
-    x = np.column_stack(
-        [
-            df["stroke_amp_deg"].to_numpy(dtype=float),
-            df["frequency_fstar"].to_numpy(dtype=float),
-            df["pitch_amp_deg"].to_numpy(dtype=float),
-            np.sin(2.0 * np.pi * phase),
-            np.cos(2.0 * np.pi * phase),
-        ]
-    )
-    return x, list(FEATURE_COLUMNS)
+    columns = [
+        df["stroke_amp_deg"].to_numpy(dtype=float),
+        df["frequency_fstar"].to_numpy(dtype=float),
+        df["pitch_amp_deg"].to_numpy(dtype=float),
+        np.sin(2.0 * np.pi * phase),
+        np.cos(2.0 * np.pi * phase),
+    ]
+    for h in range(2, n_harmonics + 1):
+        columns += [np.sin(2.0 * np.pi * h * phase), np.cos(2.0 * np.pi * h * phase)]
+    return np.column_stack(columns), _harmonic_feature_names(n_harmonics)
+
+
+def phase_harmonics_from_features(feature_names: Sequence[str]) -> int:
+    """Recover the harmonic count ``H`` from a feature-name list (e.g. a checkpoint's).
+
+    Args:
+        feature_names: The names :func:`build_features` returned.
+
+    Returns:
+        ``H >= 1``.
+
+    Raises:
+        ValueError: if the list is not exactly :data:`FEATURE_COLUMNS` followed by consecutive
+            ``phase_sin_h{h}`` / ``phase_cos_h{h}`` pairs for ``h = 2..H`` (a gap, a duplicate, a
+            wrong order or an unknown name), naming the first offending entry.
+    """
+    names = list(feature_names)
+    base = list(FEATURE_COLUMNS)
+    for i, expected in enumerate(base):
+        if i >= len(names) or names[i] != expected:
+            found = names[i] if i < len(names) else "<missing>"
+            raise ValueError(
+                f"feature name {i} must be {expected!r}, found {found!r}; "
+                f"names: {names}"
+            )
+    extra = names[len(base) :]
+    n_harmonics = 1 + (len(extra) + 1) // 2
+    expected_all = _harmonic_feature_names(n_harmonics)
+    for i, name in enumerate(names):
+        if i >= len(expected_all) or name != expected_all[i]:
+            raise ValueError(
+                f"unexpected phase feature {name!r} at position {i}; harmonics must be "
+                f"consecutive phase_sin_h{{h}}, phase_cos_h{{h}} pairs from h=2; names: {names}"
+            )
+    if len(names) != len(expected_all):
+        missing = expected_all[len(names)]
+        raise ValueError(
+            f"unpaired phase feature {names[-1]!r}: {missing!r} is missing; names: {names}"
+        )
+    return n_harmonics
 
 
 def filter_converged_beat(
@@ -209,6 +289,49 @@ class SplitAssignment:
     test_configs: list[str]
 
 
+def carve_validation(
+    train_pool: Sequence[str], *, seed: int, n_val_configs: int
+) -> tuple[list[str], list[str]]:
+    """Carve ``n_val_configs`` whole configurations from a training pool for validation.
+
+    The algorithm :func:`make_config_splits` uses, shared so the comparison bench can carve any
+    split's training list the same way: a seeded ``numpy.random.default_rng(seed).choice``
+    without replacement over the **sorted** pool.
+
+    Args:
+        train_pool: Training configuration names (any order; sorted here, as given, so the
+            carve over any name type is the one :func:`make_config_splits` always made).
+        seed: Seed for the carve.
+        n_val_configs: Number of configurations to hold for validation.
+
+    Returns:
+        ``(train_configs, val_configs)``, each sorted.
+
+    Raises:
+        ValueError: If a name repeats, or ``n_val_configs`` would leave an empty validation or
+            training set.
+    """
+    try:
+        pool = sorted(train_pool)
+    except TypeError as exc:
+        raise ValueError(f"training pool names must all be of one type: {exc}") from exc
+    counts = Counter(pool)
+    repeated = sorted(c for c, n in counts.items() if n > 1)
+    if repeated:
+        raise ValueError(f"the training pool repeats configuration(s) {repeated}")
+    if not (1 <= n_val_configs < len(pool)):
+        raise ValueError(
+            f"n_val_configs must be a valid carve in 1..{len(pool) - 1} (got "
+            f"{n_val_configs}); it must leave both a non-empty validation and a non-empty "
+            "training set"
+        )
+    rng = np.random.default_rng(seed)
+    val_idx = rng.choice(len(pool), size=n_val_configs, replace=False)
+    val_configs = sorted(pool[i] for i in val_idx)
+    train_configs = sorted(set(pool) - set(val_configs))
+    return train_configs, val_configs
+
+
 def make_config_splits(
     df: pd.DataFrame, *, seed: int, n_val_configs: int = 3
 ) -> SplitAssignment:
@@ -243,17 +366,10 @@ def make_config_splits(
             "no configurations are labelled split == 'holdout'; cannot form the held-out "
             "test set (CC-4)"
         )
-    train_pool = sorted(df.loc[df["split"] == "train", "config_name"].unique())
-    if not (1 <= n_val_configs < len(train_pool)):
-        raise ValueError(
-            f"n_val_configs must be a valid carve in 1..{len(train_pool) - 1} (got "
-            f"{n_val_configs}); it must leave both a non-empty validation and a non-empty "
-            "training set"
-        )
-    rng = np.random.default_rng(seed)
-    val_idx = rng.choice(len(train_pool), size=n_val_configs, replace=False)
-    val_configs = sorted(train_pool[i] for i in val_idx)
-    train_configs = sorted(set(train_pool) - set(val_configs))
+    train_pool = df.loc[df["split"] == "train", "config_name"].unique()
+    train_configs, val_configs = carve_validation(
+        train_pool, seed=seed, n_val_configs=n_val_configs
+    )
     return SplitAssignment(
         train_configs=train_configs,
         val_configs=val_configs,
@@ -361,6 +477,9 @@ def compute_metrics(
 # PhysicsNeMo MLP defaults for this small kinematics->coefficients regression.
 DEFAULT_HIDDEN = 64
 DEFAULT_NUM_LAYERS = 3
+DEFAULT_LR = 1e-3
+DEFAULT_EPOCHS = 2000
+DEFAULT_N_VAL_CONFIGS = 3
 
 
 def set_seeds(seed: int) -> None:
@@ -393,7 +512,8 @@ def build_model(
     documented ``physicsnemo.models.mlp.FullyConnected``.
 
     Args:
-        n_in: Number of input features (5: :data:`FEATURE_COLUMNS`).
+        n_in: Number of input features: ``3 + 2H`` for ``H`` phase harmonics (5, i.e.
+            :data:`FEATURE_COLUMNS`, for the shipped ``H = 1``).
         n_out: Number of targets (6: :data:`TARGET_COLUMNS`).
         seed: Seed applied before weight initialization.
         hidden: Hidden layer width.
@@ -585,6 +705,7 @@ def build_phase_only_baseline(
     df: pd.DataFrame,
     query_phase: NDArray[np.floating],
     target_names: list[str] | None = None,
+    reference_configs: Sequence[str] | None = None,
 ) -> tuple[NDArray[np.floating], dict[str, Any]]:
     """Phase-only baseline: the mean training waveform, ignoring the kinematics (design D2).
 
@@ -600,20 +721,42 @@ def build_phase_only_baseline(
             target columns.
         query_phase: ``(n,)`` phases in ``[0, 1)`` to evaluate the baseline at.
         target_names: Target columns (defaults to :data:`TARGET_COLUMNS`).
+        reference_configs: An explicit list of reference configurations, used instead of the
+            ``split == "train"`` set (the definition then records ``reference_split:
+            "explicit"``). Every name must be in ``df`` and appear once. Without it the result
+            is bitwise the pre-option baseline.
 
     Returns:
         ``(predictions, definition)``: an ``(n, n_targets)`` array, and the ``phase_baseline``
         definition block recorded in ``metrics.json``.
 
     Raises:
-        ValueError: If there is no reference configuration, a beat has fewer than 2 rows or a
+        ValueError: If an explicit list is empty, repeats a name or names a configuration
+            absent from ``df``; if there is no reference configuration, a beat has fewer than 2 rows or a
             duplicate phase, a reference value is non-finite, or a reference or query phase is
             non-finite or outside ``[0, 1)``.
     """
     names = list(target_names) if target_names is not None else list(TARGET_COLUMNS)
     query = np.asarray(query_phase, dtype=float)
     _check_phase(query, "query")
-    ref = df[(df["split"] == "train") & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
+    if reference_configs is None:
+        reference_split = "train"
+        chosen = df["split"] == "train"
+    else:
+        listed = [str(c) for c in reference_configs]
+        if not listed:
+            raise ValueError("reference_configs is empty")
+        repeated = sorted({c for c in listed if listed.count(c) > 1})
+        if repeated:
+            raise ValueError(f"reference_configs repeats {repeated}")
+        absent = sorted(set(listed) - set(df["config_name"].astype(str).unique()))
+        if absent:
+            raise ValueError(
+                f"reference_configs names configuration(s) absent: {absent}"
+            )
+        reference_split = "explicit"
+        chosen = df["config_name"].astype(str).isin(listed)
+    ref = df[chosen & (df["wingbeat"] >= CONVERGED_MIN_WINGBEAT)]
     configs = sorted(ref["config_name"].unique())
     if not configs:
         raise ValueError(
@@ -645,7 +788,7 @@ def build_phase_only_baseline(
         total += config_sum / len(beats)
     definition = {
         "kind": "phase_only_periodic_interpolation",
-        "reference_split": "train",
+        "reference_split": reference_split,
         "reference_configs": [str(c) for c in configs],
         "weighting": "equal_per_config_then_beat",
         "converged_min_wingbeat": CONVERGED_MIN_WINGBEAT,
@@ -1088,7 +1231,7 @@ DEFAULT_SEED = 1234
 
 
 @dataclass
-class _SeedFit:
+class SeedFit:
     """One seed's fitted model and its holdout predictions (the per-seed seam, design D4)."""
 
     split: SplitAssignment
@@ -1112,20 +1255,25 @@ def _fit_one_seed(
     num_layers: int,
     lr: float,
     device: str,
-) -> _SeedFit:
+    phase_harmonics: int = 1,
+    split: SplitAssignment | None = None,
+) -> SeedFit:
     """Carve, standardize, build, train and predict for one seed (torch tier, lazy imports).
 
     ``run_training`` calls this once per seed; it is module-level so the torch-free tests can
-    replace it with a recorder (order and atomicity, design D4).
+    replace it with a recorder (order and atomicity, design D4). With ``split=None`` the
+    validation carve is :func:`make_config_splits`, exactly as before the bench existed; an
+    explicit ``split`` (from :func:`fit_seed`) is used verbatim and nothing is re-carved.
     """
-    split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
+    if split is None:
+        split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
 
     cfg = df["config_name"].to_numpy()
     train_mask = np.isin(cfg, split.train_configs)
     val_mask = np.isin(cfg, split.val_configs)
     test_mask = np.isin(cfg, split.test_configs)
 
-    x_all, feature_names = build_features(df)
+    x_all, feature_names = build_features(df, phase_harmonics=phase_harmonics)
     feature_std = Standardizer().fit(x_all[train_mask])
     xz = feature_std.transform(x_all)
     y_all = df[TARGET_COLUMNS].to_numpy(dtype=float)
@@ -1163,7 +1311,7 @@ def _fit_one_seed(
     val_aggregate = compute_metrics(y_all[val_mask], y_val_pred, list(TARGET_COLUMNS))[
         "aggregate"
     ]
-    return _SeedFit(
+    return SeedFit(
         split=split,
         model=model,
         feature_std=feature_std,
@@ -1176,6 +1324,118 @@ def _fit_one_seed(
     )
 
 
+def _validate_split(df: pd.DataFrame, split: SplitAssignment) -> None:
+    """Raise ``ValueError`` unless ``split`` is non-empty, disjoint and present in ``df``."""
+    lists = {
+        "train": list(split.train_configs),
+        "validation": list(split.val_configs),
+        "test": list(split.test_configs),
+    }
+    for label, names in lists.items():
+        if not names:
+            # An empty validation list would silently skip the best-validation restore.
+            raise ValueError(f"split has an empty {label} list: {split}")
+    seen: dict[str, str] = {}
+    for label, names in lists.items():
+        for name in names:
+            if name in seen:
+                raise ValueError(
+                    f"split lists overlap: {name!r} is in both {seen[name]} and {label}"
+                )
+            seen[name] = label
+    present = set(df["config_name"].unique())
+    absent = sorted(set(seen) - present)
+    if absent:
+        raise ValueError(
+            f"split names configuration(s) absent from the frame: {absent}"
+        )
+
+
+def fit_seed(
+    df: pd.DataFrame,
+    split: SplitAssignment,
+    *,
+    seed: int,
+    phase_harmonics: int = 1,
+    epochs: int = DEFAULT_EPOCHS,
+    hidden: int = DEFAULT_HIDDEN,
+    num_layers: int = DEFAULT_NUM_LAYERS,
+    lr: float = DEFAULT_LR,
+    device: str = "cpu",
+) -> SeedFit:
+    """Fit one seed of the shipped recipe on a caller-supplied split (the bench's seam).
+
+    The split is validated (non-empty, disjoint, present in ``df``) before anything else, so an
+    invalid split raises without importing torch. It is then used verbatim:
+    :func:`make_config_splits` is not called. With the split ``make_config_splits`` would carve
+    for ``seed``, the model sees exactly what ``run_training`` gives it.
+
+    Args:
+        df: The converged-beat frame, in dataset order.
+        split: The train / validation / test configuration lists.
+        seed: Model and training seed.
+        phase_harmonics: Number of phase harmonics in the inputs.
+        epochs: Training epochs (full-batch).
+        hidden: MLP hidden width.
+        num_layers: MLP hidden layers.
+        lr: Adam learning rate.
+        device: ``"cpu"`` or ``"cuda"``.
+
+    Returns:
+        The fitted seed (model, standardisers, feature names, test predictions).
+
+    Raises:
+        ValueError: If the split is invalid.
+        TypeError: If ``phase_harmonics`` is not an integer.
+    """
+    _validate_split(df, split)
+    phase_harmonics = _validate_phase_harmonics(phase_harmonics)
+    return _fit_one_seed(
+        df,
+        seed=seed,
+        n_val_configs=len(split.val_configs),
+        epochs=epochs,
+        hidden=hidden,
+        num_layers=num_layers,
+        lr=lr,
+        device=device,
+        phase_harmonics=phase_harmonics,
+        split=split,
+    )
+
+
+def predict_frame(
+    fit: SeedFit, frame: pd.DataFrame, *, device: str = "cpu"
+) -> NDArray[np.floating]:
+    """Predict the six coefficients for arbitrary rows with a fitted seed.
+
+    Builds the features with the fit's own harmonic count (recovered from its
+    ``feature_names``), standardises them with the fit's feature standardiser, runs the model
+    and returns predictions in coefficient units.
+
+    Args:
+        fit: A fitted seed from :func:`fit_seed` (or the trainer's per-seed fit).
+        frame: Rows carrying ``stroke_amp_deg``, ``frequency_fstar``, ``pitch_amp_deg`` and
+            ``phase``.
+        device: ``"cpu"`` or ``"cuda"``.
+
+    Returns:
+        ``(len(frame), 6)`` predictions in the order of :data:`TARGET_COLUMNS`.
+
+    Raises:
+        ValueError: If ``frame`` lacks a required column or the fit's feature names are
+            malformed.
+    """
+    needed = ["stroke_amp_deg", "frequency_fstar", "pitch_amp_deg", "phase"]
+    missing = [c for c in needed if c not in frame.columns]
+    if missing:
+        raise ValueError(f"frame is missing required column(s) {missing}")
+    n_harmonics = phase_harmonics_from_features(fit.feature_names)
+    x, _ = build_features(frame, phase_harmonics=n_harmonics)
+    yz = predict(fit.model, fit.feature_std.transform(x), device=device)
+    return fit.target_std.inverse_transform(yz)
+
+
 def run_training(
     dataset_path: Path | str,
     out_dir: Path | str,
@@ -1184,15 +1444,16 @@ def run_training(
     timestamp: str,
     seed: int = DEFAULT_SEED,
     sweep_seeds: Sequence[int] = (),
-    epochs: int = 2000,
-    n_val_configs: int = 3,
+    epochs: int = DEFAULT_EPOCHS,
+    n_val_configs: int = DEFAULT_N_VAL_CONFIGS,
     hidden: int = DEFAULT_HIDDEN,
     num_layers: int = DEFAULT_NUM_LAYERS,
-    lr: float = 1e-3,
+    lr: float = DEFAULT_LR,
     device: str = "cpu",
     wandb_mode: str = "disabled",
     wandb_project: str = "force-surrogate",
     checkpoint_name: str = "surrogate.pt",
+    phase_harmonics: int = 1,
 ) -> dict[str, Any]:
     """Train the PhysicsNeMo surrogate end-to-end and emit the four committed artifacts.
 
@@ -1227,20 +1488,24 @@ def run_training(
         wandb_mode: ``"disabled"`` (default) or ``"online"``.
         wandb_project: wandb project name.
         checkpoint_name: Filename for the saved checkpoint under ``out_dir``.
+        phase_harmonics: Number of phase harmonics in the inputs (default 1, the shipped
+            recipe); passed explicitly to every seed's fit.
 
     Returns:
         A dict of the written artifact paths plus the in-memory ``metrics`` and ``split``.
 
     Raises:
-        ValueError: If a sweep seed equals the primary seed or repeats (before anything is
-            read or written).
+        ValueError: If a sweep seed equals the primary seed or repeats, or
+            ``phase_harmonics`` is below 1 (before anything is read or written).
+        TypeError: If ``phase_harmonics`` is not an integer (before anything is read).
     """
     # NOTE: torch is imported lazily (by the per-seed fit and the checkpoint write) so all the
     # pure-pandas validation here — seeds, digest, schema, converged-beat/holdout checks — is
     # reachable and testable without the optional `train` group (design D2).
     from mosquito_cfd.force_surrogate.sidecar import validate_image_digest
 
-    # Seeds first: nothing is read or created for an invalid sweep (design D4).
+    # The harmonic count and the seeds first: nothing is read or created for invalid input.
+    phase_harmonics = _validate_phase_harmonics(phase_harmonics)
     sweep = [int(s) for s in sweep_seeds]
     all_seeds = [int(seed), *sweep]
     if any(s < 0 for s in all_seeds):
@@ -1288,6 +1553,7 @@ def run_training(
         "num_layers": num_layers,
         "lr": lr,
         "device": device,
+        "phase_harmonics": phase_harmonics,
     }
     # The holdout rows and the phase-only baseline depend on the dataset, not the seed (D2),
     # so a malformed baseline reference fails here, before any seed trains.

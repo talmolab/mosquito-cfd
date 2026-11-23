@@ -27,7 +27,8 @@ mosquito-cfd/
 │   ├── benchmarks/           # Benchmark runner and metadata capture
 │   ├── force_surrogate/      # Track B force-surrogate prep (normalization, sweep, dataset, train)
 │   ├── visualization/        # Video and figure builders (viz group; see "Visualization Tooling")
-│   └── field_surrogate/      # Stage-2 field reader (snapshot, corpus, DoMINO adapter)
+│   ├── field_surrogate/      # Stage-2 field reader (snapshot, corpus, DoMINO adapter)
+│   └── surrogate_bench/      # F3a comparison bench (splits, ridge, metrics, gate, runner; see "Surrogate Comparison Bench")
 ├── scripts/                  # Thin CLI drivers over the tested library (e.g. run_sweep.py, extract_forces.py)
 ├── docker/                   # Container infrastructure
 │   ├── Dockerfile.fp64       # Primary simulation image
@@ -367,6 +368,45 @@ The DoMINO adapter is deliberately partial: stock DoMINO is a geometry->fields s
 `volume_fields` is a training *target*, and the geometry-half keys (`geometry_coordinates`,
 `sdf_*`, `surface_mesh_*`) are absent rather than zero-filled -- they are F3's work. See
 OpenSpec change `add-field-surrogate-reader` (`design.md` D4, D6, D10).
+
+### Surrogate Comparison Bench (F3a)
+
+`src/mosquito_cfd/surrogate_bench/` scores force-surrogate families on one shared set of 14 splits
+over the fine 3×3×3 corpus. The splits are interpolation (the shipped 21 + 6), the 6 grid faces, 6
+random-18-configuration controls and `control:e4_seed0`. Every MLP entry runs the 5 seeds in
+`BENCH_SEEDS`. The four entries are:
+
+- `mlp_h1`, the shipped Track B MLP;
+- `mlp_h3`, the same MLP with three phase harmonics (`train_surrogate.py --phase-harmonics`; the
+  default of 1 leaves the shipped model unchanged);
+- `ridge`, a Fourier × polynomial ridge reference whose `(H, d, α)` is picked by leave-one-out CV
+  under the one-standard-error rule;
+- `ridge_fixed`, the same ridge at `(16, 3, 1e-6)`.
+
+The ridge is bench-only, not a shipped surrogate. Results are skill over each split's phase-only
+baseline, which is not compared across splits, plus a provisional per-component hover-gate verdict
+against measured CFD yardsticks. Claims are limited to interpolation and extrapolation to a held-out
+outer layer of the grid, on the unsettled 2-beat corpus with generic sinusoidal kinematics (#142).
+
+`scripts/run_surrogate_bench.py` is the driver. It takes the flags `--dataset`, `--coarse-dataset`,
+`--out-dir`, `--docker-digest` (`<repo>@sha256:<64 hex>`), `--timestamp` (required),
+`--device`, `--entries`, `--epochs` and `--allow-dirty`.
+
+- `--allow-dirty` is bench-specific: without it, a dirty tree, or one whose state git cannot report,
+  is refused. With it, the metadata records `dirty: true`.
+- Every refusal exits non-zero before anything is written, and every check that depends only
+  on the data runs before the first fit. The five artifacts are written atomically.
+- `--docker-digest` must match the `docker_image` recorded by the `run_metadata.json` beside the
+  fine dataset; `run_metadata.json` also records the coarse corpus's sha256 and image.
+- The MLP entries need the `train` group; on Windows they run under WSL2, as the shipped surrogate's
+  training did. The figure needs `viz`.
+- `--entries ridge,ridge_fixed` needs no torch, so a ridge-only run works on CPU anywhere.
+
+The committed bench results land in PR 2. When they do, the exact `mlp_h1` / `interpolation`
+regression against the shipped `metrics.json` holds only on the shipped run's host (talmo-lab-02
+under WSL2), with the same `torch` and `physicsnemo` versions, and with `mlp_h1` / `interpolation`
+fitted first in the process. That test lands in PR 2. See OpenSpec change
+`add-surrogate-comparison-bench`.
 
 ### Visualization Tooling
 

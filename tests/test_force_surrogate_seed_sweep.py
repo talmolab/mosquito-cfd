@@ -8,6 +8,7 @@ the ``force-surrogate`` spec scenario it verifies ("Multi-seed sweep reported by
 import json
 import math
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -182,7 +183,7 @@ def _install_recorder(monkeypatch, *, fail_on):
             raise RuntimeError(f"recorder: seed {seed} failed")
         split = make_config_splits(df, seed=seed, n_val_configs=n_val_configs)
         n_test = int(np.isin(df["config_name"], split.test_configs).sum())
-        return train._SeedFit(
+        return train.SeedFit(
             split=split,
             model=None,
             feature_std=train.Standardizer(),
@@ -315,4 +316,117 @@ def test_a_malformed_phase_only_baseline_fails_before_any_seed_trains(
             timestamp=TIMESTAMP,
             n_val_configs=2,
         )
+    assert calls == []
+
+
+# --- add-surrogate-comparison-bench (1b): the harmonic count reaches every seed ----------
+# Scenarios "The harmonic count reaches every seed" and "Invalid harmonic counts fail before
+# any I/O" (force-surrogate spec, requirement "PhysicsNeMo force-coefficient regressor").
+
+KEY_PATHS_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "force_surrogate"
+    / "metrics_key_paths_e600581.json"
+)
+# The per-seed keyword arguments run_training passed at e600581 (seed and df aside).
+FIT_KWARGS_AT_E600581 = {
+    "n_val_configs": 2,
+    "epochs": 2000,
+    "hidden": 64,
+    "num_layers": 3,
+    "lr": 0.001,
+    "device": "cpu",
+}
+
+
+class _StopBeforeTorch(Exception):
+    """Raised from build_training_metadata so run_training stops before importing torch."""
+
+
+def _install_kwarg_recorder(monkeypatch):
+    """Record every per-seed call's kwargs, spy on build_metrics, stop before torch."""
+    calls = _install_recorder(
+        monkeypatch, fail_on=None
+    )  # also patches _measure_inference
+    recorded, captured = [], {}
+    inner = train._fit_one_seed
+
+    def kwarg_fit(df, **kwargs):
+        recorded.append(dict(kwargs))
+        return inner(df, **kwargs)
+
+    real_build_metrics = train.build_metrics
+
+    def spy_build_metrics(*args, **kwargs):
+        captured["metrics"] = real_build_metrics(*args, **kwargs)
+        return captured["metrics"]
+
+    def stop(**_):
+        raise _StopBeforeTorch
+
+    monkeypatch.setattr(train, "_fit_one_seed", kwarg_fit)
+    monkeypatch.setattr(train, "build_metrics", spy_build_metrics)
+    monkeypatch.setattr(train, "build_training_metadata", stop)
+    return calls, recorded, captured
+
+
+def _key_paths(obj, prefix=""):
+    paths = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            paths.append(prefix + key)
+            paths += _key_paths(value, prefix + key + ".")
+    return paths
+
+
+def _run_to_sentinel(tmp_path, **kwargs):
+    with pytest.raises(_StopBeforeTorch):
+        run_training(
+            _toy_parquet(tmp_path / "ds.parquet"),
+            tmp_path / "out",
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            seed=1234,
+            n_val_configs=2,
+            sweep_seeds=(1235, 1236),
+            **kwargs,
+        )
+
+
+def test_phase_harmonics_reaches_every_seed(tmp_path, monkeypatch):
+    _, recorded, _ = _install_kwarg_recorder(monkeypatch)
+    _run_to_sentinel(tmp_path, phase_harmonics=3)
+    assert [r["seed"] for r in recorded] == [1234, 1235, 1236]
+    assert all(r["phase_harmonics"] == 3 for r in recorded)
+
+
+def test_default_passes_one_harmonic_and_is_otherwise_unchanged(tmp_path, monkeypatch):
+    _, recorded, captured = _install_kwarg_recorder(monkeypatch)
+    _run_to_sentinel(tmp_path)
+    for r in recorded:
+        assert r.pop("phase_harmonics") == 1  # passed explicitly, also at the default
+        r.pop("seed")
+        assert r == FIT_KWARGS_AT_E600581
+    expected = json.loads(KEY_PATHS_FIXTURE.read_text(encoding="utf-8"))["key_paths"]
+    assert sorted(_key_paths(captured["metrics"])) == expected
+
+
+@pytest.mark.parametrize(
+    ("bad", "error"), [(0, ValueError), (True, TypeError), (2.5, TypeError)]
+)
+def test_invalid_phase_harmonics_fail_before_the_dataset_is_read(
+    tmp_path, monkeypatch, bad, error
+):
+    calls = _install_recorder(monkeypatch, fail_on=None)
+    out = tmp_path / "out"
+    with pytest.raises(error, match="phase_harmonics must be"):
+        run_training(
+            tmp_path / "does_not_exist.parquet",
+            out,
+            docker_image_digest=DIGEST,
+            timestamp=TIMESTAMP,
+            phase_harmonics=bad,
+        )
+    assert not out.exists()
     assert calls == []
