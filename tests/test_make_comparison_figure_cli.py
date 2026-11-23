@@ -1,124 +1,104 @@
-"""CLI smoke tests for scripts/make_comparison_figure.py and
-scripts/make_config_mean_collapse_diagnostic.py (OpenSpec change add-visualization-tooling).
+"""CLI tests for scripts/make_coarse_vs_fine_figures.py (OpenSpec change add-real-comparison-figures).
+
+The driver renders exactly one figure per invocation, passing ``root=Path.cwd()``, and argparse
+refuses an unknown figure name or a missing flag with status 2 before anything is written.
 """
 
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 
-import pandas as pd
 import pytest
+from _comparison_corpus import COARSE_DIR, FINE_DIGEST, FINE_DIR, write_repo
 
-DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "a" * 64
-TS = "2020-01-01T00:00:00+00:00"
+SCRIPT = (
+    Path(__file__).resolve().parents[1] / "scripts" / "make_coarse_vs_fine_figures.py"
+)
+TS = "2026-11-22T00:00:00Z"
+GIT = {"commit": "b" * 40, "dirty": False, "branch": "add-real-comparison-figures"}
 
 
-def _load_cli(name: str, script_path: str):
-    spec = importlib.util.spec_from_file_location(name, Path(script_path))
+def _load_cli():
+    spec = importlib.util.spec_from_file_location("make_coarse_vs_fine_figures", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _tiny_predictions_df() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "config_name": ["cfgA", "cfgA", "cfgB", "cfgB"],
-            "phase": [0.0, 0.5, 0.0, 0.5],
-            "CF_x_true": [1.0, 2.0, -1.0, -2.0],
-            "CF_x_pred": [1.1, 1.9, -0.9, -2.1],
-        }
+def _argv(figure, out):
+    return [
+        "--figure",
+        figure,
+        "--coarse-dir",
+        COARSE_DIR,
+        "--fine-dir",
+        FINE_DIR,
+        "--out-dir",
+        str(out),
+        "--docker-digest",
+        FINE_DIGEST,
+        "--timestamp",
+        TS,
+    ]
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    write_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.metadata.get_git_info", lambda *a, **k: GIT
     )
+    return tmp_path
 
 
-def _tiny_metrics(config_mean_r2: float) -> dict:
-    return {
-        "config_resolved": {"CF_x": {"config_mean_r2": config_mean_r2}},
-        "per_target": {"CF_x": {"rmse": 0.1}},
-    }
+@pytest.mark.parametrize(
+    "figure", ["skill_ranges", "error_histograms", "cycle_mean_r2_diagnostic"]
+)
+def test_one_figure_per_invocation(figure, repo):
+    out = repo / "out"
+    assert _load_cli().main(_argv(figure, out)) == 0
+    assert sorted(p.name for p in out.iterdir()) == [
+        f"{figure}.png",
+        f"{figure}_metrics.json",
+        f"{figure}_run_metadata.json",
+    ]
 
 
-# --- make_comparison_figure.py ------------------------------------------------------------------
+def test_an_unknown_figure_is_a_usage_error(repo):
+    out = repo / "out"
+    with pytest.raises(SystemExit) as excinfo:
+        _load_cli().main(_argv("coarse_vs_fine_comparison", out))
+    assert excinfo.value.code == 2
+    assert not out.exists()
 
 
-def test_comparison_figure_cli_rejects_missing_required_flags():
-    cli = _load_cli("make_comparison_figure", "scripts/make_comparison_figure.py")
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "--figure",
+        "--coarse-dir",
+        "--fine-dir",
+        "--out-dir",
+        "--docker-digest",
+        "--timestamp",
+    ],
+)
+def test_every_flag_is_required(flag, repo):
+    out = repo / "out"
+    argv = _argv("skill_ranges", out)
+    i = argv.index(flag)
+    del argv[i : i + 2]
+    with pytest.raises(SystemExit) as excinfo:
+        _load_cli().main(argv)
+    assert excinfo.value.code == 2
+    assert not out.exists()
+
+
+def test_help_gives_the_accepted_digest_form(capsys):
+    # A bare "sha256:..." is rejected by validate_image_digest; the help must not suggest it.
     with pytest.raises(SystemExit):
-        cli.main([])
-
-
-def test_comparison_figure_cli_smoke(tmp_path):
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _tiny_predictions_df().to_parquet(coarse_path)
-    _tiny_predictions_df().to_parquet(fine_path)
-
-    cli = _load_cli("make_comparison_figure", "scripts/make_comparison_figure.py")
-    rc = cli.main(
-        [
-            "--coarse-predictions",
-            str(coarse_path),
-            "--fine-predictions",
-            str(fine_path),
-            "--out-dir",
-            str(tmp_path / "out"),
-            "--docker-digest",
-            DIGEST,
-            "--timestamp",
-            TS,
-        ]
-    )
-
-    assert rc == 0
-    assert (tmp_path / "out" / "coarse_vs_fine_comparison.png").exists()
-
-
-# --- make_config_mean_collapse_diagnostic.py ----------------------------------------------------
-
-
-def test_config_mean_collapse_diagnostic_cli_rejects_missing_required_flags():
-    cli = _load_cli(
-        "make_config_mean_collapse_diagnostic",
-        "scripts/make_config_mean_collapse_diagnostic.py",
-    )
-    with pytest.raises(SystemExit):
-        cli.main([])
-
-
-def test_config_mean_collapse_diagnostic_cli_smoke(tmp_path):
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _tiny_predictions_df().to_parquet(coarse_pred_path)
-    _tiny_predictions_df().to_parquet(fine_pred_path)
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0)))
-
-    cli = _load_cli(
-        "make_config_mean_collapse_diagnostic",
-        "scripts/make_config_mean_collapse_diagnostic.py",
-    )
-    rc = cli.main(
-        [
-            "--coarse-predictions",
-            str(coarse_pred_path),
-            "--fine-predictions",
-            str(fine_pred_path),
-            "--coarse-metrics",
-            str(coarse_metrics_path),
-            "--fine-metrics",
-            str(fine_metrics_path),
-            "--out-dir",
-            str(tmp_path / "out"),
-            "--docker-digest",
-            DIGEST,
-            "--timestamp",
-            TS,
-        ]
-    )
-
-    assert rc == 0
-    assert (tmp_path / "out" / "diagnostic_config_mean_collapse.png").exists()
+        _load_cli().main(["--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    assert "<repo>@sha256:<64hex>" in text

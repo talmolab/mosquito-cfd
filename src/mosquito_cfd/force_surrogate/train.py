@@ -27,6 +27,7 @@ import hashlib
 import io
 import json
 import logging
+import platform
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -928,10 +929,13 @@ def build_training_metadata(
     """Capture training-run provenance (CC-1): pinned digest, timestamp, seeds, lib versions.
 
     Wraps :func:`capture_surrogate_run_metadata` (which requires a pinned ``sha256:`` digest and
-    accepts a caller-supplied timestamp). The seeds, feature list, and resolved
-    ``torch``/``physicsnemo`` versions are added via ``extra`` (top-level). Versions are read
-    from installed-package metadata (no import), so they are ``None`` on the CI tier where the
-    ``train`` group is absent and populated on the A5000 training host.
+    accepts a caller-supplied timestamp). The seeds and feature list are added via ``extra``
+    (top-level), and ``library_versions`` records the resolved ``torch``/``physicsnemo``,
+    ``python`` (``platform.python_version()``), ``numpy``, ``pandas`` and ``pyarrow`` versions
+    (pyarrow affects the parquet bytes, #130). Package versions are read from installed-package
+    metadata (no import) and are ``None`` when not installed, so ``torch``/``physicsnemo`` are
+    ``None`` on the CI tier where the ``train`` group is absent. Surrogate records committed
+    before the Python data-stack keys existed are not rewritten.
 
     Args:
         docker_image_digest: Pinned ``sha256:`` image reference (a mutable tag is rejected).
@@ -964,6 +968,10 @@ def build_training_metadata(
     library_versions = {
         "torch": _library_version("torch"),
         "physicsnemo": _library_version("nvidia-physicsnemo"),
+        "python": platform.python_version(),
+        "numpy": _library_version("numpy"),
+        "pandas": _library_version("pandas"),
+        "pyarrow": _library_version("pyarrow"),
     }
     metadata = capture_surrogate_run_metadata(
         docker_image_digest=docker_image_digest,

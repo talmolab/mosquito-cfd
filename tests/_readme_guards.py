@@ -353,3 +353,63 @@ def check_fine_denominator(
         assert span in section, f"Speedup section lacks the per-step range {span!r}"
     ratio = _DENOMINATOR_RATIO.search(readme)
     assert ratio is None, f"README states a denominator ratio: {ratio.group(0)!r}"
+
+
+# --- coarse README quasi-steady bullet (add-real-comparison-figures, force-surrogate spec) -------
+
+COARSE_QS_START = "The Sane–Dickinson"
+COARSE_QS_PHRASE = "stays above 1 on the fine grid"
+_QS_TOKEN = re.compile(r"~(\d+(?:\.\d+)?)×")
+# The same token with markup allowed between "~" and the number, so a bold ratio is detected.
+_QS_TOKEN_ANY = re.compile(r"~[*_`\s]*(\d+(?:\.\d+)?)[*_`\s]*×")
+_IB_BIAS_FREE = re.compile(r"(?i)\b(ib|immersed[- ]boundary)[- ]bias[- ]?free")
+
+
+def coarse_qs_bullet(readme: str) -> str:
+    """The quasi-steady bullet, whitespace-collapsed: from the line holding ``COARSE_QS_START``
+    (matched after whitespace collapse) to the line before the next top-level ``- **`` bullet."""
+    lines = readme.splitlines()
+    starts = [
+        i for i, line in enumerate(lines) if COARSE_QS_START in " ".join(line.split())
+    ]
+    assert len(starts) == 1, (
+        f"coarse README has {len(starts)} lines holding {COARSE_QS_START!r}; expected exactly 1"
+    )
+    start = starts[0]
+    end = next(
+        (k for k in range(start + 1, len(lines)) if lines[k].startswith("- **")),
+        len(lines),
+    )
+    return " ".join(" ".join(lines[start:end]).split())
+
+
+def check_coarse_qs_ratios(
+    readme: str, coarse_sidecar: dict[str, Any], fine_sidecar: dict[str, Any]
+) -> None:
+    """The coarse README's quasi-steady bullet states both grids' ratios from the sidecars.
+
+    Exactly two plain ``~x.x×`` tokens, coarse then fine, each equal to that corpus's
+    ``quasi_steady_reference.overshoot_factor`` at 1 dp; no other multiplier in that form, none
+    with markup; the phrase ``stays above 1 on the fine grid``; and no claim that either grid is
+    free of immersed-boundary bias.
+    """
+    bullet = coarse_qs_bullet(readme)
+    plain = _QS_TOKEN.findall(bullet)
+    marked = _QS_TOKEN_ANY.findall(bullet)
+    assert len(marked) == len(plain), (
+        f"a ~n× multiplier in the quasi-steady bullet carries markup: {marked} vs {plain}"
+    )
+    want = []
+    for label, sidecar in (("coarse", coarse_sidecar), ("fine", fine_sidecar)):
+        ratio = _get(sidecar, "quasi_steady_reference", "overshoot_factor")
+        assert isinstance(ratio, float) and math.isfinite(ratio), (label, ratio)
+        want.append(f"{ratio:.1f}")
+    assert plain == want, (
+        f"quasi-steady bullet must state exactly ~{want[0]}× (coarse) then ~{want[1]}× (fine), "
+        f"found {plain}"
+    )
+    assert COARSE_QS_PHRASE in bullet, f"quasi-steady bullet lacks {COARSE_QS_PHRASE!r}"
+    found = _IB_BIAS_FREE.search(bullet)
+    assert found is None, (
+        f"quasi-steady bullet calls a grid IB-bias-free: {found.group(0)!r}"
+    )

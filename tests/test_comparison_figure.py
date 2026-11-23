@@ -1,761 +1,874 @@
-"""Force-surrogate coarse-vs-fine comparison and config-mean-collapse diagnostic figures.
+"""The three coarse-vs-fine figures: values, captions, labels and end-to-end writes.
 
-OpenSpec change ``add-visualization-tooling``. Numerical correctness against synthetic fixtures
-(never real corpus data in this test file) -- specifically guards against conflating
-``metrics.json``'s ``config_resolved`` block (config-mean R2) with its separate ``per_target``
-block (RMSE), the documented gotcha in the tooling this capability replaces.
+OpenSpec change ``add-real-comparison-figures``. Synthetic corpora only, except where a test reads
+the committed ``metrics.json`` files or the fine README to check agreement with the README guard.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
+import math
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import pytest
+import matplotlib
 
-from mosquito_cfd.force_surrogate.comparison_figure import (
-    build_coarse_vs_fine_comparison,
-    build_config_mean_collapse_diagnostic,
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+from _comparison_corpus import (  # noqa: E402
+    COARSE_DIR,
+    FINE_DIGEST,
+    FINE_DIR,
+    CorpusSpec,
+    default_error,
+    default_truth,
+    write_repo,
+)
+from _readme_guards import (  # noqa: E402
+    _BANNED,
+    _COMPARATIVE,
+    _FINE_COMPARATIVE,
+    _section,
+    overlap_cell,
 )
 
-DIGEST = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "a" * 64
-TS = "2020-01-01T00:00:00+00:00"
+from mosquito_cfd.force_surrogate import comparison_figure as cf  # noqa: E402
+from mosquito_cfd.force_surrogate.train import TARGET_COLUMNS  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[1]
+DIGEST = FINE_DIGEST
+TS = "2026-11-22T00:00:00Z"
+GIT = {"commit": "a" * 40, "dirty": False, "branch": "add-real-comparison-figures"}
+
+pytestmark = pytest.mark.filterwarnings("error")
 
 
-def _tiny_predictions_df() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "config_name": ["cfgA", "cfgA", "cfgA", "cfgB", "cfgB", "cfgB"],
-            "phase": [0.0, 0.33, 0.66, 0.0, 0.33, 0.66],
-            "CF_x_true": [1.0, 2.0, 3.0, -1.0, -2.0, -3.0],
-            "CF_x_pred": [1.1, 1.9, 3.2, -0.9, -2.1, -2.8],
-            # A second coefficient with DIFFERENT values than CF_x, so a test exercising
-            # coefficient="CF_z" can't coincidentally pass by reading the wrong column.
-            "CF_z_true": [10.0, 12.0, 14.0, -5.0, -6.0, -7.0],
-            "CF_z_pred": [10.5, 11.5, 14.5, -5.2, -5.8, -7.3],
-        }
+@pytest.fixture(autouse=True)
+def _fake_git(monkeypatch):
+    monkeypatch.setattr(
+        "mosquito_cfd.benchmarks.metadata.get_git_info", lambda *a, **k: GIT
     )
 
 
-def _write_parquet(df: pd.DataFrame, path) -> None:
-    df.to_parquet(path)
+def _build(builder, root):
+    out = root / "out"
+    result = builder(
+        root=root,
+        coarse_dir=COARSE_DIR,
+        fine_dir=FINE_DIR,
+        out_dir=out,
+        docker_image_digest=DIGEST,
+        timestamp=TS,
+    )
+    return result, out
 
 
-def _tiny_metrics(
-    config_mean_r2: float, per_target_rmse: float, coefficient: str = "CF_x"
-) -> dict:
-    return {
-        "config_resolved": {coefficient: {"config_mean_r2": config_mean_r2}},
-        "per_target": {coefficient: {"rmse": per_target_rmse}},
+def _fine(**kw):
+    return CorpusSpec(salt=0.013, digest=FINE_DIGEST, **kw)
+
+
+def _assert_clean_wording(*texts, banned=False):
+    for text in texts:
+        assert not cf.FORBIDDEN_WORDS.search(text), text
+        assert not _COMPARATIVE.search(text), text
+        assert not _FINE_COMPARATIVE.search(text), text
+        if banned:
+            assert not _BANNED.search(text), (text, _BANNED.findall(text))
+
+
+def _constant_target(column, value=0.75, salt=0.0):
+    base = default_truth(salt)
+    j = TARGET_COLUMNS.index(column)
+
+    def truth(split, index, phase, beat):
+        cols = base(split, index, phase, beat)
+        cols[:, j] = value
+        return cols
+
+    return truth
+
+
+# --- shared constants and wording -----------------------------------------------------------
+
+
+def test_target_labels_are_lab_frame():
+    assert cf.TARGET_LABELS == {
+        "CF_x": "CF_x (lab x force)",
+        "CF_y": "CF_y (lab y force)",
+        "CF_z": "CF_z (lab vertical force)",
+        "CF_mx": "CF_mx (lab M_x about the hinge)",
+        "CF_my": "CF_my (lab M_y about the hinge)",
+        "CF_mz": "CF_mz (lab M_z about the hinge)",
     }
 
 
-def test_committed_comparison_figure_inputs_match_in_memory_tiny_fixtures():
-    """The parquet/JSON files committed under tests/fixtures/comparison_figure/inputs/ (used to
-    generate the two committed reference PNGs, per README.md there) are byte-for-value-identical
-    to this file's own ``_tiny_predictions_df``/``_tiny_metrics`` helpers.
-
-    Three /review-pr rounds on add-visualization-tooling PR3 flagged the same gap: nothing
-    enforced this correspondence, so the committed reference figures could silently go stale if
-    these in-memory fixtures ever changed. This is the guard.
-    """
-    inputs_dir = Path(__file__).parent / "fixtures" / "comparison_figure" / "inputs"
-
-    coarse = pd.read_parquet(inputs_dir / "coarse_predictions.parquet")
-    pd.testing.assert_frame_equal(coarse, _tiny_predictions_df())
-
-    expected_fine = _tiny_predictions_df()
-    expected_fine["CF_x_true"] = expected_fine["CF_x_true"] * 0.1
-    fine = pd.read_parquet(inputs_dir / "fine_predictions.parquet")
-    pd.testing.assert_frame_equal(fine, expected_fine)
-
-    diag_coarse = pd.read_parquet(inputs_dir / "diagnostic_coarse_predictions.parquet")
-    diag_fine = pd.read_parquet(inputs_dir / "diagnostic_fine_predictions.parquet")
-    pd.testing.assert_frame_equal(diag_coarse, _tiny_predictions_df())
-    pd.testing.assert_frame_equal(diag_fine, _tiny_predictions_df())
-
-    coarse_metrics = json.loads((inputs_dir / "coarse_metrics.json").read_text())
-    fine_metrics = json.loads((inputs_dir / "fine_metrics.json").read_text())
-    assert coarse_metrics == _tiny_metrics(config_mean_r2=0.944, per_target_rmse=0.133)
-    assert fine_metrics == _tiny_metrics(config_mean_r2=-31.95, per_target_rmse=0.05)
+@pytest.mark.parametrize(
+    "text,matches",
+    [
+        ("normalised", False),
+        ("timespan", False),
+        ("wing-normal", True),
+        ("spanwise", True),
+        ("chordwise", True),
+        ("spans", True),
+        ("rolling", True),
+    ],
+)
+def test_forbidden_pattern_matches_whole_framings_only(text, matches):
+    assert bool(cf.FORBIDDEN_WORDS.search(text)) is matches
 
 
-def test_committed_reference_pngs_exist_and_are_nonempty():
-    """Operationalizes spec.md's "figure scripts ship one committed reference PNG" scenarios
-    as an actual CI-enforced check, rather than leaving it as a doc-only claim (the /review-openspec
-    round that added the diagnostic-PNG scenario found the requirement had no test backing it).
-    """
-    fixtures_dir = Path(__file__).parent / "fixtures" / "comparison_figure"
-    for name in (
-        "coarse_vs_fine_comparison.png",
-        "diagnostic_config_mean_collapse.png",
+def test_fine_readme_carries_the_shared_constants():
+    readme = (REPO / FINE_DIR / "README.md").read_text(encoding="utf-8")
+    section, _ = _section(readme, "Coarse vs fine")
+    flat = " ".join(section.split()).lower()
+    assert cf.OWN_BASELINE_PHRASE.lower() in flat
+    assert cf.RULE_SENTENCE.format(n=5).lower() in flat
+
+
+@pytest.mark.parametrize(
+    "n_beats,label,regen", [(2, "second wingbeat of 2-beat runs", True)]
+)
+def test_beat_label_two_beats(n_beats, label, regen):
+    text = cf.beat_sentence(n_beats)
+    assert label in text
+    assert (cf.REGENERATION_PHRASE in text) is regen
+
+
+def test_beat_label_four_beats():
+    text = cf.beat_sentence(4)
+    assert "wingbeats 2–4 of 4-beat runs" in text
+    assert cf.REGENERATION_PHRASE not in text
+
+
+# --- ranges_overlap -----------------------------------------------------------------------------
+
+_PAIRS = [
+    ({"min": 0.97, "max": 0.98}, {"min": 0.98, "max": 0.99}, "yes"),
+    (
+        {"min": 0.97, "max": 0.98},
+        {"min": float(np.nextafter(0.98, 1.0)), "max": 0.99},
+        "no",
+    ),
+    ({"min": 0.97, "max": 0.985}, {"min": 0.98, "max": 0.99}, "yes"),
+    ({"min": 0.97, "max": 0.98}, None, "n/a"),
+]
+
+
+@pytest.mark.parametrize("coarse,fine,cell", _PAIRS)
+def test_ranges_overlap_follows_the_rule_and_the_readme_guard(coarse, fine, cell):
+    assert cf.ranges_overlap(coarse, fine) == cell
+    assert overlap_cell(coarse, fine) == cell
+
+
+def test_ranges_overlap_on_the_committed_metrics_marks_cf_y_only():
+    def load(d):
+        return json.loads((REPO / d / "surrogate" / "metrics.json").read_text("utf-8"))
+
+    coarse, fine = load(COARSE_DIR), load(FINE_DIR)
+    cells = {}
+    for c in TARGET_COLUMNS:
+        rc = coarse["seed_sweep"]["range"][c]["skill"]
+        rf = fine["seed_sweep"]["range"][c]["skill"]
+        cells[c] = cf.ranges_overlap(rc, rf)
+        assert cells[c] == overlap_cell(rc, rf)
+    assert {c for c, v in cells.items() if v == "no"} == {"CF_y"}
+
+
+# --- skill_ranges ------------------------------------------------------------------------------
+
+
+def test_skill_ranges_values_are_the_seed_sweep_verbatim(tmp_path):
+    written = write_repo(tmp_path)
+    result, _ = _build(cf.build_skill_ranges, tmp_path)
+    for corpus in ("coarse", "fine"):
+        metrics = written[corpus]["metrics"]
+        runs = metrics["seed_sweep"]["runs"]
+        others = set()
+        for c in TARGET_COLUMNS:
+            others.update(
+                {
+                    metrics["per_target"][c]["r2"],
+                    metrics["per_target"][c]["rmse"],
+                    metrics["config_resolved"][c]["config_mean_r2"],
+                    metrics["phase_baseline_skill"]["per_target"][c][
+                        "phase_baseline_r2"
+                    ],
+                    metrics["phase_baseline_skill"]["per_target"][c][
+                        "phase_baseline_rmse"
+                    ],
+                }
+            )
+        for c in TARGET_COLUMNS:
+            entry = result["targets"][c][corpus]
+            assert entry["seeds"] == [r["seed"] for r in runs]
+            assert entry["values"] == [r["per_target"][c]["skill"] for r in runs]
+            assert not set(entry["values"]) & others
+            primary = metrics["phase_baseline_skill"]["per_target"][c]["skill"]
+            assert entry["values"][0] == primary
+            assert entry["range"] == metrics["seed_sweep"]["range"][c]["skill"]
+
+
+def _only_cf_y_differs(seed_index, holdout_index, phase):
+    err = default_error((1.0, 1.4, 0.7, 1.2, 0.9))(seed_index, holdout_index, phase)
+    err[:, TARGET_COLUMNS.index("CF_y")] *= 12.0
+    return err
+
+
+def test_only_disjoint_targets_get_a_note(tmp_path):
+    same = CorpusSpec(digest=FINE_DIGEST)  # identical data: every range overlaps
+    write_repo(tmp_path / "a", fine=same)
+    result_a, _ = _build(cf.build_skill_ranges, tmp_path / "a")
+    assert result_a["notes"] == {}
+
+    write_repo(
+        tmp_path / "b", fine=CorpusSpec(digest=FINE_DIGEST, error=_only_cf_y_differs)
+    )
+    result_b, _ = _build(cf.build_skill_ranges, tmp_path / "b")
+    assert set(result_b["notes"]) == {"CF_y"}
+    assert result_b["notes"]["CF_y"] == (
+        "ranges disjoint at 5 seeds each; see README before reading this as a grid effect"
+    )
+    assert result_b["targets"]["CF_y"]["overlap"] == "no"
+    _assert_clean_wording(result_b["caption"], *result_b["notes"].values(), banned=True)
+
+
+def test_an_all_null_target_is_drawn_n_a(tmp_path):
+    truth_c = _constant_target("CF_z")
+    truth_f = _constant_target("CF_z", salt=0.013)
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=truth_c),
+        fine=_fine(truth=truth_f),
+    )
+    result, _ = _build(cf.build_skill_ranges, tmp_path)
+    for corpus in ("coarse", "fine"):
+        entry = result["targets"]["CF_z"][corpus]
+        assert entry["values"] == [None] * 5
+        assert entry["range"] is None
+        assert entry["markers"] == 0
+        assert entry["bar"] is None
+        assert entry["na"] is True
+    assert result["targets"]["CF_z"]["overlap"] == "n/a"
+    assert "CF_z" not in result["notes"]
+
+
+def test_skill_ranges_caption_and_labels(tmp_path):
+    seeds = (42, 43, 44)
+    scales = (1.0, 1.3, 0.8)
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(seeds=seeds, error_scales=scales),
+        fine=_fine(seeds=seeds, error_scales=scales),
+    )
+    result, _ = _build(cf.build_skill_ranges, tmp_path)
+    caption = result["caption"]
+    for phrase in (
+        cf.SHIPPED_PHRASE,
+        cf.LAB_FRAME_PHRASE,
+        cf.OWN_BASELINE_PHRASE,
+        "seed 42",
+        "3 seeds",
+        "observed spread, not a confidence interval",
+        cf.RULE_SENTENCE.format(n=3),
+        "not a measurement of the effect of grid resolution on its own",
+        "second wingbeat of 2-beat runs",
+        cf.REGENERATION_PHRASE,
     ):
-        path = fixtures_dir / name
-        assert path.exists(), f"{name} missing from {fixtures_dir}"
-        assert path.stat().st_size > 0, f"{name} is empty"
+        assert phrase in caption, phrase
+    assert "1234" not in caption and "5 seeds" not in caption
+    assert result["labels"] == [cf.TARGET_LABELS[c] for c in TARGET_COLUMNS]
+    _assert_clean_wording(caption, *result["labels"], banned=True)
 
 
-def test_coarse_vs_fine_panel_means_match_groupby(tmp_path):
-    """Per-config mean marker positions match a direct pandas groupby on the same data."""
-    coarse_df = _tiny_predictions_df()
-    fine_df = _tiny_predictions_df()
-    fine_df["CF_x_true"] = fine_df["CF_x_true"] * 0.1  # distinct fine-grid values
+def test_skill_ranges_caption_for_a_four_beat_corpus(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(n_beats=4), fine=_fine(n_beats=4))
+    result, _ = _build(cf.build_skill_ranges, tmp_path)
+    assert "wingbeats 2–4 of 4-beat runs" in result["caption"]
+    assert cf.REGENERATION_PHRASE not in result["caption"]
 
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(coarse_df, coarse_path)
-    _write_parquet(fine_df, fine_path)
 
-    result = build_coarse_vs_fine_comparison(
-        coarse_predictions_path=coarse_path,
-        fine_predictions_path=fine_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
+def test_skill_ranges_end_to_end(tmp_path):
+    write_repo(tmp_path)
+    before = plt.get_fignums()
+    result, out = _build(cf.build_skill_ranges, tmp_path)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "skill_ranges.png",
+        "skill_ranges_metrics.json",
+        "skill_ranges_run_metadata.json",
+    ]
+    assert plt.get_fignums() == before
+    written = json.loads(
+        (out / "skill_ranges_metrics.json").read_text(encoding="utf-8")
     )
-
-    expected_coarse = coarse_df.groupby("config_name")[
-        ["CF_x_true", "CF_x_pred"]
-    ].mean()
-    expected_fine = fine_df.groupby("config_name")[["CF_x_true", "CF_x_pred"]].mean()
-
-    for cfg in ("cfgA", "cfgB"):
-        assert result["coarse"][cfg]["true_mean"] == pytest.approx(
-            expected_coarse.loc[cfg, "CF_x_true"]
-        )
-        assert result["coarse"][cfg]["pred_mean"] == pytest.approx(
-            expected_coarse.loc[cfg, "CF_x_pred"]
-        )
-        assert result["fine"][cfg]["true_mean"] == pytest.approx(
-            expected_fine.loc[cfg, "CF_x_true"]
-        )
-        assert result["fine"][cfg]["pred_mean"] == pytest.approx(
-            expected_fine.loc[cfg, "CF_x_pred"]
-        )
-
-
-def test_coarse_vs_fine_comparison_writes_three_artifacts(tmp_path):
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-
-    build_coarse_vs_fine_comparison(
-        coarse_predictions_path=coarse_path,
-        fine_predictions_path=fine_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
+    recomputed = cf.compute_skill_ranges_metrics(
+        root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
     )
-
-    assert (tmp_path / "coarse_vs_fine_comparison.png").exists()
-    assert (tmp_path / "coarse_vs_fine_comparison_metrics.json").exists()
+    assert written == json.loads(cf._dumps(recomputed))
+    assert written == json.loads(cf._dumps(result))
     meta = json.loads(
-        (tmp_path / "coarse_vs_fine_comparison_run_metadata.json").read_text()
+        (out / "skill_ranges_run_metadata.json").read_text(encoding="utf-8")
     )
-    assert meta["timestamp"] == TS
-    assert "sha256:" in meta["docker_image"]
+    assert meta["figure"] == "skill_ranges"
+    assert set(meta["input_files"]) == {
+        f"{c}_{r}" for c in ("coarse", "fine") for r in cf.ROLE_FILES
+    }
+    assert meta["git"] == GIT
+    assert math.isclose(len(written["targets"]), 6)
 
 
-def test_coarse_vs_fine_comparison_rejects_mutable_docker_tag(tmp_path):
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
+# --- error_histograms -------------------------------------------------------------------------
 
-    with pytest.raises(ValueError):
-        build_coarse_vs_fine_comparison(
-            coarse_predictions_path=coarse_path,
-            fine_predictions_path=fine_path,
-            out_dir=tmp_path,
-            docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest",
-            timestamp=TS,
-        )
-    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
+from mosquito_cfd.force_surrogate.evidence_figure import format_metric  # noqa: E402
+from mosquito_cfd.force_surrogate.train import build_phase_only_baseline  # noqa: E402
 
 
-def test_config_mean_collapse_diagnostic_matches_metrics_json(tmp_path):
-    """The diagnostic's reported R2 matches config_resolved exactly, never per_target."""
-    # Deliberately distinct values so a config_resolved/per_target swap is caught.
-    coarse_metrics = _tiny_metrics(config_mean_r2=0.944, per_target_rmse=0.133)
-    fine_metrics = _tiny_metrics(config_mean_r2=-31.95, per_target_rmse=0.05)
-
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(coarse_metrics))
-    fine_metrics_path.write_text(json.dumps(fine_metrics))
-
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    result = build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
+def test_bin_counts_follow_the_numpy_edge_convention():
+    counts, below, above = cf._bin_counts(
+        np.array([-3.5, -3.0, 0.0, 3.0, 3.5]), cf.EDGES
     )
-
-    assert result["coarse"]["config_mean_r2"] == pytest.approx(0.944)
-    assert result["fine"]["config_mean_r2"] == pytest.approx(-31.95)
-    # Never the per_target RMSE values -- the exact conflation this requirement prevents.
-    assert result["coarse"]["config_mean_r2"] != pytest.approx(0.133)
-    assert result["fine"]["config_mean_r2"] != pytest.approx(0.05)
+    assert len(cf.EDGES) == 601 and cf.EDGES[0] == -3.0 and cf.EDGES[-1] == 3.0
+    assert (below, above) == (1, 1)
+    assert counts[0] == 1 and counts[-1] == 1
+    assert counts.sum() + below + above == 5
 
 
-def test_config_mean_collapse_diagnostic_writes_three_artifacts(tmp_path):
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+def _spike(seed_index, holdout_index, phase):
+    err = default_error((1.0, 1.4, 0.7, 1.2, 0.9))(seed_index, holdout_index, phase)
+    if holdout_index == 0:
+        err[0, 0] += 50.0  # far outside +3 baseline RMSEs
+        err[1, 0] -= 50.0
+    return err
 
-    build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
+
+def test_histogram_counts_are_the_normalised_errors(tmp_path):
+    written = write_repo(tmp_path, coarse=CorpusSpec(error=_spike))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    edges = np.asarray(result["edges"])
+    for corpus in ("coarse", "fine"):
+        pred = written[corpus]["predictions"]
+        base, _ = build_phase_only_baseline(
+            written[corpus]["dataset"], pred["phase"].to_numpy(dtype=float)
+        )
+        for j, c in enumerate(TARGET_COLUMNS):
+            entry = result["grids"][corpus][c]
+            t = pred[f"{c}_true"].to_numpy()
+            rmse0 = entry["rmse0"]
+            for kind, values in (
+                ("surrogate", pred[f"{c}_pred"].to_numpy()),
+                ("baseline", base[:, j]),
+            ):
+                z = (values - t) / rmse0
+                inside = z[(z >= -3) & (z <= 3)]
+                expected, _ = np.histogram(inside, bins=edges)
+                assert entry[f"counts_{kind}"] == expected.tolist()
+                assert entry[f"below_{kind}"] == int((z < -3).sum())
+                assert entry[f"above_{kind}"] == int((z > 3).sum())
+                total = (
+                    sum(entry[f"counts_{kind}"])
+                    + entry[f"below_{kind}"]
+                    + entry[f"above_{kind}"]
+                )
+                assert total == entry["n_rows"] == len(pred)
+    spiked = result["grids"]["coarse"]["CF_x"]
+    assert spiked["above_surrogate"] >= 1 and spiked["below_surrogate"] >= 1
+
+
+def test_density_counts_every_row_including_out_of_range(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(error=_spike))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    widths = np.diff(np.asarray(result["edges"]))
+    density = cf._density(
+        np.asarray(entry["counts_surrogate"]),
+        entry["n_rows"],
+        np.asarray(result["edges"]),
     )
-
-    assert (tmp_path / "diagnostic_config_mean_collapse.png").exists()
-    assert (tmp_path / "diagnostic_config_mean_collapse_metrics.json").exists()
-    meta = json.loads(
-        (tmp_path / "diagnostic_config_mean_collapse_run_metadata.json").read_text()
-    )
-    assert meta["timestamp"] == TS
-
-
-def test_config_mean_collapse_diagnostic_rejects_mutable_docker_tag(tmp_path):
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    with pytest.raises(ValueError):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest",
-            timestamp=TS,
-        )
-    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
-
-
-def test_coarse_vs_fine_comparison_rejects_nonfinite_values(tmp_path):
-    """A NaN in the predictions must not silently produce a wrong comparison figure."""
-    df = _tiny_predictions_df()
-    df.loc[0, "CF_x_true"] = np.nan
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(df, coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-
-    with pytest.raises(ValueError, match="non-finite"):
-        build_coarse_vs_fine_comparison(
-            coarse_predictions_path=coarse_path,
-            fine_predictions_path=fine_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
-
-
-def test_coarse_vs_fine_comparison_rejects_missing_coefficient_columns(tmp_path):
-    """A coefficient with no matching columns in the predictions parquet fails clearly, via the
-    same _validate_predictions_finite guard as the non-finite-value case above -- previously only
-    the non-finite-*value* branch was tested, not the missing-*column* branch.
-    """
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-
-    with pytest.raises(ValueError, match="missing required column"):
-        build_coarse_vs_fine_comparison(
-            coarse_predictions_path=coarse_path,
-            fine_predictions_path=fine_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-            coefficient="CF_missing",
-        )
-    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
-
-
-def test_config_mean_collapse_diagnostic_rejects_missing_coefficient_columns(tmp_path):
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    with pytest.raises(ValueError, match="missing required column"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-            coefficient="CF_missing",
-        )
-    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
-
-
-def test_config_mean_collapse_diagnostic_rejects_nonfinite_values(tmp_path):
-    df = _tiny_predictions_df()
-    df.loc[0, "CF_x_pred"] = np.inf
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(df, coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-
-    with pytest.raises(ValueError, match="non-finite"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
-
-
-def test_coarse_vs_fine_comparison_hashes_the_fine_predictions_input(tmp_path):
-    """The fine-grid predictions parquet's own hash is recorded, not just its path string."""
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-
-    build_coarse_vs_fine_comparison(
-        coarse_predictions_path=coarse_path,
-        fine_predictions_path=fine_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
-    )
-
-    meta = json.loads(
-        (tmp_path / "coarse_vs_fine_comparison_run_metadata.json").read_text()
+    assert np.array_equal(
+        density, np.asarray(entry["counts_surrogate"]) / (entry["n_rows"] * widths)
     )
     assert (
-        meta["fine_predictions_sha256"]
-        == hashlib.sha256(fine_path.read_bytes()).hexdigest()
-    )
+        density * widths
+    ).sum() < 1.0  # the out-of-range rows are not renormalised away
 
 
-def test_config_mean_collapse_diagnostic_hashes_all_secondary_inputs(tmp_path):
-    """The three non-primary inputs (fine metrics + both predictions parquets) are each hashed."""
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
-    )
-
-    meta = json.loads(
-        (tmp_path / "diagnostic_config_mean_collapse_run_metadata.json").read_text()
-    )
-    assert (
-        meta["fine_metrics_sha256"]
-        == hashlib.sha256(fine_metrics_path.read_bytes()).hexdigest()
-    )
-    assert (
-        meta["coarse_predictions_sha256"]
-        == hashlib.sha256(coarse_pred_path.read_bytes()).hexdigest()
-    )
-    assert (
-        meta["fine_predictions_sha256"]
-        == hashlib.sha256(fine_pred_path.read_bytes()).hexdigest()
-    )
+def test_recomputed_skill_is_consistent_with_its_rmses(tmp_path):
+    written = write_repo(tmp_path)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    for corpus in ("coarse", "fine"):
+        runs0 = written[corpus]["metrics"]["seed_sweep"]["runs"][0]
+        for c in TARGET_COLUMNS:
+            e = result["grids"][corpus][c]
+            assert math.isclose(
+                (e["rmse_surrogate"] / e["rmse0"]) ** 2,
+                1 - e["skill"],
+                rel_tol=1e-12,
+                abs_tol=0,
+            )
+            assert e["skill_recorded"] == runs0["per_target"][c]["skill"]
+            assert (
+                e["skill_range"]
+                == written[corpus]["metrics"]["seed_sweep"]["range"][c]["skill"]
+            )
 
 
-def test_config_mean_collapse_diagnostic_missing_config_resolved_key_names_it(tmp_path):
-    """A malformed metrics.json raises a KeyError naming the missing key, not a bare one."""
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps({"per_target": {"CF_x": {"rmse": 0.1}}}))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+def _scale_rmse(factor):
+    def edit(metrics):
+        metrics["phase_baseline_skill"]["per_target"]["CF_x"][
+            "phase_baseline_rmse"
+        ] *= factor
 
-    with pytest.raises(KeyError, match="config_resolved"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
+    return edit
+
+
+def test_a_baseline_rmse_off_by_1e8_is_refused_and_1e11_accepted(tmp_path):
+    write_repo(tmp_path / "a", coarse=CorpusSpec(edit_metrics=_scale_rmse(1 + 1e-8)))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "phase-only baseline"):
+        assert needle in str(excinfo.value)
+    assert not (tmp_path / "a" / "out").exists()
+
+    write_repo(tmp_path / "b", coarse=CorpusSpec(edit_metrics=_scale_rmse(1 + 1e-11)))
+    _build(cf.build_error_histograms, tmp_path / "b")
+
+
+def _perturbed_skill(factor):
+    holder = {}
+
+    def edit_runs(runs):
+        old = runs[0]["per_target"]["CF_x"]["skill"]
+        holder["new"] = 1 - (1 - old) * factor
+        runs[0]["per_target"]["CF_x"]["skill"] = holder["new"]
+
+    def edit_metrics(metrics):
+        metrics["phase_baseline_skill"]["per_target"]["CF_x"]["skill"] = holder["new"]
+
+    return CorpusSpec(edit_runs=edit_runs, edit_metrics=edit_metrics)
+
+
+def test_a_recorded_skill_off_by_1e8_is_refused_and_1e11_accepted(tmp_path):
+    write_repo(tmp_path / "a", coarse=_perturbed_skill(1 + 1e-8))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "skill"):
+        assert needle in str(excinfo.value)
+    write_repo(tmp_path / "b", coarse=_perturbed_skill(1 + 1e-11))
+    _build(cf.build_error_histograms, tmp_path / "b")
+
+
+def test_a_reordered_baseline_definition_is_refused(tmp_path):
+    def edit(metrics):
+        definition = metrics["phase_baseline_skill"]["phase_baseline"]
+        definition["reference_configs"] = list(
+            reversed(definition["reference_configs"])
         )
 
+    write_repo(tmp_path, coarse=CorpusSpec(edit_metrics=edit))
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path)
+    assert "coarse" in str(excinfo.value) and "reference_configs" in str(excinfo.value)
+    assert not (tmp_path / "out").exists()
 
-def test_config_mean_collapse_diagnostic_missing_coefficient_entry_names_it(tmp_path):
-    """config_resolved present but missing the coefficient's own entry -- the second of
-    _config_resolved_r2's three _require call sites, previously untested (round 2 review).
-    """
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps({"config_resolved": {}}))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
 
-    with pytest.raises(KeyError, match="CF_x"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
+def test_a_null_recorded_skill_is_refused(tmp_path):
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=_constant_target("CF_z")),
+        fine=_fine(truth=_constant_target("CF_z", salt=0.013)),
+    )
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_error_histograms, tmp_path)
+    assert "CF_z" in str(excinfo.value) and "null" in str(excinfo.value)
+
+
+def test_histogram_annotation_and_caption(tmp_path):
+    seeds = (42, 43, 44)
+    scales = (1.0, 1.3, 0.8)
+    written = write_repo(
+        tmp_path,
+        coarse=CorpusSpec(seeds=seeds, error_scales=scales),
+        fine=_fine(seeds=seeds, error_scales=scales),
+    )
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    metrics = written["coarse"]["metrics"]
+    x = metrics["seed_sweep"]["runs"][0]["per_target"]["CF_x"]["skill"]
+    rng = metrics["seed_sweep"]["range"]["CF_x"]["skill"]
+    assert result["annotations"]["coarse"]["CF_x"] == (
+        f"seed 42 skill {format_metric(x)} "
+        f"(3 seeds: {format_metric(rng['min'])} to {format_metric(rng['max'])})"
+    )
+    caption = result["caption"]
+    for phrase in (
+        cf.SHIPPED_PHRASE,
+        cf.LAB_FRAME_PHRASE,
+        cf.OWN_BASELINE_PHRASE,
+        "seed 42",
+        "skill = 1 − (RMSE / RMSE₀)²",
+        "not compared across the two rows",
+        "consecutive timesteps of 6 configurations, not independent samples",
+        "second wingbeat of 2-beat runs",
+        cf.REGENERATION_PHRASE,
+    ):
+        assert phrase in caption, phrase
+    assert "1234" not in caption
+    texts = [caption, *result["labels"]]
+    texts += [a for grid in result["annotations"].values() for a in grid.values()]
+    _assert_clean_wording(*texts)
+
+
+def test_histogram_caption_for_a_four_beat_corpus(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(n_beats=4), fine=_fine(n_beats=4))
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    assert "wingbeats 2–4 of 4-beat runs" in result["caption"]
+    assert cf.REGENERATION_PHRASE not in result["caption"]
+
+
+def _k2_truth(split, index, phase, beat):
+    cols = default_truth(0.0)(split, index, phase, beat)
+    cols[:, 0] = [-1.0, 0.0, 1.0][index] if split == "train" else 10.0
+    return cols
+
+
+def _k2_drop_rows(df):
+    keep = np.ones(len(df), dtype=bool)
+    for name, step in (("t00", 4), ("t01", 2)):
+        rows = np.flatnonzero(df["config_name"].to_numpy() == name)
+        keep[rows] = False
+        keep[rows[::step]] = True
+    return df[keep].reset_index(drop=True)
+
+
+def test_k2_baseline_excludes_the_holdout_and_weights_configurations_equally(tmp_path):
+    """Training CF_x constants -1, 0, +1 with 4, 8, 16 rows per beat; holdout CF_x = 10.
+    Equal weighting gives baseline 0 and rmse0 = 10 exactly; row weighting or holdout leakage
+    would not."""
+    spec_c = CorpusSpec(
+        n_train=3, rows_per_beat=16, truth=_k2_truth, edit_dataset=_k2_drop_rows
+    )
+    spec_f = CorpusSpec(n_train=3, rows_per_beat=16, salt=0.013, digest=FINE_DIGEST)
+    write_repo(tmp_path, coarse=spec_c, fine=spec_f)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    assert result["grids"]["coarse"]["CF_x"]["rmse0"] == 10.0
+
+
+def _k3_truth(split, index, phase, beat):
+    cols = default_truth(0.0)(split, index, phase, beat)
+    cols[:, 0] = 0.0 if split == "train" else (1.0 if index == 0 else math.sqrt(2.0))
+    return cols
+
+
+def _k3_error(seed_index, holdout_index, phase):
+    err = default_error((1.0, 1.4, 0.7, 1.2, 0.9))(seed_index, holdout_index, phase)
+    alt = np.where(np.arange(phase.shape[0]) % 2 == 0, 1.0, -1.0)
+    err[:, 0] = alt * (1 / math.sqrt(2.0) if holdout_index == 0 else 0.5)
+    return err
+
+
+def _k3_drop_rows(df):
+    is_a = (df["config_name"] == "h00").to_numpy()
+    keep = ~is_a | np.isin(df["phase"].to_numpy(), [0.0, 0.5])
+    return df[keep].reset_index(drop=True)
+
+
+def test_k3_skill_is_pooled_over_rows(tmp_path):
+    """Holdout A: 2 rows, SSE_s 1, SSE0 2; B: 4 rows, SSE_s 1, SSE0 8. Pooled skill is 0.8, not
+    the per-configuration mean 0.6875 nor the row-weighted mean 0.75."""
+    spec_c = CorpusSpec(
+        n_holdout=2,
+        rows_per_beat=4,
+        truth=_k3_truth,
+        error=_k3_error,
+        edit_dataset=_k3_drop_rows,
+    )
+    spec_f = CorpusSpec(n_holdout=2, rows_per_beat=4, salt=0.013, digest=FINE_DIGEST)
+    write_repo(tmp_path, coarse=spec_c, fine=spec_f)
+    result, _ = _build(cf.build_error_histograms, tmp_path)
+    skill = result["grids"]["coarse"]["CF_x"]["skill"]
+    assert math.isclose(skill, 0.8, rel_tol=1e-12, abs_tol=0)
+
+
+def test_error_histograms_end_to_end(tmp_path):
+    write_repo(tmp_path)
+    before = plt.get_fignums()
+    result, out = _build(cf.build_error_histograms, tmp_path)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "error_histograms.png",
+        "error_histograms_metrics.json",
+        "error_histograms_run_metadata.json",
+    ]
+    assert plt.get_fignums() == before
+    written = json.loads(
+        (out / "error_histograms_metrics.json").read_text(encoding="utf-8")
+    )
+    recomputed = cf.compute_error_histograms_metrics(
+        root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
+    )
+    assert written == json.loads(cf._dumps(recomputed)) == json.loads(cf._dumps(result))
+
+
+# --- cycle_mean_r2_diagnostic ----------------------------------------------------------------
+
+_K1_OFFSETS = (1.0, 3.0, 2.0, 0.5, 1.5)  # per seed; the second gives R^2 = -73/35
+
+
+def _k1_truth(salt=0.0):
+    base = default_truth(salt)
+
+    def truth(split, index, phase, beat):
+        cols = base(split, index, phase, beat)
+        if split == "holdout":
+            cols[:, 0] = float(index + 1)  # true cycle means 1..6
+        return cols
+
+    return truth
+
+
+def _k1_error(offsets=_K1_OFFSETS):
+    base = default_error((1.0, 1.4, 0.7, 1.2, 0.9))
+
+    def error(seed_index, holdout_index, phase):
+        err = base(seed_index, holdout_index, phase)
+        sign = 1.0 if holdout_index % 2 == 0 else -1.0
+        alt = np.where(np.arange(phase.shape[0]) % 2 == 0, 0.5, -0.5)
+        err[:, 0] = offsets[seed_index] * sign + alt
+        return err
+
+    return error
+
+
+def _k1_repo(root, coarse_extra=None, offsets=_K1_OFFSETS):
+    spec = CorpusSpec(
+        truth=_k1_truth(), error=_k1_error(offsets), **(coarse_extra or {})
+    )
+    return write_repo(root, coarse=spec)
+
+
+def _form_t(a, b):
+    return abs(a - b) <= 1e-12 * max(1.0, abs(b))
+
+
+def test_k1_identity_and_derived_errors(tmp_path):
+    written = _k1_repo(tmp_path)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    metrics = written["coarse"]["metrics"]
+    sigma = math.sqrt(35 / 12)
+    assert math.isclose(entry["sigma"], sigma, rel_tol=1e-12, abs_tol=0)
+    assert math.isclose(entry["eps_primary_measured"], 1.0, rel_tol=1e-12, abs_tol=0)
+    r2 = entry["config_mean_r2"]
+    assert r2 == [
+        r["per_target"]["CF_x"]["config_mean_r2"] for r in metrics["seed_sweep"]["runs"]
+    ]
+    assert r2[0] == metrics["config_resolved"]["CF_x"]["config_mean_r2"]
+    assert _form_t(1 - r2[0], 1 - 23 / 35)
+    assert _form_t(1 - r2[1], 1 + 73 / 35)
+    for value, eps in zip(r2, entry["eps"], strict=True):
+        assert math.isclose(
+            eps, entry["sigma"] * math.sqrt(1 - value), rel_tol=1e-12, abs_tol=0
         )
+    assert math.isclose(entry["eps"][1], 3.0, rel_tol=1e-12, abs_tol=0)
+    assert entry["eps"][1] > entry["sigma"]
+    assert _form_t(entry["eps_primary_measured"] ** 2 / entry["sigma"] ** 2, 1 - r2[0])
 
 
-def test_config_mean_collapse_diagnostic_missing_config_mean_r2_leaf_names_it(tmp_path):
-    """config_resolved.<coef> present but missing config_mean_r2 itself -- the third of
-    _config_resolved_r2's three _require call sites, previously untested (round 2 review) and
-    easily confused with the separate present-but-null case, which is a different code path.
-    """
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps({"config_resolved": {"CF_x": {}}}))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    with pytest.raises(KeyError, match="config_mean_r2"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-
-
-def test_config_mean_collapse_diagnostic_rejects_missing_phase_column(tmp_path):
-    """A predictions frame without `phase` fails clearly before any figure work, instead of a
-    bare KeyError('phase') deep inside the waveform panel's sort_values call (round 2 review).
-    """
-    df = _tiny_predictions_df().drop(columns=["phase"])
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(df, coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-
-    with pytest.raises(ValueError, match="phase"):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert not (tmp_path / "diagnostic_config_mean_collapse.png").exists()
-
-
-def test_coarse_vs_fine_comparison_rejects_missing_config_name_column(tmp_path):
-    df = _tiny_predictions_df().drop(columns=["config_name"])
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(df, coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-
-    with pytest.raises(ValueError, match="config_name"):
-        build_coarse_vs_fine_comparison(
-            coarse_predictions_path=coarse_path,
-            fine_predictions_path=fine_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert not (tmp_path / "coarse_vs_fine_comparison.png").exists()
-
-
-def test_config_mean_collapse_diagnostic_waveform_panel_is_sorted_by_phase(
-    tmp_path, monkeypatch
-):
-    """The bottom-row waveform plot sorts by phase before plotting -- pins the existing
-    .sort_values("phase") call so it can't be silently dropped without a test noticing (round 2
-    review found this was correct but unpinned). The function closes its own figure before
-    returning, so this captures it via a wrapped plt.subplots rather than plt.gcf() afterward.
-    """
-    shuffled = pd.DataFrame(
-        {
-            "config_name": ["cfgA"] * 4,
-            "phase": [0.66, 0.0, 0.99, 0.33],
-            "CF_x_true": [3.0, 1.0, 4.0, 2.0],
-            "CF_x_pred": [3.2, 1.1, 4.4, 2.2],
+def test_k1_recorded_r2_is_not_another_block(tmp_path):
+    written = _k1_repo(tmp_path)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    metrics = written["coarse"]["metrics"]
+    others = set()
+    for c in TARGET_COLUMNS:
+        others |= set(metrics["per_target"][c].values())
+        others |= {
+            v
+            for k, v in metrics["phase_baseline_skill"]["per_target"][c].items()
+            if isinstance(v, float)
         }
-    )
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(shuffled, coarse_pred_path)
-    _write_parquet(shuffled, fine_pred_path)
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-
-    captured = {}
-    real_subplots = plt.subplots
-
-    def spy_subplots(*args, **kwargs):
-        fig, axes = real_subplots(*args, **kwargs)
-        captured["fig"] = fig
-        return fig, axes
-
-    monkeypatch.setattr(
-        "mosquito_cfd.force_surrogate.comparison_figure.plt.subplots", spy_subplots
-    )
-
-    build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
-    )
-
-    # The bottom-left axes' first Line2D (the "true" waveform) must be phase-ordered, even
-    # though the figure itself is already closed by the time this runs.
-    bottom_left_ax = captured["fig"].axes[2]
-    plotted_x = bottom_left_ax.lines[0].get_xdata()
-    assert list(plotted_x) == sorted(plotted_x)
+    assert result["grids"]["coarse"]["CF_x"]["config_mean_r2"][0] not in others
 
 
-def test_config_mean_collapse_diagnostic_raises_before_any_figure_exists_on_metrics_error(
-    tmp_path,
-):
-    """A malformed metrics.json fails before a Figure is ever created (no leak possible).
+def _scale_config_resolved(factor):
+    def edit(metrics):
+        metrics["config_resolved"]["CF_x"]["config_mean_r2"] *= factor
 
-    ``_config_resolved_r2`` (which raises here) runs before ``plt.subplots`` is called -- see
-    the "compute every fallible value BEFORE creating the matplotlib figure" comment in
-    ``build_config_mean_collapse_diagnostic``. This asserts that ordering directly (zero
-    figures at any point), rather than the now-vacuous "figure count unchanged" check a review
-    round found: since no figure is ever created on this path, that assertion would hold even
-    without the try/finally this fix also added -- it doesn't exercise the finally block at all.
-    """
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps({"per_target": {"CF_x": {"rmse": 0.1}}}))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    open_before = len(plt.get_fignums())
-    with pytest.raises(KeyError):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=tmp_path,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert len(plt.get_fignums()) == open_before
+    return edit
 
 
-def test_config_mean_collapse_diagnostic_does_not_leak_figure_on_mkdir_error(tmp_path):
-    """The actual try/finally leak guard, exercised post-Figure-creation (mirrors the sibling
-    coarse-vs-fine test -- a review round found the metrics-error variant above never reaches
-    ``plt.subplots`` at all, so it couldn't exercise this guard).
-    """
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(json.dumps(_tiny_metrics(0.9, 0.1)))
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-    blocked_out_dir = tmp_path / "blocked"
-    blocked_out_dir.write_text("not a directory")
-
-    open_before = len(plt.get_fignums())
-    with pytest.raises(FileExistsError):
-        build_config_mean_collapse_diagnostic(
-            coarse_predictions_path=coarse_pred_path,
-            fine_predictions_path=fine_pred_path,
-            coarse_metrics_path=coarse_metrics_path,
-            fine_metrics_path=fine_metrics_path,
-            out_dir=blocked_out_dir,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert len(plt.get_fignums()) == open_before
+def test_a_recorded_r2_off_by_1e10_is_refused_and_1e14_accepted(tmp_path):
+    _k1_repo(tmp_path / "a", {"edit_metrics": _scale_config_resolved(1 + 1e-10)})
+    with pytest.raises(ValueError) as excinfo:
+        _build(cf.build_cycle_mean_r2_diagnostic, tmp_path / "a")
+    for needle in ("coarse", "CF_x", "config_mean_r2"):
+        assert needle in str(excinfo.value)
+    assert not (tmp_path / "a" / "out").exists()
+    _k1_repo(tmp_path / "b", {"edit_metrics": _scale_config_resolved(1 + 1e-14)})
+    _build(cf.build_cycle_mean_r2_diagnostic, tmp_path / "b")
 
 
-def test_coarse_vs_fine_comparison_does_not_leak_figure_on_mkdir_error(tmp_path):
-    """An out_dir that can't be created must not leave an unclosed matplotlib Figure behind."""
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_path)
-    _write_parquet(_tiny_predictions_df(), fine_path)
-    # A file (not a directory) at the target path makes Path.mkdir() raise FileExistsError.
-    blocked_out_dir = tmp_path / "blocked"
-    blocked_out_dir.write_text("not a directory")
-
-    open_before = len(plt.get_fignums())
-    with pytest.raises(FileExistsError):
-        build_coarse_vs_fine_comparison(
-            coarse_predictions_path=coarse_path,
-            fine_predictions_path=fine_path,
-            out_dir=blocked_out_dir,
-            docker_image_digest=DIGEST,
-            timestamp=TS,
-        )
-    assert len(plt.get_fignums()) == open_before
+def test_a_primary_r2_near_one_is_accepted(tmp_path):
+    sigma = math.sqrt(35 / 12)
+    offsets = (1e-3 * sigma, 3.0, 2.0, 0.5, 1.5)
+    _k1_repo(tmp_path, offsets=offsets)
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    r2 = result["grids"]["coarse"]["CF_x"]["config_mean_r2"][0]
+    assert math.isclose(1 - r2, 1e-6, rel_tol=1e-6, abs_tol=0)
 
 
-def test_coarse_vs_fine_comparison_honors_non_default_coefficient(tmp_path):
-    """The documented `coefficient` parameter is exercised with a non-default value (CF_z)."""
-    coarse_df = _tiny_predictions_df()
-    fine_df = _tiny_predictions_df()
-    coarse_path = tmp_path / "coarse.parquet"
-    fine_path = tmp_path / "fine.parquet"
-    _write_parquet(coarse_df, coarse_path)
-    _write_parquet(fine_df, fine_path)
+def test_boundary_r2_values(tmp_path):
+    def edit(runs):
+        runs[1]["per_target"]["CF_x"]["config_mean_r2"] = 0.0
+        runs[2]["per_target"]["CF_x"]["config_mean_r2"] = 1.0
+        runs[3]["per_target"]["CF_x"]["config_mean_r2"] = -1e6
 
-    result = build_coarse_vs_fine_comparison(
-        coarse_predictions_path=coarse_path,
-        fine_predictions_path=fine_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
-        coefficient="CF_z",
-    )
-
-    assert result["coefficient"] == "CF_z"
-    expected = coarse_df.groupby("config_name")[["CF_z_true", "CF_z_pred"]].mean()
-    assert result["coarse"]["cfgA"]["true_mean"] == pytest.approx(
-        expected.loc["cfgA", "CF_z_true"]
-    )
-    # Not accidentally reading the CF_x columns instead.
-    assert result["coarse"]["cfgA"]["true_mean"] != pytest.approx(
-        coarse_df[coarse_df["config_name"] == "cfgA"]["CF_x_true"].mean()
+    _k1_repo(tmp_path, {"edit_runs": edit})
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    assert entry["eps"][1] == entry["sigma"]
+    assert entry["eps"][2] == 0.0
+    assert entry["floor_seeds"] == [1236]
+    assert math.isclose(
+        entry["eps"][3], entry["sigma"] * math.sqrt(1 + 1e6), rel_tol=1e-12
     )
 
 
-def test_config_mean_collapse_diagnostic_honors_non_default_coefficient(tmp_path):
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(
-        json.dumps(_tiny_metrics(0.5, 0.2, coefficient="CF_z"))
+def _null_truth(salt=0.0):
+    base = default_truth(salt)
+
+    def truth(split, index, phase, beat):
+        cols = base(split, index, phase, beat)
+        if split == "holdout":
+            cols[:, 0] = 0.5 + np.where(np.arange(phase.shape[0]) % 2 == 0, 1.0, -1.0)
+        return cols
+
+    return truth
+
+
+def test_a_null_cycle_mean_r2_passes_through_as_null(tmp_path):
+    written = write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=_null_truth()),
+        fine=_fine(truth=_null_truth(0.013)),
     )
-    fine_metrics_path.write_text(
-        json.dumps(_tiny_metrics(-10.0, 0.1, coefficient="CF_z"))
+    # in memory the sentinel is NaN; the written metrics.json carries it as null
+    assert cf._is_null(
+        written["coarse"]["metrics"]["config_resolved"]["CF_x"]["config_mean_r2"]
     )
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
+    assert written["coarse"]["metrics"]["phase_baseline_skill"]["per_target"]["CF_x"][
+        "skill"
+    ]
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_x"]
+    assert entry["config_mean_r2"] == [None] * 5
+    assert entry["eps"] == [None] * 5
+    assert entry["sigma"] == 0.0
+    assert entry["na"] is True
+    assert entry["waveform_rms"] == 1.0
+    assert result["grids"]["coarse"]["CF_y"]["na"] is False
 
-    result = build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
-        coefficient="CF_z",
+
+def test_diagnostic_caption(tmp_path):
+    seeds = (42, 43, 44)
+    scales = (1.0, 1.3, 0.8)
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(seeds=seeds, error_scales=scales),
+        fine=_fine(seeds=seeds, error_scales=scales),
     )
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    caption = result["caption"]
+    for phrase in (
+        cf.SHIPPED_PHRASE,
+        cf.LAB_FRAME_PHRASE,
+        "3 seeds",
+        "observed spread, not a confidence interval",
+        "a diagnostic of the metric, not a comparison of the grids",
+        "cycle-mean R² is computed on each grid's own 6 holdout configurations",
+        "second wingbeat of 2-beat runs",
+        cf.REGENERATION_PHRASE,
+    ):
+        assert phrase in caption, phrase
+    assert cf.OWN_BASELINE_PHRASE not in caption
+    assert "1234" not in caption and "5 seeds" not in caption
+    _assert_clean_wording(caption, *result["labels"])
 
-    assert result["coarse"]["config_mean_r2"] == pytest.approx(0.5)
-    assert result["fine"]["config_mean_r2"] == pytest.approx(-10.0)
+
+def test_diagnostic_caption_for_a_four_beat_corpus(tmp_path):
+    write_repo(tmp_path, coarse=CorpusSpec(n_beats=4), fine=_fine(n_beats=4))
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    assert "wingbeats 2–4 of 4-beat runs" in result["caption"]
+    assert cf.REGENERATION_PHRASE not in result["caption"]
 
 
-def test_config_mean_collapse_diagnostic_passes_through_null_config_mean_r2(tmp_path):
-    """A JSON null config_mean_r2 (train.py's real near-zero-variance sentinel) passes through
-    as None rather than crashing or being silently coerced to some other value.
-    """
-    coarse_metrics_path = tmp_path / "coarse_metrics.json"
-    fine_metrics_path = tmp_path / "fine_metrics.json"
-    coarse_metrics_path.write_text(
-        json.dumps({"config_resolved": {"CF_x": {"config_mean_r2": None}}})
+def test_cycle_mean_r2_diagnostic_end_to_end(tmp_path):
+    write_repo(tmp_path)
+    before = plt.get_fignums()
+    result, out = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    assert sorted(p.name for p in out.iterdir()) == [
+        "cycle_mean_r2_diagnostic.png",
+        "cycle_mean_r2_diagnostic_metrics.json",
+        "cycle_mean_r2_diagnostic_run_metadata.json",
+    ]
+    assert plt.get_fignums() == before
+    written = json.loads(
+        (out / "cycle_mean_r2_diagnostic_metrics.json").read_text(encoding="utf-8")
     )
-    fine_metrics_path.write_text(json.dumps(_tiny_metrics(-30.0, 0.05)))
-    coarse_pred_path = tmp_path / "coarse.parquet"
-    fine_pred_path = tmp_path / "fine.parquet"
-    _write_parquet(_tiny_predictions_df(), coarse_pred_path)
-    _write_parquet(_tiny_predictions_df(), fine_pred_path)
-
-    result = build_config_mean_collapse_diagnostic(
-        coarse_predictions_path=coarse_pred_path,
-        fine_predictions_path=fine_pred_path,
-        coarse_metrics_path=coarse_metrics_path,
-        fine_metrics_path=fine_metrics_path,
-        out_dir=tmp_path,
-        docker_image_digest=DIGEST,
-        timestamp=TS,
+    recomputed = cf.compute_cycle_mean_r2_diagnostic_metrics(
+        root=tmp_path, coarse_dir=COARSE_DIR, fine_dir=FINE_DIR
     )
+    assert written == json.loads(cf._dumps(recomputed)) == json.loads(cf._dumps(result))
 
-    assert result["coarse"]["config_mean_r2"] is None
+
+def test_a_zero_eps_is_drawn_as_a_labelled_floor_marker(tmp_path):
+    def edit(runs):
+        runs[2]["per_target"]["CF_x"]["config_mean_r2"] = 1.0
+
+    _k1_repo(tmp_path, {"edit_runs": edit})
+    coarse = cf._load_corpus(tmp_path, COARSE_DIR, "coarse")
+    fine = cf._load_corpus(tmp_path, FINE_DIR, "fine")
+    metrics = cf._cycle_mean_r2_diagnostic_metrics(
+        coarse, fine, cf._check_pair(coarse, fine)
+    )
+    fig = cf._draw_cycle_mean_r2_diagnostic(metrics)
+    try:
+        scales = fig.axes[0]
+        labels = [t.get_text() for t in scales.texts]
+        assert labels.count("0") == 1
+        floor = scales.get_ylim()[0]
+        markers = [
+            line
+            for line in scales.lines
+            if line.get_marker() == "v" and line.get_ydata()[0] > floor
+        ]
+        assert markers, "no floor marker drawn for the zero error"
+    finally:
+        plt.close(fig)
+
+
+def test_zero_scales_are_recorded_and_labelled_at_the_floor(tmp_path):
+    def zero_target(salt=0.0):
+        base = default_truth(salt)
+        j = TARGET_COLUMNS.index("CF_y")
+
+        def truth(split, index, phase, beat):
+            cols = base(split, index, phase, beat)
+            if split == "holdout":
+                cols[:, j] = (
+                    0.25  # same constant in every holdout config: waveform 0, sigma 0
+                )
+            return cols
+
+        return truth
+
+    write_repo(
+        tmp_path,
+        coarse=CorpusSpec(truth=zero_target()),
+        fine=_fine(truth=zero_target(0.013)),
+    )
+    result, _ = _build(cf.build_cycle_mean_r2_diagnostic, tmp_path)
+    entry = result["grids"]["coarse"]["CF_y"]
+    assert entry["waveform_rms"] == 0.0 and entry["sigma"] == 0.0
+    assert entry["floor_scales"] == ["waveform_rms", "sigma"]
+    assert entry["na"] is True
+    assert result["grids"]["coarse"]["CF_x"]["floor_scales"] == []

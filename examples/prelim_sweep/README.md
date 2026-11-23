@@ -242,6 +242,10 @@ does not collide with the dataset build's `run_metadata.json` one level up):
 | `surrogate/surrogate.pt` | **committed** | The trained checkpoint (state dict + the train-fit standardizer stats). Binary (`*.pt` pinned in `.gitattributes`). |
 | `surrogate/run_metadata.json` | **committed** | Provenance: the dataset corpus's pinned `:fp64` digest, git SHA, host/GPU, seeds, resolved `torch`/`physicsnemo` versions. |
 
+Training runs made after #130 also record `python`, `numpy`, `pandas` and `pyarrow` under
+`library_versions`. The committed surrogate records (here and in the fine corpus) predate those
+entries; for them, `uv.lock` at the recorded commit is the record of the Python environment.
+
 The **normative schemas** for `metrics.json` and the predictions table are the `force-surrogate`
 spec scenarios *"metrics.json carries per-target, aggregate, per-config, and inference keys"*,
 *"config_resolved block is present per target"*, and *"Predictions parquet schema"*, plus the
@@ -316,7 +320,9 @@ Force-only (CC-6): the only inputs are the committed predictions parquet + `metr
 plotfiles, cluster, or GPU.
 
 See [`figures/README.md`](figures/README.md) for the full file table (including the cluster-free
-wing-phase hinge-geometry diagnostic) and regeneration commands.
+wing-phase hinge-geometry diagnostic) and regeneration commands. The coarse-vs-fine comparison
+figures, which read both corpora's surrogates, are described in the fine README's
+[Comparison figures](../prelim_sweep_fine/README.md#comparison-figures).
 
 | File | Status | Contents |
 |---|---|---|
@@ -437,17 +443,19 @@ legible without losing any disclosure:
   hovering-scoped; **symmetric-rotation** AoA; rotational + added-mass terms **omitted**; lift defined
   **stroke-plane-normal** while CFD CF_z is the **lab-z** force), computed through the single-source
   `compute_force_reference` helper (CC-3). **It is deliberately *not* drawn on the scatter.** At this
-  coarse grid it overshoots the CFD lift ~**1.3×** (RMS, in `evidence_figure_metrics.json` as
-  `quasi_steady_reference.overshoot_factor` — down from ~2.3× before the corrected hinge geometry (#71), which changed the
-  CFD forces the model is compared against); why the uncalibrated model over-predicts this grid's
-  lift was not investigated here. Its RMS error against the CFD lift
+  coarse grid it overshoots the CFD lift ~1.3× in RMS, and on the 256×128×256 grid ~1.4× (each is
+  `quasi_steady_reference.overshoot_factor` in that corpus's `figures/evidence_figure_metrics.json`).
+  The ratio has changed with each corpus correction (#36, #71); its history is in the git log of
+  `figures/evidence_figure_metrics.json`. The ratio stays above 1 on the fine grid. Why the
+  uncalibrated model over-predicts the lift was not investigated here; the omitted terms would be
+  expected to add lift, so they are unlikely to explain it. Its RMS error against the CFD lift
   (`quasi_steady_reference.baseline_rmse_cf_z`, 0.517) fell from 1.78 when the CFD coefficients
   took the on-wing sign (#109), because the two lifts now share a sign; the ratio is an RMS ratio
   and did not change. Pointwise its R² against the CFD lift is only about 0.05: it tracks the
   shape (correlation 0.72) but not the scale, so it remains a poor fit. An overlay would mostly **re-display the model's analytic loops, not surrogate
   skill over the analytic model** — a hollow comparison — so it is reported as a
   reference number only. A *fair* quantitative comparison would require scale-calibrating the QS model
-  to the CFD (making it a fitted model) or a finer, IB-bias-free grid — both out of scope here.
+  to the CFD, which makes it a fitted model and is out of scope here.
 - **The >1,000× speedup is batched GPU throughput, honestly decomposed.** The headline
   (≈2.8×10⁶× = `inference.throughput_rows_per_s` ÷ the **sequential** coarse-grid A40 CFD timestep
   rate; the surrogate is timed on the local RTX A5000, the CFD ran on the cluster's A40s, so the two
@@ -470,3 +478,7 @@ uv run python scripts/make_evidence_figure.py \
     --docker-digest ghcr.io/talmolab/mosquito-cfd@sha256:<64hex> \
     --timestamp <iso-8601>
 ```
+
+After retraining this corpus's surrogate, also re-render the
+[comparison figures](../prelim_sweep_fine/README.md#comparison-figures); their committed-figure
+test fails until they are.

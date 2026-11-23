@@ -17,7 +17,7 @@ enabled** — this corpus produces AMReX plotfiles, not just force CSVs.
 | `dataset.parquet` / `dataset.units.json` / `run_metadata.json` | The extracted force dataset and its build provenance — same schema and conventions as the coarse corpus's (see its README's "Dataset" section): the coefficients are the IB force and moment on the wing and the raw `Fx..Mz` act on the fluid ([force and moment sign](../../docs/coordinate-convention.md#force-and-moment-sign)). |
 | `generate_full_corpus.py` | Thin driver over `mosquito_cfd.force_surrogate.sweep.generate_sweep()`. |
 | `surrogate/` | The force surrogate trained on this corpus (#110): `surrogate.pt` (seed 1234), `holdout_predictions.parquet`, `metrics.json` (with `phase_baseline_skill` and the 5-seed `seed_sweep`), `run_metadata.json`. Same trainer, flags and file layout as the coarse corpus's `surrogate/`. |
-| `figures/` | The evidence figure: `evidence_figure.png`, `evidence_figure_metrics.json` (every number on the figure), `run_metadata.json` (provenance, including the grid profile and the CFD cost per step). There is no separate `figures/README.md`; this file covers it. |
+| `figures/` | The evidence figure: `evidence_figure.png`, `evidence_figure_metrics.json` (every number on the figure), `run_metadata.json` (provenance, including the grid profile and the CFD cost per step). `figures/coarse_vs_fine/` holds the three coarse-vs-fine figures ([Comparison figures](#comparison-figures)). There is no separate `figures/README.md`; this file covers it. |
 
 The surrogate and its figure are described in [Surrogate and evidence figure](#surrogate-and-evidence-figure)
 below.
@@ -111,6 +111,58 @@ choice of seeds. Five seeds a side cannot rule out a difference as large as the 
 difference would reflect the CFD data as well as the surrogate; this table is not a measurement of
 the effect of grid resolution on its own.
 
+The committed figure of these ranges, and two within-grid figures, are described under
+[Comparison figures](#comparison-figures).
+
+### Comparison figures
+
+Three figures in [`figures/coarse_vs_fine/`](figures/coarse_vs_fine/) read both corpora's committed
+surrogates (`surrogate/`):
+
+- [`skill_ranges.png`](figures/coarse_vs_fine/skill_ranges.png) draws the table above, with each
+  seed's skill as a marker. It is the only comparison between the grids, under the same rule and
+  with the same caveats.
+- [`error_histograms.png`](figures/coarse_vs_fine/error_histograms.png): within each grid, the
+  error of seed 1234 beside the phase-only baseline's error on the same holdout rows, in units of
+  that grid's baseline RMSE. Each panel gives the 5-seed skill range.
+- [`cycle_mean_r2_diagnostic.png`](figures/coarse_vs_fine/cycle_mean_r2_diagnostic.png): why the
+  cycle-mean R² above is ill-conditioned, for every seed. It shows the waveform RMS, the spread σ
+  of the six true cycle means, and each seed's cycle-mean error ε = σ·√(1 − R²).
+
+`error_histograms` and `cycle_mean_r2_diagnostic` each describe one grid at a time; neither compares
+the grids.
+
+Each figure's `_metrics.json` holds every plotted value, its caption and what was drawn. Its
+`_run_metadata.json` records each input's repository-relative path and sha256, both corpora's CFD
+image digests (`corpus_docker_images`), the library versions, the renderer's hashes
+(`renderer_sources`) and the PNG's sha256 (`png_sha256`). Its `docker_image` is this corpus's CFD
+digest, by convention: the figures were rendered natively on Windows, not in that container.
+`git.commit` is the commit they were rendered from. It is a branch commit, so after the PR is
+squash-merged it stays reachable through GitHub's `refs/pull/183/head`. Each figure is drawn under
+matplotlib's `default` style, so a local `matplotlibrc` does not change it.
+
+`tests/test_committed_comparison_figures.py` recomputes the sidecars from the committed inputs and
+fails if any input, the renderer or a PNG changes. A corpus regeneration or a retrain therefore fails it on
+purpose: retrain, then re-render all three figures into a scratch directory outside the repository
+and copy them in. Rendering in place over the committed files would record `git.dirty: true`.
+
+```bash
+# from the repository root, on a clean committed tree
+out="$(mktemp -d)"
+digest="$(python -c 'import json;print(json.load(open("examples/prelim_sweep_fine/run_metadata.json"))["docker_image"])')"
+ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+for fig in skill_ranges error_histograms cycle_mean_r2_diagnostic; do
+  uv run --frozen --group viz python scripts/make_coarse_vs_fine_figures.py --figure "$fig" \
+    --coarse-dir examples/prelim_sweep --fine-dir examples/prelim_sweep_fine \
+    --out-dir "$out" --docker-digest "$digest" --timestamp "$ts"
+done
+cp "$out"/* examples/prelim_sweep_fine/figures/coarse_vs_fine/
+```
+
+The committed surrogate records predate the `python`, `numpy`, `pandas` and `pyarrow` entries in
+`library_versions`; see the coarse README's
+[Surrogate](../prelim_sweep/README.md#surrogate-metricsjson-predictions-checkpoint) section.
+
 ### Quasi-steady reference
 
 The caption gives the ratio of an uncalibrated, translational-only Sane–Dickinson quasi-steady
@@ -118,7 +170,7 @@ model to the fine-grid CFD lift: ~1.4× in RMS (`quasi_steady_reference.overshoo
 `figures/evidence_figure_metrics.json`). The model omits rotational, added-mass and LEV lift, uses a
 symmetric-rotation angle of attack, and defines lift stroke-plane-normal while the CFD `CF_z` is the
 lab-z force, so it is reported as a reference number and not overlaid on the figure. The ratio is
-above 1 even though the omitted terms would add lift, so the omissions do not explain the gap; why
+above 1 even though the omitted terms would be expected to add lift, so they are unlikely to explain the gap; why
 the uncalibrated model over-predicts this grid's lift was not investigated here. The model itself is
 described in the coarse README.
 
@@ -200,6 +252,9 @@ uv run --frozen --group viz python scripts/make_evidence_figure.py \
     --docker-digest <same digest as step 1> --timestamp <iso-8601-utc> \
     --out-dir examples/prelim_sweep_fine/figures
 ```
+
+After retraining, also re-render the [comparison figures](#comparison-figures); their
+committed-figure test fails until they are.
 
 The committed surrogate was trained twice from the same commit before it was committed: the
 checkpoint and predictions were byte-identical and `metrics.json` differed only in its wall-clock

@@ -555,6 +555,52 @@ def test_provenance_cpu_tier_digest_timestamp_seeds(tmp_path):
     assert meta["library_versions"]["physicsnemo"] is None
 
 
+def test_provenance_records_the_python_data_stack():
+    """Scenario: The Python data stack is recorded on every host (CI tier), #130 item 4."""
+    import importlib.metadata
+    import platform
+
+    meta = build_training_metadata(
+        docker_image_digest=DIGEST,
+        timestamp=TIMESTAMP,
+        seeds={"global": 1234},
+        feature_names=list(FEATURE_COLUMNS),
+    )
+    versions = meta["library_versions"]
+    assert versions["python"] == platform.python_version()
+    for dist in ("numpy", "pandas", "pyarrow"):
+        assert versions[dist] == importlib.metadata.version(dist)
+        assert isinstance(versions[dist], str) and versions[dist]
+    assert meta["seeds"] == {
+        "global": 1234
+    }  # still top level, not under library_versions
+    assert "seeds" not in versions
+
+
+def test_provenance_records_an_uninstalled_package_as_null(monkeypatch):
+    """Scenario: An uninstalled package is recorded as null; the other keys are unaffected."""
+    import importlib.metadata
+
+    real_version = importlib.metadata.version
+
+    def fake_version(dist):
+        if dist == "pyarrow":
+            raise importlib.metadata.PackageNotFoundError(dist)
+        return real_version(dist)
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    meta = build_training_metadata(
+        docker_image_digest=DIGEST,
+        timestamp=TIMESTAMP,
+        seeds={"global": 1234},
+        feature_names=list(FEATURE_COLUMNS),
+    )
+    versions = meta["library_versions"]
+    assert versions["pyarrow"] is None
+    assert versions["numpy"] == real_version("numpy")
+    assert versions["pandas"] == real_version("pandas")
+
+
 def test_provenance_records_the_training_dataset(tmp_path):
     """Scenario: Training metadata names the dataset (file + sha256), so which corpus produced
     a committed surrogate.pt is auditable rather than inferred."""
