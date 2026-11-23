@@ -326,6 +326,50 @@ def test_the_memory_probe_brackets_each_fit(tmp_path, monkeypatch):
     assert results.loc[results["entry"] == "ridge_fixed", "peak_gpu_mem"].isna().all()
 
 
+# --- A diverged seed ---------------------------------------------------------------------------
+
+
+class DivergedSeed(Recorder):
+    """Seed 1236 predicts NaN on the grid and at the test rows; every other seed is finite."""
+
+    BAD = 1236
+
+    def fit_seed(self, df, split, *, seed, **kwargs):
+        fit = super().fit_seed(df, split, seed=seed, **kwargs)
+        if seed == self.BAD:
+            fit.y_pred = np.full_like(fit.y_pred, np.nan)
+        fit.seed = seed
+        return fit
+
+    def predict_frame(self, fit, frame, *, device="cpu"):
+        value = np.nan if fit.seed == self.BAD else 0.25
+        return np.full((len(frame), 6), value)
+
+
+def test_a_diverged_seed_gives_outside_null_verdicts_not_a_crash(tmp_path, monkeypatch):
+    """Spec "Gate boundaries": four finite seeds plus one NaN seed give outside, null margin."""
+    _, out, _ = _run(
+        tmp_path, monkeypatch, recorder=DivergedSeed(), entries=("mlp_h1",)
+    )
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    comps = summary["gate"]["entries"]["mlp_h1"]["components"]
+    judged = 0
+    for comp, verdicts in comps.items():
+        for name, v in verdicts.items():
+            if "yardstick" not in v:
+                continue
+            judged += 1
+            assert v["verdict"] == "outside" and v["margin"] is None, (comp, name)
+            assert "NaN" in v["reason"], (comp, name)
+    assert judged > 0
+    # The seed ranges skip the NaN seed; the per-seed record keeps it as null.
+    skills = summary["per_seed_skill"]["mlp_h1"]["interpolation"]
+    assert all(v is None for v in skills[str(DivergedSeed.BAD)].values())
+    assert all(
+        v is not None for s, d in skills.items() if s != "1236" for v in d.values()
+    )
+
+
 # --- Four beats ------------------------------------------------------------------------------
 
 

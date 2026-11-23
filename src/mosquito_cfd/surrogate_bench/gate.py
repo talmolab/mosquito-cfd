@@ -163,6 +163,9 @@ def config_errors(
         and ``|max|Ĉ| − max|C|| / max|C|`` for the two peaks.
     """
     out: dict[str, dict[str, float]] = {}
+    # A diverged seed's non-finite value (inf included) becomes NaN, so its verdict takes the
+    # spec's NaN path (outside, null margin) instead of a finite margin of 0 or a crash.
+    model = np.where(np.isfinite(model), model, np.nan)
     for j, t in enumerate(targets):
         out[t] = {
             "full": float(np.sqrt(np.mean((model[:, j] - cfd[:, j]) ** 2)) / peaks[t]),
@@ -171,6 +174,10 @@ def config_errors(
                 / peaks[t]
             ),
         }
+    if not np.isfinite(_lab_columns(model, targets)).all():
+        for comp in PEAKS:
+            out[comp] = {"full": float("nan"), "window": float("nan")}
+        return out
     for key, windowed in (("full", False), ("window", True)):
         got = peak_values(_lab_columns(model, targets), **settings, windowed=windowed)
         ref = peak_values(_lab_columns(cfd, targets), **settings, windowed=windowed)

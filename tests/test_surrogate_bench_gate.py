@@ -237,6 +237,24 @@ def test_the_beat_peak_normaliser_is_windowed():
     assert errors["normal_peak"]["full"] == pytest.approx(0.0, abs=1e-12)
 
 
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_a_non_finite_model_grid_gives_nan_errors_not_a_crash(bad):
+    """A diverged seed reaches the verdict as NaN (spec "Gate boundaries"), never raises."""
+    cfd = _synthetic_beats()[1]
+    model = cfd.copy()
+    model[40, 0] = bad
+    errors = gate.config_errors(
+        model=model, cfd=cfd, settings=SETTINGS, peaks=PEAKS, targets=TARGETS
+    )
+    # The poisoned column and both body-frame peaks (built from CF_x..CF_z) are NaN, inf
+    # included, so the verdict takes the spec's NaN path rather than a finite margin of 0.
+    for comp in ("CF_x", *gate.PEAKS):
+        assert np.isnan(errors[comp]["full"]) and np.isnan(errors[comp]["window"]), comp
+    # Untouched columns keep their real (zero) error.
+    for comp in TARGETS[1:]:
+        assert errors[comp]["full"] == 0.0 and errors[comp]["window"] == 0.0, comp
+
+
 def test_the_late_beat_yardstick_needs_four_beats():
     ys3 = gate.config_yardsticks(
         beats=_synthetic_beats(3),
