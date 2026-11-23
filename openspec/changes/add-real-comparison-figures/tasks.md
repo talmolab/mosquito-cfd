@@ -426,7 +426,7 @@ This section is additive; the old builders stay until 7.
   - The four MODIFIED blocks were diffed against main after each merge (`765ada0`, `75020ac`): no live
     scenario is dropped.
 - [x] 11.2 Run `openspec validate --strict`, the full suite and ruff.
-- [ ] 11.3 `/review-pr`, then fixes. Each fix commit gets a focused adversarial re-review by
+- [x] 11.3 `/review-pr`, then fixes. Each fix commit gets a focused adversarial re-review by
   reproduction.
   - **Any byte change to `comparison_figure.py` or the driver**, a docstring included, triggers the
     re-render rule:
@@ -435,6 +435,10 @@ This section is additive; the old builders stay until 7.
        commit.
     3. Push the two commits together, never apart.
   - Tell the user if any slides are affected.
+  - Done: review posted on #183 (no blocking, six important). Fixes in `6181dfb`, re-render in
+    `d822a2b` (PNGs and metrics byte-identical, so no slide is affected; the data commit message
+    omits that `run_id` also changed). The focused re-review found nothing blocking or important;
+    its two test suggestions are applied in the following commit.
 - [ ] 11.4 `/pre-merge-check`.
 - [ ] 11.5 Grep the PR body and every commit message for closing keywords next to an issue number.
   - Only the PR body says "Closes #114" and "Closes #130", and only if the user approves.

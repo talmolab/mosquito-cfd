@@ -380,8 +380,8 @@ def test_differing_training_configuration_sets_are_refused(builder, change, tmp_
     _expect_refusal(
         builder,
         tmp_path,
-        "configuration sets differ",
-        "t0" if change == "drop t05" else "t99",
+        "dataset configuration sets differ",
+        "t05" if change == "drop t05" else "t99",
     )
 
 
@@ -630,16 +630,18 @@ def test_run_metadata_records_the_png_sha256(builder, tmp_path):
     assert meta["png_sha256"] == hashlib.sha256(png).hexdigest()
 
 
-def test_rendering_ignores_local_matplotlib_settings(tmp_path):
+@pytest.mark.parametrize("builder", BUILDERS)
+def test_rendering_ignores_local_matplotlib_settings(builder, tmp_path):
     # An untracked matplotlibrc, or rcParams set by the caller, must not change the PNG.
     write_repo(tmp_path)
-    _call(cf.build_skill_ranges, tmp_path, tmp_path / "plain")
+    name = builder.__name__.removeprefix("build_")
+    _call(builder, tmp_path, tmp_path / "plain")
     with matplotlib.rc_context(
         {"lines.markersize": 20, "savefig.facecolor": "yellow", "font.size": 4}
     ):
-        _call(cf.build_skill_ranges, tmp_path, tmp_path / "styled")
-    plain = (tmp_path / "plain" / "skill_ranges.png").read_bytes()
-    styled = (tmp_path / "styled" / "skill_ranges.png").read_bytes()
+        _call(builder, tmp_path, tmp_path / "styled")
+    plain = (tmp_path / "plain" / f"{name}.png").read_bytes()
+    styled = (tmp_path / "styled" / f"{name}.png").read_bytes()
     assert plain == styled
 
 
