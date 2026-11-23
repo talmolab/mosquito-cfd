@@ -401,6 +401,7 @@ def run_bench(
     epochs: int = 2000,
     allow_dirty: bool = False,
     memory_probe: Any | None = None,
+    extra_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the bench on the fine corpus and write the five artifacts into ``out_dir``.
 
@@ -419,6 +420,9 @@ def run_bench(
         allow_dirty: Run on a dirty tree, recording ``dirty: true``.
         memory_probe: An object with the ``torch.cuda`` memory API (default ``torch.cuda`` on a
             CUDA device, none on CPU).
+        extra_inputs: Further input provenance recorded beside ``dataset_sha256`` (the
+            driver adds the dataset files, the coarse corpus's sha256 and digest, and how the
+            digest was checked). It may not override ``dataset_sha256``.
 
     Returns:
         The artifact paths and the summary.
@@ -427,6 +431,9 @@ def run_bench(
         ValueError: On any refusal, before anything is written.
     """
     out_dir = Path(out_dir)
+    extra_inputs = dict(extra_inputs or {})
+    if "dataset_sha256" in extra_inputs:
+        raise ValueError("extra_inputs may not override dataset_sha256")
     chosen = _validate(
         out_dir=out_dir,
         entries=entries,
@@ -588,7 +595,7 @@ def run_bench(
     metadata = {
         "docker_image": docker_image_digest,
         "timestamp": timestamp,
-        "inputs": {"dataset_sha256": dataset_sha256},
+        "inputs": {"dataset_sha256": dataset_sha256, **extra_inputs},
         "git": {**git_state, "dirty": _is_dirty(git_state)},
         "hardware": dict(hardware),
         "seeds": list(BENCH_SEEDS),

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
+import json
 import sys
 from pathlib import Path
 
@@ -73,6 +75,49 @@ def parse_entries(value: str | None) -> list[str]:
     return names
 
 
+def _read(path: Path) -> tuple[pd.DataFrame, str]:
+    """The dataset and the sha256 of exactly the bytes that were parsed."""
+    data = path.read_bytes()
+    return pd.read_parquet(io.BytesIO(data)), hashlib.sha256(data).hexdigest()
+
+
+def _recorded_digest(dataset: Path) -> tuple[str | None, Path]:
+    """The ``docker_image`` the corpus's ``run_metadata.json`` beside the dataset records."""
+    meta = dataset.parent / "run_metadata.json"
+    if not meta.is_file():
+        return None, meta
+    image = json.loads(meta.read_text(encoding="utf-8")).get("docker_image")
+    return (image if isinstance(image, str) else None), meta
+
+
+def input_provenance(
+    dataset: Path, coarse: Path, docker_digest: str
+) -> dict[str, object]:
+    """Input provenance beyond the fine dataset's sha256.
+
+    Raises:
+        ValueError: If the fine corpus's ``run_metadata.json`` records a different image than
+            ``--docker-digest``.
+    """
+    recorded, meta = _recorded_digest(dataset)
+    if recorded is None:
+        check = "no run_metadata.json beside the fine dataset"
+    elif recorded != docker_digest:
+        raise ValueError(
+            f"--docker-digest {docker_digest} differs from the image the fine corpus records "
+            f"in {meta.as_posix()}: {recorded}"
+        )
+    else:
+        check = f"matches {meta.as_posix()}"
+    coarse_image, _ = _recorded_digest(coarse)
+    return {
+        "dataset_file": dataset.as_posix(),
+        "coarse_dataset_file": coarse.as_posix(),
+        "docker_image_check": check,
+        "coarse_docker_image": coarse_image,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the bench; returns a process exit code."""
     args = build_parser().parse_args(argv)
@@ -80,23 +125,24 @@ def main(argv: list[str] | None = None) -> int:
     if "dirty" not in git:
         git = {**git, "dirty": True}  # an unknown state is never treated as clean
     try:
-        dataset = Path(args.dataset)
-        data = dataset.read_bytes()
-        frame = pd.read_parquet(dataset)
-        coarse = pd.read_parquet(args.coarse_dataset)
+        dataset, coarse_path = Path(args.dataset), Path(args.coarse_dataset)
+        extra = input_provenance(dataset, coarse_path, args.docker_digest)
+        frame, dataset_sha256 = _read(dataset)
+        coarse, coarse_sha256 = _read(coarse_path)
         result = run_bench(
             frame=frame,
             coarse_frame=coarse,
             out_dir=args.out_dir,
             docker_image_digest=args.docker_digest,
             timestamp=args.timestamp,
-            dataset_sha256=hashlib.sha256(data).hexdigest(),
+            dataset_sha256=dataset_sha256,
             git_state=git,
             hardware=get_hardware_info(),
             device=args.device,
             entries=parse_entries(args.entries),
             epochs=args.epochs,
             allow_dirty=args.allow_dirty,
+            extra_inputs={**extra, "coarse_dataset_sha256": coarse_sha256},
         )
     except (ValueError, OSError) as exc:
         # OSError: a missing or unreadable dataset, an output path that is a file.

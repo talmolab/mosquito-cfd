@@ -424,6 +424,7 @@ def test_the_runner_ridge_path_names_no_model_io():
         (dict(git_state=dict(GIT, dirty=None)), "dirty"),
         (dict(timestamp=""), "timestamp"),
         (dict(device="bogus"), "device"),
+        (dict(extra_inputs={"dataset_sha256": "e" * 64}), "override"),
         (
             dict(docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest"),
             "digest|pinned|sha256",

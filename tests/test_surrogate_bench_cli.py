@@ -158,9 +158,15 @@ def test_allow_dirty_runs_and_records_dirty(driver, corpora, tmp_path, monkeypat
 @pytest.mark.skipif(not COARSE.exists(), reason="coarse corpus not present")
 def test_cpu_smoke_run_on_the_real_corpora_without_heavy_imports(tmp_path):
     out = tmp_path / "bench"
+    # The real fine corpus records its image; the driver refuses any other digest.
+    recorded = json.loads(
+        (FINE.parent / "run_metadata.json").read_text(encoding="utf-8")
+    )
+    real = _argv(FINE, COARSE, out)
+    real[real.index(DIGEST)] = recorded["docker_image"]
     argv = [
         str(DRIVER),
-        *_argv(FINE, COARSE, out),
+        *real,
         "--entries",
         "ridge,ridge_fixed",
         "--device",
@@ -220,3 +226,70 @@ def test_an_out_dir_that_is_a_file_exits_non_zero(driver, corpora, tmp_path, cap
     assert driver.main(_argv(*corpora, out)) == 2
     assert "is not a directory" in capsys.readouterr().err
     assert out.read_bytes() == b"precious"
+
+
+# --- Input provenance -------------------------------------------------------------------------
+
+
+def _corpus_dirs(tmp_path, fine_digest=None, coarse_digest=None):
+    fine_dir, coarse_dir = tmp_path / "fine", tmp_path / "coarse"
+    fine_dir.mkdir()
+    coarse_dir.mkdir()
+    fine, coarse = fine_dir / "dataset.parquet", coarse_dir / "dataset.parquet"
+    synthetic_corpus().to_parquet(fine, index=False)
+    synthetic_corpus(scale=1.1).to_parquet(coarse, index=False)
+    for d, digest in ((fine_dir, fine_digest), (coarse_dir, coarse_digest)):
+        if digest is not None:
+            (d / "run_metadata.json").write_text(
+                json.dumps({"docker_image": digest}), encoding="utf-8"
+            )
+    return fine, coarse
+
+
+def test_both_datasets_are_hashed_and_named(driver, tmp_path):
+    import hashlib
+
+    fine, coarse = _corpus_dirs(tmp_path)
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 0
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    assert inputs["dataset_sha256"] == hashlib.sha256(fine.read_bytes()).hexdigest()
+    assert (
+        inputs["coarse_dataset_sha256"]
+        == hashlib.sha256(coarse.read_bytes()).hexdigest()
+    )
+    assert inputs["dataset_file"] == fine.as_posix()
+    assert inputs["coarse_dataset_file"] == coarse.as_posix()
+    assert (
+        inputs["docker_image_check"] == "no run_metadata.json beside the fine dataset"
+    )
+    assert inputs["coarse_docker_image"] is None
+
+
+def test_a_digest_other_than_the_fine_corpus_records_is_refused(
+    driver, tmp_path, capsys
+):
+    other = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "e" * 64
+    fine, coarse = _corpus_dirs(tmp_path, fine_digest=other)
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 2
+    assert other in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_the_matching_digest_and_the_coarse_digest_are_recorded(driver, tmp_path):
+    coarse_digest = "ghcr.io/talmolab/mosquito-cfd@sha256:" + "f" * 64
+    fine, coarse = _corpus_dirs(
+        tmp_path, fine_digest=DIGEST, coarse_digest=coarse_digest
+    )
+    out = tmp_path / "out"
+    assert driver.main([*_argv(fine, coarse, out), "--entries", "ridge_fixed"]) == 0
+    inputs = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))[
+        "inputs"
+    ]
+    assert inputs["docker_image_check"] == (
+        f"matches {(fine.parent / 'run_metadata.json').as_posix()}"
+    )
+    assert inputs["coarse_docker_image"] == coarse_digest
