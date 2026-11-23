@@ -435,6 +435,9 @@ def test_the_runner_ridge_path_names_no_model_io():
         (dict(git_state=dict(GIT, dirty=None)), "dirty"),
         (dict(timestamp=""), "timestamp"),
         (dict(device="bogus"), "device"),
+        (dict(device="cuda:1"), "device"),
+        (dict(device="cudax"), "device"),
+        (dict(entries="ridge"), "list of entry names"),
         (dict(extra_inputs={"dataset_sha256": "e" * 64}), "override"),
         (
             dict(docker_image_digest="ghcr.io/talmolab/mosquito-cfd:latest"),
@@ -734,3 +737,16 @@ def test_a_new_out_dir_gets_the_umask_mode_not_mkdtemps_0700(tmp_path, monkeypat
     finally:
         os.umask(old)
     assert (out.stat().st_mode & 0o777) == 0o755
+
+
+def test_each_split_grid_frame_is_built_once(tmp_path, monkeypatch):
+    calls = []
+    real = metrics.grid_frame
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(metrics, "grid_frame", spy)
+    _run(tmp_path, monkeypatch, entries=("mlp_h1", "ridge_fixed"))
+    assert len(calls) == 14

@@ -329,3 +329,16 @@ def test_wrap_jump_sawtooth_known_answer():
         abs(a) * (phase[-2] - phi0) / peak, rel=1e-12
     )
     assert out["gap_spacings"] == pytest.approx((1 + phi0 - phase[-1]) / h, rel=1e-9)
+
+
+def test_a_non_finite_value_before_the_window_spares_the_windowed_peaks():
+    cfd = _synthetic_beats()[1]
+    model = cfd.copy()
+    model[2, 0] = np.nan  # before WINDOW_START
+    errors = gate.config_errors(
+        model=model, cfd=cfd, settings=SETTINGS, peaks=PEAKS, targets=TARGETS
+    )
+    for comp in gate.PEAKS:
+        assert np.isnan(errors[comp]["full"]), comp
+        assert errors[comp]["window"] == pytest.approx(0.0, abs=1e-12), comp
+    assert np.isnan(errors["CF_x"]["full"]) and errors["CF_x"]["window"] == 0.0

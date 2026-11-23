@@ -28,6 +28,7 @@ import io
 import json
 import logging
 import platform
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -310,8 +311,12 @@ def carve_validation(
         ValueError: If a name repeats, or ``n_val_configs`` would leave an empty validation or
             training set.
     """
-    pool = sorted(train_pool)
-    repeated = sorted({c for c in pool if pool.count(c) > 1})
+    try:
+        pool = sorted(train_pool)
+    except TypeError as exc:
+        raise ValueError(f"training pool names must all be of one type: {exc}") from exc
+    counts = Counter(pool)
+    repeated = sorted(c for c, n in counts.items() if n > 1)
     if repeated:
         raise ValueError(f"the training pool repeats configuration(s) {repeated}")
     if not (1 <= n_val_configs < len(pool)):
@@ -1352,10 +1357,10 @@ def fit_seed(
     *,
     seed: int,
     phase_harmonics: int = 1,
-    epochs: int = 2000,
+    epochs: int = DEFAULT_EPOCHS,
     hidden: int = DEFAULT_HIDDEN,
     num_layers: int = DEFAULT_NUM_LAYERS,
-    lr: float = 1e-3,
+    lr: float = DEFAULT_LR,
     device: str = "cpu",
 ) -> SeedFit:
     """Fit one seed of the shipped recipe on a caller-supplied split (the bench's seam).

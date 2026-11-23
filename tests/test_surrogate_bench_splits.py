@@ -198,3 +198,10 @@ def test_a_config_whose_setting_is_nan_on_every_row_is_rejected(fine):
     unset.loc[unset["config_name"] == "s45_f100_p45", "pitch_amp_deg"] = np.nan
     with pytest.raises(ValueError, match="s45_f100_p45"):
         build_splits(unset)
+
+
+def test_settings_stored_as_text_are_refused_clearly(fine):
+    text = fine.copy()
+    text["stroke_amp_deg"] = text["stroke_amp_deg"].astype(str)
+    with pytest.raises(ValueError, match="stroke_amp_deg.*numeric"):
+        build_splits(text)

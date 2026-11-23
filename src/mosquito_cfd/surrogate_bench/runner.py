@@ -102,7 +102,7 @@ RESULT_COLUMNS = (
 )
 
 
-_DEVICE = re.compile(r"cpu|cuda(:\d+)?")
+_DEVICE = re.compile(r"cpu|cuda")
 
 
 def _is_dirty(git_state: Mapping[str, Any]) -> bool:
@@ -126,6 +126,10 @@ def _validate(
             "the working tree is dirty or its state is unknown; commit first or pass "
             "allow_dirty"
         )
+    if isinstance(entries, str):
+        raise ValueError(
+            f"entries must be a list of entry names, not the string {entries!r}"
+        )
     names = [str(e) for e in entries]
     if not names:
         raise ValueError(f"no entries given; known: {list(ENTRIES)}")
@@ -144,7 +148,8 @@ def _validate(
     if not isinstance(timestamp, str) or not timestamp.strip():
         raise ValueError(f"timestamp must be a non-empty string, got {timestamp!r}")
     if not isinstance(device, str) or not _DEVICE.fullmatch(device):
-        raise ValueError(f"device must be 'cpu', 'cuda' or 'cuda:<n>', got {device!r}")
+        # Only the default CUDA device: the memory probe and warm-up act on it.
+        raise ValueError(f"device must be 'cpu' or 'cuda', got {device!r}")
     validate_image_digest(docker_image_digest)
     if out_dir.exists() and not out_dir.is_dir():
         raise ValueError(f"output path {out_dir} exists and is not a directory")

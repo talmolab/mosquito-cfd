@@ -306,3 +306,10 @@ def test_candidate_grid_is_the_pre_registered_one():
     assert GRID_D == (1, 2, 3)
     assert GRID_ALPHA == (1e-8, 1e-6, 1e-4, 1e-2, 1.0)
     assert len(list(itertools.product(GRID_H, GRID_D, GRID_ALPHA))) == 120
+
+
+def test_selection_needs_four_training_configurations():
+    """Spec: a fit needs 3, selection 4, so every leave-one-out fold is itself a fit."""
+    frame = _degenerate_frame()
+    with pytest.raises(ValueError, match="selection needs at least 4"):
+        select_ridge(frame, ["CF_x"], ["a", "b", "c"])

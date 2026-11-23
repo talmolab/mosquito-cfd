@@ -56,6 +56,16 @@ def _config_table(df: pd.DataFrame) -> pd.DataFrame:
     unset = sorted(table.index[table[list(SETTINGS)].isna().any(axis=1)])
     if unset:
         raise ValueError(f"configuration(s) {unset} have a missing (NaN) setting")
+    for setting in SETTINGS:
+        text = [
+            v
+            for v in table[setting]
+            if isinstance(v, bool) or not isinstance(v, int | float | np.number)
+        ]
+        if text:
+            raise ValueError(
+                f"setting {setting!r} must be numeric; found {sorted(map(repr, text))[:3]}"
+            )
     unlabelled = sorted(table.index[~table["split"].isin(LABELS)])
     if unlabelled:
         raise ValueError(

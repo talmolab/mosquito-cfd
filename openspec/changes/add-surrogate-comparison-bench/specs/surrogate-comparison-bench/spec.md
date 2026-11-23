@@ -604,7 +604,8 @@ carries no dirty flag SHALL count as dirty. It SHALL also refuse:
 - a non-empty `--out-dir`;
 - an unknown, duplicated or empty `--entries` token, or no entries;
 - `--epochs` that is not an integer of at least 1;
-- an empty `--timestamp`, or a `--device` other than `cpu`, `cuda` or `cuda:<n>`;
+- an empty `--timestamp`, or a `--device` other than `cpu` or `cuda` (the default CUDA device,
+  which the memory probe measures);
 - an `--out-dir` that exists and is not a directory.
 
 All refusals SHALL happen before any file is written. The five artifacts SHALL be written

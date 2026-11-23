@@ -541,3 +541,33 @@ def test_a_supplied_grid_must_match_the_test_configurations_in_order():
             peaks=metrics.component_peaks(frame, ["CF_x"]),
             targets=["CF_x"],
         )
+
+
+def test_the_cache_tells_equal_length_phase_arrays_apart():
+    frame = _two_config_frame()
+    baseline = metrics.split_baseline(frame, ["B"], ["CF_x"])
+    a = baseline.at(np.array([0.1, 0.2]))
+    b = baseline.at(np.array([0.3, 0.4]))
+    assert not np.array_equal(a, b)
+
+
+def test_a_supplied_grid_with_the_wrong_phases_is_rejected():
+    frame = _two_config_frame()
+    baseline = metrics.split_baseline(frame, ["A"], ["CF_x"])
+    grid = metrics.grid_frame(frame, ["A", "B"])
+    grid["phase"] = grid["phase"].to_numpy()[::-1]  # right configurations, wrong phases
+    with pytest.raises(ValueError, match="grid"):
+        metrics.score_split_seed(
+            entry="m",
+            split="s",
+            seed=1,
+            target_frame=frame,
+            test_configs=["A", "B"],
+            y_pred=np.zeros((len(frame), 1)),
+            predict_grid=lambda g: np.zeros((len(g), 1)),
+            grid=grid,
+            baseline=baseline,
+            truth=metrics.grid_truth(frame, ["CF_x"]),
+            peaks=metrics.component_peaks(frame, ["CF_x"]),
+            targets=["CF_x"],
+        )

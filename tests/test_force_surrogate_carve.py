@@ -76,3 +76,8 @@ def test_the_carve_sorts_raw_names_as_make_config_splits_did_before():
 def test_a_pool_with_repeated_names_is_rejected():
     with pytest.raises(ValueError, match="repeat"):
         carve_validation(["a", "b", "b", "c", "d"], seed=1, n_val_configs=2)
+
+
+def test_a_pool_mixing_name_types_is_a_value_error():
+    with pytest.raises(ValueError, match="one type"):
+        carve_validation(["a", 1, "b", "c"], seed=1, n_val_configs=1)

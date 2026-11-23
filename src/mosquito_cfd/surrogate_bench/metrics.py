@@ -109,7 +109,7 @@ class SplitBaseline:
     targets: list[str]
     definition: dict[str, Any]
     _cache: dict[bytes, NDArray[np.floating]] = field(
-        default_factory=dict, repr=False, compare=False
+        default_factory=dict, init=False, repr=False, compare=False
     )
 
     def at(self, phases: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -328,7 +328,7 @@ def seed_ranges(pooled_results: pd.DataFrame) -> pd.DataFrame:
     leaves a range is visible.
 
     Raises:
-        ValueError: If a learned (``mlp_*``) entry has fewer than 5 seeds for any split.
+        ValueError: If a learned (``mlp_*``) entry has fewer than ``MIN_SEEDS`` (``len(BENCH_SEEDS)``) seeds for any split.
     """
     rows = []
     for (entry, split, target), group in pooled_results.groupby(

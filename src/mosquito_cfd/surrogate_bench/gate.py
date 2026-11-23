@@ -176,12 +176,16 @@ def config_errors(
                 / peaks[t]
             ),
         }
-    if not np.isfinite(_lab_columns(model, targets)).all():
-        for comp in PEAKS:
-            out[comp] = {"full": float("nan"), "window": float("nan")}
-        return out
+    lab = _lab_columns(model, targets)
     for key, windowed in (("full", False), ("window", True)):
-        got = peak_values(_lab_columns(model, targets), **settings, windowed=windowed)
+        judged = lab[WINDOW_START:] if windowed else lab
+        if not np.isfinite(judged).all():  # the rotation refuses non-finite input
+            for comp in PEAKS:
+                out.setdefault(comp, {})[key] = float("nan")
+            continue
+        # Rows outside the window never reach the windowed max; any finite stand-in will do.
+        rows = np.where(np.isfinite(lab), lab, 0.0) if windowed else lab
+        got = peak_values(rows, **settings, windowed=windowed)
         ref = peak_values(_lab_columns(cfd, targets), **settings, windowed=windowed)
         for comp in PEAKS:
             out.setdefault(comp, {})[key] = abs(got[comp] - ref[comp]) / ref[comp]
