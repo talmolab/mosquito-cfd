@@ -54,13 +54,32 @@ _RESULTS = _ROOT / "examples" / "flapping_wing" / "RESULTS.md"
 _FIGURES_README = _ROOT / "examples" / "flapping_wing" / "figures" / "README.md"
 _FORCE_SURROGATE_SPEC = _ROOT / "openspec" / "specs" / "force-surrogate" / "spec.md"
 
+_FIXTURE_SOURCE_SHA = "246f0a0"
+_ROTATION_DEG = 30.0
+
 FORBIDDEN = (
     "forces are reported in the wing body frame",
     "Unlike the forces above",
     "body-frame forces",
 )
-# ω squared, then S_yy, with an optional dot operator between. ``ω_peak²`` does not match.
-BARE_OMEGA = re.compile(r"ω(?:²|\^2|\*\*2)\s*[·⋅]?\s*S_yy")
+# Phrases that put something in the wing frame. A sentence holding one of them together with the
+# lab-frame CF_x..CF_z, or with "force" in general, must also name CF_chord (the contrast sentences
+# do), so a reworded #181 claim cannot come back (PR review).
+WING_FRAME_PHRASES = (
+    "wing body frame",
+    "wing frame",
+    "wing-frame",
+    "body frame",
+    "body-frame",
+)
+# ω (or \omega) squared, then S_yy later in the same clause. ``ω_peak²`` does not match. Scanned on
+# flattened text, so a formula wrapped across a line break is still seen.
+BARE_OMEGA = re.compile(
+    r"(?:ω|\\omega)\s*\)?\s*(?:²|\^\{?2\}?|\*\*2|<sup>2</sup>)[^.;,\n]{0,24}?S_?\{?yy"
+)
+_COMMENT = re.compile(r"(?s)<!--.*?-->")
+# Abbreviations whose period must not end a sentence.
+_ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.")
 FWV = "flapping-wing-validation"
 CC = "coordinate-convention"
 # Here ω is the model's instantaneous stroke speed |φ̇| (van_veen_model.model_inputs), so
@@ -74,16 +93,16 @@ EXEMPT = "Van Veen quasi-steady force model, pinned and guarded"
 
 
 def _flat(text: str) -> str:
-    return " ".join(re.sub(r"(?s)<!--.*?-->", " ", text).split())
+    return " ".join(_COMMENT.sub(" ", text).split())
 
 
 def normalize(text: str) -> str:
     """Markdown emphasis, backticks and blockquote markers removed; whitespace collapsed.
 
     Underscore emphasis is stripped only when paired at word boundaries, so ``CF_chord``,
-    ``F_ref`` and ``ω_peak`` survive.
+    ``F_ref`` and ``ω_peak`` survive. HTML comments are not on the page and are dropped.
     """
-    text = re.sub(r"(?s)<!--.*?-->", " ", text)
+    text = _COMMENT.sub(" ", text)
     text = re.sub(r"(?m)^\s*>\s?", "", text)
     text = text.replace("`", "").replace("*", "")
     text = re.sub(r"(?<!\w)_([^_\n]+?)_(?!\w)", r"\1", text)
@@ -91,14 +110,22 @@ def normalize(text: str) -> str:
 
 
 def sentences(text: str) -> list[str]:
-    """Normalized sentences: split on ``. `` or a bullet start, never on ``..`` in ``CF_x..CF_z``."""
-    text = re.sub(r"(?s)<!--.*?-->", " ", text)
+    """Normalized sentences.
+
+    Splits on ``. `` or a bullet start, never on the ``..`` in ``CF_x..CF_z`` or after the
+    abbreviations in ``_ABBREVIATIONS``.
+    """
+    text = _COMMENT.sub(" ", text)
     text = re.sub(r"(?m)^\s*[-*]\s+", "\x00", text)
-    out = []
+    out: list[str] = []
     for chunk in text.split("\x00"):
-        for s in re.split(r"(?<!\.)\.\s+", normalize(chunk)):
-            if s.strip():
-                out.append(s.strip())
+        flat = normalize(chunk)
+        for abbr in _ABBREVIATIONS:
+            flat = flat.replace(abbr, abbr.replace(".", "\x01"))
+        for s in re.split(r"(?<!\.)\.\s+", flat):
+            s = s.replace("\x01", ".").strip()
+            if s:
+                out.append(s)
     return out
 
 
@@ -137,9 +164,26 @@ def lab_corpus_sentence(page: str) -> bool:
 
 def flapping_lab_sentence(page: str) -> bool:
     return any(
-        ("plausibility_gate" in s or "fig_forces" in s) and "lab-frame components" in s
+        ("plausibility_gate" in s or "fig_forces" in s)
+        and "lab-frame components" in s
+        and "wing body frame" not in s
         for s in sentences(_sec(page, "## Forces"))
     )
+
+
+def no_contradicting_frame_sentence(page: str) -> bool:
+    """No sentence puts ``CF_x..CF_z``, or forces in general, in the wing frame.
+
+    A sentence that also names ``CF_chord`` is a contrast ("wing-frame CF_chord/CF_normal beside
+    lab-frame CF_x..CF_z") and is allowed.
+    """
+    for s in sentences(page):
+        low = s.casefold()
+        if "CF_chord" in s or not any(p in low for p in WING_FRAME_PHRASES):
+            continue
+        if "CF_x..CF_z" in s or re.search(r"\bforces?\b", low):
+            return False
+    return True
 
 
 def keeps_spanwise_drop(page: str) -> bool:
@@ -163,6 +207,7 @@ FRAME_CHECKS = {
     "flapping_lab_sentence": flapping_lab_sentence,
     "keeps_spanwise_drop": keeps_spanwise_drop,
     "no_forbidden_phrase": no_forbidden_phrase,
+    "no_contradicting_frame_sentence": no_contradicting_frame_sentence,
     "moments_sentence": moments_sentence,
 }
 # The old page already says the spanwise force is "intentionally dropped".
@@ -180,15 +225,48 @@ def _page() -> str:
 
 @pytest.mark.parametrize("name", sorted(FRAME_CHECKS))
 def test_page_names_the_frame_of_each_force_family(name):
-    assert FRAME_CHECKS[name](_page()), name
+    assert FRAME_CHECKS[name](_page()), (
+        f"{_DOC.name}: frame check {name} fails; see the coordinate-convention scenario "
+        "'Each reported force quantity is named with its frame'"
+    )
 
 
 @pytest.mark.parametrize("name", sorted(set(FRAME_CHECKS) - _PASSES_ON_OLD_PAGE))
 def test_frame_check_fails_on_the_pre_change_page(name):
     """The frozen pre-#181 copy fails every check that is new (negative control, every CI run)."""
     old = _FIXTURE.read_text(encoding="utf-8")
-    assert "246f0a0" in old, "fixture must name its source commit"
-    assert FRAME_CHECKS[name](old) is False, name
+    assert _FIXTURE_SOURCE_SHA in old, "fixture must name its source commit"
+    assert FRAME_CHECKS[name](old) is False, f"{name} passes on the pre-#181 fixture"
+
+
+_LAB_FORCES = (
+    "## Forces\n\nThe flapping-wing benchmark's `CF_chord`/`CF_normal` are in the **wing body "
+    "frame**. The corpus `CF_x..CF_z` are lab-frame components of the IB force on the wing. "
+    "The `plausibility_gate` input is lab-frame components of the IB force.{extra}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        " The corpus `CF_x..CF_z` are rotated into the wing frame by `R(t)ᵀ`.",
+        " Forces are given in the wing body frame.",
+        " All force coefficients are wing-frame (chord, normal).",
+    ],
+)
+def test_contradicting_frame_sentence_is_rejected(extra):
+    """Negative control: a reworded #181 claim added beside the correct sentences fails (PR review)."""
+    page = _LAB_FORCES.format(extra=extra)
+    assert no_contradicting_frame_sentence(_LAB_FORCES.format(extra="")) is True
+    assert no_contradicting_frame_sentence(page) is False
+
+
+def test_flapping_sentence_must_not_call_the_series_wing_frame():
+    page = (
+        "## Forces\n\nThe `plausibility_gate` input is lab-frame components, not the wing "
+        "body frame.\n"
+    )
+    assert flapping_lab_sentence(page) is False
 
 
 def test_forbidden_phrases_survive_markdown_emphasis():
@@ -207,6 +285,12 @@ def test_sentence_split_keeps_the_component_range_whole():
     ]
 
 
+def test_sentence_split_ignores_abbreviations():
+    assert sentences("The corpus (e.g. the parquet) is lab-frame, i.e. unrotated.") == [
+        "The corpus (e.g. the parquet) is lab-frame, i.e. unrotated."
+    ]
+
+
 @pytest.mark.parametrize("parquet", _CORPUS_PARQUETS, ids=lambda p: p.parent.name)
 def test_corpus_coefficients_are_unrotated_lab_components(parquet):
     assert _parquet_on_wing(parquet) is True
@@ -217,7 +301,7 @@ def test_flapping_wing_lab_series_are_unrotated_lab_components():
 
 
 def test_corpus_check_rejects_rotated_coefficients(tmp_path):
-    """Negative control: coefficients rotated 30° about lab z mix components and must fail."""
+    """Negative control: coefficients rotated about lab z mix components and must fail."""
     cols = [
         "stroke_amp_deg",
         "frequency_fstar",
@@ -229,7 +313,7 @@ def test_corpus_check_rejects_rotated_coefficients(tmp_path):
         "CF_z",
     ]
     df = pd.read_parquet(_CORPUS_PARQUETS[0], columns=cols)
-    c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+    c, s = math.cos(math.radians(_ROTATION_DEG)), math.sin(math.radians(_ROTATION_DEG))
     x, y = df["CF_x"].to_numpy(), df["CF_y"].to_numpy()
     df["CF_x"], df["CF_y"] = c * x - s * y, s * x + c * y
     rotated = tmp_path / "rotated.parquet"
@@ -242,23 +326,46 @@ def test_corpus_check_rejects_rotated_coefficients(tmp_path):
 # ---------------------------------------------------------------------------------------------
 
 
+_F_REF_ASSIGN = re.compile(r"F_ref`?\s*(?::=|≡|=)")
+_OMEGA_PEAK_SQUARED = re.compile(r"ω_peak(?:²|\^2|\*\*2)")
+
+
+def f_ref_expressions(page: str) -> list[str]:
+    """Each ``F_ref =`` (or ``:=``, ``≡``, ``F_ref`` in backticks), read to its clause end.
+
+    The expression ends at the first ``,``, ``;``, backtick or line end of the raw text, so a
+    later, unrelated ``S_yy`` is never pulled in. A formula wrapped across a line break is cut
+    short, and the bare-ω scan (which reads flattened text) still sees it.
+    """
+    text = _COMMENT.sub(" ", page)
+    out = []
+    for m in _F_REF_ASSIGN.finditer(text):
+        cut = re.search(r"[,;`\n]", text[m.end() :])
+        end = m.end() + (cut.start() if cut else len(text) - m.end())
+        out.append(text[m.start() : end].strip())
+    return out
+
+
 def f_ref_expression_failures(page: str) -> list[str]:
-    """Each ``F_ref =`` up to its first ``S_yy`` must contain ``ω_peak²`` and no other ``ω``."""
-    flat = _flat(page)
-    matches = list(re.finditer(r"F_ref\s*=", flat))
-    if len(matches) < 2:
-        return [f"expected at least two 'F_ref =' expressions, found {len(matches)}"]
+    """``F_ref`` expressions with an ``ω`` use ``ω_peak²`` only; at least two do.
+
+    An expression with ``S_yy`` but no ``ω_peak`` (``½·ρ·(2πf)²·S_yy``) also fails. One with
+    neither (``F_ref = q_ref·S``) is another form and is skipped.
+    """
     failures = []
-    for m in matches:
-        end = flat.find("S_yy", m.end())
-        if end < 0:
-            failures.append(f"'F_ref =' at {m.start()} has no following S_yy")
-            continue
-        expr = flat[m.start() : end + len("S_yy")]
-        if "ω_peak²" not in expr or re.search(r"ω(?!_peak)", expr):
-            failures.append(
-                f"F_ref expression without ω_peak² or with a bare ω: {expr!r}"
-            )
+    good = 0
+    for expr in f_ref_expressions(page):
+        if "ω" in expr:
+            if _OMEGA_PEAK_SQUARED.search(expr) and not re.search(r"ω(?!_peak)", expr):
+                good += 1
+            else:
+                failures.append(f"F_ref expression with a bare ω: {expr!r}")
+        elif "S_yy" in expr:
+            failures.append(f"F_ref expression with S_yy but no ω_peak: {expr!r}")
+    if good < 2:
+        failures.append(
+            f"expected at least two F_ref expressions with ω_peak², found {good}"
+        )
     return failures
 
 
@@ -267,17 +374,25 @@ def _omega_peak(f_star: float, phi_amp_deg: float) -> float:
 
 
 def quoted_value_failures(page: str) -> list[str]:
-    """Every ``ω_peak ≈ x`` / ``F_ref ≈ y`` equals the recomputed value at the printed precision."""
+    """Every quoted ``ω_peak`` / ``F_ref`` value equals the recomputed one at its precision.
+
+    Reads the normalized page, so bold or backticked numbers count. A quote is the symbol, then
+    ``≈``, ``~`` or ``=``, then a number. Every such quote must be the validated point, so a
+    historical value (the old peak-tip ``624.79``) must not be written as ``F_ref ≈ …``.
+    """
     expected = {
         "ω_peak": _omega_peak(VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG),
         "F_ref": compute_force_reference(
             VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, R_GYRATION, SPAN, CHORD, RHO
         ).f_ref,
     }
-    flat = _flat(page)
+    flat = normalize(page)
     failures = []
     for symbol, value in expected.items():
-        literals = re.findall(rf"{symbol}\s*≈\s*([0-9]+(?:\.[0-9]+)?)", flat)
+        # A number that continues into a symbol or formula (``ω_peak = 2π·…``) is a definition.
+        literals = re.findall(
+            rf"{symbol}\s*[≈~=]\s*([0-9]+(?:\.[0-9]+)?)(?![\w·⋅π(*/^])", flat
+        )
         if not literals:
             failures.append(f"no quoted '{symbol} ≈ …' value")
         for lit in literals:
@@ -295,9 +410,28 @@ def test_every_f_ref_expression_uses_omega_peak():
     assert f_ref_expression_failures(_page()) == []
 
 
-def test_f_ref_expression_check_catches_unspaced_bare_omega():
-    page = "F_ref = ½·ρ·ω_peak²·S_yy and later F_ref=½·ρ·ω²·S_yy."
-    assert f_ref_expression_failures(page) != []
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "F_ref=½·ρ·ω²·S_yy",
+        "`F_ref` = ½·ρ·ω²·S_yy",
+        "F_ref := ½·ρ·(2π·f·φ_amp)²·S_yy",
+        "F_ref ≡ ½·ρ·ω²S_yy",
+    ],
+)
+def test_f_ref_expression_check_rejects_bare_forms(bad):
+    good = "`F_ref = ½·ρ·ω_peak²·S_yy`, and `F_ref = ½·ρ_f·ω_peak^2·S_yy`."
+    assert f_ref_expression_failures(good) == []
+    assert f_ref_expression_failures(f"{good}\n{bad}\n") != [], bad
+
+
+def test_f_ref_expression_ends_at_its_clause():
+    """An equivalent form without ω, and a later unrelated S_yy, are not misread (PR review)."""
+    page = (
+        "`F_ref = ½·ρ·ω_peak²·S_yy`. `F_ref = ½·ρ_f·ω_peak²·S_yy`. Equivalently "
+        "`F_ref = ½ρ·u_ref²·S` with `ω = 2πf`; later, S_yy is the second moment.\n"
+    )
+    assert f_ref_expression_failures(page) == []
 
 
 def test_page_defines_omega_peak_and_names_the_single_source():
@@ -312,7 +446,7 @@ def test_page_defines_omega_peak_and_names_the_single_source():
 
 
 def test_page_links_the_force_surrogate_spec():
-    targets = re.findall(r"\]\(([^)\s]+)\)", _page())
+    targets = re.findall(r"\]\(([^)\s]+)\)", _COMMENT.sub(" ", _page()))
     resolved = {
         (_DOC.parent / t.split("#")[0]).resolve()
         for t in targets
@@ -327,20 +461,34 @@ def test_quoted_values_match_the_code():
 
 
 def test_quoted_value_check_rejects_the_two_pi_reading():
-    """Negative control: ``F_ref`` with ω read as 2π (134.17) must fail."""
-    page = "ω_peak ≈ 7.676 and F_ref ≈ 134.17."
-    assert any("134.17" in f for f in quoted_value_failures(page))
+    """Negative control: ``F_ref`` with ω read as 2π (134.17) must fail, however it is marked up."""
+    for quote in (
+        "F_ref ≈ 134.17",
+        "`F_ref` ≈ 134.17",
+        "F_ref ≈ **134.17**",
+        "F_ref = 134.17",
+    ):
+        page = f"ω_peak ≈ 7.676 and F_ref ≈ 200.27; also {quote}."
+        assert any("134.17" in f for f in quoted_value_failures(page)), quote
 
 
 @pytest.mark.parametrize(("f_star", "phi_amp_deg"), [(1.0, 70.0), (1.15, 55.0)])
 def test_omega_peak_is_the_peak_stroke_rate_of_the_kinematics(f_star, phi_amp_deg):
-    """Known answer: the formula equals max|φ̇| of the single-source stroke over one wingbeat."""
-    t = np.linspace(0.0, 1.0 / f_star, 20001)
+    """Known answer: max|φ̇| of the single-source stroke equals the formula and the code.
+
+    The grid is offset by half a step, so the peak (at t = 0) is never sampled exactly and the
+    maximum is found, not read off. ``compute_force_reference(...).u_ref / R_GYRATION`` ties the
+    code's ``ω_peak`` to the kinematics, not just the test's own formula.
+    """
+    n = 20001
+    t = (np.arange(n) + 0.5) / (n * f_star)
     amp = math.radians(phi_amp_deg)
     peak = max(
         abs(stroke_rate(ti, frequency=f_star, stroke_amp_rad=amp)[0]) for ti in t
     )
+    code = compute_force_reference(f_star, phi_amp_deg, R_GYRATION, SPAN, CHORD, RHO)
     assert _omega_peak(f_star, phi_amp_deg) == pytest.approx(peak, rel=1e-6)
+    assert code.u_ref / R_GYRATION == pytest.approx(peak, rel=1e-6)
 
 
 def test_kinematics_table_keeps_its_omega():
@@ -354,14 +502,20 @@ def test_kinematics_table_keeps_its_omega():
 # ---------------------------------------------------------------------------------------------
 
 
+def bare_omega_hits_in(text: str, label: str) -> list[str]:
+    """Each bare ``ω²…S_yy`` in ``text``, read flattened so a wrapped formula is still seen."""
+    flat = _flat(text).replace("`", "")
+    return [
+        f"{label}: …{flat[max(0, m.start() - 40) : m.end() + 20]}…"
+        for m in BARE_OMEGA.finditer(flat)
+    ]
+
+
 def doc_bare_omega_hits() -> list[str]:
     hits = []
     for path in (_DOC, _RESULTS, _FIGURES_README):
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if BARE_OMEGA.search(line):
-                hits.append(
-                    f"{path.relative_to(_ROOT).as_posix()}:{lineno}: {line.strip()}"
-                )
+        label = path.relative_to(_ROOT).as_posix()
+        hits += bare_omega_hits_in(path.read_text(encoding="utf-8"), label)
     return hits
 
 
@@ -411,9 +565,38 @@ def test_exemption_check_fails_when_the_block_no_longer_matches():
 
 
 def test_bare_omega_pattern_spellings():
-    for bare in ("ω²S_yy", "ω²·S_yy", "ω² ⋅ S_yy", "ω^2·S_yy", "ω**2 S_yy"):
+    for bare in (
+        "ω²S_yy",
+        "ω²·S_yy",
+        "ω² ⋅ S_yy",
+        "ω^2·S_yy",
+        "ω**2 S_yy",
+        "ω ²·S_yy",
+        "ω²*S_yy",
+        "ω² × S_yy",
+        "ω^{2}·S_{yy}",
+        "\\omega^2 S_yy",
+        "ω<sup>2</sup>·S_yy",
+        "(ω)²·S_yy",
+        "½ρω²·r²·S_yy",
+    ):
         assert BARE_OMEGA.search(bare), bare
-    assert not BARE_OMEGA.search("ω_peak²·S_yy")
+    for fine in ("ω_peak²·S_yy", "ω_peak^2·S_yy", "ω² is the rate; S_yy is the moment"):
+        assert not BARE_OMEGA.search(fine), fine
+
+
+def test_doc_scan_sees_a_formula_wrapped_across_lines():
+    text = "Coefficients use `F_ref = ½ρ·ω²·`\n`S_yy` here."
+    assert bare_omega_hits_in(text, "synthetic") != []
+
+
+def test_results_links_the_convention_page_forces_section():
+    results = _COMMENT.sub(" ", _RESULTS.read_text(encoding="utf-8"))
+    assert "](../../docs/coordinate-convention.md#forces)" in results
+    assert (
+        _RESULTS.parent / "../../docs/coordinate-convention.md"
+    ).resolve() == _DOC.resolve()
+    assert re.search(r"(?m)^## Forces\s*$", _page())
 
 
 def _line_with(path: Path, marker: str) -> str:

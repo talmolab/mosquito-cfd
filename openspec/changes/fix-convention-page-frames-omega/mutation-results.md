@@ -73,3 +73,14 @@ not arise. It was run once with `PYTHONDONTWRITEBYTECODE=1` and no other test ru
 
 Task 1.6 said "on a copy of the page". The checks take the page text as an argument, so an in-memory
 copy tests the same code path, and nothing needs restoring.
+
+## After PR review round 1
+
+The hardened checks were re-run on `git show 246f0a0:docs/coordinate-convention.md` in memory:
+every frame check except `keeps_spanwise_drop` is False (including the new
+`no_contradicting_frame_sentence`); `f_ref_expression_failures` reports both bare expressions and
+"found 0" `ω_peak²` expressions; `quoted_value_failures` reports no quotes; the widened bare-ω scan
+finds 2 hits on the old page and the same 5 live-spec blocks. On the 246f0a0 review-openspec prompt,
+`check_failure_classes`, `check_authority_and_method` and `check_failure_class_frames` each fail.
+The reviewers' mutants that survived round 0 are now permanent negative controls in the two test
+files.

@@ -10,6 +10,7 @@ The page does not choose a single force frame, because the wing coefficients com
 | body-frame diagnostics: added-mass-subtracted `cf_added`/`cf_6dof`, the T4 decomposition | `body_frame_added_mass_subtracted`, `decompose_wing_force` (same rotation) | wing body frame, not all the IB force |
 | corpus and surrogate `CF_x..CF_z` | `force_surrogate.dataset.build_dataset`, `−F/F_ref` | lab, IB force on the wing |
 | flapping-wing lab series `cf_x_ib`/`cf_z_ib` | `flapping_wing.reconstruct_wing_forces`, `−F/F_ref` | lab, IB force on the wing |
+| `fig_forces` `CF_x..CF_z` | `generate_all_figures.py`, inline `force_on_wing(...)/F_ref` | lab, IB force on the wing |
 | `cf_*_added` (`ρ_f·SumU`), `cf_*_hydro` (6-DOF) | `reconstruct_wing_forces` | lab, not the IB force |
 | `CF_mx..CF_mz` | `build_dataset` after `shift_moment_reference` | lab, about the hinge |
 
@@ -48,6 +49,10 @@ What a check asks for:
 - **Flapping-wing lab series.** Its sentence must name `plausibility_gate` or `fig_forces` with
   `lab-frame components`. The series' own name contains "lab-frame", so the name alone would satisfy a
   looser check.
+- **No contradicting sentence (PR review).** The positive checks only ask that a correct sentence
+  exists. A page-wide check therefore rejects any sentence that holds `CF_x..CF_z`, or the word
+  "force(s)", together with a wing-frame phrase, unless it names `CF_chord` (the contrast sentences
+  do). This catches a reworded #181 claim added beside the correct text.
 - **Moments.** The sentence must hold both `lab-frame components about the hinge` and `CF_x..CF_z`.
   Today's page already has the first phrase, so that phrase alone would not fail on the old text.
 
@@ -86,14 +91,30 @@ slip would fail it.
 **The page states that `F_ref` is computed per configuration.** Corpus `F_ref` spans 36.17–163.51, so
 200.27 must not read as the corpus value.
 
-**Attribution.** Van Veen's simulations hold the stroke rate constant after acceleration, so "the
-stroke rate" in eq 1.1 needs no qualifier there. Taking the sinusoid's peak is this project's
-constant evaluation of it, and the page says so. The paper's exact wording of eq 1.1 was not
-re-checked in this change. The page keeps the citation the project already uses.
+**Attribution.** Van Veen's simulations include accelerating and decelerating strokes (the
+supplementary database in `tests/fixtures/van_veen_2022/` has 477 accelerating and 46 decelerating
+rows against 43 steady), and this repository's implementation of his quasi-steady model scales its
+forces with the instantaneous `|φ̇|`. So eq 1.1's stroke rate is not a constant in the paper. The
+page says that this project's `F_ref` uses one constant `ω_peak` per configuration and is a fixed
+reference force. The paper's exact wording of eq 1.1 was not re-checked in this change; the page
+states only what the repository's data and code show, and keeps the citation the project already
+uses.
+
+### Why not "van Veen's strokes run at a constant rate"?
+
+The first implementation wrote that sentence. PR review (round 1) showed it is contradicted by the
+paper's own database and by the repository's model, so it was replaced as above.
 
 ## D3. The bare-ω guard has one exemption, which must still be needed
 
-**Pattern.** `ω(?:²|\^2|\*\*2)\s*[·⋅]?\s*S_yy`. It does not match `ω_peak²`.
+**Pattern.** `ω` or `\omega` squared (`²`, `^2`, `^{2}`, `**2`, `<sup>2</sup>`, optionally after
+`)`), then `S_yy`/`S_{yy}` within 24 characters of the same clause. It does not match `ω_peak²`.
+Each document is scanned flattened, so a wrapped formula is seen.
+
+### Why the wider pattern?
+
+The first pattern (`ω(?:²|\^2|\*\*2)\s*[·⋅]?\s*S_yy`, scanned line by line) missed `ω²×S_yy`,
+`\omega^2 S_yy`, `½ρω²·r²·S_yy` and a formula wrapped across a line break (PR review round 1).
 
 **Search set:**
 - the convention page, `RESULTS.md`, `figures/README.md`;

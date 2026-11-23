@@ -14,9 +14,10 @@ quantity it describes:
   rotation (`cf_span`, the added-mass-subtracted diagnostic, the T4 decomposition), are **wing
   (body) frame** components, `F = (F_x chord-wise, F_z wing-normal)` (spanwise ignored), rotated by
   `R(t)ᵀ`;
-- the force-surrogate corpus and surrogate `CF_x..CF_z`, and the flapping-wing lab-frame series
-  (`cf_x_ib`/`cf_z_ib`: the `plausibility_gate` input and the `fig_forces` series), are **lab-frame
-  components of the IB force on the wing**, not rotated.
+- the force-surrogate corpus and surrogate `CF_x..CF_z`, the flapping-wing lab-frame series
+  `cf_x_ib`/`cf_z_ib` from `reconstruct_wing_forces` (the `plausibility_gate` input), and the
+  `CF_x..CF_z` that `fig_forces` plots, are **lab-frame components of the IB force on the wing**, not
+  rotated.
 
 Both are normalized by `F_ref = ½·ρ·ω_peak²·S_yy` with `S_yy = ∫₀ᴿ c(y)y²dy`, computed per
 configuration. `ω_peak` is the peak stroke rate defined by
@@ -68,9 +69,14 @@ commit may carry new-convention geometry with old-convention documentation**.
 - **Then** `## Forces` has one sentence holding `CF_chord`/`CF_normal` and `wing body frame` but not
   `lab-frame`, one holding the corpus and surrogate `CF_x..CF_z` and
   `lab-frame components of the IB force` but not `wing body frame`, and one holding `plausibility_gate`
-  or `fig_forces` together with `lab-frame components`, and it keeps `intentionally dropped`
+  or `fig_forces` together with `lab-frame components` but not `wing body frame`, and it keeps
+  `intentionally dropped`
 - **And** the page contains none of `forces are reported in the wing body frame`,
   `Unlike the forces above` and `body-frame forces`
+- **And** no sentence on the page that holds `CF_x..CF_z`, or the word `force`/`forces`, also holds
+  `wing body frame`, `wing frame`, `wing-frame`, `body frame` or `body-frame`, unless it names
+  `CF_chord`; a test asserts this check fails on pages that add a reworded wing-frame claim beside
+  the correct sentences
 - **And** `## Moments` has one sentence holding both `lab-frame components about the hinge` and
   `CF_x..CF_z`
 - **And** these checks are functions of the text, and a test feeds them the committed fixture
@@ -83,20 +89,25 @@ commit may carry new-convention geometry with old-convention documentation**.
 
 #### Scenario: F_ref is written with ω_peak, tied to the code and to the kinematics
 
-- **Given** `docs/coordinate-convention.md`, flattened
+- **Given** `docs/coordinate-convention.md`, with HTML comments removed
 - **When** a guard test reads it
-- **Then** there are at least two `F_ref\s*=` matches, and each, up to and including the first
-  following `S_yy`, contains `ω_peak²` and no `ω` not followed by `_peak`
+- **Then** every `F_ref` expression (`F_ref =`, `:=` or `≡`, with `F_ref` optionally in backticks),
+  read to the first `,`, `;`, backtick or line end, that contains `ω` contains `ω_peak²` (or
+  `ω_peak^2`) and no `ω` not followed by `_peak`; one that contains `S_yy` but no `ω` fails; and at
+  least two expressions contain `ω_peak²`
 - **And** the page contains `ω_peak = 2π·f_star·radians(phi_amp_deg)` and `` `ω = 2πf` ``, names
   `compute_force_reference`, says `F_ref` is computed per configuration, and links
   `openspec/specs/force-surrogate/spec.md` through a link target that resolves to that file
-- **And** every quoted `ω_peak ≈ x` and `F_ref ≈ y` (at least one of each, at least two decimals)
-  equals, at the precision printed, `2π·VALIDATED_F_STAR·radians(VALIDATED_PHI_AMP_DEG)` and
+- **And** on the page with emphasis and backticks removed, every quoted `ω_peak ≈ x` and
+  `F_ref ≈ y` (`≈`, `~` or `=` followed by a number that does not continue into a formula; at least
+  one of each with `≈`, at least two decimals) equals, at the precision printed, `2π·VALIDATED_F_STAR·radians(VALIDATED_PHI_AMP_DEG)` and
   `compute_force_reference(VALIDATED_F_STAR, VALIDATED_PHI_AMP_DEG, R_GYRATION, SPAN, CHORD, RHO).f_ref`;
-  a test feeds the value check a page quoting `F_ref ≈ 134.17` and asserts it fails
-- **And** `2π·f_star·radians(phi_amp_deg)` equals the maximum of `|wing_kinematics.stroke_rate|` over one
-  wingbeat (relative tolerance `1e-6`) at the validated point and at `f_star = 1.15`,
-  `phi_amp_deg = 55`, so the name "peak stroke rate" is checked against the kinematics
+  a test feeds the value check pages quoting `134.17` (plain, with `F_ref` in backticks, in bold,
+  and with `=`) and asserts each fails
+- **And** `2π·f_star·radians(phi_amp_deg)` and `compute_force_reference(...).u_ref / R_GYRATION` each
+  equal the maximum of `|wing_kinematics.stroke_rate|` over a grid on one wingbeat offset by half a
+  step (relative tolerance `1e-6`) at the validated point and at `f_star = 1.15`,
+  `phi_amp_deg = 55`, so the name "peak stroke rate" and the code are checked against the kinematics
 - **And** the kinematics table keeps `φ_amp·sin(ωt)` and `α_amp·cos(ωt)`
 
 #### Scenario: No bare ω in F_ref in the documents that restate the normalization
@@ -105,8 +116,9 @@ commit may carry new-convention geometry with old-convention documentation**.
   `examples/flapping_wing/figures/README.md`, and every requirement block of the effective
   specification (the live spec with every active change's delta applied) of this capability and of
   [Flapping Wing Validation](../flapping-wing-validation/spec.md)
-- **When** a guard test searches them for `ω` squared (`²`, `^2` or `**2`) followed by `S_yy`, with an
-  optional `·` or `⋅` between
+- **When** a guard test searches each of them, flattened, for `ω` or `\omega` squared (`²`, `^2`,
+  `^{2}`, `**2` or `<sup>2</sup>`, optionally after a closing parenthesis) followed by `S_yy` (or
+  `S_{yy}`) within 24 characters of the same clause (no `.`, `;`, `,` or line break between)
 - **Then** there is no match outside the flapping-wing-validation requirement "Van Veen quasi-steady
   force model, pinned and guarded", where `ω` is the model's instantaneous stroke speed
 - **And** the guard fails with a message naming that requirement if it is missing from the effective
@@ -114,3 +126,4 @@ commit may carry new-convention geometry with old-convention documentation**.
 - **And** the `RESULTS.md` normalization paragraph and `Force reference F_ref` row and the
   `figures/README.md` `fig_forces` row contain `ω_peak²`, and the `RESULTS.md` `Reference speed u_ref` row
   contains `radians(phi_amp)`
+- **And** a test asserts the scan finds a formula wrapped across a line break

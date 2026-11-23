@@ -39,3 +39,7 @@ at least 5 seeds, known-answer tests, and like-for-like comparisons.
   mentions reference point, sign and normalization
 - **AND** it contains none of `forces are in the wing frame`, `forces in the wing frame` and
   `By design, forces`
+- **AND** one of its sentences holds `CF_x..CF_z` and `lab-frame` and no wing-frame phrase, and no
+  sentence that holds `force`/`forces` or `CF_x..CF_z` together with `wing frame`, `wing-frame` or
+  `wing body frame` fails to name `CF_chord`; a test asserts this check fails on reworded
+  wing-frame claims

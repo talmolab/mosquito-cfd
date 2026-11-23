@@ -445,6 +445,31 @@ def check_failure_classes(text: str) -> None:
     _require(block, FAILURE_CLASSES, f"Subagent 6 {FAILURE_CLASSES_LABEL}")
     for anchor in FAILURE_CLASSES_FORBIDDEN:
         _forbid(block, anchor, f"Subagent 6 {FAILURE_CLASSES_LABEL}")
+    check_failure_class_frames(block)
+
+
+_WING_FRAME = re.compile(r"wing[- ]frame|wing body frame", re.IGNORECASE)
+
+
+def check_failure_class_frames(block: str) -> None:
+    """One sentence ties ``CF_x..CF_z`` to lab-frame; none puts forces in the wing frame.
+
+    A sentence naming ``CF_chord`` is the wing-frame family's own sentence and may say
+    "wing-frame". Any other sentence that pairs "force" or ``CF_x..CF_z`` with the wing frame
+    is a reworded #181 claim (PR review).
+    """
+    where = f"Subagent 6 {FAILURE_CLASSES_LABEL}"
+    sentences = re.split(r"(?<!\.)\.\s+", _collapse(block.replace(">", " ")))
+    if not any(
+        "CF_x..CF_z" in s and "lab-frame" in s and not _WING_FRAME.search(s)
+        for s in sentences
+    ):
+        raise AssertionError(f"{where}: no sentence ties CF_x..CF_z to lab-frame")
+    for s in sentences:
+        if "CF_chord" in s or not _WING_FRAME.search(s):
+            continue
+        if "CF_x..CF_z" in s or re.search(r"\bforces?\b", s, re.IGNORECASE):
+            raise AssertionError(f"{where}: puts forces in the wing frame: {s!r}")
 
 
 def check_step4(text: str) -> None:
@@ -781,6 +806,33 @@ def test_subagent6_authority_and_method(skill):
 
 def test_subagent6_failure_classes(skill):
     check_failure_classes(skill)
+
+
+_CLASS1_OK = (
+    "1. Sign and frame conventions: the flapping-wing body-frame family (`CF_chord`/`CF_normal`) "
+    "is wing-frame. The corpus and surrogate `CF_x..CF_z` are lab-frame components.{extra}"
+)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        " By design, force coefficients are wing-frame.",
+        " All force coefficients are wing-frame (chord, normal).",
+        " The corpus `CF_x..CF_z` are rotated to the wing frame.",
+    ],
+)
+def test_failure_class_frames_reject_reworded_wing_frame_claims(extra):
+    """Negative control: reworded #181 claims that the phrase list alone let through (PR review)."""
+    check_failure_class_frames(_CLASS1_OK.format(extra=""))
+    with pytest.raises(AssertionError, match="wing frame"):
+        check_failure_class_frames(_CLASS1_OK.format(extra=extra))
+
+
+def test_failure_class_frames_require_cf_x_tied_to_lab_frame():
+    block = "1. `CF_x..CF_z` exist. Moments are lab-frame components."
+    with pytest.raises(AssertionError, match="ties CF_x..CF_z to lab-frame"):
+        check_failure_class_frames(block)
 
 
 def test_step4_covers_conditional_reviewers(skill):

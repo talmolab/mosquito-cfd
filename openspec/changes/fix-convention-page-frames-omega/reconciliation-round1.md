@@ -364,3 +364,68 @@ Fix: adopted verbatim. Where:
 exempt block is included, which gives 8 hits. The 6 hits come from iterating `effective_spec` and
 skipping the block, which is the mechanism tasks.md 1.4 uses. This is a disclosed refinement of S2's
 mechanism, not a substitute for it.
+
+## PR review, round 1 (`/review-pr`, branch mode, 2026-11-23)
+
+Reviewers: code quality (opus), testing (opus), scientific rigor (opus), performance/build
+(sonnet), behavioural correctness (opus). Verdict: REQUEST_CHANGES (one blocking finding).
+
+**R1 (BLOCKING, scientific rigor; also IMPORTANT from behavioural).** "The page states 'Van Veen's
+strokes run at a constant rate, so eq 1.1 needs no qualifier there.' … the paper's database has 43
+steady, 477 accelerating, 46 decelerating simulations … eq 1.1's ω is van Veen's instantaneous
+stroke rate, not a constant."
+- Verified against `tests/fixtures/van_veen_2022/README.md` and `van_veen_model.py`.
+- Fixed: the page now says van Veen's simulations include accelerating and decelerating strokes,
+  that the repository's model scales with the instantaneous `|φ̇|`, and that this project's `F_ref`
+  uses one constant `ω_peak` per configuration. design.md D2 ("Attribution", plus a
+  `### Why not …` note) and proposal.md What Changes match.
+
+**R2 (IMPORTANT, behavioural + science S2).** "`fig_forces` … does not call
+`reconstruct_wing_forces`, and it plots `CF_y`."
+- Fixed: the page, the coordinate-convention delta body, proposal table and design D1 now attribute
+  `cf_x_ib`/`cf_z_ib` to `reconstruct_wing_forces` (the `plausibility_gate` input) and the
+  `fig_forces` `CF_x..CF_z` to `generate_all_figures.py`'s inline `force_on_wing`.
+
+**R3 (IMPORTANT, code quality 1 + testing 3).** "All six FRAME_CHECKS return True on a page that
+… adds 'Forces are given in the wing body frame.'"
+- Fixed: new `no_contradicting_frame_sentence` (a sentence with `CF_x..CF_z` or "force(s)" plus a
+  wing-frame phrase must name `CF_chord`), in `FRAME_CHECKS`, red on the frozen fixture, with three
+  permanent negative controls (`test_contradicting_frame_sentence_is_rejected`).
+  `flapping_lab_sentence` gains `must_not` `wing body frame`. Delta scenario updated.
+
+**R4 (IMPORTANT, code quality 2 + testing 2).** "`F_ref ≈ **134.17**` … returns `[]`."
+- Fixed: `quoted_value_failures` reads `normalize(page)` and accepts `≈`, `~`, `=`; the negative
+  control now covers plain, backticked, bold and `=` spellings.
+
+**R5 (IMPORTANT, code quality 3 + behavioural S1).** "`f_ref_expression_failures` reads past the
+end of the expression" and misses `` `F_ref` = `` / `:=`.
+- Fixed: `f_ref_expressions` reads each `F_ref =`/`:=`/`≡` (backticked or not) to its clause end;
+  `S_yy` without `ω_peak` fails; `ω_peak^2` is accepted. Parametrized negative controls added, plus
+  `test_f_ref_expression_ends_at_its_clause`.
+
+**R6 (IMPORTANT, testing 1 + code quality S4).** "`ω² × S_yy`, `\omega^2 S_yy`, … a wrapped line
+also escapes."
+- Fixed: wider `BARE_OMEGA`, docs scanned flattened (`bare_omega_hits_in`), spelling and
+  wrapped-line tests. design D3 has a `### Why the wider pattern?` note; delta scenario updated.
+  The widened pattern finds the same 5 live-spec blocks as before and none in the effective specs.
+
+**R7 (IMPORTANT, testing 4).** "`By design, force coefficients are wing-frame.` survives."
+- Fixed: `check_failure_class_frames` in `tests/test_review_openspec_command.py` (one sentence ties
+  `CF_x..CF_z` to lab-frame; no "force"/`CF_x..CF_z` sentence in the wing frame without
+  `CF_chord`), with negative controls; red on the 246f0a0 prompt. review-openspec-skill delta gains
+  one AND line.
+
+Suggestions adopted: known-answer test also checks `compute_force_reference(...).u_ref /
+R_GYRATION` and samples a half-step-offset grid (testing S5); link check strips comments (testing
+S6); sentence splitter protects `e.g.`/`i.e.` (code quality S1); `cf_*_added`/`cf_*_hydro` and the
+frame of each 6-DOF series named (science S1); RESULTS link to `#forces` guarded (behavioural S6);
+named `_FIXTURE_SOURCE_SHA` / `_ROTATION_DEG`, one `_COMMENT` regex, fuller assertion messages;
+CHANGELOG moments wording (science S3, behavioural S5); long lines rewrapped.
+
+Not adopted:
+- Moving `_parquet_on_wing` etc. into a `tests/_frame_guards.py` helper: precedent exists for
+  importing from another test module (`test_flapping_wing_sign_use_sites.py`), and the move would
+  touch an out-of-scope test file.
+- A data check of the `fig_forces` code path: its legends are #203; a source-text check would be
+  weak. The page's frame claim for it was verified by reading `generate_all_figures.py:261-284`.
+- Exact-heading matching in `_section`: a second `## Forces…` heading fails loudly already.

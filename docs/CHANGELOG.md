@@ -95,11 +95,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The coordinate-convention page now says which frame each force is in, and writes `ω_peak` in `F_ref` (#181, #161).
-  - It had said every reported force is wing-body-frame. Only the flapping-wing `CF_chord`/`CF_normal` and the diagnostics built on them are. The corpus and surrogate `CF_x..CF_z` and the flapping-wing lab series are lab-frame components of the IB force on the wing, and so are the moments.
+  - It had said every reported force is wing-body-frame. Only the flapping-wing `CF_chord`/`CF_normal` and the diagnostics built on them are. The corpus and surrogate `CF_x..CF_z` and the flapping-wing lab series are lab-frame components of the IB force on the wing, and the moments are lab-frame components about the hinge.
   - It had used `ω` for both `2πf` and the peak stroke rate in `F_ref = ½·ρ·ω²·S_yy`. Read as `2πf`, `F_ref` would be 1.49× too small. The page now defines `ω_peak = 2π·f_star·radians(phi_amp_deg)`, quotes `ω_peak ≈ 7.676` and `F_ref ≈ 200.27` at the validated point, says `F_ref` is computed per configuration, and links the force-surrogate spec and `compute_force_reference` as the single source.
   - The coordinate-convention and flapping-wing-validation specs, `examples/flapping_wing/RESULTS.md` and its figures README make the same corrections. RESULTS.md's lab-frame table no longer labels lab `CF_x` "chord".
   - The `/review-openspec` math reviewer's prompt states the frame of each force family.
-  - New guard `tests/test_convention_frames_and_omega.py` checks the wording against a frozen copy of the old sections and the corpus data, ties `ω_peak` to the kinematics, and scans for a bare `ω` in `F_ref`.
+  - New guard `tests/test_convention_frames_and_omega.py` checks the wording against a frozen copy of the old sections and the corpus data, rejects a reworded wing-frame claim, ties `ω_peak` in the code to the kinematics, and scans for a bare `ω` in `F_ref`.
   - No coefficient values change. Follow-ups: #202 (bare `ω` in `src` and the force-surrogate roadmap), #203 (lab `CF_x`/`CF_y` labelled chord/span in the `fig_forces` legends and the roadmap).
 - The force-surrogate scale-invariance requirement used `k = f_ref_old / f_ref_new` in both directions (#170). It now says old to new multiplies by `k` and new to old divides, and prints `k` as 3.120 (it is 3.11972; the old figure truncated it). Its test divides the new-convention holdout by `k`, as the V3 figure does, asserts RMSE and MAE are divided by `k`, and checks the direction against the raw forces on the tip reference.
 - Claims in the live specs that the committed data does not support (#115):

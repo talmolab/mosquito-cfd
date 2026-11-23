@@ -100,10 +100,12 @@ F = (F_x chord-wise, F_z wing-normal)          spanwise F_y is intentionally dro
 **Lab frame.** The force-surrogate corpus and surrogate `CF_x..CF_z` are **lab-frame components of
 the IB force on the wing**: `−F/F_ref` of the solver's `Fx..Fz`, with no rotation
 (`mosquito_cfd.force_surrogate.dataset.build_dataset`). The flapping-wing lab series
-`cf_x_ib`/`cf_z_ib`, the `plausibility_gate` input and the `fig_forces` series, are also lab-frame
-components of the IB force on the wing (`mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_forces`).
-The comparison figures use the same words: "lab-frame components of the IB force and moment on the
-wing".
+`cf_x_ib`/`cf_z_ib` from `mosquito_cfd.benchmarks.flapping_wing.reconstruct_wing_forces` (the
+`plausibility_gate` input) are also lab-frame components of the IB force on the wing. So are the
+`CF_x..CF_z` that `examples/flapping_wing/generate_all_figures.py` plots in `fig_forces`, which it
+forms itself with `force_on_wing`. The `cf_*_added` (`ρ_f·SumU`) and 6-DOF `cf_*_hydro` series of
+`reconstruct_wing_forces` are lab-frame too, but they are not the IB force alone. The comparison
+figures use the same words: "lab-frame components of the IB force and moment on the wing".
 
 Both families use the van Veen (2022, eq 1.1) normalization, with the speed `ω_peak·r_gyr` at the
 **radius of gyration** and the spanwise second moment of area:
@@ -115,8 +117,10 @@ F_ref = ½·ρ·ω_peak²·S_yy,        S_yy = ∫₀ᴿ c(y)·y² dy
 
 `ω_peak` is the peak stroke rate, `max|φ̇|` of the stroke `φ(t) = φ_amp·sin(ωt)`. It is not the flap
 angular frequency `ω = 2πf` of the kinematics table above; the two differ by the factor
-`radians(φ_amp)`. Van Veen's strokes run at a constant rate, so eq 1.1 needs no qualifier there.
-Taking the sinusoid's peak is this project's constant evaluation of that stroke rate. `F_ref` is
+`radians(φ_amp)`. Van Veen's simulations include accelerating and decelerating strokes, and this
+repository's implementation of his quasi-steady model scales its forces with the instantaneous
+stroke speed `|φ̇|` (`mosquito_cfd.benchmarks.van_veen_model`). This project's `F_ref`
+instead uses one constant `ω_peak` per configuration, so it is a fixed reference force. `F_ref` is
 computed per configuration. At the validated point (`f* = 1`, `φ_amp = 70°`), `ω_peak ≈ 7.676` and
 `F_ref ≈ 200.27`.
 
@@ -141,10 +145,10 @@ issue #108). CI reconciles them against their committed decks
 hinge origin the pipeline did not implement, which is how #108 arose.
 
 **Frame: lab, not wing.** Moments are reported as **lab-frame components about the hinge** origin,
-in the same lab axes as the corpus `CF_x..CF_z`. Unlike `CF_chord`/`CF_normal`, they are not rotated
-into the wing frame: only the origin is the hinge. A wing-frame (body-frame) moment would additionally require
-rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked (issue #1, which
-delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical pitching moment.
+in the same lab axes as the corpus `CF_x..CF_z`. Unlike `CF_chord`/`CF_normal`, they are not
+rotated into the wing frame: only the origin is the hinge. A wing-frame (body-frame) moment would
+additionally require rotating by `R(t)ᵀ`; that conversion is deferred and not currently tracked
+(issue #1, which delivered the axis convention, is closed). Do not read `CF_my` as a biomechanical pitching moment.
 
 > **The axis table above is the rest-pose-aligned frame.** Lab and wing axes coincide only at
 > `φ = α = θ = 0`; under a stroke rotation the wing's instantaneous axes leave the lab axes. So this
@@ -243,7 +247,8 @@ The wing paths apply the negation only through `mosquito_cfd.force_surrogate.for
 the raw columns keep the solver's values ([raw vs derived](#moments)).
 
 No corpus coefficient includes the internal-fluid term `ρ_f·SumU`. The flapping-wing analysis
-reports a 6-DOF series that does include it, separately, as a diagnostic. The solver's free-body
+reports 6-DOF series that do include it, separately, as diagnostics: the lab-frame `cf_*_hydro`
+and the wing-body-frame added-mass-subtracted diagnostic. The solver's free-body
 6-DOF balance would add this term (`SumU` is already a time difference), with its angular
 counterpart from `SumT`
 (`DiffusedIB.cpp:1082-1087` and `:1108-1111` at IAMReX `f93dc794`), but the solver never evaluates

@@ -19,7 +19,8 @@ The project's wing force coefficients come in two frames (the full list is in de
 | Coefficients | How they are formed | Frame |
 |---|---|---|
 | Force-surrogate corpus and surrogate `CF_x..CF_z` | `build_dataset`: `−F/F_ref` on the solver's `Fx..Fz` (`dataset.py:406-424`) | lab |
-| Flapping-wing lab series (`cf_x_ib`/`cf_z_ib`: the `plausibility_gate` input and `fig_forces`) | `−F/F_ref` (`flapping_wing.py:246, 273-274`) | lab |
+| Flapping-wing lab series `cf_x_ib`/`cf_z_ib` (the `plausibility_gate` input) | `reconstruct_wing_forces`: `−F/F_ref` (`flapping_wing.py:246, 273-274`) | lab |
+| `fig_forces` `CF_x..CF_z` | formed inline with `force_on_wing(...)/F_ref` (`generate_all_figures.py:261-284`) | lab |
 | Flapping-wing benchmark `CF_chord`/`CF_normal`, and the body-frame diagnostics built on them (`cf_span`, the added-mass-subtracted diagnostic, the T4 decomposition) | `reconstruct_wing_body_forces` rotates by `R(t)ᵀ` (`flapping_wing.py:433`) | wing body |
 
 On both committed corpora, `max|CF + F/F_ref|` is 0.0 exactly for x, y and z, using the
@@ -54,14 +55,18 @@ The coordinate-convention spec, the flapping-wing-validation spec (four requirem
 
 - "Forces" names each coefficient family with its frame, one family per sentence.
   `CF_chord`/`CF_normal` and the diagnostics built on them are in the wing body frame, with `F_y`
-  intentionally dropped, following van Veen. The corpus and surrogate `CF_x..CF_z` and the
-  flapping-wing lab series are "lab-frame components of the IB force on the wing". That phrase shares
+  intentionally dropped, following van Veen. The corpus and surrogate `CF_x..CF_z`, the
+  flapping-wing lab series `cf_x_ib`/`cf_z_ib` and the `fig_forces` `CF_x..CF_z` are "lab-frame
+  components of the IB force on the wing". The lab-frame `cf_*_added`/`cf_*_hydro` are named as not
+  the IB force alone, and the sign section names the frame of each 6-DOF series. That phrase shares
   its prefix with `comparison_figure.LAB_FRAME_PHRASE` ("lab-frame components of the IB force and
   moment on the wing; moments about the hinge"), so the page and the figures use the same words.
 - The normalization block:
   - writes `F_ref = ½·ρ·ω_peak²·S_yy` and keeps the "van Veen (2022, eq 1.1) normalization" citation;
-  - gives `ω_peak = 2π·f_star·radians(phi_amp_deg)` as this project's constant evaluation of eq 1.1's
-    stroke rate for its sinusoidal kinematics;
+  - gives `ω_peak = 2π·f_star·radians(phi_amp_deg)` as this project's constant normalization scale.
+    Van Veen's simulations include accelerating strokes, and the repository's implementation of his
+    model uses the instantaneous stroke speed, so `F_ref` is a fixed reference force, not van Veen's
+    instantaneous scaling;
   - says it is not the `` `ω = 2πf` `` of the table;
   - places the speed `ω_peak·r_gyr` at the radius of gyration (today it says the stroke *rate* is "at"
     the radius);
