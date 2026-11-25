@@ -3,8 +3,8 @@
 Spec requirements "Bench model entries and metrics" and "Bench artifacts, provenance and claim
 scope". Every refusal happens before anything is written, and every check that depends only on
 the data (splits, target beat, yardsticks, wrap jumps) runs before the first fit, so a bad corpus
-never costs a GPU run. ``mlp_h1`` on ``interpolation`` is fitted first in the process (design
-D7).
+never costs a GPU run. When ``mlp_h1`` is chosen, its ``interpolation`` fits run first in the
+process (design D7).
 """
 
 from __future__ import annotations
@@ -47,14 +47,38 @@ from mosquito_cfd.surrogate_bench.splits import (
     carve_split,
 )
 
-ENTRIES: tuple[str, ...] = ("mlp_h1", "mlp_h3", "ridge", "ridge_fixed")
-MLP_HARMONICS = {"mlp_h1": 1, "mlp_h3": 3}
-# The shipped recipe, read from the trainer so mlp_h1 cannot drift from it (D7).
-MLP_HYPERPARAMETERS = {
-    "hidden": DEFAULT_HIDDEN,
-    "num_layers": DEFAULT_NUM_LAYERS,
-    "lr": DEFAULT_LR,
+# Every MLP entry's architecture, in run order. This one table is what fit_seed receives and
+# what run_metadata.json records, so the two cannot differ (design D8). mlp_h1 and mlp_h3 read
+# the shipped recipe from the trainer so they cannot drift from it (D7); the larger entries
+# change only width and depth and share the shipped learning rate (#195).
+MLP_ENTRIES: dict[str, dict[str, Any]] = {
+    "mlp_h1": {
+        "hidden": DEFAULT_HIDDEN,
+        "num_layers": DEFAULT_NUM_LAYERS,
+        "lr": DEFAULT_LR,
+        "phase_harmonics": 1,
+    },
+    "mlp_h3": {
+        "hidden": DEFAULT_HIDDEN,
+        "num_layers": DEFAULT_NUM_LAYERS,
+        "lr": DEFAULT_LR,
+        "phase_harmonics": 3,
+    },
+    "mlp_w256d5": {
+        "hidden": 256,
+        "num_layers": 5,
+        "lr": DEFAULT_LR,
+        "phase_harmonics": 1,
+    },
+    "mlp_w256d5_h3": {
+        "hidden": 256,
+        "num_layers": 5,
+        "lr": DEFAULT_LR,
+        "phase_harmonics": 3,
+    },
 }
+# The run order: mlp_h1 first (D7), every MLP entry before the ridge entries.
+ENTRIES: tuple[str, ...] = (*MLP_ENTRIES, "ridge", "ridge_fixed")
 TARGETS = list(TARGET_COLUMNS)
 HOLDOUT_STATUS = {
     "mlp_h1": {
@@ -65,6 +89,17 @@ HOLDOUT_STATUS = {
     "mlp_h3": {
         "holdout_informed": True,
         "holdout_reason": "its harmonic count was chosen after holdout scores had been seen",
+    },
+    "mlp_w256d5": {
+        "holdout_informed": True,
+        "holdout_reason": "its width and depth were chosen from the exploration's E4 "
+        "ablations, which were scored on the labelled holdouts",
+    },
+    "mlp_w256d5_h3": {
+        "holdout_informed": True,
+        "holdout_reason": "its width and depth were chosen from the exploration's E4 "
+        "ablations, which were scored on the labelled holdouts, and its harmonic count after "
+        "holdout scores had been seen",
     },
     "ridge_fixed": {
         "holdout_informed": True,
@@ -157,7 +192,7 @@ def _validate(
         raise ValueError(f"output directory {out_dir} is not empty")
     if not out_dir.exists():
         _check_out_parent(out_dir)
-    # mlp_h1 first, so its interpolation fits run first in the process.
+    # mlp_h1 first, so when chosen its interpolation fits run first in the process.
     return [e for e in ENTRIES if e in names]
 
 
@@ -205,7 +240,9 @@ def _default_cuda(device: str) -> Any | None:
     # caching allocator and keep them. Without this, only the first probed fit (mlp_h1 /
     # interpolation / the first seed) would count them in its peak; afterwards they sit in
     # every fit's baseline. A biased Linear's forward and backward take the same paths
-    # (addmm through cuBLASLt) as the trainer's layers.
+    # (addmm through cuBLASLt) as the trainer's layers. The workspace belongs to the handle, not
+    # the layer shape, so one warm-up covers every entry's size. Lazy kernel loading for new
+    # shapes still lands in the first fit's fit_seconds (milliseconds, not memory).
     layer = torch.nn.Linear(8, 8).to(device)
     layer(torch.ones((4, 8), device=device)).sum().backward()
     torch.cuda.synchronize()
@@ -267,10 +304,9 @@ def run_mlp_entry(
             target_frame,
             assignment,
             seed=seed,
-            phase_harmonics=MLP_HARMONICS[entry],
             epochs=epochs,
             device=device,
-            **MLP_HYPERPARAMETERS,
+            **MLP_ENTRIES[entry],
         )
         fit_seconds = time.perf_counter() - t0
         peak_mem = probe.stop()
@@ -588,7 +624,7 @@ def run_bench(
         per_seed_skill[entry] = {}
         ridge_records[entry] = {}
         for split in splits.values():
-            if entry in MLP_HARMONICS:
+            if entry in MLP_ENTRIES:
                 rows, skills, grids = run_mlp_entry(
                     entry,
                     split,
@@ -691,6 +727,10 @@ def run_bench(
         "device": device,
         "entries": chosen,
         "epochs": int(epochs),
+        # What fit_seed received for each MLP entry that ran; empty for a ridge-only run.
+        "mlp_hyperparameters": {
+            e: dict(MLP_ENTRIES[e]) for e in chosen if e in MLP_ENTRIES
+        },
         "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
         "library_versions": _library_versions(),
         "settings_columns": list(SETTINGS),

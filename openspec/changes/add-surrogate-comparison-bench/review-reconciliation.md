@@ -1441,3 +1441,203 @@ Round-5 fixes verified:
 | I12 | 0.2 checks that `git status --porcelain` is empty after the rebase, and halts on normalisation changes | task 0.2 |
 | I13 | Windows `git worktree add` from the main checkout on the named branch at `M` (used for the h3 figure). The WSL clone comes from GitHub, on the same named branch. `rev-parse` is `M` in both trees, and both are clean. | task 9.1 |
 | I14 | `git status --porcelain` must be empty after every WSL run | tasks 1c.5, 7d.2, 8.4 |
+
+## OpenSpec Review (round 7, the #195 amendment): add-surrogate-comparison-bench
+
+Scope: only the amendment that adds `mlp_w256d5` and `mlp_w256d5_h3` (PR 1b). The rest of the change
+was reviewed in rounds 1–6 and merged as PR #188. This round is the synthesis of the five reviewer
+reports; the reports themselves were not kept verbatim.
+
+### Verdict: NEEDS REVISION (before the fixes recorded below)
+
+Reviewers: 1 sonnet, 2 opus, 3 skipped, 4 sonnet, 5 sonnet, 6 opus.
+
+### Summary
+
+The amendment was well formed and passed `openspec validate --strict`, and its quoted E4 skills and
+fit counts were verified against the exploration's `ablations.parquet`. It relied on one value that
+E4's own data contradicts (the fit time of the larger network), planned a commit that would break
+test collection, and proposed a test that could not detect a fit filed under the wrong entry.
+
+### Blocking issues
+
+- **B1 (reviewers 2 and 5).** "`tests/test_surrogate_bench_gpu.py:18` does `from
+  mosquito_cfd.surrogate_bench.runner import MLP_HARMONICS, MLP_HYPERPARAMETERS`. 8b.2 removes both
+  names. pytest imports the module before `-m "not gpu"` deselects anything, so CI and the native
+  suite get an `ERROR collecting` (exit 2)." Also: 8b.3's GPU test, written after the
+  implementation, "goes green on the first run and is never red". Fix named by the reviewer: "move
+  the GPU-test edit into 8b.1 and commit it with 8b.2".
+- **B2 (reviewer 2).** "Identifying an entry by its hyperparameter tuple is circular. … Grouping by
+  the tuple under test cannot detect a mislabelled fit." Mechanism named: "The test assigns each
+  recorded call to an entry by its position: calls arrive in run order, 14 splits × 5 seeds per MLP
+  entry, so call `k` belongs to `chosen_mlp[k // 70]`. Separately, a `SizedRecorder` whose prediction
+  offset also depends on `hidden` and `num_layers` … checks that the `results.parquet` rows labelled
+  `mlp_w256d5` and `mlp_w256d5_h3` carry their own entry's offset."
+- **B3 (reviewer 6).** "The fit-time estimate is contradicted by E4's own data. … width256_depth5:
+  28.6, 29.5, 28.8, 29.3, 28.6 s, about 3.2 times the shipped size. The 140 new fits therefore take
+  about 140 × 29 s ≈ 68 min, not 21 min. Total MLP time is about 90 min, not about 42."
+- **B4 (reviewer 5).** "The commit rule at tasks.md:26-28 does not cover 8b": one lettered group
+  with several commits, and 8b.1 never says its red tests are committed with 8b.2.
+- **B5 (reviewer 4).** The spec says the `mlp_h1`/`mlp_h3` rows are "identical with and without the
+  two larger entries", while task 8b.1 says "timing columns excluded"; the rows include
+  `fit_seconds`, inference time and `peak_gpu_mem`, "so the spec as written cannot pass".
+- **B6 (reviewers 1, 4 and 5).** Task 8b.0 commits "the appended review round in
+  `review-reconciliation.md`", which had not been written.
+
+### Important issues
+
+- **I1 (reviewer 1).** The run-order, one-table and trainer-defaults sentences have no scenario.
+  Proposed scenario: "Entries run in a fixed order and read the shipped defaults".
+- **I2 (reviewers 1 and 2).** The "rows equal with and without the larger entries" test "proves
+  nothing with the current Recorder", whose predictions depend only on the seed and the harmonic
+  count. It needs the size-dependent recorder.
+- **I3 (reviewer 2).** Existing tests that break or go weak, by name:
+  `test_the_shipped_hyperparameters_reach_fit_seed`,
+  `test_mlp_h1_on_interpolation_runs_first_on_the_full_target_beat_frame` (checks only
+  `phase_harmonics == 1`, which `mlp_w256d5` also satisfies),
+  `test_the_summary_per_seed_skill_is_the_fits_own_skill`, `test_scope_holdout_status_and_gate`,
+  `test_results_schema` (`n_params == 17` for every entry).
+- **I4 (reviewer 2).** The run-order test has no observable for the ridge entries; assert
+  `summary["entries"] == meta["entries"] == list(dict.fromkeys(results["entry"]))`.
+- **I5 (reviewer 2).** Missing mutants: `run_mlp_entry` passing the default `hidden` while table and
+  metadata stay correct; a larger entry missing from the MLP dispatch; a ridge-only run writing
+  `null`; reasons losing `E4` or the harmonic phrase; state which test kills the `lr` mutant.
+- **I6 (reviewer 2).** Tests that compare the code with itself (`parse_entries(None) ==
+  list(runner.ENTRIES)`); pin literals.
+- **I7 (reviewer 2).** PR 2's tasks 10.1 and 11.1 do not cover `mlp_hyperparameters` or the 2 × 2
+  paragraph; 10.2 should record the recompute's duration.
+- **I8 (reviewer 6).** Design D8's "E4's ranges … overlap or nearly touch" is false: the shipped
+  MLP's range lies below both others; only three harmonics and the larger network overlap, and the
+  larger network is higher on all 5 seeds. The proposal's "about as well" understates it.
+- **I9 (reviewer 6).** Pairing: the four MLP entries share each seed's validation carve. "Any
+  statement that one cell of the 2 × 2 beats another cites the 5 per-seed differences from
+  `per_seed_skill`, not only overlapping ranges."
+- **I10 (reviewer 6).** Claim scope: width 256 at depth 5 was the best of E4's size arms, chosen on
+  the 6 holdouts; `mlp_w256d5` on `interpolation` "is a near re-run of E4 … not new evidence". "The
+  size-versus-phase-input question is answered from the face metrics without holdouts." The 2 × 2
+  does not separate width from depth, and the interaction is reported descriptively, not tested.
+- **I11 (reviewers 2 and 6).** D8 "Order" overclaims: the larger entries run after every `mlp_h1`
+  and `mlp_h3` fit and each fit reseeds, so they cannot change those rows; PR 2's `mlp_h1`
+  regression "is not a test of this", and nothing on the GPU checks `mlp_h3`.
+- **I12 (reviewers 1 and 6).** `n_params` has no spec clause and the GPU task asserts only "larger".
+  Known answers: 9094, 9350, 266246, 267270.
+- **I13 (reviewer 1).** `--entries` without `mlp_h1` makes "SHALL fit `mlp_h1` … first" vacuous.
+- **I14 (reviewers 4 and 5).** The "PR 1 of 2" banners, design D0 and "both PR links" describe two
+  PRs; task 11.4 replaces the banner by its old text; PR 1's task 8.4 is still unticked.
+- **I15 (reviewer 5).** "'Closes #195' is wrong": the 2 × 2 has results only after PR 2, and a
+  negated closing keyword still closes. Use "Advances #195" here and "Closes #195" in PR 2.
+- **I16 (reviewer 5).** `/cleanup-merged`'s archive step would archive the change after PR 1b; say
+  to skip it. Task 9.1 needs the precondition that PR 1b is merged.
+- **I17 (reviewer 4).** Docs: 8b.4 omits the `runner.py` table comment and the "PR 1b" changelog
+  label; roadmap Revision item 3's entry list is not in 11.3; the fine README plan never says
+  `run_metadata.json` carries `mlp_hyperparameters`.
+- **I18 (reviewers 1 and 4).** The Impact statement omits the test files and the change's own files.
+  The entry list, holdout reasons and fit count are repeated in places that can drift.
+
+### Suggestions
+
+- S1 (reviewer 6): check `mlp_w256d5` / `interpolation` against E4's per-seed skills in task 9.2.
+- S2 (reviewer 2): GPU test asserts the metadata values, a larger `peak_gpu_mem` for the larger
+  entry, and the warm-up check at the new layer shapes.
+- S3 (reviewer 2): monkeypatch `train.DEFAULT_LR` and reload the runner to check the table reads the
+  named constants.
+- S4 (reviewer 1): a scenario for a diverged larger fit.
+- S5 (reviewer 6): record the best-validation epoch per fit.
+- S6 (reviewers 1 and 4): split 8b.5's checks; name the shipped-artifact check; shorten the
+  amendment section.
+
+### Risk assessment
+
+- CI breakage: LOW after B1.
+- Reproducibility: LOW; the amendment adds provenance (`mlp_hyperparameters`).
+- Documentation drift: MEDIUM until PR 2 (roadmap rows and the README are PR 2's).
+- Numerical and scientific correctness: LOW for the code; MEDIUM for how the 2 × 2 is read, which
+  D8 now scopes.
+
+### Review details by agent
+
+1. Spec quality: validate passed; 7/10; I1, I2, I12, I13, I18, B6.
+2. TDD and testing: B1, B2, I2–I7, I11.
+3. CI/CD and build: skipped: no CI, Docker, dependency or packaging change (runner and tests only).
+4. Documentation: E4 values and counts match #195; B5, B6, I14, I17, I18.
+5. Git workflow: B1, B4, B6, I14–I16; keep PR 1b separate from PR 2.
+6. Math and statistics (launched: surrogate training entries, seed handling and quoted skills):
+   E4 skills VERIFIED, fit counts VERIFIED, 9 s for the larger network CONTRADICTED (B3), holdout
+   labels VERIFIED, `n_params` VERIFIED against E4's recorded counts, GPU memory feasible (under
+   1 GB); I8–I12, S1.
+
+## Reconciliation of review round 7
+
+`S` = `specs/surrogate-comparison-bench/spec.md`. The E4 values were recomputed from
+`ablations.parquet` (`origin/explore-surrogate-experiments`) before being written into the design.
+
+| ID | Resolution | Where |
+|---|---|---|
+| B1 | `tests/test_surrogate_bench_gpu.py` is rewritten against `runner.MLP_ENTRIES` in 8b.1 and committed with 8b.2; 8b.3 only runs it under WSL2. No alias of the removed names is kept. | tasks 8b.1 (last bullet), 8b.2, 8b.3 |
+| B2 | Calls are assigned to entries by position (`k // 70`), and a `SizedRecorder` makes each entry's rows and `n_params` distinguishable; the scenario requires that rows labelled with an entry carry that entry's own predictions. | tasks 8b.1 "Test helpers"; S scenario "The larger MLP entries change only width and depth" |
+| B3 | About 29 s a fit, about 70 min for the 140 new fits, about 90 min in all; measured by PR 2. | `proposal.md` Impact, Compute; design Context row; task 9.2 |
+| B4 | The commit rule names group 8b's commits (8b.0, 8b.2, 8b.4) and says red tests are committed with the implementation. | `tasks.md` rules; 8b.1 first line |
+| B5 | "every column except the timing and `peak_gpu_mem` columns", compared with an `--entries mlp_h1,mlp_h3` run. | S same scenario, last clause; task 8b.1 |
+| B6 | This round is appended before the 8b.0 commit, which the task now says. | task 8b.0 |
+| I1 | New scenario, with the reviewer's content. | S "Entries run in a fixed order and read the shipped defaults" |
+| I2 | The equality test uses `SizedRecorder`. | task 8b.1; S scenario "Given" |
+| I3 | Each test is named with its change. | task 8b.1 "Existing tests in that file" |
+| I4 | The three-way `entries` equality against the literal order. | task 8b.1; S fixed-order scenario |
+| I5 | All added to the mutant list, which must name the killing test; `lr` is compared with the literal `1e-3`. | task 8b.2 |
+| I6 | Literal pins for the table, the default `--entries` and the entry set. | task 8b.1 import and CLI bullets |
+| I7 | Added. | tasks 10.1, 10.2, 11.1 |
+| I8 | D8 states the three ranges, the per-seed values and "higher on each of the 5 seeds"; the Why says "at least as well". | design D8 "What E4 showed"; `proposal.md` amendment Why |
+| I9 | D8 "Paired reading"; the README task requires the 5 paired differences. | design D8; task 11.2 |
+| I10 | D8 "Where the comparison is unselected" and "What the 2 × 2 cannot show"; the README task repeats the limits. | design D8; `proposal.md` "Not in the amendment"; task 11.2 |
+| I11 | D8 "Order" rewritten with the reviewer's argument. | design D8 |
+| I12 | Known answers in a GPU-tier scenario and in the GPU test; the CPU tier checks `n_params` per entry with the sized fake model. | S "The parameter counts are the architectures'"; task 8b.1 |
+| I13 | The order rule is stated for the chosen entries; `mlp_h1` is first "when `mlp_h1` is among them". | S "Bench model entries and metrics" |
+| I14 | New banner in both files; D0 is "Three PRs" with a PR 1b bullet; 11.4 replaces "the delivery banner"; "all three PR links"; 8.4 ticked with its PR. | `proposal.md`, `tasks.md` banners; design D0; tasks 8.4, 11.3, 11.4 |
+| I15 | "Advances #195" in PR 1b, "Closes #195" in PR 2. | tasks 8b.5, 11.4 |
+| I16 | Skip the archive step; 9.1 precondition. | tasks 8b.5, 9.1 |
+| I17 | Added. | tasks 8b.4, 11.2, 11.3 |
+| I18 | Impact lists code, tests, the change's files, docs and compute. The proposal and design point to the spec for definitions; the two holdout bullets are merged. | `proposal.md` amendment; design D6 sentence; S holdout list |
+| S1 | Adopted, tolerance 1e-3. | task 9.2 |
+| S2 | Adopted. | task 8b.1 GPU bullet |
+| S3 | Deferred: reloading the runner module in a test risks stale module state in the other bench tests; the literal pin plus the comparison with `run_training`'s defaults is kept, and the named-constant read is checked in review. | task 8b.1 import bullet |
+| S4 | Not added: a diverged fit of any `mlp_*` entry already reaches the gate as NaN errors (PR 1's "Gate boundaries" scenario and its test); the new entries take the same path. | — |
+| S5 | Deferred: recording the best-validation epoch changes the shared trainer seam, which is outside this amendment. | — |
+| S6 | Adopted. | tasks 8b.2, 8b.5; `proposal.md` amendment |
+
+## PR 1b pre-PR self-review (`/review-pr`, branch mode, `e8f9c96`)
+
+Five reviewers (code quality, testing, scientific rigour, performance/GPU/build, behavioural
+correctness) on `b6c5ab1..e8f9c96`. Verdict: **COMMENT**, no blocking finding. Important findings
+and how each is addressed:
+
+| # | Finding | Resolution | Where |
+|---|---|---|---|
+| T1 | The shuffled-order test does not assert the clause "the first recorded call is `(64, 3, 1)` on `interpolation` at the first seed"; only the unshuffled run does. | Asserted in the shuffled run too. | `test_entries_run_in_a_fixed_order_whatever_order_is_given` |
+| T2 | "Rows labelled with each MLP entry carry that entry's own predictions" is checked on one row per entry. | Checked on every row of every MLP entry (all splits and seeds) against the `SizedRecorder` offset; two partial-mislabel mutants (one seed; one split and seed at the wrong depth) are killed, which the one-row check missed. | `test_each_mlp_entrys_rows_carry_its_own_fits` |
+| R1 | D8's "best of its size arms, so untuned does not mean handicapped" is a non sequitur: every E4 arm used lr 1e-3, and w256d5 is the corner (largest point) of the size grid. | Replaced by an explicit confound statement: corner of the grid, not a selected optimum; every reading of the large cells, the interaction included, is conditional on lr and epochs. Same caveat in the README task. | design D8 "Only two arguments differ"; task 11.2 |
+| R2 | CHANGELOG and `project.md` say the 2 × 2 lets the two gains "be told apart", which overclaims against D8. | Reworded to "meant to show, descriptively", with the limits named and D8 cited. | `docs/CHANGELOG.md`; `openspec/project.md` bench list |
+| R3 | Task 9.2's 1e-3 tolerance is about the smallest E4 paired difference against h3 (0.0011), and E4 ran through its own wrapper, not `fit_seed`. | 9.2 records the largest per-seed `|Δ|` and re-checks the 5 paired signs from the bench's own `per_seed_skill`; statements use the bench's values. D8 says E4 shared `train_model`, not `fit_seed`. | task 9.2; design D8 "Where the comparison is unselected" |
+
+Suggestions adopted: the stale exploration reference and the "one place" rule in design Context;
+the seed-range figure (0.002–0.005) and the 5-of-5 sign result (one-sided p = 0.031) in D8; the
+README task forbids "beats" for a sign result; `SizedRecorder`'s depth coefficient is far below
+the seed's, so a mutant changing depth and seed together cannot hit another real offset (no real
+offsets collided before either); the shuffled test also checks that no entry's rows are interleaved; the
+runner's D7 comments say "when chosen"; the warm-up comment says the workspace is per handle and
+lazy kernel loading lands in the first fit's time; the GPU test's warm-up check is called a
+sanity check. Not adopted: a `TypedDict` or `MappingProxyType` for `MLP_ENTRIES` (the import test
+pins the literal table and the recorder's keyword-only signature catches a misspelt key); the
+probe's `gc.collect()` and timer/sync swap (no reference cycles, every fit ends in a host sync;
+identical peaks across seeds); recording `n_val_configs` (recoverable from the commit).
+Rejected on the evidence: a reviewer read E4's shipped-size fit as 19.4 s and the compute
+estimate as 2× high. That was the first, warm-up fit; E4's baseline median is 9.26 s
+(8.76–19.38) and `width256_depth5`'s 28.84 s (28.58–29.48), so "about 70 min" for the 140 larger
+fits stands. Task 8b.4's "comment above the table" went in with the 8b.2 commit, not 8b.4's.
+
+Re-review of the fix commit `10ffdf6` (one reviewer, by reproduction): no blocking finding. One
+important finding, introduced by the fix: D8 called `width256_depth5` "not a selected optimum",
+contradicting D8's own "best of E4's size arms" and the spec's holdout reason. Reworded to "the
+largest point tried and the best of E4's size arms, so an edge of the grid, not an interior
+optimum". Suggestions adopted: "shipped with" (not "chosen for") the 9k net, since the shipped
+hyperparameters' provenance is unrecorded; "its MLP rows" in Context; D8 "Paired reading" aligned
+with the sign-result rule; the every-row test also requires all 14 × 5 (split, seed) blocks.

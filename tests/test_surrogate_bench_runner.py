@@ -78,17 +78,58 @@ def synthetic_corpus(n_beats=2, n_phase=128, scale=1.0):
     return pd.concat(rows, ignore_index=True)
 
 
+# The six entries in run order, and each MLP entry's (hidden, num_layers, phase_harmonics).
+# Literals on purpose: the tests must not read them back from the runner.
+ALL_ENTRIES = [
+    "mlp_h1",
+    "mlp_h3",
+    "mlp_w256d5",
+    "mlp_w256d5_h3",
+    "ridge",
+    "ridge_fixed",
+]
+ARCHITECTURES = {
+    "mlp_h1": (64, 3, 1),
+    "mlp_h3": (64, 3, 3),
+    "mlp_w256d5": (256, 5, 1),
+    "mlp_w256d5_h3": (256, 5, 3),
+}
+MLP_ENTRIES = list(ARCHITECTURES)
+N_SPLITS = 14
+FITS_PER_ENTRY = N_SPLITS * len(BENCH_SEEDS)
+UNTIMED = [
+    c
+    for c in runner.RESULT_COLUMNS
+    if c not in ("fit_seconds", "inference_seconds_per_row", "peak_gpu_mem")
+]
+
+
 class _FakeModel:
+    def __init__(self, n_bias=5):
+        self.n_bias = n_bias
+
     def parameters(self):
-        return [np.zeros((3, 4)), np.zeros(5)]
+        return [np.zeros((3, 4)), np.zeros(self.n_bias)]
 
 
 class Recorder:
-    """fit_seed / predict_frame stand-ins that record their calls."""
+    """fit_seed / predict_frame stand-ins that record their calls.
+
+    The recorder is never told an entry's name. Its predictions depend only on the seed and
+    the harmonic count, so entries of different size are indistinguishable; see SizedRecorder.
+    """
 
     def __init__(self, log=None):
         self.fits = []
         self.log = log if log is not None else []
+
+    @staticmethod
+    def offset(seed, phase_harmonics, hidden, num_layers):
+        return 0.001 * (seed - 1230) + 0.01 * phase_harmonics
+
+    @staticmethod
+    def n_params(hidden, num_layers):
+        return 17
 
     def fit_seed(
         self,
@@ -119,16 +160,55 @@ class Recorder:
         )
         n_test = int(df["config_name"].isin(split.test_configs).sum())
         y_pred = df.loc[df["config_name"].isin(split.test_configs), TARGET_COLUMNS]
-        y_pred = y_pred.to_numpy() + 0.001 * (seed - 1230) + 0.01 * phase_harmonics
+        y_pred = y_pred.to_numpy() + self.offset(
+            seed, phase_harmonics, hidden, num_layers
+        )
         assert y_pred.shape == (n_test, 6)
-        return SimpleNamespace(split=split, model=_FakeModel(), y_pred=y_pred)
+        model = _FakeModel(n_bias=self.n_params(hidden, num_layers) - 12)
+        return SimpleNamespace(split=split, model=model, y_pred=y_pred)
 
     def predict_frame(self, fit, frame, *, device="cpu"):
         return np.full((len(frame), 6), 0.25)
 
 
+class SizedRecorder(Recorder):
+    """Predictions and the parameter count also depend on width and depth.
+
+    At the shipped size (64, 3) both equal the plain Recorder's, so every entry's rows are
+    distinguishable from every other's without changing the shipped-size expectations. The
+    depth coefficient is far below the seed's (1e-3), so a mutant that changes depth and seed
+    together cannot land on another real offset; the test checks the realised offsets differ.
+    """
+
+    @staticmethod
+    def offset(seed, phase_harmonics, hidden, num_layers):
+        return (
+            Recorder.offset(seed, phase_harmonics, hidden, num_layers)
+            + 1e-4 * (hidden - 64)
+            + 1e-5 * (num_layers - 3)
+        )
+
+    @staticmethod
+    def n_params(hidden, num_layers):
+        return 17 + (hidden - 64) + (num_layers - 3)
+
+
+def fits_by_entry(rec, chosen_mlp=MLP_ENTRIES):
+    """Assign the recorded calls to entries by position in the run order.
+
+    Calls arrive entry by entry, 14 splits × 5 seeds each, so call ``k`` belongs to the
+    ``k // 70``-th chosen MLP entry. Grouping by the hyperparameters themselves would be
+    circular: it could not see a fit run under the wrong entry's name.
+    """
+    assert len(rec.fits) == FITS_PER_ENTRY * len(chosen_mlp)
+    return {
+        entry: rec.fits[k * FITS_PER_ENTRY : (k + 1) * FITS_PER_ENTRY]
+        for k, entry in enumerate(chosen_mlp)
+    }
+
+
 def _run(tmp_path, monkeypatch, *, frame=None, coarse=None, name="out", **kwargs):
-    rec = kwargs.pop("recorder", None) or Recorder()
+    rec = kwargs.pop("recorder", None) or SizedRecorder()
     monkeypatch.setattr(runner, "fit_seed", rec.fit_seed)
     monkeypatch.setattr(runner, "predict_frame", rec.predict_frame)
     frame = synthetic_corpus() if frame is None else frame
@@ -163,13 +243,120 @@ def full_run(tmp_path_factory):
 
 
 def test_the_shipped_hyperparameters_reach_fit_seed(full_run):
+    """Spec "The larger MLP entries change only width and depth", the call clauses."""
     rec, _, _ = full_run
-    assert len(rec.fits) == 14 * 2 * len(BENCH_SEEDS)
-    assert {(f["hidden"], f["num_layers"], f["lr"], f["epochs"]) for f in rec.fits} == {
-        (64, 3, 1e-3, 7)
+    assert len(rec.fits) == 14 * 4 * len(BENCH_SEEDS)
+    target = metrics.target_beat_frame(synthetic_corpus())
+    splits = build_splits(target)
+    for entry, fits in fits_by_entry(rec).items():
+        assert {(f["hidden"], f["num_layers"], f["phase_harmonics"]) for f in fits} == {
+            ARCHITECTURES[entry]
+        }, entry
+        # The shipped learning rate (a literal, not the runner's table) and the run's epochs.
+        assert {(f["lr"], f["epochs"]) for f in fits} == {(1e-3, 7)}, entry
+        # 5 calls per split, one per seed, in split order.
+        expected = [
+            (carve_split(split, seed=seed), seed)
+            for split in splits.values()
+            for seed in BENCH_SEEDS
+        ]
+        assert [(f["split"], f["seed"]) for f in fits] == expected, entry
+
+
+def test_each_mlp_entrys_rows_carry_its_own_fits(full_run):
+    """A fit run under another entry's name would file that entry's predictions here.
+
+    Every row of every MLP entry, on every split and seed, carries that entry's own offset.
+    """
+    _, out, _ = full_run
+    results = pd.read_parquet(out / "results.parquet")
+    for entry, (hidden, num_layers, harmonics) in ARCHITECTURES.items():
+        rows = results[results["entry"] == entry]
+        assert len(rows) > 0 and set(rows["split"]) == set(
+            build_splits(metrics.target_beat_frame(synthetic_corpus()))
+        ), entry
+        assert set(rows["seed"]) == set(BENCH_SEEDS), entry
+        # Every (split, seed) block is present, not only every split and every seed.
+        assert len(rows.groupby(["split", "seed"]).size()) == N_SPLITS * len(
+            BENCH_SEEDS
+        )
+        offset = rows["seed"].map(
+            lambda s, h=harmonics, w=hidden, d=num_layers: SizedRecorder.offset(
+                s, h, w, d
+            )
+        )
+        np.testing.assert_allclose(
+            rows["sse"].to_numpy(),
+            (rows["n_rows"] * offset**2).to_numpy(),
+            rtol=1e-9,
+            err_msg=entry,
+        )
+        assert set(rows["n_params"]) == {SizedRecorder.n_params(hidden, num_layers)}
+    # No two (entry, seed) pairs share an offset, so the check above bites on every row.
+    offsets = {
+        round(SizedRecorder.offset(s, h, w, d), 12)
+        for w, d, h in ARCHITECTURES.values()
+        for s in BENCH_SEEDS
     }
-    assert {f["phase_harmonics"] for f in rec.fits} == {1, 3}
-    assert sorted({f["seed"] for f in rec.fits}) == list(BENCH_SEEDS)
+    assert len(offsets) == len(ARCHITECTURES) * len(BENCH_SEEDS)
+    assert SizedRecorder.n_params(256, 5) != SizedRecorder.n_params(64, 3)
+
+
+def test_the_shipped_size_rows_do_not_depend_on_the_larger_entries(
+    full_run, tmp_path, monkeypatch
+):
+    _, out, full = full_run
+    _, small_out, small = _run(tmp_path, monkeypatch, entries=("mlp_h1", "mlp_h3"))
+    with_larger = pd.read_parquet(out / "results.parquet")
+    without = pd.read_parquet(small_out / "results.parquet")
+    kept = with_larger[with_larger["entry"].isin(["mlp_h1", "mlp_h3"])]
+    assert len(kept) == len(without) > 0
+    pd.testing.assert_frame_equal(
+        kept[UNTIMED].reset_index(drop=True),
+        without[UNTIMED].reset_index(drop=True),
+        check_exact=True,
+    )
+    for entry in ("mlp_h1", "mlp_h3"):
+        assert (
+            full["summary_data"]["per_seed_skill"][entry]
+            == small["summary_data"]["per_seed_skill"][entry]
+        )
+
+
+def test_entries_run_in_a_fixed_order_whatever_order_is_given(tmp_path, monkeypatch):
+    """Spec "Entries run in a fixed order and read the shipped defaults"."""
+    shuffled = (
+        "ridge_fixed",
+        "mlp_w256d5_h3",
+        "mlp_h3",
+        "ridge",
+        "mlp_w256d5",
+        "mlp_h1",
+    )
+    rec, out, _ = _run(tmp_path, monkeypatch, entries=shuffled)
+    summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    results = pd.read_parquet(out / "results.parquet")
+    assert summary["entries"] == ALL_ENTRIES
+    assert meta["entries"] == ALL_ENTRIES
+    # Each entry's rows form one block, in run order (no entry interleaved with another).
+    assert [k for k, _ in itertools.groupby(results["entry"])] == ALL_ENTRIES
+    for entry, fits in fits_by_entry(rec).items():
+        assert {(f["hidden"], f["num_layers"], f["phase_harmonics"]) for f in fits} == {
+            ARCHITECTURES[entry]
+        }, entry
+    # The first fit is mlp_h1 at the shipped size, on interpolation, at the first seed.
+    first = rec.fits[0]
+    target = metrics.target_beat_frame(synthetic_corpus())
+    assert (
+        first["hidden"],
+        first["num_layers"],
+        first["phase_harmonics"],
+        first["seed"],
+    ) == (64, 3, 1, BENCH_SEEDS[0])
+    assert first["split"] == carve_split(
+        build_splits(target)["interpolation"], seed=BENCH_SEEDS[0]
+    )
 
 
 def test_mlp_h1_on_interpolation_runs_first_on_the_full_target_beat_frame(full_run):
@@ -178,6 +365,8 @@ def test_mlp_h1_on_interpolation_runs_first_on_the_full_target_beat_frame(full_r
     target = metrics.target_beat_frame(frame)
     first = rec.fits[0]
     assert first["phase_harmonics"] == 1 and first["seed"] == BENCH_SEEDS[0]
+    # mlp_w256d5 also has one harmonic: the first fit must be the shipped size.
+    assert (first["hidden"], first["num_layers"]) == (64, 3)
     assert np.array_equal(
         first["frame"]["config_name"].to_numpy(), target["config_name"].to_numpy()
     )
@@ -226,7 +415,11 @@ def test_results_schema(full_run):
     assert set(runner.RESULT_COLUMNS) <= set(results.columns)
     assert results["peak_gpu_mem"].isna().all()  # CPU run and ridge rows: null
     mlp = results[results["entry"].str.startswith("mlp_")]
-    assert (mlp["n_params"] == 17).all()
+    assert set(mlp["entry"]) == set(MLP_ENTRIES)
+    for entry, (hidden, num_layers, _) in ARCHITECTURES.items():
+        assert set(mlp.loc[mlp["entry"] == entry, "n_params"]) == {
+            SizedRecorder.n_params(hidden, num_layers)
+        }
 
 
 def test_the_summary_recomputes_from_results(full_run):
@@ -251,12 +444,17 @@ def test_scope_holdout_status_and_gate(full_run):
     assert summary["scope"] == BENCH_SCOPE
     status = summary["holdout_status"]
     assert status["mlp_h1"]["holdout_informed"] == "unverified"
-    for entry in ("mlp_h3", "ridge_fixed", "ridge"):
+    assert set(status) == set(ALL_ENTRIES)
+    for entry in ("mlp_h3", "mlp_w256d5", "mlp_w256d5_h3", "ridge_fixed", "ridge"):
         assert status[entry]["holdout_informed"] is True
     assert "weakly" in status["ridge"]["holdout_reason"]
+    for entry in ("mlp_w256d5", "mlp_w256d5_h3"):
+        assert "E4" in status[entry]["holdout_reason"], entry
+    assert "harmonic" in status["mlp_w256d5_h3"]["holdout_reason"]
+    assert "harmonic" not in status["mlp_w256d5"]["holdout_reason"]
     gate = summary["gate"]
     assert gate["provisional"] is True and len(gate["reasons"]) == 7
-    assert set(gate["entries"]) == {"mlp_h1", "mlp_h3", "ridge", "ridge_fixed"}
+    assert set(gate["entries"]) == set(ALL_ENTRIES)
     for entry in gate["entries"]:
         assert (
             gate["entries"][entry]["holdout_informed"]
@@ -285,6 +483,53 @@ def test_provenance_fields(tmp_path, monkeypatch):
     versions = meta["library_versions"]
     assert versions["numpy"] == np.__version__
     assert "torch" in versions and "physicsnemo" in versions
+
+
+def _recorded_hyperparameters(fits):
+    values = {
+        (f["hidden"], f["num_layers"], f["lr"], f["phase_harmonics"]) for f in fits
+    }
+    assert len(values) == 1
+    hidden, num_layers, lr, harmonics = values.pop()
+    return {
+        "hidden": hidden,
+        "num_layers": num_layers,
+        "lr": lr,
+        "phase_harmonics": harmonics,
+    }
+
+
+def test_the_metadata_records_each_mlp_entrys_architecture(full_run):
+    """Spec "The metadata records each MLP entry's architecture", the full run."""
+    rec, out, _ = full_run
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    recorded = meta["mlp_hyperparameters"]
+    assert list(recorded) == MLP_ENTRIES
+    for entry, fits in fits_by_entry(rec).items():
+        assert recorded[entry] == _recorded_hyperparameters(fits), entry
+        hidden, num_layers, harmonics = ARCHITECTURES[entry]
+        assert recorded[entry] == {
+            "hidden": hidden,
+            "num_layers": num_layers,
+            "lr": 1e-3,
+            "phase_harmonics": harmonics,
+        }
+
+
+def test_the_metadata_records_only_the_mlp_entries_that_ran(tmp_path, monkeypatch):
+    rec, out, _ = _run(tmp_path, monkeypatch, entries=("mlp_h1", "ridge_fixed"))
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    assert meta["mlp_hyperparameters"] == {
+        "mlp_h1": _recorded_hyperparameters(rec.fits)
+    }
+    assert len(rec.fits) == FITS_PER_ENTRY
+
+
+def test_a_ridge_only_run_records_an_empty_mlp_hyperparameters(tmp_path, monkeypatch):
+    rec, out, _ = _run(tmp_path, monkeypatch, entries=("ridge", "ridge_fixed"))
+    meta = json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+    assert "mlp_hyperparameters" in meta and meta["mlp_hyperparameters"] == {}
+    assert rec.fits == []
 
 
 # --- Memory probe ------------------------------------------------------------------------------
@@ -565,24 +810,28 @@ def test_the_summary_per_seed_skill_is_the_fits_own_skill(full_run):
     target = metrics.target_beat_frame(synthetic_corpus())
     split = build_splits(target)["face:pitch_amp_deg=60"]
     baseline = metrics.split_baseline(target, split.train, list(TARGET_COLUMNS))
-    fit = next(
-        f
-        for f in rec.fits
-        if f["phase_harmonics"] == 3
-        and f["seed"] == BENCH_SEEDS[2]
-        and f["split"] == carve_split(split, seed=BENCH_SEEDS[2])
-    )
-    test = fit["frame"]["config_name"].isin(split.test)
-    y_pred = fit["frame"].loc[test, TARGET_COLUMNS].to_numpy() + (
-        0.001 * (BENCH_SEEDS[2] - 1230) + 0.03
-    )
-    expected = metrics.per_seed_skill(
-        target, split.test, y_pred, baseline, list(TARGET_COLUMNS)
-    )
-    got = summary["per_seed_skill"]["mlp_h3"]["face:pitch_amp_deg=60"][
-        str(BENCH_SEEDS[2])
-    ]
-    assert got == pytest.approx(expected, rel=1e-12)
+    seed = BENCH_SEEDS[2]
+    seen = set()
+    # By position, not by harmonic count: two entries have three harmonics.
+    for entry in ("mlp_h3", "mlp_w256d5_h3"):
+        hidden, num_layers, harmonics = ARCHITECTURES[entry]
+        fit = next(
+            f
+            for f in fits_by_entry(rec)[entry]
+            if f["seed"] == seed and f["split"] == carve_split(split, seed=seed)
+        )
+        test = fit["frame"]["config_name"].isin(split.test)
+        offset = SizedRecorder.offset(seed, harmonics, hidden, num_layers)
+        y_pred = fit["frame"].loc[test, TARGET_COLUMNS].to_numpy() + offset
+        expected = metrics.per_seed_skill(
+            target, split.test, y_pred, baseline, list(TARGET_COLUMNS)
+        )
+        got = summary["per_seed_skill"][entry]["face:pitch_amp_deg=60"][str(seed)]
+        assert got == pytest.approx(expected, rel=1e-12), entry
+        seen.add(tuple(sorted(got.items())))
+    assert (
+        len(seen) == 2
+    )  # the two entries' skills differ, so neither stands in for the other
 
 
 def test_splits_json_holds_train_test_and_each_seeds_validation(full_run):

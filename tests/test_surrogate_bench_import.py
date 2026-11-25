@@ -77,11 +77,45 @@ def test_the_bench_mlp_recipe_is_the_shipped_trainers_defaults():
         name: p.default
         for name, p in inspect.signature(train.run_training).parameters.items()
     }
-    assert runner.MLP_HYPERPARAMETERS == {
-        "hidden": defaults["hidden"],
-        "num_layers": defaults["num_layers"],
-        "lr": defaults["lr"],
+    # The whole table, as literals: each MLP entry's architecture is part of the bench's
+    # definition (spec "Bench model entries and metrics").
+    assert runner.MLP_ENTRIES == {
+        "mlp_h1": {"hidden": 64, "num_layers": 3, "lr": 1e-3, "phase_harmonics": 1},
+        "mlp_h3": {"hidden": 64, "num_layers": 3, "lr": 1e-3, "phase_harmonics": 3},
+        "mlp_w256d5": {
+            "hidden": 256,
+            "num_layers": 5,
+            "lr": 1e-3,
+            "phase_harmonics": 1,
+        },
+        "mlp_w256d5_h3": {
+            "hidden": 256,
+            "num_layers": 5,
+            "lr": 1e-3,
+            "phase_harmonics": 3,
+        },
     }
+    assert list(runner.MLP_ENTRIES) == [
+        "mlp_h1",
+        "mlp_h3",
+        "mlp_w256d5",
+        "mlp_w256d5_h3",
+    ]
+    # The shipped-size rows are the shipped recipe, and every entry shares its learning rate.
+    for entry in ("mlp_h1", "mlp_h3"):
+        for key in ("hidden", "num_layers", "lr"):
+            assert runner.MLP_ENTRIES[entry][key] == defaults[key], (entry, key)
+    assert {row["lr"] for row in runner.MLP_ENTRIES.values()} == {defaults["lr"]}
+    assert runner.ENTRIES == (
+        "mlp_h1",
+        "mlp_h3",
+        "mlp_w256d5",
+        "mlp_w256d5_h3",
+        "ridge",
+        "ridge_fixed",
+    )
+    assert set(runner.MLP_ENTRIES) | {"ridge", "ridge_fixed"} == set(runner.ENTRIES)
+    assert set(runner.HOLDOUT_STATUS) == set(runner.ENTRIES)
     assert (
         inspect.signature(runner.run_bench).parameters["epochs"].default
         == (defaults["epochs"])

@@ -83,6 +83,15 @@ def test_every_flag_is_wired(driver):
     defaults = driver.build_parser().parse_args(_argv("f", "c", "o"))
     assert defaults.device == "cpu" and defaults.epochs == 2000
     assert defaults.allow_dirty is False and defaults.entries is None
+    # The default is every entry, in run order (literals, not read back from the runner).
+    assert driver.parse_entries(defaults.entries) == [
+        "mlp_h1",
+        "mlp_h3",
+        "mlp_w256d5",
+        "mlp_w256d5_h3",
+        "ridge",
+        "ridge_fixed",
+    ]
 
 
 @pytest.mark.parametrize(

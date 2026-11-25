@@ -384,11 +384,16 @@ OpenSpec change `add-field-surrogate-reader` (`design.md` D4, D6, D10).
 `src/mosquito_cfd/surrogate_bench/` scores force-surrogate families on one shared set of 14 splits
 over the fine 3×3×3 corpus. The splits are interpolation (the shipped 21 + 6), the 6 grid faces, 6
 random-18-configuration controls and `control:e4_seed0`. Every MLP entry runs the 5 seeds in
-`BENCH_SEEDS`. The four entries are:
+`BENCH_SEEDS`. The six entries are:
 
 - `mlp_h1`, the shipped Track B MLP;
 - `mlp_h3`, the same MLP with three phase harmonics (`train_surrogate.py --phase-harmonics`; the
   default of 1 leaves the shipped model unchanged);
+- `mlp_w256d5` and `mlp_w256d5_h3`, the same two at width 256 and depth 5 (#195). With `mlp_h1` and
+  `mlp_h3` they form a 2 × 2 of model size by phase harmonics, meant to show, descriptively, how
+  much of a gain comes from the phase input and how much from size. They are bench-only and use
+  the shipped learning rate untuned; the bench spec defines them and design D8 says what the
+  2 × 2 can and cannot show;
 - `ridge`, a Fourier × polynomial ridge reference whose `(H, d, α)` is picked by leave-one-out CV
   under the one-standard-error rule;
 - `ridge_fixed`, the same ridge at `(16, 3, 1e-6)`.
@@ -411,6 +416,9 @@ outer layer of the grid, on the unsettled 2-beat corpus with generic sinusoidal 
 - The MLP entries need the `train` group; on Windows they run under WSL2, as the shipped surrogate's
   training did. The figure needs `viz`.
 - `--entries ridge,ridge_fixed` needs no torch, so a ridge-only run works on CPU anywhere.
+- Entries run in the order listed above whatever order `--entries` gives. `run_metadata.json`
+  records `mlp_hyperparameters`: the `hidden`, `num_layers`, `lr` and `phase_harmonics` passed to the
+  trainer for each MLP entry that ran.
 
 The committed bench results land in PR 2. When they do, the exact `mlp_h1` / `interpolation`
 regression against the shipped `metrics.json` holds only on the shipped run's host (talmo-lab-02

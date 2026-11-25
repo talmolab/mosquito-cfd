@@ -237,6 +237,10 @@ The bench SHALL run these entries on every split:
 - `mlp_h1` (the shipped MLP recipe, `phase_harmonics = 1`) and `mlp_h3` (`phase_harmonics = 3`),
   each over the seeds `BENCH_SEEDS = (1234, 1235, 1236, 1237, 1238)` with the shipped hyperparameters
   (width 64, depth 3, 2000 epochs, full-batch Adam, best-validation restore);
+- `mlp_w256d5` (`phase_harmonics = 1`) and `mlp_w256d5_h3` (`phase_harmonics = 3`), each over
+  `BENCH_SEEDS`. They differ from `mlp_h1` and `mlp_h3` only in the `hidden` (256) and `num_layers`
+  (5) arguments passed to `fit_seed`, so the four form a 2 × 2 of model size by phase harmonics
+  (#195, design D8). They are bench-only: no standalone model is committed for them;
 - `ridge` (one deterministic fit, `(H, d, α)` selected per split as above);
 - `ridge_fixed` (one deterministic fit at the exploration's chosen point `H = 16, d = 3, α = 1e-6`,
   pre-registered here, no selection, its selection fields `null`). Against `ridge`, it separates
@@ -250,6 +254,10 @@ to be holdout-clean, so an `inside` verdict is not read as unbiased. The values 
 - `mlp_h1`: `"unverified"`. It is the shipped recipe, and the provenance of its hyperparameters is not
   recorded here.
 - `mlp_h3`: `true`. Its harmonic count was chosen after holdout scores had been seen.
+- `mlp_w256d5`: `true`. Its width and depth were chosen from the exploration's E4 ablations, which
+  were scored on the labelled holdouts. `mlp_w256d5_h3` is `true` for the same reason, and also
+  because its harmonic count was chosen after holdout scores had been seen. Both `holdout_reason`
+  strings SHALL contain `E4`, and `mlp_w256d5_h3`'s SHALL also contain `harmonic`.
 - `ridge_fixed`: `true`. Its point was chosen by CV on the 21 pool configurations, on a grid widened
   after holdout scores had been seen.
 - `ridge`: `true`, weakly. Its grid contains values added after holdout scores had been seen, and the
@@ -264,7 +272,16 @@ those configurations excluded.
 The MLP entries SHALL train through `force_surrogate.train.fit_seed` on the full target-beat frame
 in dataset order, SHALL score skill on the fit's own test predictions (as `run_training` does), and
 SHALL evaluate on the phase grid through `force_surrogate.train.predict_frame`; never through a
-re-implementation. The runner SHALL fit `mlp_h1` on `interpolation` first in the process.
+re-implementation. Whatever order `--entries` gives, the chosen entries SHALL run in the order
+`mlp_h1`, `mlp_h3`, `mlp_w256d5`, `mlp_w256d5_h3`, `ridge`, `ridge_fixed`, each entry finishing all
+its splits before the next starts. When `mlp_h1` is among them, its `interpolation` fits are
+therefore the first in the process.
+
+The runner SHALL hold each MLP entry's `hidden`, `num_layers`, `lr` and `phase_harmonics` in one
+table, pass exactly those values to `fit_seed`, and write the same table to `run_metadata.json`
+(below). The `mlp_h1` and `mlp_h3` rows SHALL read `hidden`, `num_layers` and `lr` from the
+trainer's named defaults, and the larger entries SHALL read `lr` from them, so no entry can drift
+from the shipped recipe in a value it is meant to share.
 
 All error metrics are **fractions** (0.05 means 5 %). For every entry, split, seed, target and test
 configuration `results.parquet` SHALL record:
@@ -343,7 +360,32 @@ lost. Skill SHALL NOT be compared across splits; cross-split comparison SHALL us
   - it uses `rmse_frac_component_peak` and `baseline_rmse_frac_component_peak` only, with no skill key, because skill is not compared across splits;
   - it is reported per entry and per target, with three ranges of each metric pooled over those configurations: the face model over seeds, the six random controls over controls and seeds, and `control:e4_seed0` over seeds, kept apart because its training subset is rank deficient;
   - for `face:pitch_amp_deg=30`, which has no labelled holdouts, it is `null` with reason `"no labelled holdouts on this face"`
-- **And** `holdout_informed` is `"unverified"` for `mlp_h1` and `true` for `mlp_h3`, `ridge_fixed` and `ridge`, each with a `holdout_reason`; `ridge`'s reason says "weakly"
+- **And** `holdout_informed` is `"unverified"` for `mlp_h1` and `true` for `mlp_h3`, `mlp_w256d5`, `mlp_w256d5_h3`, `ridge_fixed` and `ridge`, each with a `holdout_reason`; `ridge`'s reason says "weakly"
+- **And** the reasons of `mlp_w256d5` and `mlp_w256d5_h3` contain `E4`, and `mlp_w256d5_h3`'s also contains `harmonic`
+
+#### Scenario: The larger MLP entries change only width and depth
+
+- **Given** a bench run with every entry, the MLP seam replaced by a recorder whose predictions depend on `hidden`, `num_layers`, `phase_harmonics` and the seed, so each entry's rows are distinguishable
+- **When** the recorded `fit_seed` calls are assigned to entries by their position in the run order (14 splits × 5 seeds per MLP entry)
+- **Then** each of the four MLP entries has 5 calls per split, one per seed in `BENCH_SEEDS`
+- **And** `(hidden, num_layers, phase_harmonics)` is `(64, 3, 1)` for `mlp_h1`, `(64, 3, 3)` for `mlp_h3`, `(256, 5, 1)` for `mlp_w256d5` and `(256, 5, 3)` for `mlp_w256d5_h3`
+- **And** every call has `lr = 1e-3` and the run's `--epochs` value
+- **And** the `results.parquet` rows labelled with each MLP entry carry that entry's own predictions, not another entry's
+- **And** the `mlp_h1` and `mlp_h3` rows of `results.parquet` (every column except the timing and `peak_gpu_mem` columns) and their `per_seed_skill` are identical in a run with `--entries mlp_h1,mlp_h3`
+
+#### Scenario: Entries run in a fixed order and read the shipped defaults
+
+- **Given** a bench run whose `--entries` names all six entries in a shuffled order, the MLP seam replaced by a recorder
+- **When** the summary, the metadata and `results.parquet` are read
+- **Then** the `entries` lists of `summary.json` and `run_metadata.json`, and the order in which entries first appear in `results.parquet`, are `mlp_h1`, `mlp_h3`, `mlp_w256d5`, `mlp_w256d5_h3`, `ridge`, `ridge_fixed`
+- **And** the first recorded call has `(hidden, num_layers, phase_harmonics) = (64, 3, 1)`, the `interpolation` split and the first seed
+- **And** `hidden`, `num_layers` and `lr` of `mlp_h1` and `mlp_h3`, and `lr` of the two larger entries, equal the defaults of `force_surrogate.train.run_training`
+
+#### Scenario: The parameter counts are the architectures'
+
+- **Given** a GPU-tier bench run with every entry (6 targets; inputs `3 + 2 · phase_harmonics`)
+- **When** `n_params` is read from `results.parquet`
+- **Then** it is 9094 for `mlp_h1`, 9350 for `mlp_h3`, 266246 for `mlp_w256d5` and 267270 for `mlp_w256d5_h3`
 
 #### Scenario: The model is evaluated directly at the grid phases
 
@@ -583,7 +625,9 @@ It SHALL write into `--out-dir`:
   the `run_metadata.json` beside it, or `null` with the reason, never borrowed from the fine
   corpus's record), how `--docker-digest` was checked against the fine corpus, with dataset paths
   relative to the repository when inside it, the git commit, branch and dirty flag, the hardware block, the seeds,
-  the device, the entries and epochs, the `CUBLAS_WORKSPACE_CONFIG` environment value (or `null`),
+  the device, the entries and epochs, `mlp_hyperparameters` (for each MLP entry that ran, its
+  `hidden`, `num_layers`, `lr` and `phase_harmonics`, the values passed to `fit_seed`; an empty
+  object for a ridge-only run), the `CUBLAS_WORKSPACE_CONFIG` environment value (or `null`),
   and a `library_versions` block (`numpy`, plus `torch` and `physicsnemo` when installed) in the same
   shape the trainer's `run_metadata.json` uses.
 
@@ -623,6 +667,14 @@ SHALL be produced from a clean tree whose commit is on `main`.
 - **When** `summary.json` and `run_metadata.json` are read
 - **Then** `scope` equals `BENCH_SCOPE`, the dataset sha256 equals the committed `dataset.parquet`'s, the digest contains `sha256:`, and the timestamp equals the supplied value
 
+#### Scenario: The metadata records each MLP entry's architecture
+
+- **Given** a completed bench run with every entry
+- **When** `run_metadata.json` is read
+- **Then** `mlp_hyperparameters` has exactly the keys `mlp_h1`, `mlp_h3`, `mlp_w256d5` and `mlp_w256d5_h3`, each with `hidden`, `num_layers`, `lr` and `phase_harmonics` equal to the values the recorded `fit_seed` calls received for that entry
+- **And** for a run with `--entries mlp_h1,ridge_fixed` it has only the key `mlp_h1`
+- **And** for `--entries ridge,ridge_fixed` the key is present and its value is an empty object
+
 #### Scenario: The scope names all three limits
 
 - **Given** `BENCH_SCOPE`
@@ -637,7 +689,7 @@ SHALL be produced from a clean tree whose commit is on `main`.
 
 #### Scenario: The summary figure shows every entry and split
 
-- **Given** a synthetic summary with 4 entries and 14 splits
+- **Given** a synthetic summary with 6 entries and 14 splits
 - **When** `bench_summary.png` is written
 - **Then** the file exists and the figure has one point with a seed-range error bar per (entry, split)
 

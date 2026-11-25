@@ -1,6 +1,7 @@
 # Tasks
 
-> **PR 1 of 2 — archive this change only after PR 2 merges.**
+> **Delivered as PR 1 (#188, merged `e1e6105`), PR 1b (larger-MLP entries, #195) and PR 2
+> (results). Archive this change only after PR 2 merges.**
 
 **Rules for every task:**
 
@@ -24,8 +25,10 @@
 - Anything that looks like a bug outside this change becomes an issue draft for the user, not a fix.
 - **Shipped-artifact check** (design D6), at the end of every group that commits.
 - **Commits.** Each lettered or numbered group below is one commit, except group 9, which runs
-  without committing, and group 8, which commits in 8.4; task 11.5 is a separate archive commit. Commits use a conventional prefix and the `Co-Authored-By` trailer. The suite
-  is green locally after each; CI sees only the PR head.
+  without committing; group 8, which commits in 8.4; and group 8b, which commits in 8b.0, 8b.2 and
+  8b.4. Task 11.5 is a separate archive commit. Tests written first (red) are committed with the
+  implementation that makes them green, never alone. Commits use a conventional prefix and the
+  `Co-Authored-By` trailer. The suite is green locally after each; CI sees only the PR head.
 
 **Prerequisite:** PR #171 (roadmap revision) merges before PR 1 opens (task 8.1). Groups 0–7 may start earlier.
 
@@ -329,7 +332,8 @@
   - `docs/CHANGELOG.md`: an entry for the code only, at the top of the file.
 - [x] 8.3 Reconcile proposal, spec and tasks against the implementation (new-feature step 9). Record
   any deviation in a "Why N instead of M?" section.
-- [ ] 8.4 Commit 8.2 and 8.3: `docs: surrogate bench in project.md and changelog`. Then run, in
+- [x] 8.4 (PR #188, merged `e1e6105`; ticked in PR 1b, the first branch after the merge.) Commit
+  8.2 and 8.3: `docs: surrogate bench in project.md and changelog`. Then run, in
   order:
   1. `openspec validate add-surrogate-comparison-bench --strict`;
   2. the full local suite, natively and under WSL2, then `git status --porcelain` is empty;
@@ -343,11 +347,124 @@
   Its description, and the session handoff memory, state:
   **"PR 1 of 2: do not archive the OpenSpec change until PR 2 merges."**
 
+## PR 1b — larger-MLP entries (#195; branch `add-bench-larger-mlp-entries`)
+
+Opened after PR 1 merged, merged before PR 2's runs (group 9). The rules at the top apply. The
+change is not archived after this PR. Each task's box is ticked in the commit that completes it;
+8b.0's and 8b.5's are ticked in the 8b.4 commit.
+
+### 8b. Larger-MLP entries and per-entry hyperparameters in the metadata
+
+- [x] 8b.0 Append review round 7 and its reconciliation to `review-reconciliation.md`. Run
+  `openspec validate add-surrogate-comparison-bench --strict`. Commit the amendment (`proposal.md`,
+  `design.md`, `tasks.md` with 8.4 ticked, the bench spec delta, `review-reconciliation.md`):
+  `docs(openspec): amend add-surrogate-comparison-bench with larger-MLP entries (#195)`.
+- [x] 8b.1 **Tests first** (red). No commit of its own: they are committed with 8b.2.
+  - Test helpers in `tests/test_surrogate_bench_runner.py`. The recorder never learns entry names.
+    - Calls are assigned to entries by position: they arrive in run order, 14 splits × 5 seeds per
+      MLP entry, so call `k` belongs to the `k // 70`-th chosen MLP entry.
+    - A `SizedRecorder` whose prediction offset also depends on `hidden` and `num_layers`, and whose
+      fake model's parameter count depends on them, so every entry's rows and `n_params` differ.
+  - New tests, one per clause of the spec scenarios:
+    - "The larger MLP entries change only width and depth": 5 calls per split and entry; the
+      `(hidden, num_layers, phase_harmonics)` tuple per entry, by position; `lr == 1e-3` (the
+      literal) and the run's epochs on every call; with `SizedRecorder`, the rows labelled with each
+      MLP entry carry that entry's offset and `n_params`; the `mlp_h1` and `mlp_h3` rows (every
+      column except `fit_seconds`, `inference_seconds_per_row` and `peak_gpu_mem`) and their
+      `per_seed_skill` equal those of an `entries=("mlp_h1", "mlp_h3")` run.
+    - "Entries run in a fixed order and read the shipped defaults": for a fixed shuffle of all six,
+      `summary["entries"] == meta["entries"] == list(dict.fromkeys(results["entry"]))` == the
+      literal six names in run order; the first call is `(64, 3, 1)` on `interpolation` at the
+      first seed.
+    - "The metadata records each MLP entry's architecture": the full run, the `mlp_h1,ridge_fixed`
+      run and the ridge-only run, each compared with what the recorder received by position; for
+      the ridge-only run, `"mlp_hyperparameters" in meta and meta["mlp_hyperparameters"] == {}`.
+    - The holdout reasons of the two larger entries contain `E4`, and `mlp_w256d5_h3`'s contains
+      `harmonic`.
+  - Existing tests in that file, changed by name:
+    - `test_the_shipped_hyperparameters_reach_fit_seed`: `14 * 4 * 5` calls; `(64, 3)` for the
+      shipped-size entries and `(256, 5)` for the larger ones, by position.
+    - `test_mlp_h1_on_interpolation_runs_first_on_the_full_target_beat_frame`: also asserts the
+      first call's `(hidden, num_layers) == (64, 3)`, since `mlp_w256d5` also has one harmonic.
+    - `test_the_summary_per_seed_skill_is_the_fits_own_skill`: picks its fit by position, not by
+      `phase_harmonics == 3`, and repeats the check for `mlp_w256d5_h3` with `SizedRecorder`.
+    - `test_scope_holdout_status_and_gate`: the literal set of six entries, and five of them
+      `holdout_informed: true`.
+    - `test_results_schema`: `n_params` per entry, with the sized fake model.
+  - `tests/test_surrogate_bench_import.py`: the recipe test pins `runner.MLP_ENTRIES` to a literal
+    (`mlp_h1` 64, 3, 1e-3, 1; `mlp_h3` 64, 3, 1e-3, 3; `mlp_w256d5` 256, 5, 1e-3, 1;
+    `mlp_w256d5_h3` 256, 5, 1e-3, 3); compares the `mlp_h1` and `mlp_h3` rows' `hidden`,
+    `num_layers` and `lr`, and every `lr`, with `run_training`'s signature defaults; and asserts
+    `set(MLP_ENTRIES) | {"ridge", "ridge_fixed"} == set(ENTRIES)`. That the table reads the
+    trainer's named constants, not equal literals, is checked in review only.
+  - `tests/test_surrogate_bench_cli.py`: the default `--entries` equals the literal six names in
+    run order.
+  - `tests/test_surrogate_bench_figure.py`: 6 entries and 14 splits, 6 legend labels. The figure
+    code does not depend on the entry count, so this is a pin, green from the start.
+  - `tests/test_surrogate_bench_gpu.py` (GPU tier, not run in CI but imported by it): rewritten
+    against `runner.MLP_ENTRIES`; its import of the removed names fails until 8b.2. It asserts that:
+    - each of the four `mlp_*` entries has 14 splits of 5 seeds;
+    - `n_params` is 9094, 9350, 266246 and 267270 for `mlp_h1`, `mlp_h3`, `mlp_w256d5` and
+      `mlp_w256d5_h3`, and equals the trainable parameters of the PhysicsNeMo model built at that
+      entry's width, depth and feature count;
+    - `mlp_hyperparameters` in the written metadata equals the table;
+    - `peak_gpu_mem > 0` on every MLP row, the `mlp_w256d5` median on `interpolation` exceeds
+      `mlp_h1`'s, and the first `mlp_w256d5` interpolation fit's peak is no larger than that
+      entry's other interpolation fits (the warm-up check at the new layer shapes).
+- [x] 8b.2 Implement in `surrogate_bench/runner.py`: one `MLP_ENTRIES` table replacing
+  `MLP_HARMONICS` and `MLP_HYPERPARAMETERS` (no alias kept); `ENTRIES`; `HOLDOUT_STATUS`;
+  `mlp_hyperparameters` in the metadata, built from the same table for the entries that ran.
+  Mutation-test, naming the test that kills each mutant in the kill table:
+  - the table gives a larger entry the default `hidden`; the default `num_layers`; a different `lr`;
+  - the harmonic counts of `mlp_w256d5` and `mlp_w256d5_h3` swapped in the table;
+  - `run_mlp_entry` passes the default `hidden` (or `num_layers`) while the table and the metadata
+    stay correct;
+  - `run_bench` runs one larger entry's fits under the other's name;
+  - a larger entry missing from the MLP dispatch, so it falls into the ridge branch;
+  - the run order changed: a larger entry before `mlp_h1`; `mlp_w256d5` between `mlp_h1` and
+    `mlp_h3`; the larger entries after `ridge`;
+  - the metadata block written for every MLP entry, not only those that ran; `null` or absent for
+    a ridge-only run; built from a second copy of the values that differs from the table;
+  - a larger entry's holdout reason without `E4`; `mlp_w256d5_h3`'s without `harmonic`.
+
+  Shipped-artifact check (design D6: the shipped `surrogate/` and `figures/` bytes are unchanged).
+  Commit, with 8b.1's tests: `feat(surrogate-bench): larger-MLP entries (#195)`.
+- [x] 8b.3 **GPU tier.** Run `tests/test_surrogate_bench_gpu.py` under WSL2 on the A5000
+  (`--epochs 5`, synthetic frame; a test, not a bench run). Paste the output in the PR body, with
+  `fit_seconds` per entry. No commit unless a fix is needed, which is then recorded.
+- [x] 8b.4 Docs, then reconcile:
+  - `openspec/project.md` bench subsection: six entries (the two new bullets say what the 2 × 2 is
+    for and point to the spec for the definitions), and that `run_metadata.json` records
+    `mlp_hyperparameters`;
+  - `docs/CHANGELOG.md`: an entry labelled "F3a PR 1b";
+  - the comment above the table in `runner.py`;
+  - roadmap rows are PR 2's (11.3) and are not touched here;
+  - reconcile proposal, spec and tasks against the implementation (new-feature step 9).
+
+  Commit: `docs: larger-MLP bench entries in project.md and changelog`.
+- [x] 8b.5 Then, in order:
+  1. `openspec validate add-surrogate-comparison-bench --strict`;
+  2. the CPU suite natively (`uv run --frozen --group viz pytest -m "not gpu"`) and under WSL2
+     with the `train` group, then `git status --porcelain` is empty. Under WSL2 the two tests of
+     #129 fail, as they do on `main` (`246f0a0`) in the same environment: they assume torch is
+     absent;
+  3. the GPU tier under WSL2 (8b.3);
+  4. `ruff check` and `ruff format --check` on the paths CI uses;
+  5. the shipped-artifact check;
+  6. the mutation kill table is in the PR body.
+
+  Run `/pre-merge-check`. The PR is opened only with the user's go-ahead, titled "Add larger-MLP
+  entries to the surrogate comparison bench (F3a), PR 1b". Its description says "Advances #195"
+  (never a closing keyword, which closes the issue even when negated; PR 2 closes it, once the
+  2 × 2 has results) and, in bold, "do not archive the OpenSpec change until PR 2 merges". After
+  the merge, `/cleanup-merged` deletes the branch and skips its archive step.
+
 ## PR 2 — results (branch `add-surrogate-comparison-bench-results`)
 
 ### 9. Runs (with the user's go-ahead; before any commit on the branch; no commit)
 
-- [ ] 9.1 Set up the branch and check the host:
+- [ ] 9.1 Set up the branch and check the host. Precondition: PR 1b is merged, so the runner at
+  `M` has six entries; if not, halt.
   - `git fetch`; from the Windows main checkout, `git worktree add` a worktree on the new branch
     `add-surrogate-comparison-bench-results` at `origin/main` (commit `M`, recorded in the PR body);
     the h3 figure (9.3) is generated there;
@@ -361,9 +478,17 @@
     `surrogate/run_metadata.json`;
   - check the A5000 is idle.
 - [ ] 9.2 Run the full bench under WSL2 (README "Regenerating" step 1 environment) into a scratch
-  directory outside the repository (`--device cuda`, the fine corpus's digest). Check that the
-  `mlp_h1` / `interpolation` per-seed skills equal the shipped `metrics.json` exactly. If they do not,
-  halt (Risk 1).
+  directory outside the repository (`--device cuda`, the fine corpus's digest; all six entries,
+  280 MLP fits = 14 splits × 4 entries × 5 seeds, about 90 min). Check that:
+  - the `mlp_h1` / `interpolation` per-seed skills equal the shipped `metrics.json` exactly. If
+    they do not, halt (Risk 1);
+  - the `mlp_w256d5` / `interpolation` per-seed mean skill over targets matches E4's
+    `width256_depth5` arm (design D8's table) to within 1e-3, since it repeats E4's data, seeds
+    and carve. If it does not, investigate before reporting the 2 × 2. Record the largest
+    per-seed `|Δ|` in the PR body. The tolerance is about the size of the smallest E4 paired
+    difference against three harmonics (0.0011), so re-check the 5 paired signs `mlp_w256d5`
+    minus `mlp_h3` from the bench's own `per_seed_skill`; any statement about them uses the
+    bench's values, never E4's.
 - [ ] 9.3 Run the h3 trainings and the gate:
   - check the A5000 is idle;
   - train `surrogate_h3/` twice under WSL2 (runs A and B) into scratch directories, with no fetch,
@@ -387,7 +512,9 @@
   - `tests/test_surrogate_bench_committed.py`:
     - the consistency, regression and fast-recompute scenarios;
     - the bench dataset sha256 and digest equal the corpus's;
-    - it locates the outputs by `SURROGATE_BENCH_DIR`, defaulting to `examples/prelim_sweep_fine/bench/`.
+    - it locates the outputs by `SURROGATE_BENCH_DIR`, defaulting to `examples/prelim_sweep_fine/bench/`;
+    - the committed `run_metadata.json` has `entries` equal to the six names in run order and
+      `mlp_hyperparameters` equal to `runner.MLP_ENTRIES`.
   - Negative tests in the `test_guards_reject_each_defect` style:
     - a 1-ulp skill change;
     - a different `hardware.driver_version` (an `mlp_h1` regression precondition);
@@ -402,25 +529,39 @@
     `tests/test_committed_surrogate_provenance.py`.
 - [ ] 10.2 Before 10.3, run the recompute test against the scratch outputs natively on Windows and
   under WSL2. Record, for each check, the largest `|Δ| / (atol + rtol·|ref|)` under the spec's rule.
-  If any exceeds 1, halt for a decision; do not loosen.
+  If any exceeds 1, halt for a decision; do not loosen. Record the recompute's duration against
+  the spec's 120 s limit; the larger entries double the MLP rows.
 - [ ] 10.3 Copy `bench/`, `surrogate_h3/` and `figures_h3/` in; tests green. Shipped-artifact check.
   Commit: `feat(force-surrogate): committed bench results and phase-harmonics surrogate`.
 
 ### 11. Documentation for PR 2
 
-- [ ] 11.1 **Tests first** (red): the README-equals-`summary.json` test and the spec's "The README
-  quotes the scope" scenario.
+- [ ] 11.1 **Tests first** (red): the README-equals-`summary.json` test, which also covers every
+  number in the README's 2 × 2 paragraph (against `seed_ranges` and `per_seed_skill`), and the
+  spec's "The README quotes the scope" scenario.
 - [ ] 11.2 `examples/prelim_sweep_fine/README.md`:
   - the shipped-model sentence the `h3` requirement specifies;
   - the `surrogate/` row and the sentence saying the surrogate was retrained "with no functional
     change" updated: the trainer now has `--phase-harmonics`, defaulting to the shipped behaviour;
   - rows for `surrogate_h3/`, `figures_h3/` and `bench/`;
   - the `bench/` row notes:
+    - `run_metadata.json`'s `mlp_hyperparameters` records `hidden`, `num_layers`, `lr` and
+      `phase_harmonics` for each MLP entry;
     - the `mlp_h1` regression compares host, driver, `torch` and `physicsnemo` only;
     - the numpy version and `CUBLAS_WORKSPACE_CONFIG` are unrecorded for the shipped run and for
       `surrogate_h3/`;
   - a bench section:
     - what each split tests;
+    - the size-by-harmonics 2 × 2 (`mlp_h1`, `mlp_h3`, `mlp_w256d5`, `mlp_w256d5_h3`), written
+      under design D8's limits (#195):
+      - seed ranges, and the 5 paired per-seed differences for any "beats" statement;
+      - the comparison read from the face metrics without holdouts, since both the larger size and
+        the three harmonics were selected on the holdouts;
+      - a drop from `interpolation` to a face compared on `rmse_frac_component_peak`, not skill;
+      - the larger entries use the shipped learning rate and epochs untuned, at the corner of
+        E4's size grid, so every reading of the large cells (the interaction included) is
+        conditional on those settings; the 2 × 2 does not separate width from depth;
+      - a 5-of-5 sign result is reported as "at least as well", never as "beats" by a margin;
     - the holdout overlap;
     - the results table, generated from `summary.json`;
     - the provisional gate;
@@ -437,10 +578,11 @@
   - `docs/field_surrogate/roadmap.md`:
     - row F3a → ✅:
       - "provisional per-component, per-yardstick gate; no overall verdict";
-      - its entry list gains `ridge_fixed`; its splits gain grid-face extrapolation and the
+      - its entry list gains `ridge_fixed`, `mlp_w256d5` and `mlp_w256d5_h3`; its splits gain grid-face extrapolation and the
         random-18 and E4 controls;
-      - both PR links;
+      - all three PR links;
       - a pointer to the fine README's bench section;
+    - Revision item 3's entry list gains `ridge_fixed` and the two larger MLPs;
     - Revision item 3 and open question 4 keep their exploration numbers as history (E1, E0, E0b and
       E4). Only the forward-looking "re-measured by F3a" and "retested by F3a" phrases become
       pointers to that section. The open-question pointer says F3a records stand-in yardsticks; the
@@ -457,7 +599,7 @@
   - `docs/force_surrogate/roadmap.md`, the next free row (17 on today's `main`):
     `add-surrogate-comparison-bench`, "comparison bench (interpolation, grid-face extrapolation,
     random and E4 controls), a ridge reference and an optional phase-harmonics surrogate beside the
-    shipped one; values live in the fine README", with both PR links.
+    shipped one; values live in the fine README", with all three PR links.
   - `docs/CHANGELOG.md` entry for the committed artifacts.
   - No bench results in the roadmaps or the changelog.
 - [ ] 11.4 Before merging:
@@ -467,9 +609,9 @@
   - the full suite;
   - the shipped-artifact check.
 
-  In the same commit, replace the "PR 1 of 2" banner in `proposal.md` and `tasks.md` with "PR 2
-  merged: archive this change".
+  In the same commit, replace the delivery banner at the top of `proposal.md` and `tasks.md` with
+  "PR 2 merged: archive this change".
 
   Commit: `docs: bench results, h3 surrogate and roadmap rows`. Run `/pre-merge-check`. PR 2 is opened
-  only with the user's go-ahead.
+  only with the user's go-ahead. Its description says "Closes #195".
 - [ ] 11.5 After PR 2 merges: archive the change in a separate `chore(openspec): archive` commit.
