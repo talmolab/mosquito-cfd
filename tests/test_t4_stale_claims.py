@@ -298,6 +298,11 @@ _DOCUMENTS = {
         ("`CF_chord`",),
     ),
     "CHANGELOG.md": (lambda: _read("docs/CHANGELOG.md"), ("#141",)),
+    # Its §2/§3 discuss the CFD chord vs the QS model, where such a claim is likeliest to creep in.
+    "future-work.md": (
+        lambda: _read("docs/future-work.md"),
+        ("`CF_chord`", "#40"),
+    ),
 }
 
 

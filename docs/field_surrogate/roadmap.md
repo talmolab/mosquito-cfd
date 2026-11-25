@@ -381,7 +381,8 @@ this roadmap row and the CC-F items it touches. Tick the status checkbox here on
      flexible-structure support. A genuine two-way-coupled elastic body would need either a
      substantial IAMReX extension or a different solver entirely — a CFD-solver-level gap, not
      something F3's architecture choice can work around. Not planned; noted here so it isn't silently
-     assumed in scope later.
+     assumed in scope later. A stepwise plan for a deformable wing (prescribed deformation first) is
+     in [`future-work.md`](../future-work.md) §5 (#221).
 2. **Storage/subsampling policy** (CC-F3) — no answer until F1 runs; do not pre-commit a `plot_int`
    value in F2/F3 design docs before F1's measurement exists.
 3. **Does F5's latent-dynamics training need the pilot corpus (F1) or the full corpus (F4)?** —
