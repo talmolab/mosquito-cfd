@@ -355,11 +355,11 @@ change is not archived after this PR. Each task's box is ticked in the commit th
 
 ### 8b. Larger-MLP entries and per-entry hyperparameters in the metadata
 
-- [ ] 8b.0 Append review round 7 and its reconciliation to `review-reconciliation.md`. Run
+- [x] 8b.0 Append review round 7 and its reconciliation to `review-reconciliation.md`. Run
   `openspec validate add-surrogate-comparison-bench --strict`. Commit the amendment (`proposal.md`,
   `design.md`, `tasks.md` with 8.4 ticked, the bench spec delta, `review-reconciliation.md`):
   `docs(openspec): amend add-surrogate-comparison-bench with larger-MLP entries (#195)`.
-- [ ] 8b.1 **Tests first** (red). No commit of its own: they are committed with 8b.2.
+- [x] 8b.1 **Tests first** (red). No commit of its own: they are committed with 8b.2.
   - Test helpers in `tests/test_surrogate_bench_runner.py`. The recorder never learns entry names.
     - Calls are assigned to entries by position: they arrive in run order, 14 splits × 5 seeds per
       MLP entry, so call `k` belongs to the `k // 70`-th chosen MLP entry.
@@ -411,7 +411,7 @@ change is not archived after this PR. Each task's box is ticked in the commit th
     - `peak_gpu_mem > 0` on every MLP row, the `mlp_w256d5` median on `interpolation` exceeds
       `mlp_h1`'s, and the first `mlp_w256d5` interpolation fit's peak is no larger than that
       entry's other interpolation fits (the warm-up check at the new layer shapes).
-- [ ] 8b.2 Implement in `surrogate_bench/runner.py`: one `MLP_ENTRIES` table replacing
+- [x] 8b.2 Implement in `surrogate_bench/runner.py`: one `MLP_ENTRIES` table replacing
   `MLP_HARMONICS` and `MLP_HYPERPARAMETERS` (no alias kept); `ENTRIES`; `HOLDOUT_STATUS`;
   `mlp_hyperparameters` in the metadata, built from the same table for the entries that ran.
   Mutation-test, naming the test that kills each mutant in the kill table:
@@ -429,10 +429,10 @@ change is not archived after this PR. Each task's box is ticked in the commit th
 
   Shipped-artifact check (design D6: the shipped `surrogate/` and `figures/` bytes are unchanged).
   Commit, with 8b.1's tests: `feat(surrogate-bench): larger-MLP entries (#195)`.
-- [ ] 8b.3 **GPU tier.** Run `tests/test_surrogate_bench_gpu.py` under WSL2 on the A5000
+- [x] 8b.3 **GPU tier.** Run `tests/test_surrogate_bench_gpu.py` under WSL2 on the A5000
   (`--epochs 5`, synthetic frame; a test, not a bench run). Paste the output in the PR body, with
   `fit_seconds` per entry. No commit unless a fix is needed, which is then recorded.
-- [ ] 8b.4 Docs, then reconcile:
+- [x] 8b.4 Docs, then reconcile:
   - `openspec/project.md` bench subsection: six entries (the two new bullets say what the 2 × 2 is
     for and point to the spec for the definitions), and that `run_metadata.json` records
     `mlp_hyperparameters`;
@@ -442,10 +442,12 @@ change is not archived after this PR. Each task's box is ticked in the commit th
   - reconcile proposal, spec and tasks against the implementation (new-feature step 9).
 
   Commit: `docs: larger-MLP bench entries in project.md and changelog`.
-- [ ] 8b.5 Then, in order:
+- [x] 8b.5 Then, in order:
   1. `openspec validate add-surrogate-comparison-bench --strict`;
   2. the CPU suite natively (`uv run --frozen --group viz pytest -m "not gpu"`) and under WSL2
-     with the `train` group, then `git status --porcelain` is empty;
+     with the `train` group, then `git status --porcelain` is empty. Under WSL2 the two tests of
+     #129 fail, as they do on `main` (`246f0a0`) in the same environment: they assume torch is
+     absent;
   3. the GPU tier under WSL2 (8b.3);
   4. `ruff check` and `ruff format --check` on the paths CI uses;
   5. the shipped-artifact check;
