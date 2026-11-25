@@ -185,7 +185,7 @@ corpus is never regenerated** (it is a digest-pinned proof-of-pipeline artifact)
 
 - **Full LHS production corpus, DoMINO/latent-dynamics surrogate, RL-in-loop** — NVIDIA-grant-funded
   deliverables (grant plan + `force_surrogate/roadmap.md`), not this roadmap.
-- **Fine grid (512³+) flapping beyond T3c** — T3c (256³, #50) is **complete**. CF_chord GCI_fine=27.6% shows the chord is not yet tightly converged at 256³; further refinement (512³+) defers to H100 (grant).
+- **Fine grid (512³+) flapping beyond T3c** — T3c (256³, #50) is **complete**. CF_chord GCI_fine=27.6% shows the chord is not yet tightly converged at 256³; further refinement (512³+) defers to H100 (grant). Diagnostics that need no bigger grid, and an AMR route to 512³-equivalent spacing, are in [`future-work.md`](../future-work.md) §3–§4 (#219, #220).
 - **The force-only surrogate itself** — done (Track B). This roadmap validates the *CFD* it is trained on.
 
 ---
