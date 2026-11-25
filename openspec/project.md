@@ -390,9 +390,10 @@ random-18-configuration controls and `control:e4_seed0`. Every MLP entry runs th
 - `mlp_h3`, the same MLP with three phase harmonics (`train_surrogate.py --phase-harmonics`; the
   default of 1 leaves the shipped model unchanged);
 - `mlp_w256d5` and `mlp_w256d5_h3`, the same two at width 256 and depth 5 (#195). With `mlp_h1` and
-  `mlp_h3` they form a 2 × 2 of model size by phase harmonics, so a gain from the phase input can
-  be told apart from a gain from size. They are bench-only and use the shipped learning rate
-  untuned; the bench spec defines them and design D8 says what the 2 × 2 can and cannot show;
+  `mlp_h3` they form a 2 × 2 of model size by phase harmonics, meant to show, descriptively, how
+  much of a gain comes from the phase input and how much from size. They are bench-only and use
+  the shipped learning rate untuned; the bench spec defines them and design D8 says what the
+  2 × 2 can and cannot show;
 - `ridge`, a Fourier × polynomial ridge reference whose `(H, d, α)` is picked by leave-one-out CV
   under the one-standard-error rule;
 - `ridge_fixed`, the same ridge at `(16, 3, 1e-6)`.

@@ -1603,3 +1603,32 @@ test collection, and proposed a test that could not detect a fit filed under the
 | S4 | Not added: a diverged fit of any `mlp_*` entry already reaches the gate as NaN errors (PR 1's "Gate boundaries" scenario and its test); the new entries take the same path. | — |
 | S5 | Deferred: recording the best-validation epoch changes the shared trainer seam, which is outside this amendment. | — |
 | S6 | Adopted. | tasks 8b.2, 8b.5; `proposal.md` amendment |
+
+## PR 1b pre-PR self-review (`/review-pr`, branch mode, `e8f9c96`)
+
+Five reviewers (code quality, testing, scientific rigour, performance/GPU/build, behavioural
+correctness) on `b6c5ab1..e8f9c96`. Verdict: **COMMENT**, no blocking finding. Important findings
+and how each is addressed:
+
+| # | Finding | Resolution | Where |
+|---|---|---|---|
+| T1 | The shuffled-order test does not assert the clause "the first recorded call is `(64, 3, 1)` on `interpolation` at the first seed"; only the unshuffled run does. | Asserted in the shuffled run too. | `test_entries_run_in_a_fixed_order_whatever_order_is_given` |
+| T2 | "Rows labelled with each MLP entry carry that entry's own predictions" is checked on one row per entry. | Checked on every row of every MLP entry (all splits and seeds) against the `SizedRecorder` offset; two partial-mislabel mutants (one seed; one split and seed at the wrong depth) are killed, which the one-row check missed. | `test_each_mlp_entrys_rows_carry_its_own_fits` |
+| R1 | D8's "best of its size arms, so untuned does not mean handicapped" is a non sequitur: every E4 arm used lr 1e-3, and w256d5 is the corner (largest point) of the size grid. | Replaced by an explicit confound statement: corner of the grid, not a selected optimum; every reading of the large cells, the interaction included, is conditional on lr and epochs. Same caveat in the README task. | design D8 "Only two arguments differ"; task 11.2 |
+| R2 | CHANGELOG and `project.md` say the 2 × 2 lets the two gains "be told apart", which overclaims against D8. | Reworded to "meant to show, descriptively", with the limits named and D8 cited. | `docs/CHANGELOG.md`; `openspec/project.md` bench list |
+| R3 | Task 9.2's 1e-3 tolerance is about the smallest E4 paired difference against h3 (0.0011), and E4 ran through its own wrapper, not `fit_seed`. | 9.2 records the largest per-seed `|Δ|` and re-checks the 5 paired signs from the bench's own `per_seed_skill`; statements use the bench's values. D8 says E4 shared `train_model`, not `fit_seed`. | task 9.2; design D8 "Where the comparison is unselected" |
+
+Suggestions adopted: the stale exploration reference and the "one place" rule in design Context;
+the seed-range figure (0.002–0.005) and the 5-of-5 sign result (one-sided p = 0.031) in D8; the
+README task forbids "beats" for a sign result; `SizedRecorder`'s depth coefficient no longer
+aliases the seed's; the shuffled test also checks that no entry's rows are interleaved; the
+runner's D7 comments say "when chosen"; the warm-up comment says the workspace is per handle and
+lazy kernel loading lands in the first fit's time; the GPU test's warm-up check is called a
+sanity check. Not adopted: a `TypedDict` or `MappingProxyType` for `MLP_ENTRIES` (the import test
+pins the literal table and the recorder's keyword-only signature catches a misspelt key); the
+probe's `gc.collect()` and timer/sync swap (no reference cycles, every fit ends in a host sync;
+identical peaks across seeds); recording `n_val_configs` (recoverable from the commit).
+Rejected on the evidence: a reviewer read E4's shipped-size fit as 19.4 s and the compute
+estimate as 2× high. That was the first, warm-up fit; E4's baseline median is 9.26 s
+(8.76–19.38) and `width256_depth5`'s 28.84 s (28.58–29.48), so "about 70 min" for the 140 larger
+fits stands. Task 8b.4's "comment above the table" went in with the 8b.2 commit, not 8b.4's.

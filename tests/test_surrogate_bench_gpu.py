@@ -78,7 +78,8 @@ def test_driver_runs_every_entry_end_to_end_on_cuda(tmp_path):
     assert (mlp["peak_gpu_mem"].astype("int64") > 0).all()
     # The warm-up keeps cuBLAS's one-time workspace out of the first fit's peak: the very first
     # fit (mlp_h1 / interpolation / seed 1234) is no larger than the other interpolation fits.
-    # The same holds for the first fit at the larger layer shapes.
+    # The same holds for the first fit at the larger layer shapes. The workspace belongs to the
+    # cuBLAS handle, not the shape, so this is a sanity check, not a test of a second warm-up.
     for entry in ("mlp_h1", "mlp_w256d5"):
         peaks = _interpolation_peaks(mlp, entry)
         print(f"interpolation {entry} peak_gpu_mem by seed:", dict(peaks))

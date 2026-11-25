@@ -484,7 +484,11 @@ change is not archived after this PR. Each task's box is ticked in the commit th
     they do not, halt (Risk 1);
   - the `mlp_w256d5` / `interpolation` per-seed mean skill over targets matches E4's
     `width256_depth5` arm (design D8's table) to within 1e-3, since it repeats E4's data, seeds
-    and carve. If it does not, investigate before reporting the 2 × 2.
+    and carve. If it does not, investigate before reporting the 2 × 2. Record the largest
+    per-seed `|Δ|` in the PR body. The tolerance is about the size of the smallest E4 paired
+    difference against three harmonics (0.0011), so re-check the 5 paired signs `mlp_w256d5`
+    minus `mlp_h3` from the bench's own `per_seed_skill`; any statement about them uses the
+    bench's values, never E4's.
 - [ ] 9.3 Run the h3 trainings and the gate:
   - check the A5000 is idle;
   - train `surrogate_h3/` twice under WSL2 (runs A and B) into scratch directories, with no fetch,
@@ -554,8 +558,10 @@ change is not archived after this PR. Each task's box is ticked in the commit th
       - the comparison read from the face metrics without holdouts, since both the larger size and
         the three harmonics were selected on the holdouts;
       - a drop from `interpolation` to a face compared on `rmse_frac_component_peak`, not skill;
-      - the larger entries use the shipped learning rate untuned, and the 2 × 2 does not separate
-        width from depth;
+      - the larger entries use the shipped learning rate and epochs untuned, at the corner of
+        E4's size grid, so every reading of the large cells (the interaction included) is
+        conditional on those settings; the 2 × 2 does not separate width from depth;
+      - a 5-of-5 sign result is reported as "at least as well", never as "beats" by a margin;
     - the holdout overlap;
     - the results table, generated from `summary.json`;
     - the provisional gate;

@@ -5,8 +5,11 @@
 The decision to build a bench rather than pick a winner, and the split into F3a (this change), F3b
 (field models) and F3c (DoMINO), is recorded in `docs/field_surrogate/roadmap.md`,
 "Revision (2026-11-18)", added by PR #171, which merges before this change. The exploration branch
-`explore-surrogate-experiments` (`b99c7b2`, local, unreviewed) is the **reference for expected
-magnitudes, not code to copy**. This table is the one place in this change the exploration's numbers are stated:
+`explore-surrogate-experiments` (`b99c7b2` when this change was written; pushed, unreviewed) is the
+**reference for expected magnitudes, not code to copy**. The E4 numbers come from its
+`experiments/e4_ablations/outputs/ablations.parquet` (blob `4e74916`, unchanged on the pushed
+branch). This table is the summary of the exploration's numbers; D8 gives E4's per-seed values
+behind its rows:
 
 | Exploration result | Value | Status here |
 |---|---|---|
@@ -374,9 +377,12 @@ and what the result can and cannot show.
   three harmonics. `mlp_w256d5_h3` shows whether harmonics still help once the network is large.
 - **Only two arguments differ.** The larger entries pass `hidden = 256` and `num_layers = 5` to
   `fit_seed`; the learning rate, epochs, optimiser, validation carve and best-validation restore are
-  the shipped ones. The network is therefore not tuned. E4 trained this configuration at these
-  settings and it was the best of its size arms, so untuned does not mean handicapped on
-  interpolation. A tuned learning rate would be a new entry, not a change to this one.
+  the shipped ones. The network is therefore not tuned, and it sits at the corner of E4's size
+  grid (widths 16, 64, 256 × depths 1, 3, 5), the largest point tried, not a selected optimum.
+  A learning rate and 2000 epochs chosen for a 9k-parameter net may suit a 266k-parameter one
+  worse or better; either could shrink or inflate the harmonic gain at the large size. Every
+  reading of the large cells, the interaction included, is conditional on these settings. A
+  tuned learning rate would be a new entry, not a change to this one.
 - **One table.** The runner keeps each MLP entry's `hidden`, `num_layers`, `lr` and
   `phase_harmonics` in one mapping, `MLP_ENTRIES`. `fit_seed` receives its values and
   `run_metadata.json` records them, so what was run and what is recorded cannot differ.
@@ -401,13 +407,15 @@ and what the result can and cannot show.
   `per_seed_skill`, not only overlapping ranges.
 - **Where the comparison is unselected.** Width 256 at depth 5 was the best of E4's size arms and
   three harmonics the best of its harmonic arms, both chosen on the 6 labelled holdouts.
-  `mlp_w256d5` on `interpolation` repeats E4 (same data, seeds, carve and trainer), so it is not new
+  `mlp_w256d5` on `interpolation` repeats E4 (same data, seeds and carve, and the same
+  `train_model`; E4 called it through its own wrapper, not `fit_seed`), so it is not new
   evidence, and the controls test the same holdouts. The size-versus-phase-input question is
   answered from the face metrics without holdouts, including `face:pitch_amp_deg=30`.
 - **What the 2 × 2 cannot show.** It does not separate width from depth (about 29 times the
   parameters, at one point). The interaction (the gain from harmonics at the large size minus that
   at the shipped size) is reported descriptively, not tested: 5 seeds cannot resolve a contrast
-  smaller than the seed range, about 0.003 in skill.
+  smaller than the seed ranges, 0.002–0.005 in skill. Five seeds all favouring one cell is a sign
+  result (one-sided p = 0.031); it supports "at least as well", not a size of effect.
 - **Extrapolation.** A larger network may interpolate better and extrapolate worse. The face splits
   score every entry on the same test configurations, so no new metric is needed. A drop from
   `interpolation` to a face is compared across entries on `rmse_frac_component_peak`, never on

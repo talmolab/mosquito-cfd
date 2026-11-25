@@ -3,8 +3,8 @@
 Spec requirements "Bench model entries and metrics" and "Bench artifacts, provenance and claim
 scope". Every refusal happens before anything is written, and every check that depends only on
 the data (splits, target beat, yardsticks, wrap jumps) runs before the first fit, so a bad corpus
-never costs a GPU run. ``mlp_h1`` on ``interpolation`` is fitted first in the process (design
-D7).
+never costs a GPU run. When ``mlp_h1`` is chosen, its ``interpolation`` fits run first in the
+process (design D7).
 """
 
 from __future__ import annotations
@@ -192,7 +192,7 @@ def _validate(
         raise ValueError(f"output directory {out_dir} is not empty")
     if not out_dir.exists():
         _check_out_parent(out_dir)
-    # mlp_h1 first, so its interpolation fits run first in the process.
+    # mlp_h1 first, so when chosen its interpolation fits run first in the process.
     return [e for e in ENTRIES if e in names]
 
 
@@ -240,7 +240,9 @@ def _default_cuda(device: str) -> Any | None:
     # caching allocator and keep them. Without this, only the first probed fit (mlp_h1 /
     # interpolation / the first seed) would count them in its peak; afterwards they sit in
     # every fit's baseline. A biased Linear's forward and backward take the same paths
-    # (addmm through cuBLASLt) as the trainer's layers.
+    # (addmm through cuBLASLt) as the trainer's layers. The workspace belongs to the handle, not
+    # the layer shape, so one warm-up covers every entry's size. Lazy kernel loading for new
+    # shapes still lands in the first fit's fit_seconds (milliseconds, not memory).
     layer = torch.nn.Linear(8, 8).to(device)
     layer(torch.ones((4, 8), device=device)).sum().backward()
     torch.cuda.synchronize()

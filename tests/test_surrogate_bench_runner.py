@@ -175,7 +175,9 @@ class SizedRecorder(Recorder):
     """Predictions and the parameter count also depend on width and depth.
 
     At the shipped size (64, 3) both equal the plain Recorder's, so every entry's rows are
-    distinguishable from every other's without changing the shipped-size expectations.
+    distinguishable from every other's without changing the shipped-size expectations. The
+    width and depth coefficients are not multiples of the seed's (1e-3), so no (entry, seed)
+    pair aliases another.
     """
 
     @staticmethod
@@ -183,7 +185,7 @@ class SizedRecorder(Recorder):
         return (
             Recorder.offset(seed, phase_harmonics, hidden, num_layers)
             + 1e-4 * (hidden - 64)
-            + 1e-3 * (num_layers - 3)
+            + 1e-5 * (num_layers - 3)
         )
 
     @staticmethod
@@ -262,25 +264,37 @@ def test_the_shipped_hyperparameters_reach_fit_seed(full_run):
 
 
 def test_each_mlp_entrys_rows_carry_its_own_fits(full_run):
-    """A fit run under another entry's name would file that entry's predictions here."""
+    """A fit run under another entry's name would file that entry's predictions here.
+
+    Every row of every MLP entry, on every split and seed, carries that entry's own offset.
+    """
     _, out, _ = full_run
     results = pd.read_parquet(out / "results.parquet")
     for entry, (hidden, num_layers, harmonics) in ARCHITECTURES.items():
         rows = results[results["entry"] == entry]
-        row = rows[
-            (rows["split"] == "interpolation")
-            & (rows["seed"] == 1234)
-            & (rows["target"] == "CF_x")
-            & (rows["config_name"] == "s35_f085_p45")
-        ].iloc[0]
-        offset = SizedRecorder.offset(1234, harmonics, hidden, num_layers)
-        assert row["sse"] == pytest.approx(row["n_rows"] * offset**2, rel=1e-9), entry
+        assert len(rows) > 0 and set(rows["split"]) == set(
+            build_splits(metrics.target_beat_frame(synthetic_corpus()))
+        ), entry
+        assert set(rows["seed"]) == set(BENCH_SEEDS), entry
+        offset = rows["seed"].map(
+            lambda s, h=harmonics, w=hidden, d=num_layers: SizedRecorder.offset(
+                s, h, w, d
+            )
+        )
+        np.testing.assert_allclose(
+            rows["sse"].to_numpy(),
+            (rows["n_rows"] * offset**2).to_numpy(),
+            rtol=1e-9,
+            err_msg=entry,
+        )
         assert set(rows["n_params"]) == {SizedRecorder.n_params(hidden, num_layers)}
-    # The four offsets and the two parameter counts really differ, so the check above bites.
+    # No two (entry, seed) pairs share an offset, so the check above bites on every row.
     offsets = {
-        SizedRecorder.offset(1234, h, w, d) for w, d, h in ARCHITECTURES.values()
+        round(SizedRecorder.offset(s, h, w, d), 12)
+        for w, d, h in ARCHITECTURES.values()
+        for s in BENCH_SEEDS
     }
-    assert len(offsets) == 4
+    assert len(offsets) == len(ARCHITECTURES) * len(BENCH_SEEDS)
     assert SizedRecorder.n_params(256, 5) != SizedRecorder.n_params(64, 3)
 
 
@@ -321,11 +335,24 @@ def test_entries_run_in_a_fixed_order_whatever_order_is_given(tmp_path, monkeypa
     results = pd.read_parquet(out / "results.parquet")
     assert summary["entries"] == ALL_ENTRIES
     assert meta["entries"] == ALL_ENTRIES
-    assert list(dict.fromkeys(results["entry"])) == ALL_ENTRIES
+    # Each entry's rows form one block, in run order (no entry interleaved with another).
+    assert [k for k, _ in itertools.groupby(results["entry"])] == ALL_ENTRIES
     for entry, fits in fits_by_entry(rec).items():
         assert {(f["hidden"], f["num_layers"], f["phase_harmonics"]) for f in fits} == {
             ARCHITECTURES[entry]
         }, entry
+    # The first fit is mlp_h1 at the shipped size, on interpolation, at the first seed.
+    first = rec.fits[0]
+    target = metrics.target_beat_frame(synthetic_corpus())
+    assert (
+        first["hidden"],
+        first["num_layers"],
+        first["phase_harmonics"],
+        first["seed"],
+    ) == (64, 3, 1, BENCH_SEEDS[0])
+    assert first["split"] == carve_split(
+        build_splits(target)["interpolation"], seed=BENCH_SEEDS[0]
+    )
 
 
 def test_mlp_h1_on_interpolation_runs_first_on_the_full_target_beat_frame(full_run):
