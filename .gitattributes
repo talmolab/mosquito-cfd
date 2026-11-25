@@ -61,3 +61,5 @@ tests/fixtures/lev_boxlib_plt/** -text
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+# Hash-pinned settling fixtures: keep their bytes identical on every platform
+tests/fixtures/settling/*.csv text eol=lf

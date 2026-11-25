@@ -37,7 +37,8 @@ mosquito-cfd/
 ├── examples/                 # Validation cases
 │   ├── flow_past_sphere/     # Classic CFD validation case
 │   ├── flapping_wing/        # Validated flapping-wing demo (generic sinusoidal kinematics, van Veen axis convention)
-│   └── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
+│   ├── prelim_sweep/         # Force-surrogate kinematic sweep corpus + dataset contract
+│   └── settling_check/       # 8-beat settling runs that set the corpus beat count (#192; see its PREREGISTRATION.md)
 ├── cluster/argo/             # Argo Workflows for cluster-side sweep orchestration (production)
 │   ├── workflow-templates/   # Single-config WorkflowTemplate (one A40 pod = one mpirun)
 │   ├── workflows/            # Fan-out sweep Workflow over the manifest configs
@@ -186,6 +187,12 @@ through a full run and a green test suite):
    run.** The CC-F1 field-capture check was mandatory in the submission runbook and had no
    recorded outcome anywhere in the corpus — "required" and "silently skipped" look identical
    after the fact. Every mandatory check must write its result somewhere machine-readable.
+4. **Pre-register a criterion before the data that judge it exist, and say which data it
+   predates.** A rule written after looking at the numbers can be bent to fit them. The settling
+   check (`examples/settling_check/PREREGISTRATION.md`, #192) fixes its constants in a
+   hash-pinned file merged before the runs; every run record pins that hash, and any later edit
+   needs a recorded deviation. A rule tuned on earlier data predates only the new data, and the
+   pre-registration says so.
 
 ### Code Style
 - **Python**: Enforce with `ruff` (line-length: 88, target: py311). `E501` is ignored --
@@ -209,7 +216,7 @@ Use `uv` for all Python operations:
 ```bash
 uv run python script.py
 uv run pytest
-uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/
+uv run ruff check src/ tests/ scripts/ examples/prelim_sweep/ examples/prelim_sweep_fine_pilot/ examples/prelim_sweep_fine/ examples/settling_check/
 uv run generate-wing-planform --output wing.vertex
 ```
 
@@ -248,9 +255,12 @@ docker run --rm --gpus all `
   bash /workspace/<run_script>.sh 2>&1 | tee examples/flapping_wing/sim-<label>.log
 ```
 
-**A5000 arena cap** — always pass `amrex.the_arena_init_size=18` (value is in GiB).
-AMReX defaults to ¾ × VRAM = 18 GiB on a 24 GB card, but set it explicitly so a
-future AMReX version can't silently change the default. A40 (40 GB) uses 28.
+**A5000 arena cap** — the value of `amrex.the_arena_init_size` is in **bytes** (AMReX reads it as
+a `Long`; `AMReX_Arena.cpp:419` in the pinned image). Pass `amrex.the_arena_init_size=12884901888`
+(12 GiB): AMReX's default is ¾ × VRAM, about 18 GiB on a 24 GB card, which has run out of memory
+here, and the fine runs' observed high-water is about 8 GB. An earlier note said "18 (value is in
+GiB)", and A40 runs used "28". Those values were 18 and 28 bytes, so they set no real
+preallocation.
 
 **CFL mechanism (corrected) and the `ns.cfl` fix** — `ns.fixed_dt` is a **ceiling**, not an
 enforced value: `NavierStokesBase.cpp`'s `estTimeStep()` returns `factor*fixed_dt` early

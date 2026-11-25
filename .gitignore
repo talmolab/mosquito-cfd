@@ -25,6 +25,9 @@ particle[0-9]*
 # full-corpus follow-on's own runs/ trees are covered too (automate-run-metadata-capture D6 —
 # examples/prelim_sweep_fine_pilot/runs/ was previously unmatched).
 examples/prelim_sweep*/runs/
+# Settling-check raw runs (add-settled-beat-corpus): the raw data lives on the Z: share only;
+# git holds decks, manifests, extracted datasets, run records and reports.
+examples/settling_check/**/runs/
 
 # Plotfiles and checkpoints (track selectively if needed)
 plotfiles/
