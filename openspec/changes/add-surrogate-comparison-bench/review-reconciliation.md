@@ -1620,8 +1620,9 @@ and how each is addressed:
 
 Suggestions adopted: the stale exploration reference and the "one place" rule in design Context;
 the seed-range figure (0.002–0.005) and the 5-of-5 sign result (one-sided p = 0.031) in D8; the
-README task forbids "beats" for a sign result; `SizedRecorder`'s depth coefficient no longer
-aliases the seed's; the shuffled test also checks that no entry's rows are interleaved; the
+README task forbids "beats" for a sign result; `SizedRecorder`'s depth coefficient is far below
+the seed's, so a mutant changing depth and seed together cannot hit another real offset (no real
+offsets collided before either); the shuffled test also checks that no entry's rows are interleaved; the
 runner's D7 comments say "when chosen"; the warm-up comment says the workspace is per handle and
 lazy kernel loading lands in the first fit's time; the GPU test's warm-up check is called a
 sanity check. Not adopted: a `TypedDict` or `MappingProxyType` for `MLP_ENTRIES` (the import test
@@ -1632,3 +1633,11 @@ Rejected on the evidence: a reviewer read E4's shipped-size fit as 19.4 s and th
 estimate as 2× high. That was the first, warm-up fit; E4's baseline median is 9.26 s
 (8.76–19.38) and `width256_depth5`'s 28.84 s (28.58–29.48), so "about 70 min" for the 140 larger
 fits stands. Task 8b.4's "comment above the table" went in with the 8b.2 commit, not 8b.4's.
+
+Re-review of the fix commit `10ffdf6` (one reviewer, by reproduction): no blocking finding. One
+important finding, introduced by the fix: D8 called `width256_depth5` "not a selected optimum",
+contradicting D8's own "best of E4's size arms" and the spec's holdout reason. Reworded to "the
+largest point tried and the best of E4's size arms, so an edge of the grid, not an interior
+optimum". Suggestions adopted: "shipped with" (not "chosen for") the 9k net, since the shipped
+hyperparameters' provenance is unrecorded; "its MLP rows" in Context; D8 "Paired reading" aligned
+with the sign-result rule; the every-row test also requires all 14 × 5 (split, seed) blocks.

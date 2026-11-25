@@ -9,7 +9,7 @@ The decision to build a bench rather than pick a winner, and the split into F3a 
 **reference for expected magnitudes, not code to copy**. The E4 numbers come from its
 `experiments/e4_ablations/outputs/ablations.parquet` (blob `4e74916`, unchanged on the pushed
 branch). This table is the summary of the exploration's numbers; D8 gives E4's per-seed values
-behind its rows:
+behind its MLP rows:
 
 | Exploration result | Value | Status here |
 |---|---|---|
@@ -378,8 +378,10 @@ and what the result can and cannot show.
 - **Only two arguments differ.** The larger entries pass `hidden = 256` and `num_layers = 5` to
   `fit_seed`; the learning rate, epochs, optimiser, validation carve and best-validation restore are
   the shipped ones. The network is therefore not tuned, and it sits at the corner of E4's size
-  grid (widths 16, 64, 256 × depths 1, 3, 5), the largest point tried, not a selected optimum.
-  A learning rate and 2000 epochs chosen for a 9k-parameter net may suit a 266k-parameter one
+  grid (widths 16, 64, 256 × depths 1, 3, 5): the largest point tried and the best of E4's size
+  arms, so an edge of the grid, not an interior optimum; a larger or differently trained network
+  may do better. The learning rate and 2000 epochs shipped with the 9k-parameter net may suit a
+  266k-parameter one
   worse or better; either could shrink or inflate the harmonic gain at the large size. Every
   reading of the large cells, the interaction included, is conditional on these settings. A
   tuned learning rate would be a new entry, not a change to this one.
@@ -403,8 +405,9 @@ and what the result can and cannot show.
   ranges, although the larger network scored higher on each of the 5 seeds.
 - **Paired reading.** The four MLP entries share each seed's validation carve, so per-seed
   differences are paired in the carve (not in the initial weights, which differ with shape). Any
-  statement that one cell of the 2 × 2 beats another cites the 5 per-seed differences from
-  `per_seed_skill`, not only overlapping ranges.
+  comparison of two cells of the 2 × 2 cites the 5 per-seed differences from `per_seed_skill`,
+  not only overlapping ranges; 5 of 5 in one direction is reported as "at least as well", not
+  as a margin (see "What the 2 × 2 cannot show").
 - **Where the comparison is unselected.** Width 256 at depth 5 was the best of E4's size arms and
   three harmonics the best of its harmonic arms, both chosen on the 6 labelled holdouts.
   `mlp_w256d5` on `interpolation` repeats E4 (same data, seeds and carve, and the same

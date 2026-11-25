@@ -176,8 +176,8 @@ class SizedRecorder(Recorder):
 
     At the shipped size (64, 3) both equal the plain Recorder's, so every entry's rows are
     distinguishable from every other's without changing the shipped-size expectations. The
-    width and depth coefficients are not multiples of the seed's (1e-3), so no (entry, seed)
-    pair aliases another.
+    depth coefficient is far below the seed's (1e-3), so a mutant that changes depth and seed
+    together cannot land on another real offset; the test checks the realised offsets differ.
     """
 
     @staticmethod
@@ -276,6 +276,10 @@ def test_each_mlp_entrys_rows_carry_its_own_fits(full_run):
             build_splits(metrics.target_beat_frame(synthetic_corpus()))
         ), entry
         assert set(rows["seed"]) == set(BENCH_SEEDS), entry
+        # Every (split, seed) block is present, not only every split and every seed.
+        assert len(rows.groupby(["split", "seed"]).size()) == N_SPLITS * len(
+            BENCH_SEEDS
+        )
         offset = rows["seed"].map(
             lambda s, h=harmonics, w=hidden, d=num_layers: SizedRecorder.offset(
                 s, h, w, d
