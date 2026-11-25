@@ -123,9 +123,9 @@ edited. Red tests are never committed and nothing is marked xfail (design D6). T
 
 - [x] 3.1 Re-read the proposal, design, tasks and deltas against the diff. Any deviation goes into a
   `### Why N instead of M?` note.
-- [ ] 3.2 Commit per design D6. Commits say "advances #181" / "advances #161", never a closing or
+- [x] 3.2 Commit per design D6. Commits say "advances #181" / "advances #161", never a closing or
   negated closing keyword.
-- [ ] 3.3 Review and pre-merge:
+- [x] 3.3 Review and pre-merge:
   - Run `/review-pr`, then `/pre-merge-check`, with no Copilot review.
   - Before every push: merge main in (no rebase), then `git merge-base --is-ancestor origin/main HEAD`.
   - Get the user's approval before the first push and before writing "Closes #181 / Closes #161" in
